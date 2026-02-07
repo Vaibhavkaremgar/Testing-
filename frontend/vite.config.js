@@ -13,7 +13,10 @@ export default defineConfig({
       "@": resolve(__dirname, "./src"),
     },
   },
-  server: {
-    allowedHosts: ["athletic-elegance-production-ef72.up.railway.app"],
-  },
+  preview: {
+    host: true,
+    strictPort: false,
+    allowedHosts: "all",
+    },
+
 });
