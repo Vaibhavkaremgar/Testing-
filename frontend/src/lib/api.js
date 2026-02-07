@@ -1,4 +1,4 @@
-const API_BASE = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : '/api'
+const API_BASE = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'https://ai-recruitment-dashboard-production.up.railway.app/api'
 
 // Debug logging
 console.log('VITE_API_URL:', import.meta.env.VITE_API_URL)
