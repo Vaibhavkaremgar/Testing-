@@ -14,8 +14,5 @@ COPY . .
 # Build the app
 RUN npm run build
 
-# Expose port (Railway will set PORT env var)
-EXPOSE $PORT
-
-# Use shell to expand $PORT variable
-CMD ["sh", "-c", "npx serve -s dist -l $PORT"]
+# Use shell to expand $PORT variable with correct -p flag
+CMD ["sh", "-c", "npx serve -s dist -p $PORT"]

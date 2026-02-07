@@ -48,9 +48,8 @@ app.include_router(webhooks.router, prefix="/api")
 @app.on_event("startup")
 async def startup_event():
     """Seed database with initial data on startup"""
-    # Seeding disabled for production deployment
-    # Uncomment the line below to seed demo data for testing
-    # seed_database()
+    # Seeding enabled for demo data
+    seed_database()
     pass
 
 @app.get("/api/health")
