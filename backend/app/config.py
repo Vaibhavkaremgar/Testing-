@@ -8,10 +8,10 @@ class Settings(BaseSettings):
     DEBUG: bool = True
     
     # Database
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:////data/app.db")
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./app.db")
     
     # JWT
-    SECRET_KEY: str = "your-secret-key-change-in-production-use-openssl-rand-hex-32"
+    SECRET_KEY: str = os.getenv("SECRET_KEY", "")
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
     
@@ -20,12 +20,12 @@ class Settings(BaseSettings):
     MAX_FILE_SIZE: int = 10 * 1024 * 1024  # 10MB
     
     # LLM Configuration
-    GROQ_API_KEY: str = ""  # Add your Groq API key here or in .env
-    OPENAI_API_KEY: str = ""  # Alternative: OpenAI API key
-    LLM_PROVIDER: str = "groq"  # Options: groq, openai, ollama
+    GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
+    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
+    LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "groq")
     
     # CORS
-    ALLOWED_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
+    ALLOWED_ORIGINS: str = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000")
     
     @property
     def allowed_origins_list(self) -> List[str]:
