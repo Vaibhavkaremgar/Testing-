@@ -14,5 +14,5 @@ COPY . .
 # Build the app
 RUN npm run build
 
-# Use shell to expand $PORT variable with correct -p flag
-CMD ["sh", "-c", "npx serve -s dist -p $PORT"]
+# Use shell to expand $PORT variable with SPA routing
+CMD ["sh", "-c", "npx serve dist -p $PORT"]
