@@ -1,0 +1,1368 @@
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Query
+from fastapi.responses import FileResponse
+from sqlalchemy.orm import Session
+from sqlalchemy import or_, text, extract
+from typing import List, Optional
+import os
+import uuid
+import random
+import tempfile
+import zipfile
+from datetime import datetime
+from app.database import get_db
+from app.models import Candidate, CandidateStage, ParsingStatus, User
+from app.schemas import (
+    CandidateCreate, CandidateUpdate, CandidateResponse, CandidateStageUpdate
+)
+from app.auth import get_current_active_user
+from app.config import settings
+from app.google_sheets import sheets_service
+
+router = APIRouter(prefix="/candidates", tags=["Candidates"])
+
+def generate_candidate_id(name: str, job_id: int = None) -> str:
+    """Generate unique candidate ID: FirstName + JobID"""
+    if not name:
+        first_name = "Unknown"
+    else:
+        # Extract first name and clean it
+        first_name = name.split()[0].replace(" ", "").replace("-", "").replace(".", "")
+    
+    job_suffix = str(job_id) if job_id else "0"
+    return f"{first_name}{job_suffix}"
+
+def extract_resume_data(file_path: str, original_filename: str = None) -> dict:
+    """Extract name and email from resume file (PDF or Word)"""
+    import os
+    import re
+    
+    email = None
+    phone = None
+    name = None
+    skills = []
+    projects = []
+    experience_text = ""
+    
+    try:
+        text = ""
+        file_ext = os.path.splitext(file_path)[1].lower()
+        
+        if file_ext == '.pdf':
+            # PDF extraction
+            try:
+                import PyPDF2
+                with open(file_path, 'rb') as file:
+                    pdf_reader = PyPDF2.PdfReader(file)
+                    for page in pdf_reader.pages:
+                        page_text = page.extract_text()
+                        if page_text:
+                            text += page_text + '\n'
+            except Exception as e:
+                print(f"PDF extraction failed: {e}")
+        
+        elif file_ext in ['.doc', '.docx']:
+            # Word document extraction
+            try:
+                if file_ext == '.docx':
+                    import docx
+                    doc = docx.Document(file_path)
+                    for paragraph in doc.paragraphs:
+                        text += paragraph.text + '\n'
+                else:
+                    # For .doc files, try basic text extraction
+                    try:
+                        import subprocess
+                        result = subprocess.run(['antiword', file_path], capture_output=True, text=True)
+                        if result.returncode == 0:
+                            text = result.stdout
+                    except:
+                        # Fallback: treat as binary and extract readable text
+                        with open(file_path, 'rb') as f:
+                            content = f.read()
+                            text = ''.join(chr(b) for b in content if 32 <= b <= 126)
+            except Exception as e:
+                print(f"Word document extraction failed: {e}")
+        
+        if text.strip():
+            # Extract email
+            email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+            emails = re.findall(email_pattern, text, re.IGNORECASE)
+            email = emails[0] if emails else None
+            
+            # Extract phone
+            phone_patterns = [
+                r'\+91[-\s]?\d{5}[-\s]?\d{5}',  # Indian: +91-XXXXX-XXXXX or +91 XXXXX XXXXX
+                r'\+91[-\s]?\d{10}',  # Indian: +91-XXXXXXXXXX or +91 XXXXXXXXXX
+                r'\d{5}[-\s]?\d{5}',  # Indian without code: XXXXX-XXXXX or XXXXX XXXXX
+                r'\+?1?[-\s]?\(?\d{3}\)?[-\s]?\d{3}[-\s]?\d{4}',  # US format
+                r'\(?\d{3}\)?[-\s]?\d{3}[-\s]?\d{4}',  # US format without country code
+            ]
+            for pattern in phone_patterns:
+                matches = re.findall(pattern, text)
+                if matches:
+                    phone = matches[0].strip()
+                    break
+            
+            # Extract name from document content
+            lines = [line.strip() for line in text.split('\n') if line.strip()]
+            
+            # Look for name in first few lines - simplified approach
+            for line in lines[:15]:  # Check more lines
+                # Skip if line is too short or too long
+                if len(line) < 4 or len(line) > 50:
+                    continue
+                    
+                words = line.split()
+                
+                # Name should be 2-4 words
+                if not (2 <= len(words) <= 4):
+                    continue
+                
+                # All words should be alphabetic and start with capital
+                if not all(word.isalpha() and word[0].isupper() for word in words):
+                    continue
+                
+                # Skip common headers/keywords (case insensitive check)
+                skip_keywords = [
+                    'resume', 'curriculum', 'vitae', 'profile', 'summary', 'objective',
+                    'experience', 'education', 'skills', 'projects', 'work', 'professional',
+                    'personal', 'contact', 'information', 'details', 'about', 'career',
+                    'employment', 'history', 'background', 'qualifications', 'certifications',
+                    'achievements', 'awards', 'references', 'languages', 'interests', 'hobbies'
+                ]
+                
+                if any(keyword in line.lower() for keyword in skip_keywords):
+                    continue
+                
+                # If we get here, it's likely a name
+                name = line
+                break
+            
+            # Extract skills
+            skills = extract_skills_from_text(text)
+            
+            # Extract projects
+            projects = extract_projects_from_text(text)
+            
+            # Extract experience text for matching
+            experience_text = extract_experience_text(text)
+                    
+    except Exception as e:
+        print(f"Error in resume extraction: {e}")
+    
+    # Fallback to filename if no name found in document
+    if not name and original_filename:
+        name = os.path.splitext(original_filename)[0].replace('_', ' ').replace('-', ' ').title()
+    elif not name:
+        name = "Unknown Candidate"
+    
+    return {
+        'name': name,
+        'email': email,
+        'phone': phone,
+        'skills': skills,
+        'projects': projects,
+        'experience_text': experience_text,
+        'full_text': text  # Add full extracted text
+    }
+
+def extract_skills_from_text(text: str) -> list:
+    """Extract technical skills from resume text"""
+    import re
+    
+    skills = set()
+    
+    # Blacklist of non-skill words to exclude
+    blacklist = {
+        'engineering', 'communication', 'course', 'institute', 'university', 'board', 'year', 'of',
+        'telangana', 'state', 'andhra', 'pradesh', 'karnataka', 'maharashtra', 'tamil', 'nadu',
+        'delhi', 'mumbai', 'bangalore', 'hyderabad', 'chennai', 'kolkata', 'pune', 'ahmedabad',
+        'education', 'experience', 'projects', 'summary', 'objective', 'profile', 'resume',
+        'curriculum', 'vitae', 'personal', 'details', 'information', 'contact', 'address',
+        'date', 'birth', 'gender', 'nationality', 'marital', 'status', 'languages', 'hobbies',
+        'interests', 'references', 'declaration', 'certifications', 'achievements', 'awards',
+        'responsibilities', 'duties', 'role', 'position', 'designation', 'company', 'organization',
+        'duration', 'period', 'from', 'to', 'present', 'current', 'previous', 'former',
+        'bachelor', 'master', 'degree', 'diploma', 'phd', 'doctorate', 'undergraduate', 'graduate',
+        'cgpa', 'percentage', 'marks', 'grade', 'score', 'result', 'passed', 'completed',
+        'school', 'college', 'university', 'institution', 'academy', 'center', 'centre'
+    }
+    
+    # First, try to find a dedicated SKILLS section
+    skills_section_patterns = [
+        r'(?:SKILLS?|TECHNICAL SKILLS?|KEY SKILLS?|CORE COMPETENCIES)\s*:?\s*([^\n]+(?:\n(?!\b(?:EXPERIENCE|EDUCATION|PROJECTS?|WORK|PROFESSIONAL|SUMMARY|OBJECTIVE)\b)[^\n]*)*)',
+    ]
+    
+    for pattern in skills_section_patterns:
+        match = re.search(pattern, text, re.IGNORECASE | re.MULTILINE)
+        if match:
+            skills_text = match.group(1)
+            # Extract skills from this section - split by common delimiters
+            skill_items = re.split(r'[,;•\|\n]', skills_text)
+            for item in skill_items:
+                item = item.strip()
+                # Clean up common prefixes/suffixes
+                item = re.sub(r'^[-•\*\d\.\)\s]+', '', item)
+                item = item.strip()
+                
+                # Filter out blacklisted words and non-skills
+                if item and len(item) > 2 and len(item) < 50:
+                    # Check if it's not in blacklist
+                    if item.lower() not in blacklist:
+                        # Check if it's not just a common word
+                        if not re.match(r'^(the|and|or|of|in|on|at|to|for|with|from)$', item.lower()):
+                            skills.add(item)
+    
+    # If we found skills in a dedicated section, return those
+    if skills:
+        return list(skills)[:20]  # Limit to 20 skills
+    
+    # Fallback: Pattern matching for common technical skills ONLY
+    skill_patterns = [
+        # Programming Languages
+        r'\b(?:Python|Java|JavaScript|TypeScript|C\+\+|C#|PHP|Ruby|Go|Rust|Swift|Kotlin|Scala|R|MATLAB)\b',
+        # Web Technologies
+        r'\b(?:React|Angular|Vue|Node\.js|Express|Django|Flask|Spring|Laravel|Rails|HTML5?|CSS3?|Bootstrap|Tailwind|jQuery)\b',
+        # Databases
+        r'\b(?:MySQL|PostgreSQL|MongoDB|Redis|SQLite|Oracle|SQL Server|Cassandra|DynamoDB|Firebase|MariaDB)\b',
+        # Cloud & DevOps
+        r'\b(?:AWS|Azure|GCP|Docker|Kubernetes|Jenkins|Git|GitHub|GitLab|CI/CD|Terraform|Ansible)\b',
+        # Data & AI
+        r'\b(?:Machine Learning|Deep Learning|TensorFlow|PyTorch|Pandas|NumPy|Scikit-learn|Data Analysis|AI|NLP)\b',
+        # Other Technologies
+        r'\b(?:REST API|GraphQL|Microservices|Linux|Unix|Bash|Shell|PowerShell)\b'
+    ]
+    
+    for pattern in skill_patterns:
+        matches = re.findall(pattern, text, re.IGNORECASE)
+        for match in matches:
+            if match.lower() not in blacklist:
+                skills.add(match.strip())
+    
+    return list(skills)[:20]  # Limit to top 20 skills
+
+def extract_projects_from_text(text: str) -> list:
+    """Extract project information from resume text"""
+    import re
+    
+    projects = []
+    
+    # Look for project sections
+    project_patterns = [
+        r'(?:PROJECT|PROJECTS?)\s*:?\s*([^\n]+(?:\n(?!\b(?:EXPERIENCE|EDUCATION|SKILLS|WORK)\b)[^\n]*)*)',
+        r'(?:Personal|Side|Open Source)\s+Project[s]?\s*:?\s*([^\n]+)',
+    ]
+    
+    for pattern in project_patterns:
+        matches = re.findall(pattern, text, re.IGNORECASE | re.MULTILINE)
+        for match in matches:
+            if len(match.strip()) > 20:  # Only meaningful project descriptions
+                projects.append(match.strip()[:200])  # Limit length
+    
+    return projects[:5]  # Limit to 5 projects
+
+def extract_experience_text(text: str) -> str:
+    """Extract work experience section from resume"""
+    import re
+    
+    # Look for experience section
+    exp_patterns = [
+        r'(?:WORK\s+)?EXPERIENCE\s*:?\s*([^\n]+(?:\n(?!\b(?:EDUCATION|SKILLS|PROJECTS?)\b)[^\n]*)*)',
+        r'(?:PROFESSIONAL|EMPLOYMENT)\s+(?:EXPERIENCE|HISTORY)\s*:?\s*([^\n]+(?:\n(?!\b(?:EDUCATION|SKILLS|PROJECTS?)\b)[^\n]*)*)',
+    ]
+    
+    for pattern in exp_patterns:
+        match = re.search(pattern, text, re.IGNORECASE | re.MULTILINE)
+        if match:
+            return match.group(1).strip()[:1000]  # Limit to 1000 chars
+    
+    return ""
+
+# Job Configuration (role-specific scoring)
+JOB_CONFIG = {
+    "default": {
+        "required_skills": ["html", "css", "javascript", "python", "sql"],
+        "optional_skills": ["react", "git", "api", "docker", "aws"],
+        "transferable_signals": ["dashboard", "system", "application", "web", "project"],
+        "education_required": False,
+        "max_score": 10
+    },
+    "software engineer": {
+        "required_skills": ["programming", "algorithms", "data structures"],
+        "optional_skills": ["python", "java", "javascript", "git", "testing"],
+        "transferable_signals": ["development", "coding", "software", "application", "system"],
+        "education_required": False,
+        "max_score": 10
+    },
+    "web developer": {
+        "required_skills": ["html", "css", "javascript"],
+        "optional_skills": ["react", "angular", "vue", "node.js", "sql"],
+        "transferable_signals": ["website", "web application", "frontend", "backend", "responsive"],
+        "education_required": False,
+        "max_score": 10
+    },
+    "data scientist": {
+        "required_skills": ["python", "statistics", "machine learning"],
+        "optional_skills": ["tensorflow", "pytorch", "pandas", "sql", "visualization"],
+        "transferable_signals": ["data analysis", "modeling", "prediction", "analytics", "research"],
+        "education_required": False,
+        "max_score": 10
+    },
+    "hr executive": {
+        "required_skills": ["recruitment", "employee relations", "hr operations"],
+        "optional_skills": ["payroll", "compliance", "performance management"],
+        "transferable_signals": ["hiring", "team management", "people management", "entrepreneur", "founder", "leadership"],
+        "education_required": False,
+        "max_score": 10
+    }
+}
+
+def get_job_config(job_title: str) -> dict:
+    """Get job configuration, fallback to default"""
+    if not job_title:
+        return JOB_CONFIG["default"]
+    
+    job_key = job_title.lower().strip()
+    return JOB_CONFIG.get(job_key, JOB_CONFIG["default"])
+
+def generate_reasoning(job_role: str, matched_required: list, transferable_hits: list, score: float, decision: str) -> str:
+    """Generate 3-line reasoning for the score"""
+    lines = []
+    
+    if matched_required:
+        lines.append(f"Matches core requirements for {job_role} with relevant skill alignment.")
+    else:
+        lines.append(f"Lacks direct role-specific skills but shows adjacent experience.")
+    
+    if transferable_hits:
+        lines.append(f"Transferable experience identified ({', '.join(transferable_hits[:2])}).")
+    else:
+        lines.append("Limited evidence of transferable responsibilities.")
+    
+    lines.append(f"Overall assessment results in a {decision.lower()} based on available evidence.")
+    
+    return " ".join(lines)
+
+def analyze_resume_with_ai(candidate_data: dict, job_description: dict) -> dict:
+    """Intelligent ATS evaluation with contextual reasoning"""
+    
+    # Extract data
+    name = candidate_data.get('name', 'Unknown')
+    email = candidate_data.get('email', '')
+    phone = candidate_data.get('phone', '')
+    skills = candidate_data.get('skills', [])
+    experience_text = candidate_data.get('experience_text', '')
+    projects = candidate_data.get('projects', [])
+    full_text = candidate_data.get('full_text', '')
+    
+    # Job details
+    job_title = job_description.get('title', 'Position')
+    job_desc = job_description.get('description', '')
+    job_requirements = job_description.get('requirements', '')
+    job_skills = job_description.get('skills', [])
+    
+    # Perform contextual analysis
+    evaluation = evaluate_candidate_contextually(
+        resume_text=full_text,
+        job_title=job_title,
+        job_description=job_desc,
+        job_requirements=job_requirements,
+        candidate_skills=skills,
+        experience_text=experience_text,
+        projects=projects
+    )
+    
+    return {
+        "candidate_name": name,
+        "Email": email,
+        "Mobile_Number": phone,
+        "match_score": evaluation['match_score'],
+        "match_label": evaluation['match_label'],
+        "candidate_summary": evaluation['candidate_summary'],
+        "key_strengths": evaluation['key_strengths'],
+        "skill_gaps": evaluation['skill_gaps'],
+        "ai_analysis": evaluation['ai_analysis'],
+        "jobTitle": job_title,
+        "jobDescription": job_desc,
+        "resumeText": full_text[:1000],
+        "status": evaluation['status']
+    }
+
+def evaluate_candidate_contextually(resume_text: str, job_title: str, job_description: str, 
+                                   job_requirements: str, candidate_skills: list,
+                                   experience_text: str, projects: list) -> dict:
+    """TRUE AI evaluation using LLM"""
+    from app.config import settings
+    import json
+    
+    # Prepare prompt for LLM
+    prompt = f"""You are an expert ATS (Applicant Tracking System) and recruitment specialist. Analyze this resume against the job description and provide a detailed evaluation.
+
+JOB TITLE: {job_title}
+
+JOB DESCRIPTION:
+{job_description}
+
+JOB REQUIREMENTS:
+{job_requirements}
+
+CANDIDATE RESUME:
+{resume_text[:3000]}
+
+Provide your analysis in the following JSON format:
+{{
+  "match_score": <number 0-100>,
+  "match_label": "<Strong Fit|Potential Fit|Borderline Fit|Weak Fit>",
+  "candidate_summary": "<2-3 sentence summary of candidate background>",
+  "key_strengths": ["<strength 1>", "<strength 2>", "<strength 3>"],
+  "skill_gaps": ["<gap 1>", "<gap 2>"],
+  "ai_analysis": "<3-4 sentences explaining the match score, what aligns, what's missing, and overall recommendation>",
+  "status": "<shortlisted|review|rejected>"
+}}
+
+Scoring guidelines:
+- 75-100: Strong Fit (shortlisted) - Excellent match with most requirements
+- 60-74: Potential Fit (review) - Good match with some gaps
+- 45-59: Borderline Fit (review) - Moderate match, significant gaps
+- 0-44: Weak Fit (rejected) - Poor match
+
+Provide ONLY the JSON response, no additional text."""
+    
+    try:
+        # Try LLM analysis
+        if settings.GROQ_API_KEY and settings.LLM_PROVIDER == "groq":
+            response = call_groq_llm(prompt, settings.GROQ_API_KEY)
+        elif settings.OPENAI_API_KEY and settings.LLM_PROVIDER == "openai":
+            response = call_openai_llm(prompt, settings.OPENAI_API_KEY)
+        else:
+            # Fallback to rule-based if no LLM configured
+            return fallback_evaluation(resume_text, job_title, job_description, job_requirements, candidate_skills, experience_text, projects)
+        
+        # Parse LLM response
+        result = json.loads(response)
+        return result
+        
+    except Exception as e:
+        print(f"LLM evaluation failed: {e}, falling back to rule-based")
+        return fallback_evaluation(resume_text, job_title, job_description, job_requirements, candidate_skills, experience_text, projects)
+
+def call_groq_llm(prompt: str, api_key: str) -> str:
+    """Call Groq LLM API"""
+    import requests
+    
+    response = requests.post(
+        "https://api.groq.com/openai/v1/chat/completions",
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        },
+        json={
+            "model": "llama-3.1-70b-versatile",
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.3,
+            "max_tokens": 1000
+        }
+    )
+    response.raise_for_status()
+    return response.json()["choices"][0]["message"]["content"]
+
+def call_openai_llm(prompt: str, api_key: str) -> str:
+    """Call OpenAI API"""
+    import requests
+    
+    response = requests.post(
+        "https://api.openai.com/v1/chat/completions",
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        },
+        json={
+            "model": "gpt-3.5-turbo",
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.3,
+            "max_tokens": 1000
+        }
+    )
+    response.raise_for_status()
+    return response.json()["choices"][0]["message"]["content"]
+
+# JD-Driven Skill Maps
+JOB_SKILL_MAPS = {
+    "hr executive": {
+        "core": ["recruitment", "hiring", "hr operations", "employee relations", "onboarding", "payroll", "compliance"],
+        "transferable": ["team management", "people management", "leadership", "coordination", "employee handling"],
+        "ignore": ["javascript", "python", "agile", "data analysis", "coding"]
+    },
+    "software engineer": {
+        "core": ["programming", "coding", "algorithms", "data structures", "software development"],
+        "transferable": ["problem solving", "teamwork"],
+        "ignore": ["recruitment", "hr"]
+    },
+    "default": {"core": [], "transferable": ["communication", "teamwork"], "ignore": []}
+}
+
+def fallback_evaluation(resume_text: str, job_title: str, job_description: str, 
+                       job_requirements: str, candidate_skills: list,
+                       experience_text: str, projects: list) -> dict:
+    """JD-DRIVEN evaluation - scores based on job requirements"""
+    import re
+    
+    resume_lower = resume_text.lower()
+    skill_map = JOB_SKILL_MAPS.get(job_title.lower().strip(), JOB_SKILL_MAPS["default"])
+    
+    # Extract years
+    years_exp = 0
+    for match in re.findall(r'(\d+)\s*(?:year|years|yrs)', resume_lower):
+        years_exp = max(years_exp, int(match))
+    
+    # Skills (0-40) - JD-DRIVEN
+    skills_score = 0
+    matched_core = [s for s in skill_map["core"] if s in resume_lower]
+    matched_trans = [s for s in skill_map["transferable"] if s in resume_lower]
+    skills_score = min(40, len(matched_core) * 8 + len(matched_trans) * 4)
+    
+    # Experience (0-35) - JD-DRIVEN
+    experience_score = min(35, years_exp * 3 + sum(3 for s in skill_map["core"] + skill_map["transferable"] if s in resume_lower))
+    
+    # Projects (0-25) - JD-DRIVEN
+    projects_score = 0
+    if projects:
+        for p in projects:
+            if any(s in p.lower() for s in skill_map["core"]):
+                projects_score += 8
+    projects_score = min(25, projects_score or (10 if any(s in resume_lower for s in skill_map["core"][:3]) else 0))
+    
+    final_score = min(100, skills_score + experience_score + projects_score)
+    
+    if final_score >= 80:
+        match_label, status = "Strong Fit", "shortlisted"
+    elif final_score >= 65:
+        match_label, status = "Potential Fit", "review"
+    elif final_score >= 50:
+        match_label, status = "Borderline Fit", "review"
+    else:
+        match_label, status = "Weak Fit", "rejected"
+    
+    strengths = []
+    if matched_core:
+        strengths.append(f"Core skills: {', '.join(matched_core[:3])}")
+    if matched_trans:
+        strengths.append(f"Transferable: {', '.join(matched_trans[:3])}")
+    if years_exp >= 3:
+        strengths.append(f"{years_exp} years experience")
+    if not strengths:
+        strengths.append("Basic qualifications")
+    
+    gaps = []
+    missing = [s for s in skill_map["core"] if s not in resume_lower]
+    if len(missing) > len(skill_map["core"]) / 2:
+        gaps.append(f"Missing: {', '.join(missing[:3])}")
+    if not gaps:
+        gaps.append("No significant gaps")
+    
+    candidate_summary = f"Candidate with {years_exp}+ years" if years_exp > 0 else "Candidate with relevant background"
+    if matched_core:
+        candidate_summary += f", strong in {', '.join(matched_core[:2])}"
+    
+    ai_analysis = f"Skills: {skills_score}/40 ({len(matched_core)} core, {len(matched_trans)} transferable). "
+    ai_analysis += f"Experience: {experience_score}/35 ({years_exp} years). "
+    ai_analysis += f"Projects: {projects_score}/25. "
+    ai_analysis += f"{match_label} with {final_score}/100 for {job_title}."
+    
+    return {
+        'match_score': round(final_score, 1),
+        'match_label': match_label,
+        'candidate_summary': candidate_summary,
+        'key_strengths': strengths[:5],
+        'skill_gaps': gaps[:5],
+        'ai_analysis': ai_analysis,
+        'status': status
+    }
+
+
+def extract_skills_from_job_text(job_text: str) -> list:
+    """Extract skills from job description text"""
+    import re
+    
+    # Technical skills patterns
+    skill_patterns = [
+        r'\b(?:Python|Java|JavaScript|TypeScript|C\+\+|C#|PHP|Ruby|Go|Rust|Swift|Kotlin|Scala|HTML|CSS)\b',
+        r'\b(?:React|Angular|Vue|Node\.js|Express|Django|Flask|Spring|Laravel|Rails|jQuery)\b',
+        r'\b(?:MySQL|PostgreSQL|MongoDB|Redis|SQLite|Oracle|SQL Server|Cassandra|DynamoDB)\b',
+        r'\b(?:AWS|Azure|GCP|Docker|Kubernetes|Jenkins|Git|CI/CD|Terraform|Ansible)\b',
+        r'\b(?:Machine Learning|Deep Learning|TensorFlow|PyTorch|Pandas|NumPy|Scikit-learn|AI)\b',
+        r'\b(?:REST API|GraphQL|Microservices|Agile|Scrum|DevOps|Linux|Windows|macOS)\b'
+    ]
+    
+    skills = set()
+    for pattern in skill_patterns:
+        matches = re.findall(pattern, job_text, re.IGNORECASE)
+        skills.update([match.strip() for match in matches])
+    
+    return list(skills)
+
+def simulate_resume_parsing(candidate: Candidate, db: Session):
+    """Resume parsing without scoring"""
+    
+    candidate.parsing_status = ParsingStatus.COMPLETED
+    
+    # No scoring - keep score as None
+    candidate.resume_score = None
+    candidate.stage = CandidateStage.UPLOADED
+    
+    db.commit()
+    db.refresh(candidate)
+
+@router.get("", response_model=List[CandidateResponse])
+def get_candidates(
+    skip: int = 0,
+    limit: int = 100,
+    search: Optional[str] = None,
+    stage: Optional[CandidateStage] = None,
+    job_id: Optional[int] = None,
+    min_score: Optional[float] = None,
+    month: Optional[str] = Query(None),
+    date: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    query = db.query(Candidate)
+    
+    if search:
+        query = query.filter(
+            or_(
+                Candidate.name.ilike(f"%{search}%"),
+                Candidate.email.ilike(f"%{search}%"),
+                Candidate.current_company.ilike(f"%{search}%")
+            )
+        )
+    
+    if stage:
+        query = query.filter(Candidate.stage == stage)
+    
+    if job_id:
+        query = query.filter(Candidate.job_id == job_id)
+    
+    if min_score is not None:
+        query = query.filter(Candidate.resume_score >= min_score)
+    
+    # Apply date filter if provided (specific date)
+    if date:
+        query = query.filter(func.date(Candidate.created_at) == date)
+    # Apply month filter if provided
+    elif month:
+        year, month_num = map(int, month.split('-'))
+        query = query.filter(
+            extract('year', Candidate.created_at) == year,
+            extract('month', Candidate.created_at) == month_num
+        )
+    
+    candidates = query.order_by(Candidate.created_at.desc()).offset(skip).limit(limit).all()
+    
+    # Add job title to response
+    result = []
+    for c in candidates:
+        candidate_dict = {
+            "id": c.id,
+            "name": c.name,
+            "email": c.email,
+            "phone": c.phone,
+            "current_company": c.current_company,
+            "current_role": c.current_role,
+            "experience_years": c.experience_years,
+            "location": c.location,
+            "linkedin_url": c.linkedin_url,
+            "resume_file_path": c.resume_file_path,
+            "parsing_status": c.parsing_status,
+            "resume_score": c.resume_score,
+            "score_threshold": c.score_threshold,
+            "skills": c.skills,
+            "education": c.education,
+            "work_experience": c.work_experience,
+            "stage": c.stage,
+            "stage_updated_at": c.stage_updated_at,
+            "job_id": c.job_id,
+            "job_title": c.job.title if c.job else None,
+            "created_at": c.created_at
+        }
+        result.append(CandidateResponse(**candidate_dict))
+    
+    return result
+
+@router.get("/{candidate_id}", response_model=CandidateResponse)
+def get_candidate(
+    candidate_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    candidate = db.query(Candidate).filter(Candidate.id == candidate_id).first()
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    
+    candidate_dict = {
+        "id": candidate.id,
+        "name": candidate.name,
+        "email": candidate.email,
+        "phone": candidate.phone,
+        "current_company": candidate.current_company,
+        "current_role": candidate.current_role,
+        "experience_years": candidate.experience_years,
+        "location": candidate.location,
+        "linkedin_url": candidate.linkedin_url,
+        "resume_file_path": candidate.resume_file_path,
+        "parsing_status": candidate.parsing_status,
+        "resume_score": candidate.resume_score,
+        "score_threshold": candidate.score_threshold,
+        "skills": candidate.skills,
+        "education": candidate.education,
+        "work_experience": candidate.work_experience,
+        "stage": candidate.stage,
+        "stage_updated_at": candidate.stage_updated_at,
+        "job_id": candidate.job_id,
+        "job_title": candidate.job.title if candidate.job else None,
+        "created_at": candidate.created_at
+    }
+    return CandidateResponse(**candidate_dict)
+
+@router.post("", response_model=CandidateResponse)
+def create_candidate(
+    candidate: CandidateCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    db_candidate = Candidate(
+        **candidate.model_dump(),
+        created_by=current_user.id,
+        parsing_status=ParsingStatus.PENDING
+    )
+    db.add(db_candidate)
+    db.commit()
+    db.refresh(db_candidate)
+    
+    # Simulate resume parsing
+    simulate_resume_parsing(db_candidate, db)
+    
+    return db_candidate
+
+@router.post("/upload")
+async def upload_resume(
+    file: UploadFile = File(...),
+    job_id: Optional[int] = Query(None),
+    threshold: Optional[float] = Query(60),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    print(f"Upload received - job_id: {job_id}, file: {file.filename}, threshold: {threshold}")
+    
+    try:
+        # Validate file type - PDF and Word documents
+        valid_types = [
+            "application/pdf",
+            "application/msword",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        ]
+        valid_extensions = ['.pdf', '.doc', '.docx']
+        
+        is_valid = (file.content_type in valid_types or 
+                   any(file.filename.lower().endswith(ext) for ext in valid_extensions))
+        
+        if not is_valid:
+            raise HTTPException(status_code=400, detail="Only PDF and Word documents (.pdf, .doc, .docx) are allowed")
+        
+        # Create upload directory if not exists
+        os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+        
+        # Save file
+        file_ext = os.path.splitext(file.filename)[1]
+        unique_filename = f"{uuid.uuid4()}{file_ext}"
+        file_path = os.path.join(settings.UPLOAD_DIR, unique_filename)
+        
+        with open(file_path, "wb") as buffer:
+            content = await file.read()
+            buffer.write(content)
+        
+        # Extract candidate data - pass original filename
+        resume_data = extract_resume_data(file_path, file.filename)
+        name = resume_data['name']
+        email = resume_data['email']
+        phone = resume_data['phone']
+        extracted_skills = resume_data['skills']
+        extracted_projects = resume_data['projects']
+        extracted_experience = resume_data['experience_text']
+        full_text = resume_data['full_text']
+        
+        # Get job description for AI analysis
+        job_data = None
+        if job_id:
+            from app.models import JobDescription
+            job = db.query(JobDescription).filter(JobDescription.id == job_id).first()
+            if job:
+                job_data = {
+                    'title': job.title,
+                    'description': job.description or '',
+                    'requirements': job.requirements or '',
+                    'skills': job.skills or []
+                }
+        
+        # Prepare data for AI analysis
+        analysis_data = {
+            'name': name,
+            'email': email,
+            'phone': phone,
+            'skills': extracted_skills,
+            'experience_text': extracted_experience,
+            'projects': extracted_projects,
+            'full_text': full_text
+        }
+        
+        # Get AI analysis if job is provided
+        ai_analysis = None
+        if job_data:
+            ai_analysis = analyze_resume_with_ai(analysis_data, job_data)
+            print("\n" + "="*50)
+            print("AI ANALYSIS RESULT")
+            print("="*50)
+            print(f"Match Score: {ai_analysis['match_score']}")
+            print(f"Status: {ai_analysis['status']}")
+            print(f"Summary: {ai_analysis.get('candidate_summary', 'N/A')}")
+            print("="*50 + "\n")
+        
+        # Generate candidate ID: first 3 letters of name + job ID
+        name_prefix = name[:3].upper() if name else "UNK"
+        job_suffix = str(job_id) if job_id else "000"
+        candidate_id = f"{name_prefix}{job_suffix}"
+        
+        # Ensure uniqueness
+        base_id = candidate_id
+        counter = 1
+        while db.query(Candidate).filter(Candidate.candidate_id == candidate_id).first():
+            candidate_id = f"{base_id}{counter}"
+            counter += 1
+        
+        # Create candidate with current threshold
+        db_candidate = Candidate(
+            name=name,
+            email=email,
+            phone=phone,
+            skills=extracted_skills,
+            resume_file_path=file_path,
+            resume_text=full_text,  # Store full text
+            candidate_id=candidate_id,  # Store generated ID
+            job_id=job_id,
+            created_by=current_user.id,
+            parsing_status=ParsingStatus.PROCESSING,
+            score_threshold=threshold
+        )
+        db.add(db_candidate)
+        db.commit()
+        db.refresh(db_candidate)
+        
+        # Simulate resume parsing
+        simulate_resume_parsing(db_candidate, db)
+        
+        return {"message": "Resume uploaded successfully", "candidate_id": db_candidate.id}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Upload error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+@router.post("/bulk-upload")
+async def bulk_upload_resumes(
+    files: List[UploadFile] = File(...),
+    job_id: Optional[int] = Query(None),
+    threshold: Optional[float] = Query(60),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    print(f"Bulk upload received - job_id: {job_id}, files: {len(files)}")
+    results = []
+    
+    for file in files:
+        try:
+            # Validate file type
+            valid_types = [
+                "application/pdf",
+                "application/msword",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            ]
+            valid_extensions = ['.pdf', '.doc', '.docx']
+            
+            is_valid = (file.content_type in valid_types or 
+                       any(file.filename.lower().endswith(ext) for ext in valid_extensions))
+            
+            if not is_valid:
+                results.append({"filename": file.filename, "status": "failed", "error": "Invalid file type"})
+                continue
+            
+            # Create upload directory if not exists
+            os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+            
+            # Save file
+            file_ext = os.path.splitext(file.filename)[1]
+            unique_filename = f"{uuid.uuid4()}{file_ext}"
+            file_path = os.path.join(settings.UPLOAD_DIR, unique_filename)
+            
+            with open(file_path, "wb") as buffer:
+                content = await file.read()
+                buffer.write(content)
+            
+            # Extract candidate data - pass original filename
+            resume_data = extract_resume_data(file_path, file.filename)
+            name = resume_data['name']
+            email = resume_data['email']
+            phone = resume_data['phone']
+            extracted_skills = resume_data['skills']
+            full_text = resume_data['full_text']
+            
+            # Generate candidate ID: first 3 letters of name + job ID
+            name_prefix = name[:3].upper() if name else "UNK"
+            job_suffix = str(job_id) if job_id else "000"
+            candidate_id = f"{name_prefix}{job_suffix}"
+            
+            # Ensure uniqueness
+            base_id = candidate_id
+            counter = 1
+            while db.query(Candidate).filter(Candidate.candidate_id == candidate_id).first():
+                candidate_id = f"{base_id}{counter}"
+                counter += 1
+            
+            db_candidate = Candidate(
+                name=name,
+                email=email,
+                phone=phone,
+                skills=extracted_skills,
+                resume_file_path=file_path,
+                resume_text=full_text,  # Store full text
+                candidate_id=candidate_id,  # Store generated ID
+                job_id=job_id,
+                created_by=current_user.id,
+                parsing_status=ParsingStatus.PROCESSING,
+                score_threshold=threshold
+            )
+            db.add(db_candidate)
+            db.commit()
+            db.refresh(db_candidate)
+            
+            simulate_resume_parsing(db_candidate, db)
+            
+            results.append({"filename": file.filename, "status": "success", "candidate_id": db_candidate.id})
+        except Exception as e:
+            results.append({"filename": file.filename, "status": "failed", "error": str(e)})
+    
+    return {"results": results}
+
+@router.post("/zip-upload")
+async def zip_upload_resumes(
+    file: UploadFile = File(...),
+    job_id: Optional[int] = Query(None),
+    threshold: Optional[float] = Query(60),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    import zipfile
+    import tempfile
+    
+    # Validate ZIP file
+    if file.content_type != "application/zip" and not file.filename.lower().endswith('.zip'):
+        raise HTTPException(status_code=400, detail="Only ZIP files are allowed")
+    
+    results = []
+    
+    try:
+        # Save ZIP file temporarily
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as temp_zip:
+            content = await file.read()
+            temp_zip.write(content)
+            temp_zip_path = temp_zip.name
+        
+        # Extract and process resumes from ZIP
+        with zipfile.ZipFile(temp_zip_path, 'r') as zip_ref:
+            for file_info in zip_ref.filelist:
+                file_ext = os.path.splitext(file_info.filename)[1].lower()
+                if file_ext in ['.pdf', '.doc', '.docx'] and not file_info.is_dir():
+                    try:
+                        # Extract resume to temporary location
+                        resume_content = zip_ref.read(file_info.filename)
+                        
+                        # Create upload directory if not exists
+                        os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+                        
+                        # Save resume file
+                        unique_filename = f"{uuid.uuid4()}{file_ext}"
+                        file_path = os.path.join(settings.UPLOAD_DIR, unique_filename)
+                        
+                        with open(file_path, "wb") as resume_file:
+                            resume_file.write(resume_content)
+                        
+                        # Extract candidate data
+                        resume_data = extract_resume_data(file_path, file_info.filename)
+                        name = resume_data['name']
+                        email = resume_data['email']
+                        phone = resume_data['phone']
+                        extracted_skills = resume_data['skills']
+                        full_text = resume_data['full_text']
+                        
+                        # Generate candidate ID: first 3 letters of name + job ID
+                        name_prefix = name[:3].upper() if name else "UNK"
+                        job_suffix = str(job_id) if job_id else "000"
+                        candidate_id = f"{name_prefix}{job_suffix}"
+                        
+                        # Ensure uniqueness
+                        base_id = candidate_id
+                        counter = 1
+                        while db.query(Candidate).filter(Candidate.candidate_id == candidate_id).first():
+                            candidate_id = f"{base_id}{counter}"
+                            counter += 1
+                        
+                        # Create candidate
+                        db_candidate = Candidate(
+                            name=name,
+                            email=email,
+                            phone=phone,
+                            skills=extracted_skills,
+                            resume_file_path=file_path,
+                            resume_text=full_text,  # Store full text
+                            candidate_id=candidate_id,  # Store generated ID
+                            job_id=job_id,
+                            created_by=current_user.id,
+                            parsing_status=ParsingStatus.PROCESSING,
+                            score_threshold=threshold
+                        )
+                        db.add(db_candidate)
+                        db.commit()
+                        db.refresh(db_candidate)
+                        
+                        # Simulate resume parsing
+                        simulate_resume_parsing(db_candidate, db)
+                        
+                        results.append({"filename": file_info.filename, "status": "success", "candidate_id": db_candidate.id})
+                    except Exception as e:
+                        results.append({"filename": file_info.filename, "status": "failed", "error": str(e)})
+        
+        # Clean up temporary ZIP file
+        os.unlink(temp_zip_path)
+        
+        return {"results": results}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"ZIP upload failed: {str(e)}")
+
+@router.put("/{candidate_id}", response_model=CandidateResponse)
+def update_candidate(
+    candidate_id: int,
+    candidate_update: CandidateUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    db_candidate = db.query(Candidate).filter(Candidate.id == candidate_id).first()
+    if not db_candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    
+    update_data = candidate_update.model_dump(exclude_unset=True)
+    
+    if "stage" in update_data:
+        update_data["stage_updated_at"] = datetime.utcnow()
+    
+    for field, value in update_data.items():
+        setattr(db_candidate, field, value)
+    
+    # Mark as needing sync when updated
+    db.execute(text("UPDATE candidates SET synced_to_sheets = 0 WHERE id = :id"), {"id": candidate_id})
+    
+    db.commit()
+    db.refresh(db_candidate)
+    return db_candidate
+
+@router.patch("/{candidate_id}/stage", response_model=CandidateResponse)
+def update_candidate_stage(
+    candidate_id: int,
+    stage_update: CandidateStageUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    db_candidate = db.query(Candidate).filter(Candidate.id == candidate_id).first()
+    if not db_candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    
+    db_candidate.stage = stage_update.stage
+    db_candidate.stage_updated_at = datetime.utcnow()
+    
+    db.commit()
+    db.refresh(db_candidate)
+    return db_candidate
+
+@router.post("/sync-to-sheets")
+def sync_candidates_to_sheets(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Sync unsynced candidates to Google Sheets"""
+    try:
+        # Import here to avoid startup issues
+        from app.google_sheets import sheets_service
+        from app.models import JobDescription
+        
+        # Get candidates that haven't been synced yet - with job relationship loaded
+        unsynced_candidates = db.query(Candidate).filter(
+            (Candidate.synced_to_sheets == False) | 
+            (Candidate.synced_to_sheets == None)
+        ).all()
+        
+        print(f"Found {len(unsynced_candidates)} unsynced candidates")
+        
+        if not unsynced_candidates:
+            return {"synced_count": 0, "message": "No new candidates to sync"}
+        
+        # Generate candidate IDs for candidates that don't have them
+        candidates_updated = 0
+        for candidate in unsynced_candidates:
+            if not candidate.candidate_id:
+                name_prefix = candidate.name[:3].upper() if candidate.name else "UNK"
+                job_suffix = str(candidate.job_id) if candidate.job_id else "000"
+                candidate.candidate_id = f"{name_prefix}{job_suffix}"
+                candidates_updated += 1
+        
+        if candidates_updated > 0:
+            db.commit()
+            print(f"Generated candidate IDs for {candidates_updated} candidates")
+        
+        # Refresh to load relationships
+        for candidate in unsynced_candidates:
+            db.refresh(candidate)
+        
+        # Sync to Google Sheets
+        result = sheets_service.sync_candidates_to_sheet(unsynced_candidates)
+        
+        print(f"Sync result: {result}")
+        
+        if not result.get('success', False):
+            raise HTTPException(status_code=500, detail=result.get('error', 'Sync failed'))
+        
+        # Mark candidates as synced
+        for candidate in unsynced_candidates:
+            candidate.synced_to_sheets = True
+        
+        db.commit()
+        
+        return {
+            "synced_count": result["synced_count"],
+            "sheets_synced": result["synced_count"],
+            "message": f"Successfully synced {result['synced_count']} candidates to Google Sheets"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Sync error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/sync-from-sheets")
+def sync_scores_from_sheets(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Pull scores from Google Sheets and update candidates"""
+    try:
+        from app.google_sheets import sheets_service
+        
+        result = sheets_service.sync_scores_from_sheet(db)
+        
+        if not result.get('success', False):
+            raise HTTPException(status_code=500, detail=result.get('error', 'Sync failed'))
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Sync from sheets error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+@router.get("/export-csv")
+def export_candidates_csv(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Export candidates as CSV file"""
+    from fastapi.responses import StreamingResponse
+    import csv
+    import io
+    
+    candidates = db.query(Candidate).all()
+    
+    output = io.StringIO()
+    writer = csv.writer(output)
+    
+    # Write header
+    writer.writerow(['Candidate ID', 'Name', 'Email', 'Phone', 'Job Title', 'Resume Score', 'Stage', 'Skills'])
+    
+    # Write data
+    for candidate in candidates:
+        job_title = candidate.job.title if candidate.job else 'N/A'
+        skills = ', '.join(candidate.skills) if candidate.skills else 'N/A'
+        writer.writerow([
+            candidate.candidate_id or 'N/A',
+            candidate.name or 'N/A',
+            candidate.email or 'N/A',
+            candidate.phone or 'N/A', 
+            job_title,
+            candidate.resume_score or 0,
+            candidate.stage.value if candidate.stage else 'N/A',
+            skills
+        ])
+    
+    output.seek(0)
+    
+    return StreamingResponse(
+        io.BytesIO(output.getvalue().encode('utf-8')),
+        media_type='text/csv',
+        headers={'Content-Disposition': 'attachment; filename=candidates.csv'}
+    )
+@router.delete("/{candidate_id}")
+def delete_candidate(
+    candidate_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    db_candidate = db.query(Candidate).filter(Candidate.id == candidate_id).first()
+    if not db_candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    
+    # Delete resume file if exists
+    if db_candidate.resume_file_path and os.path.exists(db_candidate.resume_file_path):
+        os.remove(db_candidate.resume_file_path)
+    
+    db.delete(db_candidate)
+    db.commit()
+    return {"message": "Candidate deleted successfully"}
+
+@router.get("/{candidate_id}/resume-file")
+def get_resume_file(
+    candidate_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    candidate = db.query(Candidate).filter(Candidate.id == candidate_id).first()
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    
+    if not candidate.resume_file_path or not os.path.exists(candidate.resume_file_path):
+        raise HTTPException(status_code=404, detail="Resume file not found")
+    
+    return FileResponse(
+        candidate.resume_file_path,
+        media_type='application/pdf',
+        filename=f"{candidate.name}_resume.pdf"
+    )
+
+@router.get("/{candidate_id}/ai-analysis")
+def get_ai_analysis(
+    candidate_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Get AI-powered resume analysis with structured data"""
+    candidate = db.query(Candidate).filter(Candidate.id == candidate_id).first()
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    
+    # Get job description
+    job_data = None
+    if candidate.job_id:
+        from app.models import JobDescription
+        job = db.query(JobDescription).filter(JobDescription.id == candidate.job_id).first()
+        if job:
+            job_data = {
+                'title': job.title,
+                'description': job.description or '',
+                'requirements': job.requirements or '',
+                'skills': job.skills or []
+            }
+    
+    if not job_data:
+        job_data = {
+            'title': 'General Position',
+            'description': '',
+            'requirements': '',
+            'skills': []
+        }
+    
+    # Prepare candidate data
+    candidate_data = {
+        'name': candidate.name,
+        'email': candidate.email,
+        'phone': candidate.phone,
+        'skills': candidate.skills or [],
+        'experience_text': '',
+        'projects': [],
+        'full_text': candidate.resume_text or ''
+    }
+    
+    # Get AI analysis
+    analysis = analyze_resume_with_ai(candidate_data, job_data)
+    
+    return analysis
+
+@router.get("/{candidate_id}/resume-summary")
+def get_resume_summary(
+    candidate_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    candidate = db.query(Candidate).filter(Candidate.id == candidate_id).first()
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    
+    # Generate AI summary based on candidate data
+    summary_parts = []
+    
+    if candidate.current_role and candidate.current_company:
+        summary_parts.append(f"Currently working as {candidate.current_role} at {candidate.current_company}")
+    
+    if candidate.experience_years:
+        summary_parts.append(f"with {candidate.experience_years} years of professional experience")
+    
+    if candidate.skills and len(candidate.skills) > 0:
+        top_skills = candidate.skills[:5]  # Top 5 skills
+        summary_parts.append(f"Skilled in {', '.join(top_skills)}")
+    
+    if candidate.resume_score:
+        score_desc = "excellent" if candidate.resume_score >= 80 else "good" if candidate.resume_score >= 60 else "average"
+        summary_parts.append(f"Resume shows {score_desc} alignment with job requirements (score: {candidate.resume_score})")
+    
+    if not summary_parts:
+        summary = "Limited information available. Resume parsing may be incomplete."
+    else:
+        summary = ". ".join(summary_parts) + "."
+    
+    return {"summary": summary}
+
+@router.get("/pipeline/stages")
+def get_pipeline_stages(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Get candidates grouped by stage for Kanban board"""
+    stages = {}
+    for stage in CandidateStage:
+        candidates = db.query(Candidate).filter(Candidate.stage == stage).all()
+        stages[stage.value] = [
+            {
+                "id": c.id,
+                "name": c.name,
+                "current_role": c.current_role,
+                "current_company": c.current_company,
+                "resume_score": c.resume_score,
+                "job_title": c.job.title if c.job else None
+            }
+            for c in candidates
+        ]
+    return stages
+
+
