@@ -1,13 +1,14 @@
 from pydantic_settings import BaseSettings
 from functools import lru_cache
 from typing import List
+import os
 
 class Settings(BaseSettings):
     APP_NAME: str = "TalentAI Recruitment System"
     DEBUG: bool = True
     
     # Database
-    DATABASE_URL: str = "sqlite:///./talentai.db"
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:////data/app.db")
     
     # JWT
     SECRET_KEY: str = "your-secret-key-change-in-production-use-openssl-rand-hex-32"
@@ -24,10 +25,15 @@ class Settings(BaseSettings):
     LLM_PROVIDER: str = "groq"  # Options: groq, openai, ollama
     
     # CORS
-    ALLOWED_ORIGINS: List[str] = ["http://localhost:5173", "http://localhost:3000"]
+    ALLOWED_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
+    
+    @property
+    def allowed_origins_list(self) -> List[str]:
+        return [origin.strip() for origin in self.ALLOWED_ORIGINS.split(",")]
     
     class Config:
         env_file = ".env"
+        extra = "ignore"
 
 @lru_cache()
 def get_settings():
