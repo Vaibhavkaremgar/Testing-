@@ -14,8 +14,8 @@ COPY . .
 # Build the app
 RUN npm run build
 
-# Expose port
-EXPOSE 4173
+# Expose port (Railway will set PORT env var)
+EXPOSE $PORT
 
-# Use Vite preview server
-CMD ["npm", "run", "preview", "--", "--host", "0.0.0.0", "--port", "4173"]
+# Use Vite preview server with dynamic port
+CMD ["sh", "-c", "npm run preview -- --host 0.0.0.0 --port ${PORT:-4173}"]
