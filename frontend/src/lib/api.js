@@ -1,5 +1,9 @@
 const API_BASE = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : '/api'
 
+// Debug logging
+console.log('VITE_API_URL:', import.meta.env.VITE_API_URL)
+console.log('API_BASE:', API_BASE)
+
 class ApiClient {
   constructor() {
     this.token = localStorage.getItem('token')
@@ -61,13 +65,19 @@ class ApiClient {
     formData.append('username', email)
     formData.append('password', password)
 
+    const loginUrl = `${API_BASE}/auth/login`
+    console.log('Login URL:', loginUrl)
+
     try {
-      const response = await fetch(`${API_BASE}/auth/login`, {
+      const response = await fetch(loginUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: formData,
       })
 
+      console.log('Response status:', response.status)
+      console.log('Response headers:', response.headers)
+      
       if (!response.ok) {
         let errorMessage = 'Login failed'
         try {
