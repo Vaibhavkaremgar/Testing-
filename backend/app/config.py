@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings
 from functools import lru_cache
+from typing import List
 
 class Settings(BaseSettings):
     APP_NAME: str = "TalentAI Recruitment System"
@@ -21,6 +22,9 @@ class Settings(BaseSettings):
     GROQ_API_KEY: str = ""  # Add your Groq API key here or in .env
     OPENAI_API_KEY: str = ""  # Alternative: OpenAI API key
     LLM_PROVIDER: str = "groq"  # Options: groq, openai, ollama
+    
+    # CORS
+    ALLOWED_ORIGINS: List[str] = ["http://localhost:5173", "http://localhost:3000"]
     
     class Config:
         env_file = ".env"
