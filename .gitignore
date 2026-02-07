@@ -149,3 +149,7 @@ alembic/versions/*.py
 
 # Docker
 .dockerignore
+
+# Credentials
+*-key.json
+hr-dashboard-key.json
