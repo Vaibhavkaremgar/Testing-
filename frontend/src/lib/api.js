@@ -61,36 +61,36 @@ class ApiClient {
     formData.append('username', email)
     formData.append('password', password)
 
-    const response = await fetch(`${API_BASE}/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: formData,
-    })
-
-    if (!response.ok) {
-      let errorMessage = 'Login failed'
-      try {
-        const error = await response.json()
-        errorMessage = error.detail || errorMessage
-      } catch (e) {
-        errorMessage = `Login failed (${response.status})`
-      }
-      throw new Error(errorMessage)
-    }
-
-    let data
     try {
-      data = await response.json()
-    } catch (e) {
-      throw new Error('Invalid response from server')
-    }
+      const response = await fetch(`${API_BASE}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: formData,
+      })
 
-    if (!data.access_token) {
-      throw new Error('No access token received')
-    }
+      if (!response.ok) {
+        let errorMessage = 'Login failed'
+        try {
+          const error = await response.json()
+          errorMessage = error.detail || errorMessage
+        } catch (e) {
+          errorMessage = `Login failed (${response.status})`
+        }
+        throw new Error(errorMessage)
+      }
 
-    this.setToken(data.access_token)
-    return data
+      const data = await response.json()
+      
+      if (!data.access_token) {
+        throw new Error('No access token received')
+      }
+
+      this.setToken(data.access_token)
+      return data
+    } catch (error) {
+      console.error('Login error:', error)
+      throw error
+    }
   }
 
   async register(userData) {
