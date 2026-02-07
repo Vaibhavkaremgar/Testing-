@@ -18,4 +18,6 @@ requests==2.31.0
 gunicorn
 psycopg2-binary
 email-validator
-
+google-api-python-client
+google-auth
+google-auth-oauthlib
