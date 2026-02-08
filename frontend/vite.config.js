@@ -16,7 +16,12 @@ export default defineConfig({
   preview: {
     host: '0.0.0.0',
     port: parseInt(process.env.PORT) || 4173,
-    strictPort: false
+    strictPort: false,
+    allowedHosts: [
+      'glistening-youth-production.up.railway.app',
+      '.railway.app',
+      'localhost'
+    ]
   },
   build: {
     outDir: 'dist',
