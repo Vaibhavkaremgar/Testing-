@@ -17,5 +17,13 @@ export default defineConfig({
     host: '0.0.0.0',
     port: parseInt(process.env.PORT) || 4173,
     strictPort: false
+  },
+  build: {
+    outDir: 'dist',
+    rollupOptions: {
+      output: {
+        manualChunks: undefined
+      }
+    }
   }
 })
