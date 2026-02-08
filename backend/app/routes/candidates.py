@@ -172,74 +172,64 @@ def extract_skills_from_text(text: str) -> list:
     
     skills = set()
     
-    # Blacklist of non-skill words to exclude
-    blacklist = {
-        'engineering', 'communication', 'course', 'institute', 'university', 'board', 'year', 'of',
-        'telangana', 'state', 'andhra', 'pradesh', 'karnataka', 'maharashtra', 'tamil', 'nadu',
-        'delhi', 'mumbai', 'bangalore', 'hyderabad', 'chennai', 'kolkata', 'pune', 'ahmedabad',
-        'education', 'experience', 'projects', 'summary', 'objective', 'profile', 'resume',
-        'curriculum', 'vitae', 'personal', 'details', 'information', 'contact', 'address',
-        'date', 'birth', 'gender', 'nationality', 'marital', 'status', 'languages', 'hobbies',
-        'interests', 'references', 'declaration', 'certifications', 'achievements', 'awards',
-        'responsibilities', 'duties', 'role', 'position', 'designation', 'company', 'organization',
-        'duration', 'period', 'from', 'to', 'present', 'current', 'previous', 'former',
-        'bachelor', 'master', 'degree', 'diploma', 'phd', 'doctorate', 'undergraduate', 'graduate',
-        'cgpa', 'percentage', 'marks', 'grade', 'score', 'result', 'passed', 'completed',
-        'school', 'college', 'university', 'institution', 'academy', 'center', 'centre'
-    }
+    # Find TECHNICAL SKILLS section specifically
+    tech_skills_pattern = r'TECHNICAL\s+SKILLS?\s*:?\s*[-\s]*(.*?)(?=\n\s*[A-Z][A-Z\s]+:|$)'
+    match = re.search(tech_skills_pattern, text, re.IGNORECASE | re.DOTALL)
     
-    # First, try to find a dedicated SKILLS section
-    skills_section_patterns = [
-        r'(?:SKILLS?|TECHNICAL SKILLS?|KEY SKILLS?|CORE COMPETENCIES)\s*:?\s*([^\n]+(?:\n(?!\b(?:EXPERIENCE|EDUCATION|PROJECTS?|WORK|PROFESSIONAL|SUMMARY|OBJECTIVE)\b)[^\n]*)*)',
-    ]
+    if match:
+        skills_text = match.group(1)
+        # Split by newlines and common delimiters
+        lines = re.split(r'[\n•]', skills_text)
+        for line in lines:
+            line = line.strip()
+            # Remove bullet points and extra spaces
+            line = re.sub(r'^[-•*\s]+', '', line)
+            line = line.strip()
+            
+            # Only add if it's a valid skill (2-30 chars, not empty)
+            if line and 2 <= len(line) <= 30:
+                # Skip common non-skill phrases
+                if not re.match(r'^(and|or|the|with|from|to)$', line, re.IGNORECASE):
+                    skills.add(line)
     
-    for pattern in skills_section_patterns:
-        match = re.search(pattern, text, re.IGNORECASE | re.MULTILINE)
-        if match:
-            skills_text = match.group(1)
-            # Extract skills from this section - split by common delimiters
-            skill_items = re.split(r'[,;•\|\n]', skills_text)
-            for item in skill_items:
-                item = item.strip()
-                # Clean up common prefixes/suffixes
-                item = re.sub(r'^[-•\*\d\.\)\s]+', '', item)
-                item = item.strip()
-                
-                # Filter out blacklisted words and non-skills
-                if item and len(item) > 2 and len(item) < 50:
-                    # Check if it's not in blacklist
-                    if item.lower() not in blacklist:
-                        # Check if it's not just a common word
-                        if not re.match(r'^(the|and|or|of|in|on|at|to|for|with|from)$', item.lower()):
-                            skills.add(item)
-    
-    # If we found skills in a dedicated section, return those
+    # If technical skills found, return them
     if skills:
-        return list(skills)[:20]  # Limit to 20 skills
+        return list(skills)[:20]
     
-    # Fallback: Pattern matching for common technical skills ONLY
+    # Fallback: Look for any SKILLS section
+    skills_pattern = r'(?:SKILLS?|KEY SKILLS?)\s*:?\s*[-\s]*(.*?)(?=\n\s*[A-Z][A-Z\s]+:|$)'
+    match = re.search(skills_pattern, text, re.IGNORECASE | re.DOTALL)
+    
+    if match:
+        skills_text = match.group(1)
+        lines = re.split(r'[\n•,]', skills_text)
+        for line in lines:
+            line = line.strip()
+            line = re.sub(r'^[-•*\s]+', '', line)
+            line = line.strip()
+            
+            if line and 2 <= len(line) <= 30:
+                if not re.match(r'^(and|or|the|with|from|to)$', line, re.IGNORECASE):
+                    skills.add(line)
+    
+    if skills:
+        return list(skills)[:20]
+    
+    # Last resort: Pattern matching for common technical skills
     skill_patterns = [
-        # Programming Languages
         r'\b(?:Python|Java|JavaScript|TypeScript|C\+\+|C#|PHP|Ruby|Go|Rust|Swift|Kotlin|Scala|R|MATLAB)\b',
-        # Web Technologies
         r'\b(?:React|Angular|Vue|Node\.js|Express|Django|Flask|Spring|Laravel|Rails|HTML5?|CSS3?|Bootstrap|Tailwind|jQuery)\b',
-        # Databases
-        r'\b(?:MySQL|PostgreSQL|MongoDB|Redis|SQLite|Oracle|SQL Server|Cassandra|DynamoDB|Firebase|MariaDB)\b',
-        # Cloud & DevOps
+        r'\b(?:MySQL|PostgreSQL|MongoDB|Redis|SQLite|Oracle|SQL|SQL Server|Cassandra|DynamoDB|Firebase|MariaDB)\b',
         r'\b(?:AWS|Azure|GCP|Docker|Kubernetes|Jenkins|Git|GitHub|GitLab|CI/CD|Terraform|Ansible)\b',
-        # Data & AI
         r'\b(?:Machine Learning|Deep Learning|TensorFlow|PyTorch|Pandas|NumPy|Scikit-learn|Data Analysis|AI|NLP)\b',
-        # Other Technologies
         r'\b(?:REST API|GraphQL|Microservices|Linux|Unix|Bash|Shell|PowerShell)\b'
     ]
     
     for pattern in skill_patterns:
         matches = re.findall(pattern, text, re.IGNORECASE)
-        for match in matches:
-            if match.lower() not in blacklist:
-                skills.add(match.strip())
+        skills.update([m.strip() for m in matches])
     
-    return list(skills)[:20]  # Limit to top 20 skills
+    return list(skills)[:20]
 
 def extract_projects_from_text(text: str) -> list:
     """Extract project information from resume text"""
