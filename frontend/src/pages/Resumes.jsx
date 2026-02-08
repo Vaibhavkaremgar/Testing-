@@ -307,10 +307,10 @@ export default function Resumes() {
   const handleViewResume = async (candidate) => {
     if (candidate.resume_file_path) {
       try {
-        // Create a blob URL with authentication
-        const response = await fetch(`/api/candidates/${candidate.id}/resume-file`, {
+        const url = api.getResumeFileUrl(candidate.id)
+        const response = await fetch(url, {
           headers: {
-            'Authorization': `Bearer ${localStorage.getItem('token')}`
+            'Authorization': `Bearer ${api.getToken()}`
           }
         })
         
@@ -319,11 +319,11 @@ export default function Resumes() {
         }
         
         const blob = await response.blob()
-        const url = window.URL.createObjectURL(blob)
-        window.open(url, '_blank')
+        const blobUrl = window.URL.createObjectURL(blob)
+        window.open(blobUrl, '_blank')
         
         // Clean up the blob URL after a delay
-        setTimeout(() => window.URL.revokeObjectURL(url), 1000)
+        setTimeout(() => window.URL.revokeObjectURL(blobUrl), 1000)
       } catch (error) {
         console.error('Error viewing resume:', error)
         alert('Unable to view resume. Please try again.')

@@ -10,6 +10,7 @@ class GoogleSheetsService:
         # Your Google Sheet ID
         self.sheet_id = "18ugwqo2-_A80zPP_JfCRL6sDKNGBCweWkxsFuSmfQmE"
         self.service = None
+        self.is_configured = False
         self._initialize_service()
     
     def _initialize_service(self):
@@ -19,7 +20,13 @@ class GoogleSheetsService:
             key_file = "hr-dashboard-key.json"
             
             if not os.path.exists(key_file):
-                print(f"Service account key file not found: {key_file}")
+                print(f"Google Sheets service account key file not found: {key_file}")
+                print("Google Sheets sync will be disabled. To enable:")
+                print("1. Create a Google Cloud service account")
+                print("2. Download the JSON key file")
+                print("3. Place it as 'hr-dashboard-key.json' in the backend directory")
+                print("4. Share your Google Sheet with the service account email")
+                self.is_configured = False
                 return
             
             # Define the scope
@@ -30,21 +37,22 @@ class GoogleSheetsService:
             
             # Build the service
             self.service = build('sheets', 'v4', credentials=credentials)
+            self.is_configured = True
             print("Google Sheets service initialized successfully")
             
         except Exception as e:
             print(f"Failed to initialize Google Sheets service: {e}")
             self.service = None
+            self.is_configured = False
     
     def sync_candidates_to_sheet(self, candidates: List[Any]) -> Dict[str, Any]:
         """Sync candidates data to Google Sheets - full sync (add/update/delete)"""
         try:
-            if not self.service:
-                print("ERROR: Google Sheets service not initialized")
+            if not self.is_configured or not self.service:
                 return {
                     'success': False,
                     'synced_count': 0,
-                    'error': 'Google Sheets service not initialized'
+                    'error': 'Google Sheets service not configured. Please add hr-dashboard-key.json file and restart the application.'
                 }
             
             print(f"Starting full sync for {len(candidates)} candidates")
@@ -150,11 +158,11 @@ class GoogleSheetsService:
     def sync_scores_from_sheet(self, db_session) -> Dict[str, Any]:
         """Pull data from Google Sheets and update candidates in database"""
         try:
-            if not self.service:
+            if not self.is_configured or not self.service:
                 return {
                     'success': False,
                     'updated_count': 0,
-                    'error': 'Google Sheets service not initialized'
+                    'error': 'Google Sheets service not configured. Please add hr-dashboard-key.json file and restart the application.'
                 }
             
             # Read all data from sheet
