@@ -305,31 +305,61 @@ export default function Resumes() {
   }
 
   const handleViewResume = async (candidate) => {
-    if (candidate.resume_file_path) {
-      try {
-        const url = api.getResumeFileUrl(candidate.id)
-        const response = await fetch(url, {
-          headers: {
-            'Authorization': `Bearer ${api.getToken()}`
-          }
-        })
-        
-        if (!response.ok) {
-          throw new Error('Failed to fetch resume')
-        }
-        
-        const blob = await response.blob()
-        const blobUrl = window.URL.createObjectURL(blob)
-        window.open(blobUrl, '_blank')
-        
-        // Clean up the blob URL after a delay
-        setTimeout(() => window.URL.revokeObjectURL(blobUrl), 1000)
-      } catch (error) {
-        console.error('Error viewing resume:', error)
-        alert('Unable to view resume. Please try again.')
-      }
-    } else {
+    if (!candidate.resume_file_path) {
       alert('No resume file available for this candidate')
+      return
+    }
+
+    try {
+      const url = api.getResumeFileUrl(candidate.id)
+      const token = api.getToken()
+      
+      if (!token) {
+        alert('Authentication required. Please log in again.')
+        return
+      }
+
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      })
+      
+      if (!response.ok) {
+        if (response.status === 404) {
+          throw new Error('Resume file not found on server')
+        } else if (response.status === 401) {
+          throw new Error('Authentication failed. Please log in again.')
+        } else {
+          throw new Error(`Failed to fetch resume (Status: ${response.status})`)
+        }
+      }
+      
+      const blob = await response.blob()
+      
+      if (blob.size === 0) {
+        throw new Error('Resume file is empty')
+      }
+      
+      const blobUrl = window.URL.createObjectURL(blob)
+      const newWindow = window.open(blobUrl, '_blank')
+      
+      if (!newWindow) {
+        // Popup blocked - download instead
+        const link = document.createElement('a')
+        link.href = blobUrl
+        link.download = `${candidate.name}_resume.pdf`
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+      }
+      
+      // Clean up the blob URL after a delay
+      setTimeout(() => window.URL.revokeObjectURL(blobUrl), 5000)
+    } catch (error) {
+      console.error('Error viewing resume:', error)
+      alert(`Unable to view resume: ${error.message}`)
     }
   }
 
