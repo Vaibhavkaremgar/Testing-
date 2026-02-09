@@ -253,3 +253,24 @@ class ClientStats(BaseModel):
     total_positions: int
     open_positions: int
     filled_positions: int
+
+# Communication Schemas
+class EmailCommunicationCreate(BaseModel):
+    candidate_id: int
+    email_type: str
+
+class EmailCommunicationUpdate(BaseModel):
+    status: Optional[str] = None
+
+class EmailCommunicationResponse(BaseModel):
+    id: int
+    candidate_id: int
+    candidate_name: Optional[str] = None
+    candidate_email: Optional[str] = None
+    email_type: str
+    status: str
+    sent_at: Optional[datetime] = None
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True

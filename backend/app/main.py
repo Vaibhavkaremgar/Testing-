@@ -4,7 +4,7 @@ from fastapi.staticfiles import StaticFiles
 import os
 from app.config import settings
 from app.database import engine, Base
-from app.routes import auth, candidates, jobs, interviews, analytics, email_templates, clients, webhooks
+from app.routes import auth, candidates, jobs, interviews, analytics, email_templates, clients, webhooks, communications
 from app.routes import settings as settings_routes
 from app.seed import seed_database
 
@@ -44,6 +44,7 @@ app.include_router(email_templates.router, prefix="/api")
 app.include_router(settings_routes.router, prefix="/api")
 app.include_router(clients.router, prefix="/api")
 app.include_router(webhooks.router, prefix="/api")
+app.include_router(communications.router)
 
 @app.on_event("startup")
 async def startup_event():

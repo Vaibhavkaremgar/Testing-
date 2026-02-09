@@ -1,47 +1,107 @@
 # Google Sheets Integration Setup
 
-## Current Status: ❌ Not Configured
+## Problem
+"Sync failed: Google Sheets service not configured. Please add hr-dashboard-key.json file and restart the application."
 
-The Google Sheets sync functionality requires a service account key file that is currently missing.
+## Solution
 
-## Setup Steps:
+The app now supports **two methods** for Google Sheets authentication:
 
-### 1. Create Google Cloud Service Account
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Create a new project or select existing one
-3. Enable Google Sheets API
-4. Go to "IAM & Admin" > "Service Accounts"
-5. Click "Create Service Account"
-6. Name it "hr-dashboard-sync" 
-7. Click "Create and Continue"
-8. Skip role assignment (click "Continue")
-9. Click "Done"
+### Method 1: Environment Variable (Recommended for Railway)
 
-### 2. Generate Service Account Key
-1. Click on the created service account
-2. Go to "Keys" tab
-3. Click "Add Key" > "Create New Key"
-4. Select "JSON" format
-5. Download the key file
-6. Rename it to `hr-dashboard-key.json`
-7. Place it in the `backend/` directory
+**Step 1**: Get your Google Service Account JSON key
+- Go to [Google Cloud Console](https://console.cloud.google.com/)
+- Create/select a project
+- Enable Google Sheets API
+- Create a Service Account
+- Download the JSON key file
 
-### 3. Share Google Sheet
-1. Open your Google Sheet: https://docs.google.com/spreadsheets/d/18ugwqo2-_A80zPP_JfCRL6sDKNGBCweWkxsFuSmfQmE
-2. Click "Share" button
-3. Add the service account email (found in the JSON key file)
-4. Give "Editor" permissions
-5. Click "Send"
+**Step 2**: Copy the entire JSON content
 
-### 4. Restart Application
-After placing the key file, restart the backend service for changes to take effect.
+**Step 3**: In Railway Backend Service, add environment variable:
+```
+Variable Name: GOOGLE_SHEETS_CREDENTIALS
+Value: {paste entire JSON content here}
+```
 
-## Testing Sync
-Once configured, you can test the sync functionality:
-- **Sync to Sheets**: Exports candidates to Google Sheets
-- **Sync from Sheets**: Imports updates from Google Sheets
+Example JSON format:
+```json
+{
+  "type": "service_account",
+  "project_id": "your-project",
+  "private_key_id": "...",
+  "private_key": "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n",
+  "client_email": "your-service-account@your-project.iam.gserviceaccount.com",
+  "client_id": "...",
+  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+  "token_uri": "https://oauth2.googleapis.com/token",
+  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+  "client_x509_cert_url": "..."
+}
+```
+
+**Step 4**: Share your Google Sheet with the service account email
+- Open your Google Sheet
+- Click "Share"
+- Add the `client_email` from the JSON (e.g., `your-service-account@your-project.iam.gserviceaccount.com`)
+- Give it "Editor" permissions
+
+**Step 5**: Restart Railway backend service
+
+### Method 2: JSON File (For Local Development)
+
+**Step 1**: Download your service account JSON key
+
+**Step 2**: Place it in the backend directory:
+```
+backend/hr-dashboard-key.json
+```
+
+**Step 3**: Share your Google Sheet with the service account email
+
+**Step 4**: Restart the backend:
+```bash
+cd backend
+uvicorn app.main:app --reload
+```
+
+## Verify Setup
+
+After setup, check backend logs for:
+```
+✓ Google Sheets service initialized successfully from environment
+```
+or
+```
+✓ Google Sheets service initialized successfully from file
+```
+
+## Current Sheet ID
+
+The app is configured to use this Google Sheet:
+```
+Sheet ID: 18ugwqo2-_A80zPP_JfCRL6sDKNGBCweWkxsFuSmfQmE
+```
+
+To change it, update `backend/app/google_sheets.py` line 10.
 
 ## Troubleshooting
-- Ensure the JSON key file is named exactly `hr-dashboard-key.json`
-- Verify the service account email has access to the Google Sheet
-- Check backend logs for detailed error messages
+
+**Error: "Google Sheets service not configured"**
+- Check if `GOOGLE_SHEETS_CREDENTIALS` environment variable is set in Railway
+- Verify JSON format is valid
+- Restart the backend service
+
+**Error: "Permission denied"**
+- Make sure you shared the Google Sheet with the service account email
+- Give "Editor" permissions, not just "Viewer"
+
+**Error: "Invalid credentials"**
+- Verify the JSON content is complete and not truncated
+- Check that Google Sheets API is enabled in your Google Cloud project
+
+## Security Note
+
+⚠️ **Never commit the JSON key file to git!**
+- The file is already in `.gitignore`
+- Always use environment variables for production
