@@ -75,10 +75,6 @@ export default function Login() {
               Sign In
             </Button>
           </form>
-          <div className="mt-6 text-center text-sm text-muted-foreground">
-            <p>Demo credentials:</p>
-            <p className="font-mono text-xs mt-1">recruiter@talentai.com / recruiter123</p>
-          </div>
         </CardContent>
       </Card>
     </div>
