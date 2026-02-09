@@ -385,6 +385,10 @@ def evaluate_candidate_contextually(resume_text: str, job_title: str, job_descri
     from app.config import settings
     import json
     
+    print(f"\n🔍 LLM Configuration Check:")
+    print(f"   GROQ_API_KEY: {'✅ SET' if settings.GROQ_API_KEY else '❌ NOT SET'}")
+    print(f"   LLM_PROVIDER: {settings.LLM_PROVIDER}")
+    
     # Prepare prompt for LLM
     prompt = f"""You are an expert ATS (Applicant Tracking System) and recruitment specialist. Analyze this resume against the job description and provide a detailed evaluation.
 
@@ -423,40 +427,73 @@ Provide ONLY the JSON response, no additional text."""
     try:
         # Try LLM analysis
         if settings.GROQ_API_KEY and settings.LLM_PROVIDER == "groq":
+            print(f"   🤖 Using Groq LLM...")
             response = call_groq_llm(prompt, settings.GROQ_API_KEY)
+            print(f"   ✅ Groq LLM response received!")
         elif settings.OPENAI_API_KEY and settings.LLM_PROVIDER == "openai":
+            print(f"   🤖 Using OpenAI LLM...")
             response = call_openai_llm(prompt, settings.OPENAI_API_KEY)
+            print(f"   ✅ OpenAI LLM response received!")
         else:
+            print(f"   ⚠️  No LLM configured, using fallback...")
             # Fallback to rule-based if no LLM configured
             return fallback_evaluation(resume_text, job_title, job_description, job_requirements, candidate_skills, experience_text, projects)
         
         # Parse LLM response
         result = json.loads(response)
+        print(f"   ✅ LLM Score: {result.get('match_score', 'N/A')}")
         return result
         
     except Exception as e:
-        print(f"LLM evaluation failed: {e}, falling back to rule-based")
+        print(f"   ❌ LLM evaluation failed: {e}")
+        print(f"   ⚠️  Falling back to rule-based evaluation...")
         return fallback_evaluation(resume_text, job_title, job_description, job_requirements, candidate_skills, experience_text, projects)
 
 def call_groq_llm(prompt: str, api_key: str) -> str:
     """Call Groq LLM API"""
     import requests
+    import re
     
-    response = requests.post(
-        "https://api.groq.com/openai/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
-        },
-        json={
-            "model": "llama-3.1-70b-versatile",
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.3,
-            "max_tokens": 1000
-        }
-    )
-    response.raise_for_status()
-    return response.json()["choices"][0]["message"]["content"]
+    print(f"   📡 Calling Groq API with key: {api_key[:20]}...")
+    
+    try:
+        response = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": "llama-3.1-70b-versatile",
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.3,
+                "max_tokens": 1000,
+                "response_format": {"type": "json_object"}
+            },
+            timeout=30
+        )
+        
+        print(f"   📊 Groq API Status: {response.status_code}")
+        
+        if response.status_code != 200:
+            print(f"   ❌ Groq API Error: {response.text}")
+            raise Exception(f"Groq API returned {response.status_code}: {response.text}")
+        
+        response.raise_for_status()
+        content = response.json()["choices"][0]["message"]["content"]
+        
+        # Extract JSON from response (in case there's extra text)
+        json_match = re.search(r'\{.*\}', content, re.DOTALL)
+        if json_match:
+            return json_match.group(0)
+        return content
+        
+    except requests.exceptions.Timeout:
+        print(f"   ⏱️ Groq API timeout after 30s")
+        raise
+    except Exception as e:
+        print(f"   ❌ Groq API call failed: {str(e)}")
+        raise
 
 def call_openai_llm(prompt: str, api_key: str) -> str:
     """Call OpenAI API"""
