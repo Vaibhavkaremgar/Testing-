@@ -89,9 +89,10 @@ async def log_email_communication(
     
     # Auto-update candidate stage based on email type
     if request.status == "sent":
-        if request.email_type == "Slot Selection Email":
+        email_type_lower = request.email_type.lower().replace(" ", "_")
+        if email_type_lower == "slot_selection_email" or request.email_type == "Slot Selection Email":
             candidate.stage = CandidateStage.INTERVIEW_SCHEDULED
-        elif request.email_type == "Rejection Email":
+        elif email_type_lower == "rejection_email" or request.email_type == "Rejection Email":
             candidate.stage = CandidateStage.REJECTED
     
     db.commit()
