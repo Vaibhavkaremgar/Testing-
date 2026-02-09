@@ -538,47 +538,55 @@ def fallback_evaluation(resume_text: str, job_title: str, job_description: str,
     import hashlib
     import random
     
+    print(f"\n📄 Resume Analysis:")
+    print(f"   Text length: {len(resume_text)} chars")
+    print(f"   Skills found: {len(candidate_skills) if candidate_skills else 0}")
+    print(f"   Job title: {job_title}")
+    
     # Use resume text hash as seed for consistent but unique scoring
-    resume_hash = hashlib.md5(resume_text.encode()).hexdigest()
+    resume_hash = hashlib.md5((resume_text + str(candidate_skills)).encode()).hexdigest()
     random.seed(resume_hash)  # Same resume = same score, different resumes = different scores
     
-    resume_lower = resume_text.lower()
+    resume_lower = resume_text.lower() if resume_text else ""
     skill_map = JOB_SKILL_MAPS.get(job_title.lower().strip(), JOB_SKILL_MAPS["default"])
     
     # Extract years of experience
     years_exp = 0
-    for match in re.findall(r'(\d+)\s*(?:year|years|yrs)', resume_lower):
-        years_exp = max(years_exp, int(match))
+    if resume_text:
+        for match in re.findall(r'(\d+)\s*(?:year|years|yrs)', resume_lower):
+            years_exp = max(years_exp, int(match))
     
     # Calculate resume content richness
-    word_count = len(resume_text.split())
-    has_email = bool(re.search(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', resume_text))
-    has_phone = bool(re.search(r'\+?\d[\d\s-]{8,}', resume_text))
-    has_education = bool(re.search(r'\b(bachelor|master|phd|degree|university|college|education)\b', resume_lower))
-    has_experience_section = bool(re.search(r'\b(experience|employment|work history)\b', resume_lower))
+    word_count = len(resume_text.split()) if resume_text else 0
+    has_email = bool(re.search(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', resume_text)) if resume_text else False
+    has_education = bool(re.search(r'\b(bachelor|master|phd|degree|university|college|education)\b', resume_lower)) if resume_text else False
+    has_experience_section = bool(re.search(r'\b(experience|employment|work history)\b', resume_lower)) if resume_text else False
     
-    # Base score from content analysis (30-70 range)
-    base_score = 40
+    # Base score starts at 50 (not 25!)
+    base_score = 50
     
-    # Skills contribution (0-15)
-    matched_core = [s for s in skill_map["core"] if s in resume_lower]
-    matched_trans = [s for s in skill_map["transferable"] if s in resume_lower]
-    skills_contribution = len(matched_core) * 3 + len(matched_trans) * 2
+    # Skills contribution (0-20)
+    matched_core = [s for s in skill_map["core"] if s in resume_lower] if resume_text else []
+    matched_trans = [s for s in skill_map["transferable"] if s in resume_lower] if resume_text else []
+    skills_contribution = len(matched_core) * 4 + len(matched_trans) * 2
     if candidate_skills:
-        skills_contribution += len(candidate_skills)
-    skills_contribution = min(15, skills_contribution)
+        skills_contribution += min(10, len(candidate_skills) * 2)
+    skills_contribution = min(20, skills_contribution)
     
     # Experience contribution (0-15)
-    exp_contribution = min(15, years_exp * 2 + (5 if has_experience_section else 0))
+    exp_contribution = min(15, years_exp * 3 + (5 if has_experience_section else 0))
     
-    # Add random variation based on resume hash (10-25 points)
-    unique_variation = random.randint(10, 25)
+    # Random variation based on resume hash (5-20 points) - ALWAYS DIFFERENT
+    unique_variation = random.randint(5, 20)
     
     # Calculate final score
     final_score = base_score + skills_contribution + exp_contribution + unique_variation
     
-    # Ensure score is in range 35-95
-    final_score = max(35, min(95, final_score))
+    print(f"   Base: {base_score}, Skills: {skills_contribution}, Exp: {exp_contribution}, Random: {unique_variation}")
+    print(f"   FINAL SCORE: {final_score}")
+    
+    # Ensure score is in range 50-95
+    final_score = max(50, min(95, final_score))
     
     # Determine match label and status
     if final_score >= 75:
@@ -630,7 +638,7 @@ def fallback_evaluation(resume_text: str, job_title: str, job_description: str,
     template_index = int(resume_hash[:8], 16) % len(summary_templates)
     candidate_summary = summary_templates[template_index]
     
-    ai_analysis = f"Evaluation: Skills {skills_contribution}/15, Experience {exp_contribution}/15, Unique factors {unique_variation}/25. "
+    ai_analysis = f"Evaluation: Skills {skills_contribution}/20, Experience {exp_contribution}/15, Unique factors {unique_variation}/20. "
     ai_analysis += f"Overall: {match_label} ({final_score}/100) for {job_title} position."
     
     return {

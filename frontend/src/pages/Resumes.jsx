@@ -891,38 +891,6 @@ export default function Resumes() {
                         </div>
                       </div>
                     )}
-
-                    {/* Key Strengths */}
-                    {aiAnalysis.key_strengths && aiAnalysis.key_strengths.length > 0 && (
-                      <div>
-                        <p className="text-sm font-medium mb-2">Key Strengths</p>
-                        <ul className="space-y-1">
-                          {aiAnalysis.key_strengths.map((strength, idx) => (
-                            <li key={idx} className="text-sm text-muted-foreground flex items-start gap-2">
-                              <span className="text-green-500 mt-1">✓</span>
-                              <span>{strength}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-
-                    {/* Skill Gaps */}
-                    {aiAnalysis.skill_gaps && aiAnalysis.skill_gaps.length > 0 && (
-                      <div>
-                        <p className="text-sm font-medium mb-2">Areas for Improvement</p>
-                        <ul className="space-y-1">
-                          {aiAnalysis.skill_gaps.map((gap, idx) => (
-                            <li key={idx} className="text-sm text-muted-foreground flex items-start gap-2">
-                              <span className="text-yellow-500 mt-1">⚠</span>
-                              <span>{gap}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-
-
                   </div>
                 ) : (
                   <p className="text-sm text-muted-foreground">No AI analysis available for this candidate.</p>
