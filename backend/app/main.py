@@ -2,11 +2,40 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import os
+import sqlite3
 from app.config import settings
 from app.database import engine, Base
 from app.routes import auth, candidates, jobs, interviews, analytics, email_templates, clients, webhooks, communications
 from app.routes import settings as settings_routes
 from app.seed import seed_database
+
+# Run migrations BEFORE creating tables
+def run_migrations():
+    """Run database migrations"""
+    db_path = "recruitment.db"
+    
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        # Check if candidates table exists
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='candidates'")
+        if cursor.fetchone():
+            # Check if summary column exists
+            cursor.execute("PRAGMA table_info(candidates)")
+            columns = [column[1] for column in cursor.fetchall()]
+            
+            if 'summary' not in columns:
+                print("Running migration: Adding 'summary' column to candidates table...")
+                cursor.execute("ALTER TABLE candidates ADD COLUMN summary TEXT")
+                conn.commit()
+                print("✓ Migration complete: 'summary' column added")
+        
+        conn.close()
+    except Exception as e:
+        print(f"Migration error: {e}")
+
+run_migrations()
 
 # Create database tables
 Base.metadata.create_all(bind=engine)
@@ -49,37 +78,9 @@ app.include_router(communications.router)
 @app.on_event("startup")
 async def startup_event():
     """Seed database with initial data on startup"""
-    # Run database migrations
-    run_migrations()
-    
     # Seeding enabled for demo data
     seed_database()
     pass
-
-def run_migrations():
-    """Run database migrations on startup"""
-    import sqlite3
-    from app.config import settings
-    
-    db_path = "recruitment.db"
-    
-    try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        
-        # Check if summary column exists
-        cursor.execute("PRAGMA table_info(candidates)")
-        columns = [column[1] for column in cursor.fetchall()]
-        
-        if 'summary' not in columns:
-            print("Running migration: Adding 'summary' column to candidates table...")
-            cursor.execute("ALTER TABLE candidates ADD COLUMN summary TEXT")
-            conn.commit()
-            print("✓ Migration complete: 'summary' column added")
-        
-        conn.close()
-    except Exception as e:
-        print(f"Migration error: {e}")
 
 @app.get("/api/health")
 def health_check():
