@@ -591,14 +591,36 @@ def extract_skills_from_job_text(job_text: str) -> list:
     
     return list(skills)
 
-def simulate_resume_parsing(candidate: Candidate, db: Session):
-    """Resume parsing without scoring"""
+def simulate_resume_parsing(candidate: Candidate, db: Session, ai_analysis: dict = None):
+    """Resume parsing with AI scoring and stage assignment"""
     
     candidate.parsing_status = ParsingStatus.COMPLETED
     
-    # No scoring - keep score as None
-    candidate.resume_score = None
-    candidate.stage = CandidateStage.UPLOADED
+    if ai_analysis:
+        # Set score from AI analysis
+        candidate.resume_score = ai_analysis.get('match_score', 0)
+        
+        # Set skills from AI analysis
+        if 'key_strengths' in ai_analysis and ai_analysis['key_strengths']:
+            # Extract skill names from strengths
+            skills = []
+            for strength in ai_analysis['key_strengths']:
+                if ':' in strength:
+                    skill_part = strength.split(':')[1].strip()
+                    skills.extend([s.strip() for s in skill_part.split(',')])
+            candidate.skills = skills[:20] if skills else []
+        
+        # Set stage based on score and threshold
+        if candidate.resume_score >= (candidate.score_threshold or 60):
+            candidate.stage = CandidateStage.SHORTLISTED
+            candidate.display_status = "shortlisted"
+        else:
+            candidate.stage = CandidateStage.REJECTED
+            candidate.display_status = "rejected"
+    else:
+        # No AI analysis - keep as uploaded
+        candidate.resume_score = None
+        candidate.stage = CandidateStage.UPLOADED
     
     db.commit()
     db.refresh(candidate)
@@ -836,7 +858,7 @@ async def upload_resume(
             name=name,
             email=email,
             phone=phone,
-            skills=[],  # Leave empty for N8N to fill
+            skills=extracted_skills,  # Use extracted skills
             resume_file_path=file_path,
             resume_text=full_text,  # Store full text
             candidate_id=candidate_id,  # Store generated ID
@@ -849,8 +871,8 @@ async def upload_resume(
         db.commit()
         db.refresh(db_candidate)
         
-        # Simulate resume parsing
-        simulate_resume_parsing(db_candidate, db)
+        # Perform AI analysis and set score/stage
+        simulate_resume_parsing(db_candidate, db, ai_analysis)
         
         return {"message": "Resume uploaded successfully", "candidate_id": db_candidate.id}
         
@@ -924,7 +946,7 @@ async def bulk_upload_resumes(
                 name=name,
                 email=email,
                 phone=phone,
-                skills=[],  # Leave empty for N8N to fill
+                skills=extracted_skills,  # Use extracted skills
                 resume_file_path=file_path,
                 resume_text=full_text,  # Store full text
                 candidate_id=candidate_id,  # Store generated ID
@@ -937,7 +959,30 @@ async def bulk_upload_resumes(
             db.commit()
             db.refresh(db_candidate)
             
-            simulate_resume_parsing(db_candidate, db)
+            # Get AI analysis for this candidate
+            ai_analysis = None
+            if job_id:
+                from app.models import JobDescription
+                job = db.query(JobDescription).filter(JobDescription.id == job_id).first()
+                if job:
+                    job_data = {
+                        'title': job.title,
+                        'description': job.description or '',
+                        'requirements': job.requirements or '',
+                        'skills': job.skills or []
+                    }
+                    analysis_data = {
+                        'name': name,
+                        'email': email,
+                        'phone': phone,
+                        'skills': extracted_skills,
+                        'experience_text': '',
+                        'projects': [],
+                        'full_text': full_text
+                    }
+                    ai_analysis = analyze_resume_with_ai(analysis_data, job_data)
+            
+            simulate_resume_parsing(db_candidate, db, ai_analysis)
             
             results.append({"filename": file.filename, "status": "success", "candidate_id": db_candidate.id})
         except Exception as e:

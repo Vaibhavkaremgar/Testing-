@@ -204,7 +204,12 @@ export default function Resumes() {
         const result = await api.bulkUploadResumes(files, jobId, minPassingScore)
         console.log('Bulk upload result:', result)
       }
+      
+      // Refresh candidates list to show new data with scores and status
       await fetchCandidates()
+      
+      // Show success message
+      alert('Resume(s) uploaded successfully! Scores and status have been calculated.')
     } catch (error) {
       console.error('Upload failed:', error)
       setError(`Upload failed: ${error.message}`)
@@ -422,36 +427,6 @@ export default function Resumes() {
     }
   }
 
-  const handleDeleteAll = async () => {
-    if (!confirm(`Are you sure you want to delete ALL ${candidates.length} candidates? This action cannot be undone!`)) {
-      return
-    }
-    
-    if (!confirm('This will permanently delete all candidates and their data. Are you absolutely sure?')) {
-      return
-    }
-
-    try {
-      setError('')
-      let deletedCount = 0
-      
-      for (const candidate of candidates) {
-        try {
-          await api.deleteCandidate(candidate.id)
-          deletedCount++
-        } catch (error) {
-          console.error(`Failed to delete candidate ${candidate.id}:`, error)
-        }
-      }
-      
-      alert(`Successfully deleted ${deletedCount} out of ${candidates.length} candidates`)
-      await fetchCandidates()
-    } catch (error) {
-      console.error('Delete all failed:', error)
-      setError(`Delete all failed: ${error.message}`)
-    }
-  }
-
   const getParsingStatusBadge = (status) => {
     const statusConfig = {
       completed: { icon: CheckCircle, color: 'text-green-600', bg: 'bg-green-100 dark:bg-green-900/30' },
@@ -619,15 +594,6 @@ export default function Resumes() {
         >
           <Sheet className="h-4 w-4" />
           {syncing ? 'Syncing...' : 'Sync FROM Sheets'}
-        </Button>
-        <Button 
-          onClick={handleDeleteAll} 
-          disabled={candidates.length === 0}
-          variant="destructive"
-          className="flex items-center gap-2"
-        >
-          <Trash2 className="h-4 w-4" />
-          Delete All
         </Button>
       </div>
 
