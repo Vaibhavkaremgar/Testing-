@@ -312,10 +312,9 @@ export default function Jobs() {
                   <Input
                     value={formData.salary_range}
                     onChange={(e) => setFormData({ ...formData, salary_range: e.target.value })}
-                    placeholder="e.g., ₹5L - ₹10L or $100k - $150k"
+                    placeholder="e.g., $100k - $150k"
                     disabled={inputMethod === 'upload'}
                   />
-                  <p className="text-xs text-muted-foreground">Supports ₹ (Rupees) or $ (Dollars)</p>
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Vacancies</label>

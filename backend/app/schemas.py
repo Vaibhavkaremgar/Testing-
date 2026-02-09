@@ -97,7 +97,6 @@ class CandidateUpdate(BaseModel):
 class CandidateResponse(CandidateBase):
     id: int
     resume_file_path: Optional[str] = None
-    summary: Optional[str] = None  # Summary from Google Sheets
     parsing_status: ParsingStatus
     resume_score: Optional[float] = None
     score_threshold: Optional[float] = None
