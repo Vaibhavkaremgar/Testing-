@@ -178,15 +178,42 @@ export default function Clients() {
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Total Positions</label>
-                  <Input type="number" value={formData.total_positions} onChange={(e) => setFormData({ ...formData, total_positions: parseInt(e.target.value) || 0 })} />
+                  <Input 
+                    type="number" 
+                    value={formData.total_positions} 
+                    onChange={(e) => setFormData({ ...formData, total_positions: parseInt(e.target.value) || 0 })} 
+                    disabled={editingClient !== null}
+                    className={editingClient ? "bg-muted cursor-not-allowed" : ""}
+                  />
+                  {editingClient && (
+                    <p className="text-xs text-muted-foreground">Auto-calculated from jobs</p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Positions Filled</label>
-                  <Input type="number" value={formData.positions_filled} onChange={(e) => setFormData({ ...formData, positions_filled: parseInt(e.target.value) || 0 })} />
+                  <Input 
+                    type="number" 
+                    value={formData.positions_filled} 
+                    onChange={(e) => setFormData({ ...formData, positions_filled: parseInt(e.target.value) || 0 })} 
+                    disabled={editingClient !== null}
+                    className={editingClient ? "bg-muted cursor-not-allowed" : ""}
+                  />
+                  {editingClient && (
+                    <p className="text-xs text-muted-foreground">Auto-calculated from jobs</p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Positions Open</label>
-                  <Input type="number" value={formData.positions_open} onChange={(e) => setFormData({ ...formData, positions_open: parseInt(e.target.value) || 0 })} />
+                  <Input 
+                    type="number" 
+                    value={formData.positions_open} 
+                    onChange={(e) => setFormData({ ...formData, positions_open: parseInt(e.target.value) || 0 })} 
+                    disabled={editingClient !== null}
+                    className={editingClient ? "bg-muted cursor-not-allowed" : ""}
+                  />
+                  {editingClient && (
+                    <p className="text-xs text-muted-foreground">Auto-calculated from jobs</p>
+                  )}
                 </div>
               </div>
               <div className="flex justify-end gap-2">
@@ -308,9 +335,6 @@ export default function Clients() {
                       </td>
                       <td className="py-3 px-4">
                         <div className="flex justify-center gap-1">
-                          <Button variant="ghost" size="icon" onClick={() => handleEdit(client)}>
-                            <Edit className="h-4 w-4" />
-                          </Button>
                           <Button variant="ghost" size="icon" onClick={() => handleDelete(client.id)}>
                             <Trash2 className="h-4 w-4 text-destructive" />
                           </Button>
