@@ -58,6 +58,13 @@ export default function Communications() {
 
   useEffect(() => {
     fetchCommunications()
+    
+    // Auto-refresh every 5 seconds to show new emails
+    const interval = setInterval(() => {
+      fetchCommunications()
+    }, 5000)
+    
+    return () => clearInterval(interval)
   }, [])
 
   const fetchCommunications = async () => {
@@ -71,7 +78,7 @@ export default function Communications() {
     }
   }
 
-  // Calculate stats from real data
+  // Calculate stats from real data - Only Shortlisted and Resume Rejected
   const stats = [
     { 
       label: 'Shortlisted Emails', 
@@ -86,34 +93,6 @@ export default function Communications() {
       icon: Mail, 
       color: 'text-red-600',
       type: 'resume_rejected'
-    },
-    { 
-      label: 'Interview Invites', 
-      value: communications.filter(c => c.type === 'Interview Invitation').length, 
-      icon: Send, 
-      color: 'text-purple-600',
-      type: 'interview'
-    },
-    { 
-      label: 'Selection Emails', 
-      value: communications.filter(c => c.type === 'Selection').length, 
-      icon: Mail, 
-      color: 'text-green-600',
-      type: 'selection'
-    },
-    { 
-      label: 'Interview Rejected', 
-      value: communications.filter(c => c.type === 'Interview Rejected').length, 
-      icon: Mail, 
-      color: 'text-orange-600',
-      type: 'interview_rejected'
-    },
-    { 
-      label: 'Offer Letters', 
-      value: communications.filter(c => c.type === 'Offer Letter').length, 
-      icon: Send, 
-      color: 'text-teal-600',
-      type: 'offer'
     },
   ]
 
@@ -168,8 +147,8 @@ export default function Communications() {
         <p className="text-muted-foreground">Track email communications with candidates</p>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-6">
+      {/* Stats Cards - Only 2 cards */}
+      <div className="grid gap-4 md:grid-cols-2">
         {stats.map((stat) => (
           <Card key={stat.label} className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => handleStatClick(stat.type)}>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
