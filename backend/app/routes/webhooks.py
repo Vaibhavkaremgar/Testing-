@@ -35,12 +35,19 @@ async def update_candidate_score(
     # Update score
     candidate.resume_score = request.score
     
-    # Update stage based on threshold
-    if candidate.score_threshold:
-        if request.score >= candidate.score_threshold:
-            candidate.stage = CandidateStage.SHORTLISTED
-        else:
-            candidate.stage = CandidateStage.REJECTED
+    # Check if candidate has received any emails (primary method)
+    email_sent = db.query(EmailCommunication).filter(
+        EmailCommunication.candidate_id == candidate.id,
+        EmailCommunication.status == "sent"
+    ).first()
+    
+    # Only update stage based on score if NO email has been sent (fallback)
+    if not email_sent:
+        if candidate.score_threshold:
+            if request.score >= candidate.score_threshold:
+                candidate.stage = CandidateStage.SHORTLISTED
+            else:
+                candidate.stage = CandidateStage.REJECTED
     
     db.commit()
     db.refresh(candidate)
@@ -49,7 +56,8 @@ async def update_candidate_score(
         "success": True,
         "candidate_id": candidate.candidate_id,
         "score": candidate.resume_score,
-        "stage": candidate.stage.value
+        "stage": candidate.stage.value,
+        "stage_source": "email" if email_sent else "score"
     }
 
 @router.post("/log-email")
@@ -78,13 +86,22 @@ async def log_email_communication(
     )
     
     db.add(email_comm)
+    
+    # Auto-update candidate stage based on email type
+    if request.status == "sent":
+        if request.email_type == "Slot Selection Email":
+            candidate.stage = CandidateStage.INTERVIEW_SCHEDULED
+        elif request.email_type == "Rejection Email":
+            candidate.stage = CandidateStage.REJECTED
+    
     db.commit()
     
     return {
         "success": True,
         "candidate_id": candidate.candidate_id,
         "email_type": request.email_type,
-        "status": request.status
+        "status": request.status,
+        "stage_updated": candidate.stage.value if request.status == "sent" else None
     }
 
 @router.get("/communications")
