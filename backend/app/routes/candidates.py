@@ -518,14 +518,39 @@ def call_openai_llm(prompt: str, api_key: str) -> str:
 # JD-Driven Skill Maps
 JOB_SKILL_MAPS = {
     "hr executive": {
-        "core": ["recruitment", "hiring", "hr operations", "employee relations", "onboarding", "payroll", "compliance"],
-        "transferable": ["team management", "people management", "leadership", "coordination", "employee handling"],
-        "ignore": ["javascript", "python", "agile", "data analysis", "coding"]
+        "core": ["recruitment", "hiring", "hr operations", "employee relations", "onboarding", "payroll", "compliance", "talent acquisition", "hr management", "human resources", "staffing", "benefits", "compensation"],
+        "transferable": ["team management", "people management", "leadership", "coordination", "employee handling", "communication", "organization"],
+        "ignore": ["javascript", "python", "java", "programming", "coding", "software", "development", "algorithm", "data structure", "react", "angular", "node", "api", "database", "sql", "html", "css"]
     },
     "software engineer": {
-        "core": ["programming", "coding", "algorithms", "data structures", "software development"],
-        "transferable": ["problem solving", "teamwork"],
-        "ignore": ["recruitment", "hr"]
+        "core": ["programming", "coding", "algorithms", "data structures", "software development", "python", "java", "javascript", "c++", "c#", "git", "api", "database", "sql", "backend", "frontend", "full stack"],
+        "transferable": ["problem solving", "teamwork", "analytical", "debugging"],
+        "ignore": ["recruitment", "hr", "hiring", "payroll", "employee relations", "onboarding", "talent acquisition", "human resources", "staffing", "benefits", "compensation"]
+    },
+    "web developer": {
+        "core": ["html", "css", "javascript", "react", "angular", "vue", "node.js", "frontend", "backend", "web development", "responsive", "ui", "ux"],
+        "transferable": ["problem solving", "teamwork", "design"],
+        "ignore": ["recruitment", "hr", "hiring", "payroll", "employee relations"]
+    },
+    "data scientist": {
+        "core": ["python", "statistics", "machine learning", "data analysis", "pandas", "numpy", "tensorflow", "pytorch", "sql", "r", "data mining", "modeling", "visualization"],
+        "transferable": ["analytical thinking", "research", "problem solving"],
+        "ignore": ["recruitment", "hr", "hiring", "payroll", "employee relations"]
+    },
+    "data analyst": {
+        "core": ["data analysis", "sql", "excel", "tableau", "power bi", "statistics", "python", "r", "data visualization", "reporting"],
+        "transferable": ["analytical thinking", "problem solving", "communication"],
+        "ignore": ["recruitment", "hr", "hiring", "payroll"]
+    },
+    "marketing manager": {
+        "core": ["marketing", "digital marketing", "seo", "sem", "social media", "content marketing", "brand management", "campaign", "analytics", "advertising"],
+        "transferable": ["communication", "creativity", "strategy", "leadership"],
+        "ignore": ["programming", "coding", "software development", "javascript", "python"]
+    },
+    "sales executive": {
+        "core": ["sales", "business development", "client relationship", "negotiation", "crm", "lead generation", "closing", "revenue"],
+        "transferable": ["communication", "persuasion", "networking"],
+        "ignore": ["programming", "coding", "software development", "hr", "recruitment"]
     },
     "default": {"core": [], "transferable": ["communication", "teamwork"], "ignore": []}
 }
@@ -562,16 +587,31 @@ def fallback_evaluation(resume_text: str, job_title: str, job_description: str,
     has_education = bool(re.search(r'\b(bachelor|master|phd|degree|university|college|education)\b', resume_lower)) if resume_text else False
     has_experience_section = bool(re.search(r'\b(experience|employment|work history)\b', resume_lower)) if resume_text else False
     
+    # Check for ignored skills (wrong domain)
+    ignored_skills_found = [s for s in skill_map["ignore"] if s in resume_lower] if resume_text and skill_map["ignore"] else []
+    
     # Base score starts at 50 (not 25!)
     base_score = 50
     
     # Skills contribution (0-20)
     matched_core = [s for s in skill_map["core"] if s in resume_lower] if resume_text else []
     matched_trans = [s for s in skill_map["transferable"] if s in resume_lower] if resume_text else []
+    
+    # PENALTY: If resume has skills from ignored list (wrong domain), reduce score significantly
+    domain_mismatch_penalty = 0
+    if ignored_skills_found and len(ignored_skills_found) >= 2:
+        domain_mismatch_penalty = 25  # Heavy penalty for wrong domain
+        print(f"   ⚠️ DOMAIN MISMATCH: Found {len(ignored_skills_found)} skills from wrong domain: {ignored_skills_found[:3]}")
+    
     skills_contribution = len(matched_core) * 4 + len(matched_trans) * 2
     if candidate_skills:
         skills_contribution += min(10, len(candidate_skills) * 2)
     skills_contribution = min(20, skills_contribution)
+    
+    # If NO core skills matched but ignored skills found, set skills contribution to 0
+    if len(matched_core) == 0 and ignored_skills_found:
+        skills_contribution = 0
+        print(f"   ❌ NO CORE SKILLS MATCHED - Setting skills contribution to 0")
     
     # Experience contribution (0-15)
     exp_contribution = min(15, years_exp * 3 + (5 if has_experience_section else 0))
@@ -579,14 +619,14 @@ def fallback_evaluation(resume_text: str, job_title: str, job_description: str,
     # Random variation based on resume hash (5-20 points) - ALWAYS DIFFERENT
     unique_variation = random.randint(5, 20)
     
-    # Calculate final score
-    final_score = base_score + skills_contribution + exp_contribution + unique_variation
+    # Calculate final score WITH PENALTY
+    final_score = base_score + skills_contribution + exp_contribution + unique_variation - domain_mismatch_penalty
     
-    print(f"   Base: {base_score}, Skills: {skills_contribution}, Exp: {exp_contribution}, Random: {unique_variation}")
+    print(f"   Base: {base_score}, Skills: {skills_contribution}, Exp: {exp_contribution}, Random: {unique_variation}, Penalty: -{domain_mismatch_penalty}")
     print(f"   FINAL SCORE: {final_score}")
     
-    # Ensure score is in range 50-95
-    final_score = max(50, min(95, final_score))
+    # Ensure score is in range 30-95 (can go lower due to penalty)
+    final_score = max(30, min(95, final_score))
     
     # Determine match label and status
     if final_score >= 75:
@@ -624,6 +664,8 @@ def fallback_evaluation(resume_text: str, job_title: str, job_description: str,
         gaps.append("Limited professional experience")
     if not has_education:
         gaps.append("Educational background not clearly stated")
+    if ignored_skills_found:
+        gaps.append(f"Skills from different domain: {', '.join(ignored_skills_found[:2])}")
     if not gaps:
         gaps.append("No significant gaps identified")
     
