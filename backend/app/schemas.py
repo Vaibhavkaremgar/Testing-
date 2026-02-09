@@ -107,6 +107,7 @@ class CandidateResponse(CandidateBase):
     stage_updated_at: datetime
     job_id: Optional[int] = None
     job_title: Optional[str] = None
+    summary: Optional[str] = None
     created_at: datetime
     
     class Config:
