@@ -627,67 +627,100 @@ def fallback_evaluation(resume_text: str, job_title: str, job_description: str,
     if not gaps:
         gaps.append("No significant gaps identified")
     
-    # Generate detailed, unique summary (5-7 sentences)
-    summary_parts = []
+    # Generate detailed, unique summary using 25+ diverse templates
+    template_num = random.randint(1, 28)
     
-    # Sentence 1: Introduction with experience level
-    if years_exp >= 10:
-        summary_parts.append(f"Highly experienced professional with {years_exp}+ years in the industry.")
-    elif years_exp >= 5:
-        summary_parts.append(f"Seasoned professional with {years_exp} years of proven experience.")
-    elif years_exp >= 3:
-        summary_parts.append(f"Mid-level professional with {years_exp} years of hands-on experience.")
-    elif years_exp >= 1:
-        summary_parts.append(f"Early-career professional with {years_exp} year(s) of industry experience.")
-    else:
-        summary_parts.append(f"Entry-level candidate eager to contribute to the {job_title} role.")
-    
-    # Sentence 2: Core skills alignment
-    if matched_core and len(matched_core) >= 2:
-        summary_parts.append(f"Demonstrates strong proficiency in {', '.join(matched_core[:3])}, which directly aligns with the core requirements for the {job_title} position.")
-    elif matched_core:
-        summary_parts.append(f"Possesses relevant expertise in {matched_core[0]}, showing alignment with key job requirements.")
-    elif candidate_skills and len(candidate_skills) >= 3:
-        summary_parts.append(f"Brings technical capabilities in {', '.join(candidate_skills[:3])}, providing a foundation for the {job_title} role.")
-    else:
-        summary_parts.append(f"Shows foundational knowledge applicable to the {job_title} position.")
-    
-    # Sentence 3: Transferable skills and additional strengths
-    if matched_trans and len(matched_trans) >= 2:
-        summary_parts.append(f"Additionally exhibits strong {', '.join(matched_trans[:2])} skills, which are valuable for team collaboration and project success.")
-    elif matched_trans:
-        summary_parts.append(f"Also demonstrates {matched_trans[0]} capabilities that complement technical expertise.")
-    elif has_education:
-        summary_parts.append(f"Educational background provides theoretical foundation to support practical application.")
-    
-    # Sentence 4: Skill gaps (if significant)
+    # Template variables
+    exp_desc = f"{years_exp}+ years" if years_exp >= 10 else f"{years_exp} years" if years_exp >= 1 else "entry-level"
+    core_skills_str = ', '.join(matched_core[:3]) if matched_core else ', '.join(candidate_skills[:3]) if candidate_skills else "general skills"
+    trans_skills_str = ', '.join(matched_trans[:2]) if matched_trans else "soft skills"
     missing_critical = [s for s in skill_map["core"][:3] if s not in resume_lower]
-    if len(missing_critical) >= 2 and skill_map["core"]:
-        summary_parts.append(f"However, development opportunities exist in {', '.join(missing_critical[:2])}, which are important for this role.")
-    elif len(missing_critical) == 1:
-        summary_parts.append(f"Some growth potential identified in {missing_critical[0]} to fully meet all position requirements.")
+    gaps_str = ', '.join(missing_critical[:2]) if missing_critical else "minor areas"
     
-    # Sentence 5: Overall fit assessment
-    if final_score >= 85:
-        summary_parts.append(f"With an exceptional compatibility score of {final_score}/100, this candidate is an outstanding match and strongly recommended for immediate consideration.")
-    elif final_score >= 75:
-        summary_parts.append(f"Scoring {final_score}/100, this candidate represents a strong fit and is highly recommended for the interview stage.")
-    elif final_score >= 65:
-        summary_parts.append(f"With a solid score of {final_score}/100, this candidate shows good potential and warrants serious consideration.")
-    elif final_score >= 55:
-        summary_parts.append(f"Achieving {final_score}/100, this candidate demonstrates moderate alignment and may be suitable depending on specific team needs.")
-    else:
-        summary_parts.append(f"Scoring {final_score}/100, this candidate shows limited alignment with requirements and may need additional evaluation.")
+    # 28 completely different templates
+    if template_num == 1:
+        candidate_summary = f"This applicant brings {exp_desc} of industry exposure with demonstrated capabilities in {core_skills_str}. The profile reveals competency alignment scoring {final_score}/100 against {job_title} requirements. Notable strengths include {trans_skills_str}, though {gaps_str} could benefit from further development. Overall assessment suggests {'immediate interview scheduling' if final_score >= 75 else 'phone screening consideration' if final_score >= 60 else 'comparative evaluation with other applicants'}."
     
-    # Sentence 6: Recommendation
-    if final_score >= 75:
-        summary_parts.append(f"Recommended action: Proceed to interview to assess cultural fit and discuss specific project requirements.")
-    elif final_score >= 60:
-        summary_parts.append(f"Recommended action: Consider for phone screening to explore experience depth and career goals.")
-    else:
-        summary_parts.append(f"Recommended action: Review against other candidates or consider for alternative positions.")
+    elif template_num == 2:
+        candidate_summary = f"Profile analysis indicates {exp_desc} professional background featuring {core_skills_str} expertise. Match evaluation yields {final_score}/100 compatibility with the {job_title} opening. Transferable competencies in {trans_skills_str} add value, while growth opportunities exist in {gaps_str}. Recommendation: {'Fast-track to interview panel' if final_score >= 75 else 'Schedule preliminary phone discussion' if final_score >= 60 else 'Hold for comparison with stronger candidates'}."
     
-    candidate_summary = " ".join(summary_parts)
+    elif template_num == 3:
+        candidate_summary = f"Candidate presents {exp_desc} track record with proficiency across {core_skills_str}. Algorithmic scoring places this resume at {final_score}/100 for {job_title} role fit. Additional assets include {trans_skills_str}, though {gaps_str} represent development zones. Suggested next step: {'Advance to technical interview' if final_score >= 75 else 'Conduct exploratory call' if final_score >= 60 else 'Maintain in reserve pool'}."
+    
+    elif template_num == 4:
+        candidate_summary = f"Resume showcases {exp_desc} of relevant experience emphasizing {core_skills_str}. Compatibility analysis registers {final_score}/100 against {job_title} specifications. Complementary strengths in {trans_skills_str} noted, with {gaps_str} flagged for attention. Action item: {'Priority interview invitation' if final_score >= 75 else 'Initial screening call' if final_score >= 60 else 'Secondary review cycle'}."
+    
+    elif template_num == 5:
+        candidate_summary = f"Applicant demonstrates {exp_desc} career progression featuring {core_skills_str} capabilities. Evaluation metric shows {final_score}/100 alignment with {job_title} criteria. Positive indicators include {trans_skills_str}, whereas {gaps_str} may require upskilling. Proposed action: {'Schedule face-to-face interview' if final_score >= 75 else 'Arrange preliminary discussion' if final_score >= 60 else 'Compare against alternative candidates'}."
+    
+    elif template_num == 6:
+        candidate_summary = f"With {exp_desc} under their belt, this candidate exhibits {core_skills_str} mastery. The resume scores {final_score}/100 when benchmarked against {job_title} needs. Supplementary skills like {trans_skills_str} enhance the profile, but {gaps_str} need addressing. Next move: {'Proceed directly to hiring manager' if final_score >= 75 else 'Conduct phone pre-screen' if final_score >= 60 else 'Place in consideration queue'}."
+    
+    elif template_num == 7:
+        candidate_summary = f"Professional history spans {exp_desc} with concentrated expertise in {core_skills_str}. Quantitative assessment yields {final_score}/100 match score for {job_title}. Ancillary competencies such as {trans_skills_str} are evident, while {gaps_str} present learning curves. Recommendation path: {'Immediate interview scheduling' if final_score >= 75 else 'Exploratory conversation' if final_score >= 60 else 'Deferred evaluation'}."
+    
+    elif template_num == 8:
+        candidate_summary = f"Background reflects {exp_desc} of hands-on work involving {core_skills_str}. Scoring algorithm places candidate at {final_score}/100 for {job_title} suitability. Beneficial attributes include {trans_skills_str}, though {gaps_str} indicate skill gaps. Advised course: {'Fast-track interview process' if final_score >= 75 else 'Initial phone assessment' if final_score >= 60 else 'Hold for batch comparison'}."
+    
+    elif template_num == 9:
+        candidate_summary = f"Experience portfolio covers {exp_desc} with focus on {core_skills_str}. Match index calculates to {final_score}/100 versus {job_title} requirements. Supporting skills in {trans_skills_str} are present, yet {gaps_str} require development. Strategic next step: {'Advance to interview round' if final_score >= 75 else 'Preliminary screening call' if final_score >= 60 else 'Secondary candidate pool'}."
+    
+    elif template_num == 10:
+        candidate_summary = f"Career trajectory shows {exp_desc} emphasizing {core_skills_str} application. Compatibility rating stands at {final_score}/100 for {job_title} position. Complementary abilities in {trans_skills_str} strengthen candidacy, while {gaps_str} need enhancement. Recommended pathway: {'Priority interview slot' if final_score >= 75 else 'Phone screening session' if final_score >= 60 else 'Comparative review process'}."
+    
+    elif template_num == 11:
+        candidate_summary = f"Possessing {exp_desc} of practical experience, the candidate shows {core_skills_str} competence. Evaluation framework assigns {final_score}/100 alignment with {job_title}. Value-add skills like {trans_skills_str} are apparent, but {gaps_str} could use improvement. Suggested action: {'Move to interview stage' if final_score >= 75 else 'Conduct initial call' if final_score >= 60 else 'Review alongside other profiles'}."
+    
+    elif template_num == 12:
+        candidate_summary = f"The resume highlights {exp_desc} of domain work featuring {core_skills_str}. Matching score registers {final_score}/100 against {job_title} benchmarks. Additional strengths in {trans_skills_str} are noted, whereas {gaps_str} represent growth areas. Action plan: {'Schedule comprehensive interview' if final_score >= 75 else 'Arrange exploratory call' if final_score >= 60 else 'Place in review queue'}."
+    
+    elif template_num == 13:
+        candidate_summary = f"Candidate's {exp_desc} background centers on {core_skills_str} utilization. Assessment produces {final_score}/100 fit score for {job_title} role. Positive elements include {trans_skills_str}, though {gaps_str} need attention. Recommended next phase: {'Direct to interview panel' if final_score >= 75 else 'Phone pre-qualification' if final_score >= 60 else 'Comparative analysis'}."
+    
+    elif template_num == 14:
+        candidate_summary = f"Work history encompasses {exp_desc} with {core_skills_str} as core competencies. Scoring mechanism indicates {final_score}/100 compatibility with {job_title}. Transferable skills such as {trans_skills_str} add dimension, while {gaps_str} may need training. Proposed next step: {'Expedite to interview' if final_score >= 75 else 'Initial screening discussion' if final_score >= 60 else 'Hold for further review'}."
+    
+    elif template_num == 15:
+        candidate_summary = f"Professional experience totals {exp_desc} with emphasis on {core_skills_str}. Match calculation shows {final_score}/100 alignment to {job_title} specifications. Supplemental capabilities in {trans_skills_str} are beneficial, yet {gaps_str} present challenges. Advised action: {'Proceed with interview' if final_score >= 75 else 'Preliminary phone contact' if final_score >= 60 else 'Secondary consideration'}."
+    
+    elif template_num == 16:
+        candidate_summary = f"Bringing {exp_desc} to the table, this profile demonstrates {core_skills_str} proficiency. Evaluation score reaches {final_score}/100 for {job_title} match. Auxiliary skills like {trans_skills_str} enhance appeal, but {gaps_str} require development. Next step recommendation: {'Interview immediately' if final_score >= 75 else 'Phone screening first' if final_score >= 60 else 'Compare with other applicants'}."
+    
+    elif template_num == 17:
+        candidate_summary = f"Resume indicates {exp_desc} of relevant work with {core_skills_str} at the forefront. Compatibility index measures {final_score}/100 against {job_title} criteria. Positive aspects include {trans_skills_str}, while {gaps_str} need addressing. Strategic recommendation: {'Fast-track interview' if final_score >= 75 else 'Exploratory phone call' if final_score >= 60 else 'Deferred decision'}."
+    
+    elif template_num == 18:
+        candidate_summary = f"Applicant offers {exp_desc} of industry experience highlighting {core_skills_str}. Match score computes to {final_score}/100 for {job_title} opening. Strengths in {trans_skills_str} are evident, though {gaps_str} indicate skill deficits. Recommended course: {'Advance to interviews' if final_score >= 75 else 'Initial assessment call' if final_score >= 60 else 'Batch evaluation'}."
+    
+    elif template_num == 19:
+        candidate_summary = f"Career span covers {exp_desc} with {core_skills_str} as primary focus. Algorithmic match yields {final_score}/100 for {job_title} position. Complementary traits like {trans_skills_str} are present, but {gaps_str} need work. Action pathway: {'Schedule interview round' if final_score >= 75 else 'Conduct phone screen' if final_score >= 60 else 'Hold for comparison'}."
+    
+    elif template_num == 20:
+        candidate_summary = f"Professional credentials include {exp_desc} featuring {core_skills_str} expertise. Scoring analysis places resume at {final_score}/100 versus {job_title} requirements. Additional assets in {trans_skills_str} noted, whereas {gaps_str} represent learning needs. Suggested pathway: {'Priority interview consideration' if final_score >= 75 else 'Preliminary discussion' if final_score >= 60 else 'Secondary review'}."
+    
+    elif template_num == 21:
+        candidate_summary = f"With {exp_desc} of practical application, candidate shows {core_skills_str} capability. Match evaluation registers {final_score}/100 for {job_title} fit. Beneficial skills in {trans_skills_str} strengthen profile, yet {gaps_str} could improve. Recommended action: {'Move forward to interview' if final_score >= 75 else 'Phone qualification call' if final_score >= 60 else 'Comparative assessment'}."
+    
+    elif template_num == 22:
+        candidate_summary = f"Background demonstrates {exp_desc} with concentrated {core_skills_str} experience. Compatibility score stands at {final_score}/100 for {job_title} role. Supporting competencies like {trans_skills_str} are visible, while {gaps_str} need enhancement. Next phase: {'Interview scheduling' if final_score >= 75 else 'Exploratory screening' if final_score >= 60 else 'Reserve candidate pool'}."
+    
+    elif template_num == 23:
+        candidate_summary = f"Candidate presents {exp_desc} career foundation built on {core_skills_str}. Assessment metric indicates {final_score}/100 match with {job_title}. Positive indicators include {trans_skills_str}, though {gaps_str} may require training. Proposed action: {'Direct interview invitation' if final_score >= 75 else 'Initial phone evaluation' if final_score >= 60 else 'Deferred consideration'}."
+    
+    elif template_num == 24:
+        candidate_summary = f"Experience base spans {exp_desc} emphasizing {core_skills_str} application. Scoring framework assigns {final_score}/100 alignment to {job_title}. Value-adding skills such as {trans_skills_str} are apparent, but {gaps_str} present gaps. Strategic next move: {'Expedite interview process' if final_score >= 75 else 'Preliminary phone contact' if final_score >= 60 else 'Batch comparison'}."
+    
+    elif template_num == 25:
+        candidate_summary = f"Professional journey includes {exp_desc} with {core_skills_str} as key strengths. Match calculation produces {final_score}/100 for {job_title} suitability. Ancillary abilities in {trans_skills_str} enhance candidacy, while {gaps_str} need development. Advised next step: {'Proceed to interview' if final_score >= 75 else 'Screening call' if final_score >= 60 else 'Hold for review'}."
+    
+    elif template_num == 26:
+        candidate_summary = f"Resume showcases {exp_desc} of targeted experience in {core_skills_str}. Evaluation score reaches {final_score}/100 against {job_title} benchmarks. Complementary skills like {trans_skills_str} add value, yet {gaps_str} require attention. Recommendation: {'Fast-track to hiring team' if final_score >= 75 else 'Phone pre-screen' if final_score >= 60 else 'Secondary evaluation'}."
+    
+    elif template_num == 27:
+        candidate_summary = f"Applicant's {exp_desc} background highlights {core_skills_str} mastery. Compatibility rating measures {final_score}/100 for {job_title} opening. Strengths in {trans_skills_str} are noted, whereas {gaps_str} indicate development zones. Action recommendation: {'Interview immediately' if final_score >= 75 else 'Exploratory call' if final_score >= 60 else 'Comparative review'}."
+    
+    else:  # template_num == 28
+        candidate_summary = f"Career profile reflects {exp_desc} with focus on {core_skills_str}. Match index calculates to {final_score}/100 versus {job_title} criteria. Additional competencies in {trans_skills_str} are present, but {gaps_str} need improvement. Suggested course: {'Advance to interview stage' if final_score >= 75 else 'Initial assessment' if final_score >= 60 else 'Place in consideration queue'}."
     
     ai_analysis = f"Evaluation: Skills {skills_contribution}/20, Experience {exp_contribution}/15, Unique factors {unique_variation}/20. "
     ai_analysis += f"Overall: {match_label} ({final_score}/100) for {job_title} position."
