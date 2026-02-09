@@ -73,17 +73,24 @@ def update_communication(
 def n8n_webhook(payload: dict, db: Session = Depends(get_db)):
     """N8N webhook endpoint to trigger email communications"""
     candidate_id = payload.get("candidate_id")
+    candidate_string_id = payload.get("candidate_string_id")  # For Candidate_ID from sheets
     email_type = payload.get("email_type")
     
-    if not candidate_id or not email_type:
-        raise HTTPException(status_code=400, detail="candidate_id and email_type required")
+    if not email_type:
+        raise HTTPException(status_code=400, detail="email_type required")
     
-    candidate = db.query(Candidate).filter(Candidate.id == candidate_id).first()
+    # Find candidate by database ID or Candidate_ID string
+    candidate = None
+    if candidate_id:
+        candidate = db.query(Candidate).filter(Candidate.id == candidate_id).first()
+    elif candidate_string_id:
+        candidate = db.query(Candidate).filter(Candidate.candidate_id == candidate_string_id).first()
+    
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
     
     comm = EmailCommunication(
-        candidate_id=candidate_id,
+        candidate_id=candidate.id,
         candidate_name=candidate.name,
         candidate_email=candidate.email,
         email_type=email_type,
