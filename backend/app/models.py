@@ -81,6 +81,7 @@ class Candidate(Base):
     # Resume info
     resume_file_path = Column(String(500))
     resume_text = Column(Text)
+    summary = Column(Text)  # Summary from Google Sheets
     parsing_status = Column(Enum(ParsingStatus), default=ParsingStatus.PENDING)
     resume_score = Column(Float)  # AI-generated score 0-100
     score_threshold = Column(Float)  # Threshold used when candidate was uploaded

@@ -111,7 +111,7 @@ class GoogleSheetsService:
             if not existing_ids:
                 headers = [
                     'Candidate_ID', 'CandidateName', 'Email', 'Phone', 'Job_ID', 'Job_Title', 
-                    'Resume_Text', 'Job_Description', 'Score', 'Skills', 'Resume_Evaluated'
+                    'Resume_Text', 'Job_Description', 'Score', 'Skills', 'Resume_Evaluated', 'Summary'
                 ]
                 sheet_data.append(headers)
             
@@ -140,7 +140,7 @@ class GoogleSheetsService:
                 email = getattr(candidate, 'email', '') or 'N/A'
                 phone = getattr(candidate, 'phone', '') or 'N/A'
                 
-                # Leave Score, Skills, Resume_Evaluated empty for N8N to fill
+                # Leave Score, Skills, Resume_Evaluated, Summary empty for N8N to fill
                 row = [
                     candidate_id,
                     getattr(candidate, 'name', 'N/A'),
@@ -152,7 +152,8 @@ class GoogleSheetsService:
                     job_description,
                     '',  # Score - to be filled by N8N
                     '',  # Skills - to be filled by N8N
-                    ''   # Resume_Evaluated - to be filled by N8N
+                    '',  # Resume_Evaluated - to be filled by N8N
+                    ''   # Summary - to be filled by N8N
                 ]
                 sheet_data.append(row)
             
@@ -163,7 +164,7 @@ class GoogleSheetsService:
                     range_name = 'Sheet1!A1'
                 else:
                     # Append to existing data
-                    range_name = 'Sheet1!A:K'
+                    range_name = 'Sheet1!A:L'
                 
                 body = {
                     'values': sheet_data
@@ -330,6 +331,12 @@ class GoogleSheetsService:
                             skills_list = [s.strip() for s in skills_value.split(',') if s.strip()]
                             if skills_list:
                                 candidate.skills = skills_list
+                    
+                    # Update summary if present
+                    if 'SUMMARY' in col_indices and len(row) > col_indices['SUMMARY']:
+                        summary_value = row[col_indices['SUMMARY']]
+                        if summary_value and summary_value != '':
+                            candidate.summary = summary_value
                     
                     updated_count += 1
             

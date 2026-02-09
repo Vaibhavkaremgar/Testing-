@@ -1336,7 +1336,11 @@ def get_resume_summary(
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
     
-    # Generate AI summary based on candidate data
+    # Return summary from Google Sheets if available
+    if candidate.summary:
+        return {"summary": candidate.summary}
+    
+    # Fallback: Generate AI summary based on candidate data
     summary_parts = []
     
     if candidate.current_role and candidate.current_company:

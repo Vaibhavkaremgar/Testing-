@@ -867,6 +867,16 @@ export default function Resumes() {
                       </div>
                     </div>
 
+                    {/* Candidate Summary from Google Sheets */}
+                    {selectedCandidate.summary && (
+                      <div>
+                        <p className="text-sm font-medium mb-2">Summary (from Google Sheets)</p>
+                        <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-lg border border-green-200 dark:border-green-800">
+                          <p className="text-sm text-muted-foreground leading-relaxed">{selectedCandidate.summary}</p>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Candidate Summary */}
                     <div>
                       <p className="text-sm font-medium mb-2">Summary</p>
