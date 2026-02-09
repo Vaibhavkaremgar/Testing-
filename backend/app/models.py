@@ -99,7 +99,7 @@ class Candidate(Base):
     
     # Google Sheets sync
     synced_to_sheets = Column(Boolean, default=False)
-    # summary = Column(Text, nullable=True, server_default=None)  # Disabled - causes Railway issues
+    summary = Column(Text, nullable=True)  # Summary from Google Sheets
     
     # Relationships
     job_id = Column(Integer, ForeignKey("job_descriptions.id"))
