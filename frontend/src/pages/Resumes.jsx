@@ -860,6 +860,14 @@ export default function Resumes() {
                   </div>
                 ) : aiAnalysis ? (
                   <div className="space-y-4">
+                    {/* AI Generated Summary */}
+                    {selectedCandidate.summary && (
+                      <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg border border-blue-200 dark:border-blue-800">
+                        <p className="text-sm font-medium mb-2 text-blue-900 dark:text-blue-100">📋 Candidate Summary</p>
+                        <p className="text-sm text-blue-800 dark:text-blue-200 leading-relaxed">{selectedCandidate.summary}</p>
+                      </div>
+                    )}
+
                     {/* Match Score */}
                     <div className="bg-muted p-4 rounded-lg">
                       <div className="flex items-center justify-between mb-2">
@@ -874,17 +882,15 @@ export default function Resumes() {
                       </div>
                     </div>
 
-                    {/* Summary from Google Sheets */}
-                    <div>
-                      <p className="text-sm font-medium mb-2">Summary</p>
-                      {selectedCandidate.summary ? (
+                    {/* Summary from Google Sheets (if different) */}
+                    {selectedCandidate.summary && aiAnalysis.candidate_summary && selectedCandidate.summary !== aiAnalysis.candidate_summary && (
+                      <div>
+                        <p className="text-sm font-medium mb-2">Additional Notes</p>
                         <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-lg border border-green-200 dark:border-green-800">
-                          <p className="text-sm text-muted-foreground leading-relaxed">{selectedCandidate.summary}</p>
+                          <p className="text-sm text-muted-foreground leading-relaxed">{aiAnalysis.candidate_summary}</p>
                         </div>
-                      ) : (
-                        <p className="text-sm text-muted-foreground">No summary available. Sync from Google Sheets to load summary.</p>
-                      )}
-                    </div>
+                      </div>
+                    )}
 
                     {/* Key Strengths */}
                     {aiAnalysis.key_strengths && aiAnalysis.key_strengths.length > 0 && (

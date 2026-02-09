@@ -403,7 +403,7 @@ Provide your analysis in the following JSON format:
 {{
   "match_score": <number 0-100>,
   "match_label": "<Strong Fit|Potential Fit|Borderline Fit|Weak Fit>",
-  "candidate_summary": "<2-3 sentence summary of candidate background>",
+  "candidate_summary": "<A concise 3-4 sentence professional summary that covers: candidate's experience level and key skills, how their background aligns with job requirements, and overall suitability. Be specific and impactful.>",
   "key_strengths": ["<strength 1>", "<strength 2>", "<strength 3>"],
   "skill_gaps": ["<gap 1>", "<gap 2>"],
   "ai_analysis": "<3-4 sentences explaining the match score, what aligns, what's missing, and overall recommendation>",
@@ -415,6 +415,8 @@ Scoring guidelines:
 - 60-74: Potential Fit (review) - Good match with some gaps
 - 45-59: Borderline Fit (review) - Moderate match, significant gaps
 - 0-44: Weak Fit (rejected) - Poor match
+
+IMPORTANT: The candidate_summary must be concise (3-4 sentences), professional, and highlight key qualifications relevant to the job.
 
 Provide ONLY the JSON response, no additional text."""
     
@@ -550,9 +552,34 @@ def fallback_evaluation(resume_text: str, job_title: str, job_description: str,
     if not gaps:
         gaps.append("No significant gaps")
     
-    candidate_summary = f"Candidate with {years_exp}+ years" if years_exp > 0 else "Candidate with relevant background"
-    if matched_core:
-        candidate_summary += f", strong in {', '.join(matched_core[:2])}"
+    # Generate concise summary (3-4 sentences)
+    summary_parts = []
+    
+    # Part 1: Experience and core skills
+    if years_exp > 0 and matched_core:
+        summary_parts.append(f"The candidate brings {years_exp}+ years of experience with strong proficiency in {', '.join(matched_core[:3])}, directly aligning with the {job_title} requirements.")
+    elif years_exp > 0:
+        summary_parts.append(f"The candidate has {years_exp}+ years of professional experience in related fields.")
+    elif matched_core:
+        summary_parts.append(f"The candidate demonstrates proficiency in key skills including {', '.join(matched_core[:3])}.")
+    else:
+        summary_parts.append(f"The candidate has relevant background for the {job_title} position.")
+    
+    # Part 2: Additional strengths or gaps
+    if matched_trans:
+        summary_parts.append(f"They also possess valuable transferable skills such as {', '.join(matched_trans[:2])}.")
+    elif len(missing) > len(skill_map["core"]) / 2:
+        summary_parts.append(f"However, there are gaps in some core technical requirements.")
+    
+    # Part 3: Overall assessment
+    if final_score >= 75:
+        summary_parts.append(f"With a {final_score}/100 compatibility score, this candidate is a strong match and recommended for immediate consideration.")
+    elif final_score >= 60:
+        summary_parts.append(f"Scoring {final_score}/100, this candidate shows good potential and warrants further review.")
+    else:
+        summary_parts.append(f"The candidate scores {final_score}/100, indicating significant gaps that may require development.")
+    
+    candidate_summary = " ".join(summary_parts)
     
     ai_analysis = f"Skills: {skills_score}/40 ({len(matched_core)} core, {len(matched_trans)} transferable). "
     ai_analysis += f"Experience: {experience_score}/35 ({years_exp} years). "
@@ -599,6 +626,9 @@ def simulate_resume_parsing(candidate: Candidate, db: Session, ai_analysis: dict
     if ai_analysis:
         # Set score from AI analysis
         candidate.resume_score = ai_analysis.get('match_score', 0)
+        
+        # Set summary from AI analysis
+        candidate.summary = ai_analysis.get('candidate_summary', '')
         
         # Set skills from AI analysis
         if 'key_strengths' in ai_analysis and ai_analysis['key_strengths']:
