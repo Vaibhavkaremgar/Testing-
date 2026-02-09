@@ -27,22 +27,13 @@ export default function Communications() {
     let filtered = []
     switch(statType) {
       case 'shortlisted':
-        filtered = communications.filter(c => c.type === 'Shortlisted')
+        filtered = communications.filter(c => c.type === 'Shortlisted' || c.type === 'Slot Selection Email')
         break
-      case 'resume_rejected':
-        filtered = communications.filter(c => c.type === 'Resume Rejected')
+      case 'rejected':
+        filtered = communications.filter(c => c.type === 'Rejection Email')
         break
-      case 'interview':
-        filtered = communications.filter(c => c.type === 'Interview Invitation')
-        break
-      case 'selection':
-        filtered = communications.filter(c => c.type === 'Selection')
-        break
-      case 'interview_rejected':
-        filtered = communications.filter(c => c.type === 'Interview Rejected')
-        break
-      case 'offer':
-        filtered = communications.filter(c => c.type === 'Offer Letter')
+      case 'total':
+        filtered = communications
         break
       default:
         filtered = communications
@@ -78,7 +69,7 @@ export default function Communications() {
     }
   }
 
-  // Calculate stats from real data - Total, Shortlisted and Resume Rejected
+  // Calculate stats from real data - Total, Shortlisted and Rejected
   const stats = [
     { 
       label: 'Total Emails', 
@@ -89,17 +80,17 @@ export default function Communications() {
     },
     { 
       label: 'Shortlisted Emails', 
-      value: communications.filter(c => c.type === 'Shortlisted').length, 
+      value: communications.filter(c => c.type === 'Shortlisted' || c.type === 'Slot Selection Email').length, 
       icon: Mail, 
       color: 'text-blue-600',
       type: 'shortlisted'
     },
     { 
-      label: 'Resume Rejected', 
-      value: communications.filter(c => c.type === 'Resume Rejected').length, 
+      label: 'Rejected Emails', 
+      value: communications.filter(c => c.type === 'Rejection Email').length, 
       icon: Mail, 
       color: 'text-red-600',
-      type: 'resume_rejected'
+      type: 'rejected'
     },
   ]
 
@@ -154,7 +145,7 @@ export default function Communications() {
         <p className="text-muted-foreground">Track email communications with candidates</p>
       </div>
 
-      {/* Stats Cards - 3 cards: Total, Shortlisted, Resume Rejected */}
+      {/* Stats Cards - 3 cards: Total, Shortlisted (includes Slot Selection), Rejected */}
       <div className="grid gap-4 md:grid-cols-3">
         {stats.map((stat) => (
           <Card key={stat.label} className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => handleStatClick(stat.type)}>
