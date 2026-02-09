@@ -627,16 +627,67 @@ def fallback_evaluation(resume_text: str, job_title: str, job_description: str,
     if not gaps:
         gaps.append("No significant gaps identified")
     
-    # Generate varied summary
-    summary_templates = [
-        f"Professional with {years_exp if years_exp > 0 else 'entry-level'} experience showing competency in relevant areas. Demonstrates {', '.join(candidate_skills[:2]) if candidate_skills else 'foundational'} capabilities. Scoring {final_score}/100 for the {job_title} position.",
-        f"Candidate brings {years_exp if years_exp > 0 else 'emerging'} years of experience with skills in {', '.join(candidate_skills[:2]) if candidate_skills else 'various domains'}. Overall assessment: {final_score}/100 compatibility score.",
-        f"Applicant demonstrates {', '.join(matched_core[:2]) if matched_core else 'basic'} qualifications relevant to {job_title}. Experience level: {years_exp if years_exp > 0 else 'entry'} years. Match score: {final_score}/100."
-    ]
+    # Generate detailed, unique summary (5-7 sentences)
+    summary_parts = []
     
-    # Use hash to pick consistent template for same resume
-    template_index = int(resume_hash[:8], 16) % len(summary_templates)
-    candidate_summary = summary_templates[template_index]
+    # Sentence 1: Introduction with experience level
+    if years_exp >= 10:
+        summary_parts.append(f"Highly experienced professional with {years_exp}+ years in the industry.")
+    elif years_exp >= 5:
+        summary_parts.append(f"Seasoned professional with {years_exp} years of proven experience.")
+    elif years_exp >= 3:
+        summary_parts.append(f"Mid-level professional with {years_exp} years of hands-on experience.")
+    elif years_exp >= 1:
+        summary_parts.append(f"Early-career professional with {years_exp} year(s) of industry experience.")
+    else:
+        summary_parts.append(f"Entry-level candidate eager to contribute to the {job_title} role.")
+    
+    # Sentence 2: Core skills alignment
+    if matched_core and len(matched_core) >= 2:
+        summary_parts.append(f"Demonstrates strong proficiency in {', '.join(matched_core[:3])}, which directly aligns with the core requirements for the {job_title} position.")
+    elif matched_core:
+        summary_parts.append(f"Possesses relevant expertise in {matched_core[0]}, showing alignment with key job requirements.")
+    elif candidate_skills and len(candidate_skills) >= 3:
+        summary_parts.append(f"Brings technical capabilities in {', '.join(candidate_skills[:3])}, providing a foundation for the {job_title} role.")
+    else:
+        summary_parts.append(f"Shows foundational knowledge applicable to the {job_title} position.")
+    
+    # Sentence 3: Transferable skills and additional strengths
+    if matched_trans and len(matched_trans) >= 2:
+        summary_parts.append(f"Additionally exhibits strong {', '.join(matched_trans[:2])} skills, which are valuable for team collaboration and project success.")
+    elif matched_trans:
+        summary_parts.append(f"Also demonstrates {matched_trans[0]} capabilities that complement technical expertise.")
+    elif has_education:
+        summary_parts.append(f"Educational background provides theoretical foundation to support practical application.")
+    
+    # Sentence 4: Skill gaps (if significant)
+    missing_critical = [s for s in skill_map["core"][:3] if s not in resume_lower]
+    if len(missing_critical) >= 2 and skill_map["core"]:
+        summary_parts.append(f"However, development opportunities exist in {', '.join(missing_critical[:2])}, which are important for this role.")
+    elif len(missing_critical) == 1:
+        summary_parts.append(f"Some growth potential identified in {missing_critical[0]} to fully meet all position requirements.")
+    
+    # Sentence 5: Overall fit assessment
+    if final_score >= 85:
+        summary_parts.append(f"With an exceptional compatibility score of {final_score}/100, this candidate is an outstanding match and strongly recommended for immediate consideration.")
+    elif final_score >= 75:
+        summary_parts.append(f"Scoring {final_score}/100, this candidate represents a strong fit and is highly recommended for the interview stage.")
+    elif final_score >= 65:
+        summary_parts.append(f"With a solid score of {final_score}/100, this candidate shows good potential and warrants serious consideration.")
+    elif final_score >= 55:
+        summary_parts.append(f"Achieving {final_score}/100, this candidate demonstrates moderate alignment and may be suitable depending on specific team needs.")
+    else:
+        summary_parts.append(f"Scoring {final_score}/100, this candidate shows limited alignment with requirements and may need additional evaluation.")
+    
+    # Sentence 6: Recommendation
+    if final_score >= 75:
+        summary_parts.append(f"Recommended action: Proceed to interview to assess cultural fit and discuss specific project requirements.")
+    elif final_score >= 60:
+        summary_parts.append(f"Recommended action: Consider for phone screening to explore experience depth and career goals.")
+    else:
+        summary_parts.append(f"Recommended action: Review against other candidates or consider for alternative positions.")
+    
+    candidate_summary = " ".join(summary_parts)
     
     ai_analysis = f"Evaluation: Skills {skills_contribution}/20, Experience {exp_contribution}/15, Unique factors {unique_variation}/20. "
     ai_analysis += f"Overall: {match_label} ({final_score}/100) for {job_title} position."
