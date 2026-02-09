@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Mail, Send, Search, Filter, X } from 'lucide-react'
+import { Mail, Send, Search, Filter, X, Trash2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import {
   DropdownMenu,
@@ -57,6 +57,22 @@ export default function Communications() {
     
     return () => clearInterval(interval)
   }, [])
+
+  const handleDelete = async (id) => {
+    if (confirm('Are you sure you want to delete this email record?')) {
+      try {
+        // Add delete API call here when backend endpoint is ready
+        // await api.deleteEmailCommunication(id)
+        
+        // For now, remove from local state
+        setCommunications(prev => prev.filter(c => c.id !== id))
+        alert('Email record deleted successfully')
+      } catch (error) {
+        console.error('Failed to delete email:', error)
+        alert('Failed to delete email record')
+      }
+    }
+  }
 
   const fetchCommunications = async () => {
     try {
@@ -241,6 +257,7 @@ export default function Communications() {
                   <th className="p-3 text-left text-sm font-medium">Type</th>
                   <th className="p-3 text-left text-sm font-medium">Status</th>
                   <th className="p-3 text-left text-sm font-medium">Date</th>
+                  <th className="p-3 text-right text-sm font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -251,6 +268,16 @@ export default function Communications() {
                     <td className="p-3 text-sm">{comm.type}</td>
                     <td className="p-3 text-sm">{getStatusBadge(comm.status)}</td>
                     <td className="p-3 text-sm">{comm.date}</td>
+                    <td className="p-3 text-right">
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        onClick={() => handleDelete(comm.id)}
+                        title="Delete email record"
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -288,6 +315,7 @@ export default function Communications() {
                         <th className="text-left p-3 font-medium">Type</th>
                         <th className="text-left p-3 font-medium">Status</th>
                         <th className="text-left p-3 font-medium">Date</th>
+                        <th className="text-right p-3 font-medium">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -298,6 +326,16 @@ export default function Communications() {
                           <td className="p-3 text-sm">{comm.type}</td>
                           <td className="p-3 text-sm">{getStatusBadge(comm.status)}</td>
                           <td className="p-3 text-sm">{comm.date}</td>
+                          <td className="p-3 text-right">
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              onClick={() => handleDelete(comm.id)}
+                              title="Delete email record"
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
