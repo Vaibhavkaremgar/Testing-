@@ -102,6 +102,16 @@ export default function Dashboard() {
     setCardCandidates([])
   }
 
+  useEffect(() => {
+    const handleEscape = (e) => {
+      if (e.key === 'Escape') {
+        closeModal()
+      }
+    }
+    document.addEventListener('keydown', handleEscape)
+    return () => document.removeEventListener('keydown', handleEscape)
+  }, [])
+
   const handleDateSelect = (day) => {
     if (selectedMonthNum !== null) {
       const dateStr = `${selectedYear}-${String(selectedMonthNum).padStart(2, '0')}-${String(day).padStart(2, '0')}`
