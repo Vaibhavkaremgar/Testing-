@@ -867,10 +867,16 @@ export default function Resumes() {
                       </div>
                     </div>
 
-                    {/* Candidate Summary */}
+                    {/* Summary from Google Sheets */}
                     <div>
                       <p className="text-sm font-medium mb-2">Summary</p>
-                      <p className="text-sm text-muted-foreground">{aiAnalysis.candidate_summary}</p>
+                      {selectedCandidate.summary ? (
+                        <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-lg border border-green-200 dark:border-green-800">
+                          <p className="text-sm text-muted-foreground leading-relaxed">{selectedCandidate.summary}</p>
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">No summary available. Sync from Google Sheets to load summary.</p>
+                      )}
                     </div>
 
                     {/* Key Strengths */}
