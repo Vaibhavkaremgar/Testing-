@@ -186,8 +186,13 @@ export default function Jobs() {
                   <Input
                     value={formData.title}
                     onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                    disabled={editingJob !== null}
+                    className={editingJob ? "bg-muted cursor-not-allowed" : ""}
                     required
                   />
+                  {editingJob && (
+                    <p className="text-xs text-muted-foreground">Cannot be changed after creation</p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Job ID *</label>
@@ -195,8 +200,13 @@ export default function Jobs() {
                     value={formData.job_id}
                     onChange={(e) => setFormData({ ...formData, job_id: e.target.value })}
                     placeholder="e.g., JOB-001"
+                    disabled={editingJob !== null}
+                    className={editingJob ? "bg-muted cursor-not-allowed" : ""}
                     required
                   />
+                  {editingJob && (
+                    <p className="text-xs text-muted-foreground">Cannot be changed after creation</p>
+                  )}
                 </div>
               </div>
               <div className="space-y-2">
@@ -205,7 +215,12 @@ export default function Jobs() {
                   value={formData.company_name}
                   onChange={(e) => setFormData({ ...formData, company_name: e.target.value })}
                   placeholder="e.g., Acme Corp"
+                  disabled={editingJob !== null}
+                  className={editingJob ? "bg-muted cursor-not-allowed" : ""}
                 />
+                {editingJob && (
+                  <p className="text-xs text-muted-foreground">Cannot be changed after creation</p>
+                )}
               </div>
 
               {/* Input Method Selection */}
