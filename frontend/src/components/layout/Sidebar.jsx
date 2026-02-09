@@ -33,7 +33,7 @@ export function Sidebar() {
       {/* Logo */}
       <div className="flex h-16 items-center gap-2 px-6 border-b">
         <div>
-          <span className="text-lg font-bold">HireFlow</span>
+          <span className="text-lg font-bold">PONTIS</span>
           <p className="text-xs text-muted-foreground">Recruitment System</p>
         </div>
       </div>

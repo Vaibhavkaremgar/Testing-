@@ -38,9 +38,9 @@ export default function Login() {
               <Bot className="h-8 w-8 text-primary-foreground" />
             </div>
           </div>
-          <CardTitle className="text-2xl">Welcome to HireFlow</CardTitle>
+          <CardTitle className="text-2xl">Welcome to PONTIS</CardTitle>
           <CardDescription>
-            AI-Powered Recruitment System
+            Recruitment System
           </CardDescription>
         </CardHeader>
         <CardContent>
