@@ -1220,17 +1220,30 @@ def delete_candidate(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    db_candidate = db.query(Candidate).filter(Candidate.id == candidate_id).first()
-    if not db_candidate:
-        raise HTTPException(status_code=404, detail="Candidate not found")
-    
-    # Delete resume file if exists
-    if db_candidate.resume_file_path and os.path.exists(db_candidate.resume_file_path):
-        os.remove(db_candidate.resume_file_path)
-    
-    db.delete(db_candidate)
-    db.commit()
-    return {"message": "Candidate deleted successfully"}
+    try:
+        db_candidate = db.query(Candidate).filter(Candidate.id == candidate_id).first()
+        if not db_candidate:
+            raise HTTPException(status_code=404, detail="Candidate not found")
+        
+        # Try to delete resume file if exists (skip if fails on Railway)
+        if db_candidate.resume_file_path:
+            try:
+                if os.path.exists(db_candidate.resume_file_path):
+                    os.remove(db_candidate.resume_file_path)
+            except Exception as e:
+                # Ignore file deletion errors (Railway has read-only filesystem)
+                print(f"File deletion skipped: {e}")
+        
+        # Delete from database
+        db.delete(db_candidate)
+        db.commit()
+        return {"message": "Candidate deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        print(f"Delete error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Delete failed: {str(e)}")
 
 @router.get("/{candidate_id}/resume-file")
 def get_resume_file(
