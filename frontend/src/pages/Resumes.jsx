@@ -909,14 +909,7 @@ export default function Resumes() {
                       </div>
                     )}
 
-                    {/* AI Analysis */}
-                    <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg border border-blue-200 dark:border-blue-800">
-                      <p className="text-sm font-medium mb-2 flex items-center gap-2">
-                        <span className="text-blue-600 dark:text-blue-400">🤖</span>
-                        AI Detected Score
-                      </p>
-                      <p className="text-sm text-muted-foreground leading-relaxed">{aiAnalysis.ai_analysis}</p>
-                    </div>
+
                   </div>
                 ) : (
                   <p className="text-sm text-muted-foreground">No AI analysis available for this candidate.</p>
