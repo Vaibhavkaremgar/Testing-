@@ -79,7 +79,8 @@ class GoogleSheetsService:
             
             # Add header row
             headers = [
-                'Candidate_ID', 'CandidateName', 'Email', 'Phone', 'Job_ID', 'Job_Title', 'Resume_Text', 'Job_Description', 'Email_ID', 'Mobile_Number'
+                'Candidate_ID', 'CandidateName', 'Email', 'Phone', 'Job_ID', 'Job_Title', 
+                'Resume_Text', 'Job_Description', 'Score', 'Skills', 'Resume_Evaluated'
             ]
             sheet_data.append(headers)
             
@@ -108,6 +109,7 @@ class GoogleSheetsService:
                 email = getattr(candidate, 'email', '') or 'N/A'
                 phone = getattr(candidate, 'phone', '') or 'N/A'
                 
+                # Leave Score, Skills, Resume_Evaluated empty for N8N to fill
                 row = [
                     candidate_id,
                     getattr(candidate, 'name', 'N/A'),
@@ -117,13 +119,14 @@ class GoogleSheetsService:
                     job_title,
                     resume_text,
                     job_description,
-                    email,
-                    phone
+                    '',  # Score - to be filled by N8N
+                    '',  # Skills - to be filled by N8N
+                    ''   # Resume_Evaluated - to be filled by N8N
                 ]
                 sheet_data.append(row)
             
             # Clear existing data and write all data
-            range_name = f'Sheet1!A1:J{len(sheet_data)}'
+            range_name = f'Sheet1!A1:K{len(sheet_data)}'
             
             # First, clear the entire sheet
             try:
@@ -268,7 +271,7 @@ class GoogleSheetsService:
                     # Update score if present
                     if 'SCORE' in col_indices and len(row) > col_indices['SCORE']:
                         score_value = row[col_indices['SCORE']]
-                        if score_value:
+                        if score_value and score_value != '':
                             try:
                                 score = float(score_value)
                                 candidate.resume_score = score
@@ -281,6 +284,15 @@ class GoogleSheetsService:
                                     candidate.stage = CandidateStage.REJECTED
                             except (ValueError, TypeError):
                                 pass
+                    
+                    # Update skills if present
+                    if 'SKILLS' in col_indices and len(row) > col_indices['SKILLS']:
+                        skills_value = row[col_indices['SKILLS']]
+                        if skills_value and skills_value != '':
+                            # Convert comma-separated string to list
+                            skills_list = [s.strip() for s in skills_value.split(',') if s.strip()]
+                            if skills_list:
+                                candidate.skills = skills_list
                     
                     updated_count += 1
             
