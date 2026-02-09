@@ -223,6 +223,22 @@ class GoogleSheetsService:
                     'error': 'Google Sheets service not configured. Please add hr-dashboard-key.json file and restart the application.'
                 }
             
+            # Verify summary column exists before syncing
+            import sqlite3
+            try:
+                conn = sqlite3.connect("recruitment.db")
+                cursor = conn.cursor()
+                cursor.execute("PRAGMA table_info(candidates)")
+                columns = [col[1] for col in cursor.fetchall()]
+                if 'summary' not in columns:
+                    print("⚠️  Summary column missing! Adding it now...")
+                    cursor.execute("ALTER TABLE candidates ADD COLUMN summary TEXT")
+                    conn.commit()
+                    print("✅ Summary column added")
+                conn.close()
+            except Exception as e:
+                print(f"Column check error: {e}")
+            
             # Read all data from sheet
             result = self.service.spreadsheets().values().get(
                 spreadsheetId=self.sheet_id,
