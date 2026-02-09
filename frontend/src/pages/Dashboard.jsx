@@ -37,8 +37,11 @@ export default function Dashboard() {
   const [cardCandidates, setCardCandidates] = useState([])
   const [cardLoading, setCardLoading] = useState(false)
 
+  // Force close modal on mount and prevent any stuck state
   useEffect(() => {
     setSelectedCard(null)
+    setCardCandidates([])
+    setCardLoading(false)
   }, [])
 
   useEffect(() => {
@@ -82,6 +85,7 @@ export default function Dashboard() {
   ] : []
 
   const handleCardClick = async (card) => {
+    console.log('Card clicked:', card)
     setSelectedCard(card)
     setCardLoading(true)
     try {
@@ -102,6 +106,7 @@ export default function Dashboard() {
   }
 
   const closeModal = () => {
+    console.log('Closing modal')
     setSelectedCard(null)
     setCardCandidates([])
   }
@@ -472,7 +477,7 @@ export default function Dashboard() {
       </div>
 
       {/* Modal for Card Details */}
-      {selectedCard !== null && selectedCard && (
+      {selectedCard && selectedCard.title && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={closeModal}>
           <div className="bg-card rounded-lg p-6 max-w-4xl w-full mx-4 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-4">
