@@ -63,7 +63,7 @@ class GoogleSheetsService:
             self.is_configured = False
     
     def sync_candidates_to_sheet(self, candidates: List[Any]) -> Dict[str, Any]:
-        """Sync candidates data to Google Sheets - full sync (add/update/delete)"""
+        """Sync candidates data to Google Sheets - append only new candidates"""
         try:
             if not self.is_configured or not self.service:
                 return {
@@ -72,20 +72,51 @@ class GoogleSheetsService:
                     'error': 'Google Sheets service not configured. Please add hr-dashboard-key.json file and restart the application.'
                 }
             
-            print(f"Starting full sync for {len(candidates)} candidates")
+            print(f"Starting sync for {len(candidates)} candidates")
             
-            # Prepare data for Google Sheets
+            # Read existing data to check what's already synced
+            try:
+                result = self.service.spreadsheets().values().get(
+                    spreadsheetId=self.sheet_id,
+                    range='Sheet1!A:A'
+                ).execute()
+                existing_ids = set()
+                rows = result.get('values', [])
+                if rows:
+                    # Skip header row
+                    for row in rows[1:]:
+                        if row and row[0]:
+                            existing_ids.add(row[0])
+                print(f"Found {len(existing_ids)} existing candidates in sheet")
+            except:
+                existing_ids = set()
+                print("No existing data found, will create new sheet")
+            
+            # Prepare data for new candidates only
+            new_candidates = [c for c in candidates if c.candidate_id not in existing_ids]
+            
+            if not new_candidates:
+                print("No new candidates to sync")
+                return {
+                    'success': True,
+                    'synced_count': 0,
+                    'message': 'No new candidates to sync'
+                }
+            
+            print(f"Syncing {len(new_candidates)} new candidates")
+            
             sheet_data = []
             
-            # Add header row
-            headers = [
-                'Candidate_ID', 'CandidateName', 'Email', 'Phone', 'Job_ID', 'Job_Title', 
-                'Resume_Text', 'Job_Description', 'Score', 'Skills', 'Resume_Evaluated'
-            ]
-            sheet_data.append(headers)
+            # Add header row only if sheet is empty
+            if not existing_ids:
+                headers = [
+                    'Candidate_ID', 'CandidateName', 'Email', 'Phone', 'Job_ID', 'Job_Title', 
+                    'Resume_Text', 'Job_Description', 'Score', 'Skills', 'Resume_Evaluated'
+                ]
+                sheet_data.append(headers)
             
-            # Add all candidate data
-            for candidate in candidates:
+            # Add new candidate data
+            for candidate in new_candidates:
                 candidate_id = getattr(candidate, 'candidate_id', 'N/A')
                 
                 # Get job details
@@ -125,37 +156,43 @@ class GoogleSheetsService:
                 ]
                 sheet_data.append(row)
             
-            # Clear existing data and write all data
-            range_name = f'Sheet1!A1:K{len(sheet_data)}'
-            
-            # First, clear the entire sheet
-            try:
-                self.service.spreadsheets().values().clear(
-                    spreadsheetId=self.sheet_id,
-                    range='Sheet1!A:Z'
-                ).execute()
-                print("Cleared existing sheet data")
-            except HttpError as e:
-                print(f"Error clearing sheet: {e}")
-            
-            # Write all data
-            body = {
-                'values': sheet_data
-            }
-            
-            result = self.service.spreadsheets().values().update(
-                spreadsheetId=self.sheet_id,
-                range=range_name,
-                valueInputOption='RAW',
-                body=body
-            ).execute()
-            
-            print(f"Synced {len(candidates)} candidates to Google Sheets")
+            # Append data to sheet
+            if sheet_data:
+                if not existing_ids:
+                    # First time - write with header
+                    range_name = 'Sheet1!A1'
+                else:
+                    # Append to existing data
+                    range_name = 'Sheet1!A:K'
+                
+                body = {
+                    'values': sheet_data
+                }
+                
+                if not existing_ids:
+                    # Use update for first time
+                    self.service.spreadsheets().values().update(
+                        spreadsheetId=self.sheet_id,
+                        range=range_name,
+                        valueInputOption='RAW',
+                        body=body
+                    ).execute()
+                else:
+                    # Use append for subsequent syncs
+                    self.service.spreadsheets().values().append(
+                        spreadsheetId=self.sheet_id,
+                        range=range_name,
+                        valueInputOption='RAW',
+                        insertDataOption='INSERT_ROWS',
+                        body=body
+                    ).execute()
+                
+                print(f"Synced {len(new_candidates)} new candidates to Google Sheets")
             
             return {
                 'success': True,
-                'synced_count': len(candidates),
-                'message': f'Successfully synced {len(candidates)} candidates to Google Sheets'
+                'synced_count': len(new_candidates),
+                'message': f'Successfully synced {len(new_candidates)} new candidates to Google Sheets'
             }
             
         except HttpError as e:
