@@ -316,6 +316,55 @@ class GoogleSheetsService:
                 'updated_count': 0,
                 'error': f'Failed to sync from Google Sheets: {str(e)}'
             }
+    
+    def delete_candidate_from_sheet(self, candidate_id: str) -> Dict[str, Any]:
+        """Delete a candidate row from Google Sheets by Candidate_ID"""
+        try:
+            if not self.is_configured or not self.service:
+                return {'success': False, 'error': 'Google Sheets service not configured'}
+            
+            # Read all data to find the row
+            result = self.service.spreadsheets().values().get(
+                spreadsheetId=self.sheet_id,
+                range='Sheet1!A:A'
+            ).execute()
+            
+            rows = result.get('values', [])
+            if not rows:
+                return {'success': False, 'error': 'No data in sheet'}
+            
+            # Find row index (skip header)
+            row_index = None
+            for i, row in enumerate(rows[1:], start=2):  # Start from row 2 (after header)
+                if row and row[0] == candidate_id:
+                    row_index = i
+                    break
+            
+            if not row_index:
+                return {'success': True, 'message': 'Candidate not found in sheet'}
+            
+            # Delete the row
+            request = {
+                'deleteDimension': {
+                    'range': {
+                        'sheetId': 0,
+                        'dimension': 'ROWS',
+                        'startIndex': row_index - 1,
+                        'endIndex': row_index
+                    }
+                }
+            }
+            
+            self.service.spreadsheets().batchUpdate(
+                spreadsheetId=self.sheet_id,
+                body={'requests': [request]}
+            ).execute()
+            
+            return {'success': True, 'message': f'Deleted candidate {candidate_id} from sheet'}
+            
+        except Exception as e:
+            print(f"Error deleting from sheet: {e}")
+            return {'success': False, 'error': str(e)}
 
 # Create global instance
 sheets_service = GoogleSheetsService()

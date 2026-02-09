@@ -829,12 +829,12 @@ async def upload_resume(
             candidate_id = f"{base_id}{counter}"
             counter += 1
         
-        # Create candidate with current threshold
+        # Create candidate with current threshold - DON'T extract skills (N8N will provide them)
         db_candidate = Candidate(
             name=name,
             email=email,
             phone=phone,
-            skills=extracted_skills,
+            skills=[],  # Leave empty for N8N to fill
             resume_file_path=file_path,
             resume_text=full_text,  # Store full text
             candidate_id=candidate_id,  # Store generated ID
@@ -922,7 +922,7 @@ async def bulk_upload_resumes(
                 name=name,
                 email=email,
                 phone=phone,
-                skills=extracted_skills,
+                skills=[],  # Leave empty for N8N to fill
                 resume_file_path=file_path,
                 resume_text=full_text,  # Store full text
                 candidate_id=candidate_id,  # Store generated ID
@@ -1011,7 +1011,7 @@ async def zip_upload_resumes(
                             name=name,
                             email=email,
                             phone=phone,
-                            skills=extracted_skills,
+                            skills=[],  # Leave empty for N8N to fill
                             resume_file_path=file_path,
                             resume_text=full_text,  # Store full text
                             candidate_id=candidate_id,  # Store generated ID
@@ -1225,6 +1225,9 @@ def delete_candidate(
         if not db_candidate:
             raise HTTPException(status_code=404, detail="Candidate not found")
         
+        # Store candidate_id for sheets deletion
+        sheets_candidate_id = db_candidate.candidate_id
+        
         # Delete related interviews first
         from app.models import Interview
         db.query(Interview).filter(Interview.candidate_id == candidate_id).delete()
@@ -1240,6 +1243,14 @@ def delete_candidate(
         # Delete candidate from database
         db.delete(db_candidate)
         db.commit()
+        
+        # Delete from Google Sheets
+        if sheets_candidate_id:
+            try:
+                sheets_service.delete_candidate_from_sheet(sheets_candidate_id)
+            except Exception as e:
+                print(f"Sheets deletion failed: {e}")
+        
         return {"message": "Candidate deleted successfully"}
     except HTTPException:
         raise
