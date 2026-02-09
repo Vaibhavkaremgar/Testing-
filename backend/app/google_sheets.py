@@ -16,29 +16,46 @@ class GoogleSheetsService:
     def _initialize_service(self):
         """Initialize Google Sheets service with service account"""
         try:
-            # Path to service account key file
+            # Try environment variable first (for Railway/production)
+            google_creds_json = os.getenv('GOOGLE_SHEETS_CREDENTIALS')
+            
+            if google_creds_json:
+                # Load credentials from environment variable
+                print("Loading Google Sheets credentials from environment variable")
+                creds_dict = json.loads(google_creds_json)
+                scopes = ['https://www.googleapis.com/auth/spreadsheets']
+                credentials = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+                self.service = build('sheets', 'v4', credentials=credentials)
+                self.is_configured = True
+                print("Google Sheets service initialized successfully from environment")
+                return
+            
+            # Fallback to file (for local development)
             key_file = "hr-dashboard-key.json"
             
             if not os.path.exists(key_file):
                 print(f"Google Sheets service account key file not found: {key_file}")
                 print("Google Sheets sync will be disabled. To enable:")
-                print("1. Create a Google Cloud service account")
-                print("2. Download the JSON key file")
-                print("3. Place it as 'hr-dashboard-key.json' in the backend directory")
-                print("4. Share your Google Sheet with the service account email")
+                print("Option 1 (Railway/Production):")
+                print("  Set GOOGLE_SHEETS_CREDENTIALS environment variable with JSON content")
+                print("Option 2 (Local Development):")
+                print("  1. Create a Google Cloud service account")
+                print("  2. Download the JSON key file")
+                print("  3. Place it as 'hr-dashboard-key.json' in the backend directory")
+                print("  4. Share your Google Sheet with the service account email")
                 self.is_configured = False
                 return
             
             # Define the scope
             scopes = ['https://www.googleapis.com/auth/spreadsheets']
             
-            # Load credentials
+            # Load credentials from file
             credentials = Credentials.from_service_account_file(key_file, scopes=scopes)
             
             # Build the service
             self.service = build('sheets', 'v4', credentials=credentials)
             self.is_configured = True
-            print("Google Sheets service initialized successfully")
+            print("Google Sheets service initialized successfully from file")
             
         except Exception as e:
             print(f"Failed to initialize Google Sheets service: {e}")
