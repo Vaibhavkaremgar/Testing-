@@ -91,7 +91,6 @@ class Candidate(Base):
     # Pipeline
     stage = Column(Enum(CandidateStage), default=CandidateStage.UPLOADED)
     stage_updated_at = Column(DateTime(timezone=True), server_default=func.now())
-    display_status = Column(String(50))  # For Resumes table display (shortlisted, rejected, etc.)
     
     # Source and decline tracking
     source = Column(String(100))  # LinkedIn, Referral, Job Board, Career Site, etc.
