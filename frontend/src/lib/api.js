@@ -138,6 +138,10 @@ class ApiClient {
   // Candidates
   async getCandidates(params = {}) {
     const searchParams = new URLSearchParams()
+    // Always request all candidates (up to 10000)
+    if (!params.limit) {
+      params.limit = 10000
+    }
     Object.entries(params).forEach(([key, value]) => {
       if (value !== undefined && value !== null && value !== '') {
         searchParams.append(key, value)
