@@ -78,8 +78,15 @@ export default function Communications() {
     }
   }
 
-  // Calculate stats from real data - Only Shortlisted and Resume Rejected
+  // Calculate stats from real data - Total, Shortlisted and Resume Rejected
   const stats = [
+    { 
+      label: 'Total Emails', 
+      value: communications.length, 
+      icon: Mail, 
+      color: 'text-gray-600',
+      type: 'total'
+    },
     { 
       label: 'Shortlisted Emails', 
       value: communications.filter(c => c.type === 'Shortlisted').length, 
@@ -147,8 +154,8 @@ export default function Communications() {
         <p className="text-muted-foreground">Track email communications with candidates</p>
       </div>
 
-      {/* Stats Cards - Only 2 cards */}
-      <div className="grid gap-4 md:grid-cols-2">
+      {/* Stats Cards - 3 cards: Total, Shortlisted, Resume Rejected */}
+      <div className="grid gap-4 md:grid-cols-3">
         {stats.map((stat) => (
           <Card key={stat.label} className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => handleStatClick(stat.type)}>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
