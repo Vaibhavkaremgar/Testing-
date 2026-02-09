@@ -1225,16 +1225,19 @@ def delete_candidate(
         if not db_candidate:
             raise HTTPException(status_code=404, detail="Candidate not found")
         
+        # Delete related interviews first
+        from app.models import Interview
+        db.query(Interview).filter(Interview.candidate_id == candidate_id).delete()
+        
         # Try to delete resume file if exists (skip if fails on Railway)
         if db_candidate.resume_file_path:
             try:
                 if os.path.exists(db_candidate.resume_file_path):
                     os.remove(db_candidate.resume_file_path)
             except Exception as e:
-                # Ignore file deletion errors (Railway has read-only filesystem)
                 print(f"File deletion skipped: {e}")
         
-        # Delete from database
+        # Delete candidate from database
         db.delete(db_candidate)
         db.commit()
         return {"message": "Candidate deleted successfully"}
