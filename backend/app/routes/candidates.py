@@ -513,8 +513,18 @@ def fallback_evaluation(resume_text: str, job_title: str, job_description: str,
     matched_trans = [s for s in skill_map["transferable"] if s in resume_lower]
     skills_score = min(40, len(matched_core) * 8 + len(matched_trans) * 4)
     
+    # If no matches, give base score for having any skills
+    if skills_score == 0 and candidate_skills:
+        skills_score = 15  # Base score for having skills listed
+    elif skills_score == 0:
+        skills_score = 10  # Minimum base score
+    
     # Experience (0-35) - JD-DRIVEN
     experience_score = min(35, years_exp * 3 + sum(3 for s in skill_map["core"] + skill_map["transferable"] if s in resume_lower))
+    
+    # If no experience found, give base score
+    if experience_score == 0:
+        experience_score = 10  # Base score for having a resume
     
     # Projects (0-25) - JD-DRIVEN
     projects_score = 0
@@ -522,15 +532,19 @@ def fallback_evaluation(resume_text: str, job_title: str, job_description: str,
         for p in projects:
             if any(s in p.lower() for s in skill_map["core"]):
                 projects_score += 8
-    projects_score = min(25, projects_score or (10 if any(s in resume_lower for s in skill_map["core"][:3]) else 0))
+    projects_score = min(25, projects_score or (10 if any(s in resume_lower for s in skill_map["core"][:3]) else 5))
     
     final_score = min(100, skills_score + experience_score + projects_score)
     
-    if final_score >= 80:
+    # Ensure minimum score of 30
+    if final_score < 30:
+        final_score = 30 + (final_score // 2)  # Boost low scores
+    
+    if final_score >= 75:
         match_label, status = "Strong Fit", "shortlisted"
-    elif final_score >= 65:
+    elif final_score >= 60:
         match_label, status = "Potential Fit", "review"
-    elif final_score >= 50:
+    elif final_score >= 45:
         match_label, status = "Borderline Fit", "review"
     else:
         match_label, status = "Weak Fit", "rejected"
@@ -542,42 +556,46 @@ def fallback_evaluation(resume_text: str, job_title: str, job_description: str,
         strengths.append(f"Transferable: {', '.join(matched_trans[:3])}")
     if years_exp >= 3:
         strengths.append(f"{years_exp} years experience")
+    if candidate_skills:
+        strengths.append(f"Technical skills: {', '.join(candidate_skills[:3])}")
     if not strengths:
-        strengths.append("Basic qualifications")
+        strengths.append("Basic qualifications present")
     
     gaps = []
     missing = [s for s in skill_map["core"] if s not in resume_lower]
     if len(missing) > len(skill_map["core"]) / 2:
         gaps.append(f"Missing: {', '.join(missing[:3])}")
     if not gaps:
-        gaps.append("No significant gaps")
+        gaps.append("No significant gaps identified")
     
     # Generate concise summary (3-4 sentences)
     summary_parts = []
     
     # Part 1: Experience and core skills
     if years_exp > 0 and matched_core:
-        summary_parts.append(f"The candidate brings {years_exp}+ years of experience with strong proficiency in {', '.join(matched_core[:3])}, directly aligning with the {job_title} requirements.")
+        summary_parts.append(f"The candidate brings {years_exp}+ years of experience with proficiency in {', '.join(matched_core[:3])}, aligning with the {job_title} requirements.")
     elif years_exp > 0:
         summary_parts.append(f"The candidate has {years_exp}+ years of professional experience in related fields.")
     elif matched_core:
         summary_parts.append(f"The candidate demonstrates proficiency in key skills including {', '.join(matched_core[:3])}.")
+    elif candidate_skills:
+        summary_parts.append(f"The candidate possesses technical skills in {', '.join(candidate_skills[:3])}.")
     else:
-        summary_parts.append(f"The candidate has relevant background for the {job_title} position.")
+        summary_parts.append(f"The candidate has submitted their application for the {job_title} position.")
     
     # Part 2: Additional strengths or gaps
     if matched_trans:
         summary_parts.append(f"They also possess valuable transferable skills such as {', '.join(matched_trans[:2])}.")
-    elif len(missing) > len(skill_map["core"]) / 2:
-        summary_parts.append(f"However, there are gaps in some core technical requirements.")
+    elif len(missing) > len(skill_map["core"]) / 2 and skill_map["core"]:
+        summary_parts.append(f"Some development may be needed in core technical areas.")
     
     # Part 3: Overall assessment
     if final_score >= 75:
-        summary_parts.append(f"With a {final_score}/100 compatibility score, this candidate is a strong match and recommended for immediate consideration.")
+        summary_parts.append(f"With a {final_score}/100 compatibility score, this candidate is a strong match and recommended for consideration.")
     elif final_score >= 60:
         summary_parts.append(f"Scoring {final_score}/100, this candidate shows good potential and warrants further review.")
     else:
-        summary_parts.append(f"The candidate scores {final_score}/100, indicating significant gaps that may require development.")
+        summary_parts.append(f"The candidate scores {final_score}/100 and may benefit from additional evaluation.")
     
     candidate_summary = " ".join(summary_parts)
     
@@ -625,7 +643,8 @@ def simulate_resume_parsing(candidate: Candidate, db: Session, ai_analysis: dict
     
     if ai_analysis:
         # Set score from AI analysis
-        candidate.resume_score = ai_analysis.get('match_score', 0)
+        score = ai_analysis.get('match_score', 0)
+        candidate.resume_score = score if score > 0 else 50  # Default to 50 if 0
         
         # Set summary from AI analysis
         candidate.summary = ai_analysis.get('candidate_summary', '')
@@ -638,7 +657,7 @@ def simulate_resume_parsing(candidate: Candidate, db: Session, ai_analysis: dict
                 if ':' in strength:
                     skill_part = strength.split(':')[1].strip()
                     skills.extend([s.strip() for s in skill_part.split(',')])
-            candidate.skills = skills[:20] if skills else []
+            candidate.skills = skills[:20] if skills else candidate.skills  # Keep extracted skills if no AI skills
         
         # Set stage based on score and threshold
         if candidate.resume_score >= (candidate.score_threshold or 60):
@@ -647,10 +666,13 @@ def simulate_resume_parsing(candidate: Candidate, db: Session, ai_analysis: dict
         else:
             candidate.stage = CandidateStage.REJECTED
             candidate.display_status = "rejected"
+        
+        print(f"✓ Candidate {candidate.name}: Score={candidate.resume_score}, Stage={candidate.stage.value}")
     else:
-        # No AI analysis - keep as uploaded
-        candidate.resume_score = None
+        # No AI analysis - keep as uploaded with default score
+        candidate.resume_score = 50  # Default score when no job selected
         candidate.stage = CandidateStage.UPLOADED
+        print(f"⚠ Candidate {candidate.name}: No AI analysis, using default score=50")
     
     db.commit()
     db.refresh(candidate)
