@@ -22,6 +22,10 @@ export function Header() {
   const navigate = useNavigate()
   const [notifications, setNotifications] = useState([])
   const [showNotifications, setShowNotifications] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState({ candidates: [], jobs: [], interviews: [] })
+  const [showSearchResults, setShowSearchResults] = useState(false)
+  const [searching, setSearching] = useState(false)
   const isDark = theme === 'dark'
 
   // Fetch real notifications
@@ -86,6 +90,40 @@ export function Header() {
 
   const unreadCount = notifications.filter(n => n.unread).length
 
+  // Global search
+  useEffect(() => {
+    const performSearch = async () => {
+      if (!searchQuery || searchQuery.length < 2) {
+        setSearchResults({ candidates: [], jobs: [], interviews: [] })
+        setShowSearchResults(false)
+        return
+      }
+
+      setSearching(true)
+      try {
+        const [candidates, jobs, interviews] = await Promise.all([
+          api.getCandidates({ search: searchQuery, limit: 5 }),
+          api.getJobs({ search: searchQuery, limit: 5 }),
+          api.getInterviews({ limit: 100 })
+        ])
+
+        const filteredInterviews = interviews.filter(i => 
+          i.candidate_name?.toLowerCase().includes(searchQuery.toLowerCase())
+        ).slice(0, 5)
+
+        setSearchResults({ candidates, jobs, interviews: filteredInterviews })
+        setShowSearchResults(true)
+      } catch (error) {
+        console.error('Search failed:', error)
+      } finally {
+        setSearching(false)
+      }
+    }
+
+    const debounce = setTimeout(performSearch, 300)
+    return () => clearTimeout(debounce)
+  }, [searchQuery])
+
   const handleLogout = () => {
     logout()
     navigate('/login')
@@ -132,14 +170,113 @@ export function Header() {
       }}
     >
       {/* Search */}
-      <div className="flex items-center gap-4 flex-1 max-w-md">
+      <div className="flex items-center gap-4 flex-1 max-w-md relative">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            placeholder="Search candidates, jobs..."
+            placeholder="Search candidates, jobs, interviews..."
             className="pl-10"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onFocus={() => searchQuery && setShowSearchResults(true)}
           />
+          {searchQuery && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 p-0"
+              onClick={() => {
+                setSearchQuery('')
+                setShowSearchResults(false)
+              }}
+            >
+              <X className="h-3 w-3" />
+            </Button>
+          )}
         </div>
+
+        {/* Search Results Dropdown */}
+        {showSearchResults && (
+          <div className="absolute top-full left-0 right-0 mt-2 bg-card border rounded-lg shadow-lg max-h-96 overflow-y-auto z-50">
+            {searching ? (
+              <div className="p-4 text-center text-muted-foreground">Searching...</div>
+            ) : (
+              <div className="p-2">
+                {/* Candidates */}
+                {searchResults.candidates.length > 0 && (
+                  <div className="mb-2">
+                    <p className="text-xs font-semibold text-muted-foreground px-2 py-1">CANDIDATES</p>
+                    {searchResults.candidates.map(candidate => (
+                      <div
+                        key={candidate.id}
+                        className="px-3 py-2 hover:bg-accent rounded cursor-pointer"
+                        onClick={() => {
+                          navigate('/resumes')
+                          setShowSearchResults(false)
+                          setSearchQuery('')
+                        }}
+                      >
+                        <p className="text-sm font-medium">{candidate.name}</p>
+                        <p className="text-xs text-muted-foreground">{candidate.email} • {candidate.job_title || 'No job'}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Jobs */}
+                {searchResults.jobs.length > 0 && (
+                  <div className="mb-2">
+                    <p className="text-xs font-semibold text-muted-foreground px-2 py-1">JOBS</p>
+                    {searchResults.jobs.map(job => (
+                      <div
+                        key={job.id}
+                        className="px-3 py-2 hover:bg-accent rounded cursor-pointer"
+                        onClick={() => {
+                          navigate('/jobs')
+                          setShowSearchResults(false)
+                          setSearchQuery('')
+                        }}
+                      >
+                        <p className="text-sm font-medium">{job.title}</p>
+                        <p className="text-xs text-muted-foreground">{job.company_name || 'Company'} • {job.location || 'Location'}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Interviews */}
+                {searchResults.interviews.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold text-muted-foreground px-2 py-1">INTERVIEWS</p>
+                    {searchResults.interviews.map(interview => (
+                      <div
+                        key={interview.id}
+                        className="px-3 py-2 hover:bg-accent rounded cursor-pointer"
+                        onClick={() => {
+                          navigate('/interviews')
+                          setShowSearchResults(false)
+                          setSearchQuery('')
+                        }}
+                      >
+                        <p className="text-sm font-medium">{interview.candidate_name}</p>
+                        <p className="text-xs text-muted-foreground">{interview.interview_type} • {interview.status}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* No results */}
+                {searchResults.candidates.length === 0 && 
+                 searchResults.jobs.length === 0 && 
+                 searchResults.interviews.length === 0 && (
+                  <div className="p-4 text-center text-muted-foreground">
+                    No results found for "{searchQuery}"
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Right side */}
