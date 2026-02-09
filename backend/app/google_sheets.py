@@ -356,12 +356,12 @@ class GoogleSheetsService:
                             if skills_list:
                                 candidate.skills = skills_list
                     
-                    # Update summary if present
-                    if 'SUMMARY' in col_indices and len(row) > col_indices['SUMMARY']:
-                        summary_value = row[col_indices['SUMMARY']]
-                        if summary_value and summary_value != '':
-                            if hasattr(candidate, 'summary'):
-                                candidate.summary = summary_value
+                    # Update summary if present (DISABLED - Railway ephemeral storage issue)
+                    # if 'SUMMARY' in col_indices and len(row) > col_indices['SUMMARY']:
+                    #     summary_value = row[col_indices['SUMMARY']]
+                    #     if summary_value and summary_value != '':
+                    #         if hasattr(candidate, 'summary'):
+                    #             candidate.summary = summary_value
                     
                     updated_count += 1
             
