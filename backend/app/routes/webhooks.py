@@ -87,13 +87,17 @@ async def log_email_communication(
     
     db.add(email_comm)
     
-    # Auto-update candidate stage based on email type
+    # Auto-update candidate stage and display_status based on email type when email is sent
     if request.status == "sent":
         email_type_lower = request.email_type.lower().replace(" ", "_")
         if email_type_lower == "slot_selection_email" or request.email_type == "Slot Selection Email":
             candidate.stage = CandidateStage.INTERVIEW_SCHEDULED
+            candidate.display_status = "shortlisted"  # Display as shortlisted in Resumes table
+            candidate.stage_updated_at = datetime.utcnow()
         elif email_type_lower == "rejection_email" or request.email_type == "Rejection Email":
             candidate.stage = CandidateStage.REJECTED
+            candidate.display_status = "rejected"  # Display as rejected in Resumes table
+            candidate.stage_updated_at = datetime.utcnow()
     
     db.commit()
     
@@ -102,7 +106,8 @@ async def log_email_communication(
         "candidate_id": candidate.candidate_id,
         "email_type": request.email_type,
         "status": request.status,
-        "stage_updated": candidate.stage.value if request.status == "sent" else None
+        "stage_updated": candidate.stage.value if request.status == "sent" else None,
+        "display_status": candidate.display_status if request.status == "sent" else None
     }
 
 @router.get("/communications")

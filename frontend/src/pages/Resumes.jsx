@@ -667,7 +667,15 @@ export default function Resumes() {
                       )}
                     </td>
                     <td className="p-4">
-                      {candidate.stage === 'interview_scheduled' ? (
+                      {candidate.display_status ? (
+                        candidate.display_status === 'shortlisted' ? (
+                          <Badge className="bg-green-500">Shortlisted</Badge>
+                        ) : candidate.display_status === 'rejected' ? (
+                          <Badge className="bg-red-500">Rejected</Badge>
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )
+                      ) : candidate.stage === 'interview_scheduled' ? (
                         <Badge className="bg-blue-500">Interview Scheduled</Badge>
                       ) : candidate.stage === 'shortlisted' ? (
                         <Badge className="bg-green-500">Shortlisted</Badge>
