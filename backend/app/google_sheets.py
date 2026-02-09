@@ -344,7 +344,8 @@ class GoogleSheetsService:
                     if 'SUMMARY' in col_indices and len(row) > col_indices['SUMMARY']:
                         summary_value = row[col_indices['SUMMARY']]
                         if summary_value and summary_value != '':
-                            candidate.summary = summary_value
+                            if hasattr(candidate, 'summary'):
+                                candidate.summary = summary_value
                     
                     updated_count += 1
             
