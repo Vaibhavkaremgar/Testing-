@@ -882,13 +882,33 @@ export default function Resumes() {
                       </div>
                     </div>
 
-                    {/* Summary from Google Sheets (if different) */}
-                    {selectedCandidate.summary && aiAnalysis.candidate_summary && selectedCandidate.summary !== aiAnalysis.candidate_summary && (
+                    {/* Key Strengths */}
+                    {aiAnalysis.key_strengths && aiAnalysis.key_strengths.length > 0 && (
                       <div>
-                        <p className="text-sm font-medium mb-2">Additional Notes</p>
-                        <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-lg border border-green-200 dark:border-green-800">
-                          <p className="text-sm text-muted-foreground leading-relaxed">{aiAnalysis.candidate_summary}</p>
-                        </div>
+                        <p className="text-sm font-medium mb-2">Key Strengths</p>
+                        <ul className="space-y-1">
+                          {aiAnalysis.key_strengths.map((strength, idx) => (
+                            <li key={idx} className="text-sm text-muted-foreground flex items-start gap-2">
+                              <span className="text-green-500 mt-1">✓</span>
+                              <span>{strength}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* Skill Gaps */}
+                    {aiAnalysis.skill_gaps && aiAnalysis.skill_gaps.length > 0 && (
+                      <div>
+                        <p className="text-sm font-medium mb-2">Areas for Improvement</p>
+                        <ul className="space-y-1">
+                          {aiAnalysis.skill_gaps.map((gap, idx) => (
+                            <li key={idx} className="text-sm text-muted-foreground flex items-start gap-2">
+                              <span className="text-yellow-500 mt-1">⚠</span>
+                              <span>{gap}</span>
+                            </li>
+                          ))}
+                        </ul>
                       </div>
                     )}
                   </div>
