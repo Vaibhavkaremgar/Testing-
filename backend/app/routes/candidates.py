@@ -464,7 +464,7 @@ def call_groq_llm(prompt: str, api_key: str) -> str:
                 "Content-Type": "application/json"
             },
             json={
-                "model": "llama-3.1-70b-versatile",
+                "model": "llama-3.3-70b-versatile",  # Updated to latest model
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": 0.3,
                 "max_tokens": 1000,
