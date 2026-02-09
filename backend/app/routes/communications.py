@@ -72,6 +72,8 @@ def update_communication(
 @router.post("/webhook/n8n")
 def n8n_webhook(payload: dict, db: Session = Depends(get_db)):
     """N8N webhook endpoint to trigger email communications"""
+    from app.models import CandidateStage
+    
     candidate_id = payload.get("candidate_id")
     candidate_string_id = payload.get("candidate_string_id")  # For Candidate_ID from sheets
     email_type = payload.get("email_type")
@@ -98,11 +100,20 @@ def n8n_webhook(payload: dict, db: Session = Depends(get_db)):
         sent_at=datetime.utcnow()
     )
     db.add(comm)
+    
+    # Update candidate stage based on email type
+    if email_type == "slot_selection":
+        candidate.stage = CandidateStage.INTERVIEW_SCHEDULED
+    elif email_type == "rejection":
+        candidate.stage = CandidateStage.REJECTED
+    
     db.commit()
     
     return {
         "success": True,
         "candidate_name": candidate.name,
         "candidate_email": candidate.email,
-        "email_type": email_type
+        "email_type": email_type,
+        "stage_updated": email_type in ["slot_selection", "rejection"],
+        "new_stage": candidate.stage.value if email_type in ["slot_selection", "rejection"] else None
     }

@@ -329,23 +329,40 @@ class GoogleSheetsService:
                             try:
                                 score = float(score_value)
                                 candidate.resume_score = score
-                                
-                                # Check if candidate has received any emails (primary method)
-                                from app.models import EmailCommunication
-                                email_sent = db_session.query(EmailCommunication).filter(
-                                    EmailCommunication.candidate_id == candidate.id,
-                                    EmailCommunication.status == "sent"
-                                ).first()
-                                
-                                # Only update stage based on score if NO email has been sent (fallback)
-                                if not email_sent:
-                                    threshold = candidate.score_threshold or 60
-                                    if score >= threshold:
-                                        candidate.stage = CandidateStage.SHORTLISTED
-                                    else:
-                                        candidate.stage = CandidateStage.REJECTED
                             except (ValueError, TypeError):
                                 pass
+                    
+                    # Update stage based on email communication type
+                    from app.models import EmailCommunication
+                    
+                    # Check for rejection email
+                    rejection_email = db_session.query(EmailCommunication).filter(
+                        EmailCommunication.candidate_id == candidate.id,
+                        EmailCommunication.email_type == "rejection",
+                        EmailCommunication.status == "sent"
+                    ).first()
+                    
+                    # Check for slot selection email
+                    slot_selection_email = db_session.query(EmailCommunication).filter(
+                        EmailCommunication.candidate_id == candidate.id,
+                        EmailCommunication.email_type == "slot_selection",
+                        EmailCommunication.status == "sent"
+                    ).first()
+                    
+                    if rejection_email:
+                        # Rejection email sent -> Rejected
+                        candidate.stage = CandidateStage.REJECTED
+                    elif slot_selection_email:
+                        # Slot selection email sent -> Interview Scheduled
+                        candidate.stage = CandidateStage.INTERVIEW_SCHEDULED
+                    else:
+                        # No specific email -> use score-based logic
+                        if candidate.resume_score is not None:
+                            threshold = candidate.score_threshold or 60
+                            if candidate.resume_score >= threshold:
+                                candidate.stage = CandidateStage.SHORTLISTED
+                            else:
+                                candidate.stage = CandidateStage.REJECTED
                     
                     # Update skills if present
                     if 'SKILLS' in col_indices and len(row) > col_indices['SKILLS']:
