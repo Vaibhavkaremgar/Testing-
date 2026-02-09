@@ -1088,7 +1088,7 @@ async def zip_upload_resumes(
                             name=name,
                             email=email,
                             phone=phone,
-                            skills=[],  # Leave empty for N8N to fill
+                            skills=extracted_skills,  # Use extracted skills
                             resume_file_path=file_path,
                             resume_text=full_text,  # Store full text
                             candidate_id=candidate_id,  # Store generated ID
@@ -1101,8 +1101,31 @@ async def zip_upload_resumes(
                         db.commit()
                         db.refresh(db_candidate)
                         
-                        # Simulate resume parsing
-                        simulate_resume_parsing(db_candidate, db)
+                        # Get AI analysis for this candidate
+                        ai_analysis = None
+                        if job_id:
+                            from app.models import JobDescription
+                            job = db.query(JobDescription).filter(JobDescription.id == job_id).first()
+                            if job:
+                                job_data = {
+                                    'title': job.title,
+                                    'description': job.description or '',
+                                    'requirements': job.requirements or '',
+                                    'skills': job.skills or []
+                                }
+                                analysis_data = {
+                                    'name': name,
+                                    'email': email,
+                                    'phone': phone,
+                                    'skills': extracted_skills,
+                                    'experience_text': '',
+                                    'projects': [],
+                                    'full_text': full_text
+                                }
+                                ai_analysis = analyze_resume_with_ai(analysis_data, job_data)
+                        
+                        # Simulate resume parsing with AI analysis
+                        simulate_resume_parsing(db_candidate, db, ai_analysis)
                         
                         results.append({"filename": file_info.filename, "status": "success", "candidate_id": db_candidate.id})
                     except Exception as e:
@@ -1346,13 +1369,27 @@ def get_resume_file(
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
     
-    if not candidate.resume_file_path or not os.path.exists(candidate.resume_file_path):
-        raise HTTPException(status_code=404, detail="Resume file not found")
+    if not candidate.resume_file_path:
+        raise HTTPException(status_code=404, detail="No resume file path stored for this candidate")
+    
+    # Check if file exists
+    if not os.path.exists(candidate.resume_file_path):
+        print(f"Resume file not found at path: {candidate.resume_file_path}")
+        raise HTTPException(status_code=404, detail=f"Resume file not found on server. Path: {candidate.resume_file_path}")
+    
+    # Determine media type based on file extension
+    file_ext = os.path.splitext(candidate.resume_file_path)[1].lower()
+    media_type_map = {
+        '.pdf': 'application/pdf',
+        '.doc': 'application/msword',
+        '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+    }
+    media_type = media_type_map.get(file_ext, 'application/octet-stream')
     
     return FileResponse(
         candidate.resume_file_path,
-        media_type='application/pdf',
-        filename=f"{candidate.name}_resume.pdf"
+        media_type=media_type,
+        filename=f"{candidate.name}_resume{file_ext}"
     )
 
 @router.get("/{candidate_id}/ai-analysis")
