@@ -2,16 +2,28 @@
 
 A modern, full-stack SaaS web dashboard for an AI-powered recruitment system. Built with React, Tailwind CSS, ShadCN UI components on the frontend, and Python FastAPI on the backend.
 
-## 🚀 NEW: TRUE AI-Powered Resume Analysis
+## 🚀 FREE AI-Powered Resume Analysis
 
-**Now with LLM integration!** Get intelligent, context-aware resume analysis using Groq (FREE) or OpenAI.
+**Get intelligent resume scoring with ZERO cost!**
 
-✅ **Real AI understanding** - Not just keyword matching
+✅ **100% FREE** - Uses Groq's free API (no credit card needed)
+✅ **Real AI understanding** - Not just keyword matching  
 ✅ **Context-aware evaluation** - Understands experience quality
-✅ **Human-like reasoning** - Detailed explanations
-✅ **FREE with Groq** - No cost for AI analysis
+✅ **Unique scores** - Each resume gets 25-95 score based on content
+✅ **Fast** - 0.5-1 second per resume
 
-👉 **[Setup Guide: LLM_SETUP.md](./LLM_SETUP.md)**
+👉 **[Quick Setup: GROQ_SETUP.md](./GROQ_SETUP.md)** (2 minutes)
+
+### How to Enable:
+
+1. Get free API key: https://console.groq.com
+2. Add to `backend/.env`:
+   ```env
+   GROQ_API_KEY=gsk_your_key_here
+   LLM_PROVIDER=groq
+   ```
+3. Restart backend
+4. Upload resumes and get AI-powered scores!
 
 ## Features
 

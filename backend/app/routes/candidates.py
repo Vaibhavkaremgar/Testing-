@@ -981,17 +981,23 @@ async def upload_resume(
             'full_text': full_text
         }
         
-        # Get AI analysis if job is provided
-        ai_analysis = None
-        if job_data:
-            ai_analysis = analyze_resume_with_ai(analysis_data, job_data)
-            print("\n" + "="*50)
-            print("AI ANALYSIS RESULT")
-            print("="*50)
-            print(f"Match Score: {ai_analysis['match_score']}")
-            print(f"Status: {ai_analysis['status']}")
-            print(f"Summary: {ai_analysis.get('candidate_summary', 'N/A')}")
-            print("="*50 + "\n")
+        # Get AI analysis (with or without job)
+        if not job_data:
+            job_data = {
+                'title': 'General Position',
+                'description': '',
+                'requirements': '',
+                'skills': []
+            }
+        
+        ai_analysis = analyze_resume_with_ai(analysis_data, job_data)
+        print("\n" + "="*50)
+        print("AI ANALYSIS RESULT")
+        print("="*50)
+        print(f"Match Score: {ai_analysis['match_score']}")
+        print(f"Status: {ai_analysis['status']}")
+        print(f"Summary: {ai_analysis.get('candidate_summary', 'N/A')}")
+        print("="*50 + "\n")
         
         # Generate candidate ID: first 3 letters of name + job ID
         name_prefix = name[:3].upper() if name else "UNK"
@@ -1112,7 +1118,7 @@ async def bulk_upload_resumes(
             db.refresh(db_candidate)
             
             # Get AI analysis for this candidate
-            ai_analysis = None
+            job_data = None
             if job_id:
                 from app.models import JobDescription
                 job = db.query(JobDescription).filter(JobDescription.id == job_id).first()
@@ -1123,16 +1129,25 @@ async def bulk_upload_resumes(
                         'requirements': job.requirements or '',
                         'skills': job.skills or []
                     }
-                    analysis_data = {
-                        'name': name,
-                        'email': email,
-                        'phone': phone,
-                        'skills': extracted_skills,
-                        'experience_text': '',
-                        'projects': [],
-                        'full_text': full_text
-                    }
-                    ai_analysis = analyze_resume_with_ai(analysis_data, job_data)
+            
+            if not job_data:
+                job_data = {
+                    'title': 'General Position',
+                    'description': '',
+                    'requirements': '',
+                    'skills': []
+                }
+            
+            analysis_data = {
+                'name': name,
+                'email': email,
+                'phone': phone,
+                'skills': extracted_skills,
+                'experience_text': '',
+                'projects': [],
+                'full_text': full_text
+            }
+            ai_analysis = analyze_resume_with_ai(analysis_data, job_data)
             
             simulate_resume_parsing(db_candidate, db, ai_analysis)
             
@@ -1224,7 +1239,7 @@ async def zip_upload_resumes(
                         db.refresh(db_candidate)
                         
                         # Get AI analysis for this candidate
-                        ai_analysis = None
+                        job_data = None
                         if job_id:
                             from app.models import JobDescription
                             job = db.query(JobDescription).filter(JobDescription.id == job_id).first()
@@ -1235,16 +1250,25 @@ async def zip_upload_resumes(
                                     'requirements': job.requirements or '',
                                     'skills': job.skills or []
                                 }
-                                analysis_data = {
-                                    'name': name,
-                                    'email': email,
-                                    'phone': phone,
-                                    'skills': extracted_skills,
-                                    'experience_text': '',
-                                    'projects': [],
-                                    'full_text': full_text
-                                }
-                                ai_analysis = analyze_resume_with_ai(analysis_data, job_data)
+                        
+                        if not job_data:
+                            job_data = {
+                                'title': 'General Position',
+                                'description': '',
+                                'requirements': '',
+                                'skills': []
+                            }
+                        
+                        analysis_data = {
+                            'name': name,
+                            'email': email,
+                            'phone': phone,
+                            'skills': extracted_skills,
+                            'experience_text': '',
+                            'projects': [],
+                            'full_text': full_text
+                        }
+                        ai_analysis = analyze_resume_with_ai(analysis_data, job_data)
                         
                         # Simulate resume parsing with AI analysis
                         simulate_resume_parsing(db_candidate, db, ai_analysis)
