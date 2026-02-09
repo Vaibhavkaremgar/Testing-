@@ -673,6 +673,7 @@ def get_candidates(
             "stage_updated_at": c.stage_updated_at,
             "job_id": c.job_id,
             "job_title": c.job.title if c.job else None,
+            "summary": c.summary if hasattr(c, 'summary') else None,
             "created_at": c.created_at
         }
         result.append(CandidateResponse(**candidate_dict))
@@ -710,6 +711,7 @@ def get_candidate(
         "stage_updated_at": candidate.stage_updated_at,
         "job_id": candidate.job_id,
         "job_title": candidate.job.title if candidate.job else None,
+        "summary": candidate.summary if hasattr(candidate, 'summary') else None,
         "created_at": candidate.created_at
     }
     return CandidateResponse(**candidate_dict)
@@ -1376,7 +1378,8 @@ def get_pipeline_stages(
                 "current_role": c.current_role,
                 "current_company": c.current_company,
                 "resume_score": c.resume_score,
-                "job_title": c.job.title if c.job else None
+                "job_title": c.job.title if c.job else None,
+                "stage": c.stage.value if c.stage else None
             }
             for c in candidates
         ]
