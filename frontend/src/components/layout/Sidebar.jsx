@@ -29,9 +29,10 @@ const navigation = [
 
 export function Sidebar() {
   return (
-    <div className="flex h-full w-64 flex-col bg-card border-r">
+    <div className="flex h-full w-64 flex-col bg-gradient-to-b from-slate-50 to-white dark:from-slate-900 dark:to-slate-950 border-r">
       {/* Logo */}
-      <div className="flex h-16 items-center gap-2 px-6 border-b">
+      <div className="flex h-16 items-center gap-3 px-6 border-b">
+        <img src="/favicon.ico" alt="PONTIS Logo" className="h-8 w-8" />
         <div>
           <span className="text-lg font-bold">PONTIS</span>
           <p className="text-xs text-muted-foreground">Recruitment System</p>
