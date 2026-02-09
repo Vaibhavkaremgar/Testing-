@@ -99,6 +99,24 @@ def create_job(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
+    # Auto-create client if company_name is provided and doesn't exist
+    if job.company_name:
+        from app.models import Client
+        existing_client = db.query(Client).filter(
+            Client.name == job.company_name
+        ).first()
+        
+        if not existing_client:
+            # Create new client
+            new_client = Client(
+                name=job.company_name,
+                total_positions=1,
+                positions_open=1,
+                is_active=True
+            )
+            db.add(new_client)
+            db.commit()
+    
     db_job = JobDescription(**job.model_dump())
     db.add(db_job)
     db.commit()
