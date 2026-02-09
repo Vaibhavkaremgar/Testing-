@@ -496,50 +496,123 @@ JOB_SKILL_MAPS = {
 def fallback_evaluation(resume_text: str, job_title: str, job_description: str, 
                        job_requirements: str, candidate_skills: list,
                        experience_text: str, projects: list) -> dict:
-    """JD-DRIVEN evaluation - scores based on job requirements"""
+    """Enhanced evaluation with better scoring variation"""
     import re
+    import hashlib
     
     resume_lower = resume_text.lower()
     skill_map = JOB_SKILL_MAPS.get(job_title.lower().strip(), JOB_SKILL_MAPS["default"])
     
-    # Extract years
+    # Extract years of experience
     years_exp = 0
     for match in re.findall(r'(\d+)\s*(?:year|years|yrs)', resume_lower):
         years_exp = max(years_exp, int(match))
     
-    # Skills (0-40) - JD-DRIVEN
+    # Calculate resume content richness (affects scoring)
+    word_count = len(resume_text.split())
+    has_email = bool(re.search(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', resume_text))
+    has_phone = bool(re.search(r'\+?\d[\d\s-]{8,}', resume_text))
+    has_education = bool(re.search(r'\b(bachelor|master|phd|degree|university|college|education)\b', resume_lower))
+    has_experience_section = bool(re.search(r'\b(experience|employment|work history)\b', resume_lower))
+    
+    # Content quality multiplier (0.7 to 1.3)
+    quality_multiplier = 1.0
+    if word_count < 100:
+        quality_multiplier = 0.7
+    elif word_count < 300:
+        quality_multiplier = 0.85
+    elif word_count > 800:
+        quality_multiplier = 1.15
+    elif word_count > 1200:
+        quality_multiplier = 1.3
+    
+    # Skills scoring (0-40 points)
     skills_score = 0
     matched_core = [s for s in skill_map["core"] if s in resume_lower]
     matched_trans = [s for s in skill_map["transferable"] if s in resume_lower]
-    skills_score = min(40, len(matched_core) * 8 + len(matched_trans) * 4)
     
-    # If no matches, give base score for having any skills
-    if skills_score == 0 and candidate_skills:
-        skills_score = 15  # Base score for having skills listed
-    elif skills_score == 0:
-        skills_score = 10  # Minimum base score
+    # Core skills are worth more
+    skills_score += len(matched_core) * 8
+    skills_score += len(matched_trans) * 4
     
-    # Experience (0-35) - JD-DRIVEN
-    experience_score = min(35, years_exp * 3 + sum(3 for s in skill_map["core"] + skill_map["transferable"] if s in resume_lower))
+    # Bonus for having candidate_skills extracted
+    if candidate_skills:
+        skills_score += min(10, len(candidate_skills) * 2)
     
-    # If no experience found, give base score
-    if experience_score == 0:
-        experience_score = 10  # Base score for having a resume
+    # Cap at 40
+    skills_score = min(40, skills_score)
     
-    # Projects (0-25) - JD-DRIVEN
+    # If no matches, give variable base score based on content
+    if skills_score < 10:
+        # Use resume hash for consistent but varied scoring
+        resume_hash = int(hashlib.md5(resume_text.encode()).hexdigest()[:8], 16)
+        variation = (resume_hash % 8) + 8  # 8-15 points variation
+        skills_score = max(skills_score, variation)
+    
+    # Experience scoring (0-35 points)
+    experience_score = 0
+    
+    # Years of experience
+    if years_exp >= 10:
+        experience_score += 20
+    elif years_exp >= 5:
+        experience_score += 15
+    elif years_exp >= 3:
+        experience_score += 12
+    elif years_exp >= 1:
+        experience_score += 8
+    else:
+        experience_score += 3  # Fresh graduate
+    
+    # Experience section quality
+    if has_experience_section:
+        experience_score += 5
+    
+    # Relevant experience mentions
+    relevant_exp = sum(3 for s in skill_map["core"] + skill_map["transferable"] if s in resume_lower)
+    experience_score += min(10, relevant_exp)
+    
+    experience_score = min(35, experience_score)
+    
+    # Projects & Achievements (0-25 points)
     projects_score = 0
+    
+    # Actual projects listed
     if projects:
         for p in projects:
-            if any(s in p.lower() for s in skill_map["core"]):
-                projects_score += 8
-    projects_score = min(25, projects_score or (10 if any(s in resume_lower for s in skill_map["core"][:3]) else 5))
+            p_lower = p.lower()
+            # Check for relevant skills in project
+            if any(s in p_lower for s in skill_map["core"]):
+                projects_score += 6
+            elif any(s in p_lower for s in skill_map["transferable"]):
+                projects_score += 3
     
-    final_score = min(100, skills_score + experience_score + projects_score)
+    # Look for project keywords in resume
+    project_keywords = ['project', 'developed', 'built', 'created', 'implemented', 'designed', 'led']
+    project_mentions = sum(1 for kw in project_keywords if kw in resume_lower)
+    projects_score += min(10, project_mentions * 2)
     
-    # Ensure minimum score of 30
-    if final_score < 30:
-        final_score = 30 + (final_score // 2)  # Boost low scores
+    # Bonus for certifications/achievements
+    if re.search(r'\b(certification|certified|award|achievement|publication)\b', resume_lower):
+        projects_score += 5
     
+    projects_score = min(25, projects_score)
+    
+    # Calculate base score
+    base_score = skills_score + experience_score + projects_score
+    
+    # Apply quality multiplier
+    final_score = int(base_score * quality_multiplier)
+    
+    # Add small variation based on resume uniqueness (prevents identical scores)
+    resume_hash = int(hashlib.md5(resume_text.encode()).hexdigest()[:8], 16)
+    variation = (resume_hash % 5) - 2  # -2 to +2 points
+    final_score += variation
+    
+    # Ensure score is in reasonable range (25-95)
+    final_score = max(25, min(95, final_score))
+    
+    # Determine match label and status
     if final_score >= 75:
         match_label, status = "Strong Fit", "shortlisted"
     elif final_score >= 60:
@@ -549,60 +622,87 @@ def fallback_evaluation(resume_text: str, job_title: str, job_description: str,
     else:
         match_label, status = "Weak Fit", "rejected"
     
+    # Build strengths list
     strengths = []
     if matched_core:
         strengths.append(f"Core skills: {', '.join(matched_core[:3])}")
     if matched_trans:
-        strengths.append(f"Transferable: {', '.join(matched_trans[:3])}")
-    if years_exp >= 3:
-        strengths.append(f"{years_exp} years experience")
-    if candidate_skills:
-        strengths.append(f"Technical skills: {', '.join(candidate_skills[:3])}")
+        strengths.append(f"Transferable: {', '.join(matched_trans[:2])}")
+    if years_exp >= 5:
+        strengths.append(f"{years_exp}+ years of experience")
+    elif years_exp >= 2:
+        strengths.append(f"{years_exp} years of experience")
+    if candidate_skills and len(candidate_skills) >= 3:
+        strengths.append(f"Technical proficiency: {', '.join(candidate_skills[:3])}")
+    if has_education:
+        strengths.append("Relevant educational background")
+    if projects:
+        strengths.append(f"{len(projects)} project(s) demonstrated")
     if not strengths:
         strengths.append("Basic qualifications present")
     
+    # Build gaps list
     gaps = []
     missing = [s for s in skill_map["core"] if s not in resume_lower]
-    if len(missing) > len(skill_map["core"]) / 2:
-        gaps.append(f"Missing: {', '.join(missing[:3])}")
+    if len(missing) > len(skill_map["core"]) / 2 and skill_map["core"]:
+        gaps.append(f"Missing core skills: {', '.join(missing[:2])}")
+    if years_exp < 2 and skill_map["core"]:
+        gaps.append("Limited professional experience")
+    if not has_education:
+        gaps.append("Educational background not clearly stated")
     if not gaps:
         gaps.append("No significant gaps identified")
     
-    # Generate concise summary (3-4 sentences)
+    # Generate detailed, varied summary (3-4 sentences)
     summary_parts = []
     
-    # Part 1: Experience and core skills
-    if years_exp > 0 and matched_core:
-        summary_parts.append(f"The candidate brings {years_exp}+ years of experience with proficiency in {', '.join(matched_core[:3])}, aligning with the {job_title} requirements.")
-    elif years_exp > 0:
-        summary_parts.append(f"The candidate has {years_exp}+ years of professional experience in related fields.")
+    # Sentence 1: Experience level and key qualifications
+    if years_exp >= 5 and matched_core:
+        summary_parts.append(f"Experienced professional with {years_exp}+ years in the field, demonstrating strong expertise in {', '.join(matched_core[:2])} relevant to the {job_title} role.")
+    elif years_exp >= 3 and matched_core:
+        summary_parts.append(f"Mid-level candidate with {years_exp} years of experience and proven skills in {', '.join(matched_core[:2])}.")
+    elif years_exp >= 1 and matched_core:
+        summary_parts.append(f"Early-career professional with {years_exp} year(s) of experience, showing competency in {', '.join(matched_core[:2])}.")
     elif matched_core:
-        summary_parts.append(f"The candidate demonstrates proficiency in key skills including {', '.join(matched_core[:3])}.")
+        summary_parts.append(f"Candidate demonstrates foundational knowledge in {', '.join(matched_core[:2])}, suitable for the {job_title} position.")
+    elif years_exp >= 3:
+        summary_parts.append(f"Professional with {years_exp}+ years of work experience across various domains.")
     elif candidate_skills:
-        summary_parts.append(f"The candidate possesses technical skills in {', '.join(candidate_skills[:3])}.")
+        summary_parts.append(f"Candidate possesses technical capabilities including {', '.join(candidate_skills[:3])}.")
     else:
-        summary_parts.append(f"The candidate has submitted their application for the {job_title} position.")
+        summary_parts.append(f"Applicant for the {job_title} position with basic qualifications.")
     
-    # Part 2: Additional strengths or gaps
-    if matched_trans:
-        summary_parts.append(f"They also possess valuable transferable skills such as {', '.join(matched_trans[:2])}.")
-    elif len(missing) > len(skill_map["core"]) / 2 and skill_map["core"]:
-        summary_parts.append(f"Some development may be needed in core technical areas.")
+    # Sentence 2: Additional strengths or unique aspects
+    if matched_trans and projects:
+        summary_parts.append(f"Brings valuable transferable skills in {', '.join(matched_trans[:2])} along with hands-on project experience.")
+    elif matched_trans:
+        summary_parts.append(f"Demonstrates strong {', '.join(matched_trans[:2])} capabilities that complement technical skills.")
+    elif projects:
+        summary_parts.append(f"Portfolio includes {len(projects)} relevant project(s) showcasing practical application of skills.")
+    elif has_education and years_exp >= 2:
+        summary_parts.append(f"Combines formal education with practical work experience.")
+    elif word_count > 800:
+        summary_parts.append(f"Comprehensive resume demonstrates attention to detail and thorough documentation of qualifications.")
     
-    # Part 3: Overall assessment
-    if final_score >= 75:
-        summary_parts.append(f"With a {final_score}/100 compatibility score, this candidate is a strong match and recommended for consideration.")
+    # Sentence 3: Overall assessment and recommendation
+    if final_score >= 80:
+        summary_parts.append(f"Excellent match with {final_score}/100 compatibility score - highly recommended for immediate consideration.")
+    elif final_score >= 70:
+        summary_parts.append(f"Strong candidate scoring {final_score}/100 - recommended for interview stage.")
     elif final_score >= 60:
-        summary_parts.append(f"Scoring {final_score}/100, this candidate shows good potential and warrants further review.")
+        summary_parts.append(f"Good potential with {final_score}/100 score - warrants further evaluation.")
+    elif final_score >= 45:
+        summary_parts.append(f"Moderate fit at {final_score}/100 - consider for review based on specific needs.")
     else:
-        summary_parts.append(f"The candidate scores {final_score}/100 and may benefit from additional evaluation.")
+        summary_parts.append(f"Limited alignment with requirements ({final_score}/100) - may not be ideal fit.")
     
     candidate_summary = " ".join(summary_parts)
     
-    ai_analysis = f"Skills: {skills_score}/40 ({len(matched_core)} core, {len(matched_trans)} transferable). "
-    ai_analysis += f"Experience: {experience_score}/35 ({years_exp} years). "
-    ai_analysis += f"Projects: {projects_score}/25. "
-    ai_analysis += f"{match_label} with {final_score}/100 for {job_title}."
+    # Detailed AI analysis
+    ai_analysis = f"Evaluation breakdown: Skills {skills_score}/40 ({len(matched_core)} core matches, {len(matched_trans)} transferable). "
+    ai_analysis += f"Experience {experience_score}/35 ({years_exp} years, {'with' if has_experience_section else 'without'} detailed history). "
+    ai_analysis += f"Projects & Achievements {projects_score}/25. "
+    ai_analysis += f"Overall: {match_label} ({final_score}/100) for {job_title} position."
     
     return {
         'match_score': round(final_score, 1),
