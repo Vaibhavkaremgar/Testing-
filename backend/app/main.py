@@ -115,14 +115,6 @@ async def startup_event():
             cursor.execute("ALTER TABLE candidates ADD COLUMN summary TEXT")
             conn.commit()
             print("✅ 'summary' column added in startup event")
-        
-        if 'display_status' in columns:
-            print("✅ VERIFIED: 'display_status' column exists in database")
-        else:
-            print("⚠️  WARNING: 'display_status' column missing! Attempting to add...")
-            cursor.execute("ALTER TABLE candidates ADD COLUMN display_status VARCHAR(50)")
-            conn.commit()
-            print("✅ 'display_status' column added in startup event")
         conn.close()
     except Exception as e:
         print(f"❌ Startup verification error: {e}")
