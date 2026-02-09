@@ -801,7 +801,7 @@ def simulate_resume_parsing(candidate: Candidate, db: Session, ai_analysis: dict
 @router.get("", response_model=List[CandidateResponse])
 def get_candidates(
     skip: int = 0,
-    limit: int = 100,
+    limit: int = 10000,
     search: Optional[str] = None,
     stage: Optional[CandidateStage] = None,
     job_id: Optional[int] = None,
