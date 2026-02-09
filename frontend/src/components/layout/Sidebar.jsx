@@ -29,10 +29,19 @@ const navigation = [
 
 export function Sidebar() {
   return (
-    <div className="flex h-full w-64 flex-col bg-gradient-to-b from-slate-50 to-white dark:from-slate-900 dark:to-slate-950 border-r">
+    <div 
+      className="flex h-full w-64 flex-col border-r"
+      style={{
+        background: 'linear-gradient(to bottom, rgb(248, 250, 252), rgb(255, 255, 255))'
+      }}
+    >
       {/* Logo */}
-      <div className="flex h-16 items-center gap-3 px-6 border-b">
-        <img src="/favicon.ico" alt="PONTIS Logo" className="h-8 w-8" />
+      <div className="flex h-16 items-center gap-3 px-6 border-b bg-white/50">
+        <img 
+          src="/logo.svg" 
+          alt="PONTIS" 
+          className="h-8 w-8"
+        />
         <div>
           <span className="text-lg font-bold">PONTIS</span>
           <p className="text-xs text-muted-foreground">Recruitment System</p>

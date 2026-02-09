@@ -123,7 +123,7 @@ export function Header() {
   }
 
   return (
-    <header className="flex h-16 items-center justify-between border-b bg-white dark:bg-slate-950 px-6 shadow-sm">
+    <header className="flex h-16 items-center justify-between border-b px-6" style={{ backgroundColor: '#ffffff', boxShadow: '0 1px 2px 0 rgb(0 0 0 / 0.05)' }}>
       {/* Search */}
       <div className="flex items-center gap-4 flex-1 max-w-md">
         <div className="relative flex-1">
