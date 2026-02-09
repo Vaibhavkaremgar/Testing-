@@ -61,10 +61,7 @@ export default function Communications() {
   const handleDelete = async (id) => {
     if (confirm('Are you sure you want to delete this email record?')) {
       try {
-        // Add delete API call here when backend endpoint is ready
-        // await api.deleteEmailCommunication(id)
-        
-        // For now, remove from local state
+        await api.deleteEmailCommunication(id)
         setCommunications(prev => prev.filter(c => c.id !== id))
         alert('Email record deleted successfully')
       } catch (error) {

@@ -490,6 +490,10 @@ class ApiClient {
   async getCommunications() {
     return this.request('/webhook/communications')
   }
+
+  async deleteEmailCommunication(id) {
+    return this.request(`/webhook/communications/${id}`, { method: 'DELETE' })
+  }
 }
 
 export const api = new ApiClient()

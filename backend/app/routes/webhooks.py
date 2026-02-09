@@ -109,3 +109,21 @@ async def get_communications(
         }
         for comm in communications
     ]
+
+@router.delete("/communications/{comm_id}")
+async def delete_communication(
+    comm_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Delete an email communication record
+    """
+    comm = db.query(EmailCommunication).filter(EmailCommunication.id == comm_id).first()
+    
+    if not comm:
+        raise HTTPException(status_code=404, detail="Communication not found")
+    
+    db.delete(comm)
+    db.commit()
+    
+    return {"success": True, "message": "Communication deleted successfully"}
