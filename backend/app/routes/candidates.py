@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Query
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import or_, text, extract
+from sqlalchemy import or_, text
 from typing import List, Optional
 import os
 import uuid
@@ -381,7 +381,7 @@ def analyze_resume_with_ai(candidate_data: dict, job_description: dict) -> dict:
 def evaluate_candidate_contextually(resume_text: str, job_title: str, job_description: str, 
                                    job_requirements: str, candidate_skills: list,
                                    experience_text: str, projects: list) -> dict:
-    """TRUE AI evaluation using LLM"""
+    """Evidence-based AI evaluation using LLM with structured scoring"""
     from app.config import settings
     import json
     
@@ -389,8 +389,8 @@ def evaluate_candidate_contextually(resume_text: str, job_title: str, job_descri
     print(f"   GROQ_API_KEY: {'✅ SET' if settings.GROQ_API_KEY else '❌ NOT SET'}")
     print(f"   LLM_PROVIDER: {settings.LLM_PROVIDER}")
     
-    # Prepare prompt for LLM
-    prompt = f"""You are an expert ATS (Applicant Tracking System) and recruitment specialist. Analyze this resume against the job description and provide a detailed evaluation.
+    # Enhanced prompt with structured evaluation criteria
+    prompt = f"""You are a senior technical recruiter with 15+ years of experience. Evaluate this candidate for the {job_title} position using evidence-based assessment.
 
 JOB TITLE: {job_title}
 
@@ -403,51 +403,98 @@ JOB REQUIREMENTS:
 CANDIDATE RESUME:
 {resume_text[:3000]}
 
-Provide your analysis in the following JSON format:
+EVALUATE BASED ON THESE CRITERIA:
+
+1. TECHNICAL DEPTH (0-30 points)
+   - Skill mastery level (mentioned vs used in projects vs measurable impact)
+   - Technology stack breadth and depth
+   - Advanced concepts and architecture knowledge
+
+2. PROJECT COMPLEXITY (0-20 points)
+   - Backend/Frontend/Full-stack implementation
+   - Database design and API development
+   - Deployment, authentication, scalability
+   - System architecture and design patterns
+
+3. RELEVANCE TO JOB (0-20 points)
+   - Direct skill alignment (not just keyword matching)
+   - Domain experience match
+   - Role responsibility alignment
+
+4. EVIDENCE OF IMPACT (0-15 points)
+   - Quantifiable metrics (%, numbers, scale)
+   - Performance improvements
+   - User/revenue/efficiency impact
+   - Problem-solving outcomes
+
+5. SENIORITY & LEADERSHIP (0-15 points)
+   - Years of experience
+   - Leadership indicators (Led, Architected, Designed, Mentored)
+   - System design and scalability mentions
+   - Team collaboration and ownership
+
+Provide your analysis in this EXACT JSON format:
 {{
-  "match_score": <number 0-100>,
+  "technical_depth_score": <0-30>,
+  "project_complexity_score": <0-20>,
+  "relevance_score": <0-20>,
+  "impact_score": <0-15>,
+  "seniority_score": <0-15>,
+  "match_score": <sum of above, 0-100>,
   "match_label": "<Strong Fit|Potential Fit|Borderline Fit|Weak Fit>",
-  "candidate_summary": "<A concise 3-4 sentence professional summary that covers: candidate's experience level and key skills, how their background aligns with job requirements, and overall suitability. Be specific and impactful.>",
-  "key_strengths": ["<strength 1>", "<strength 2>", "<strength 3>"],
-  "skill_gaps": ["<gap 1>", "<gap 2>"],
-  "ai_analysis": "<3-4 sentences explaining the match score, what aligns, what's missing, and overall recommendation>",
-  "status": "<shortlisted|review|rejected>"
+  "candidate_summary": "<3-4 sentence professional summary highlighting experience, key skills, alignment with job, and suitability>",
+  "key_strengths": ["<specific strength with evidence>", "<specific strength with evidence>", "<specific strength with evidence>"],
+  "skill_gaps": ["<specific gap>", "<specific gap>"],
+  "ai_analysis": "<Detailed 4-5 sentence analysis explaining scores, what makes them strong/weak, evidence found, and hire recommendation>",
+  "status": "<shortlisted|review|rejected>",
+  "evidence_found": {{
+    "metrics_count": <number of quantifiable metrics found>,
+    "leadership_indicators": <number of leadership words found>,
+    "project_depth_indicators": ["<indicator1>", "<indicator2>"]
+  }}
 }}
 
-Scoring guidelines:
-- 75-100: Strong Fit (shortlisted) - Excellent match with most requirements
-- 60-74: Potential Fit (review) - Good match with some gaps
-- 45-59: Borderline Fit (review) - Moderate match, significant gaps
-- 0-44: Weak Fit (rejected) - Poor match
-
-IMPORTANT: The candidate_summary must be concise (3-4 sentences), professional, and highlight key qualifications relevant to the job.
+SCORING RULES:
+- Start from 0, build score based on EVIDENCE, not existence
+- Reward depth over breadth (skill used in project > skill mentioned)
+- Prioritize measurable impact (metrics, %, improvements)
+- Consider seniority level (junior vs mid vs senior expectations)
+- 75-100: Strong Fit (immediate interview)
+- 60-74: Potential Fit (phone screen)
+- 45-59: Borderline Fit (review with team)
+- 0-44: Weak Fit (reject)
 
 Provide ONLY the JSON response, no additional text."""
     
     try:
         # Try LLM analysis
         if settings.GROQ_API_KEY and settings.LLM_PROVIDER == "groq":
-            print(f"   🤖 Using Groq LLM...")
+            print(f"   🤖 Using Groq LLM with enhanced evaluation...")
             response = call_groq_llm(prompt, settings.GROQ_API_KEY)
             print(f"   ✅ Groq LLM response received!")
         elif settings.OPENAI_API_KEY and settings.LLM_PROVIDER == "openai":
-            print(f"   🤖 Using OpenAI LLM...")
+            print(f"   🤖 Using OpenAI LLM with enhanced evaluation...")
             response = call_openai_llm(prompt, settings.OPENAI_API_KEY)
             print(f"   ✅ OpenAI LLM response received!")
         else:
-            print(f"   ⚠️  No LLM configured, using fallback...")
-            # Fallback to rule-based if no LLM configured
-            return fallback_evaluation(resume_text, job_title, job_description, job_requirements, candidate_skills, experience_text, projects)
+            print(f"   ⚠️  No LLM configured, using enhanced fallback...")
+            return enhanced_fallback_evaluation(resume_text, job_title, job_description, job_requirements, candidate_skills, experience_text, projects)
         
         # Parse LLM response
         result = json.loads(response)
-        print(f"   ✅ LLM Score: {result.get('match_score', 'N/A')}")
+        print(f"   ✅ LLM Score Breakdown:")
+        print(f"      Technical Depth: {result.get('technical_depth_score', 0)}/30")
+        print(f"      Project Complexity: {result.get('project_complexity_score', 0)}/20")
+        print(f"      Relevance: {result.get('relevance_score', 0)}/20")
+        print(f"      Impact: {result.get('impact_score', 0)}/15")
+        print(f"      Seniority: {result.get('seniority_score', 0)}/15")
+        print(f"      TOTAL: {result.get('match_score', 0)}/100")
         return result
         
     except Exception as e:
         print(f"   ❌ LLM evaluation failed: {e}")
-        print(f"   ⚠️  Falling back to rule-based evaluation...")
-        return fallback_evaluation(resume_text, job_title, job_description, job_requirements, candidate_skills, experience_text, projects)
+        print(f"   ⚠️  Falling back to enhanced rule-based evaluation...")
+        return enhanced_fallback_evaluation(resume_text, job_title, job_description, job_requirements, candidate_skills, experience_text, projects)
 
 def call_groq_llm(prompt: str, api_key: str) -> str:
     """Call Groq LLM API"""
@@ -555,78 +602,129 @@ JOB_SKILL_MAPS = {
     "default": {"core": [], "transferable": ["communication", "teamwork"], "ignore": []}
 }
 
-def fallback_evaluation(resume_text: str, job_title: str, job_description: str, 
-                       job_requirements: str, candidate_skills: list,
-                       experience_text: str, projects: list) -> dict:
-    """Enhanced evaluation with unique scoring for each resume"""
+def enhanced_fallback_evaluation(resume_text: str, job_title: str, job_description: str, 
+                                job_requirements: str, candidate_skills: list,
+                                experience_text: str, projects: list) -> dict:
+    """Enhanced evidence-based evaluation without LLM"""
     import re
-    import hashlib
-    import random
     
-    print(f"\n📄 Resume Analysis:")
+    print(f"\n📄 Enhanced Resume Analysis:")
     print(f"   Text length: {len(resume_text)} chars")
     print(f"   Skills found: {len(candidate_skills) if candidate_skills else 0}")
     print(f"   Job title: {job_title}")
     
-    # Use resume text hash as seed for consistent but unique scoring
-    resume_hash = hashlib.md5((resume_text + str(candidate_skills)).encode()).hexdigest()
-    random.seed(resume_hash)  # Same resume = same score, different resumes = different scores
-    
     resume_lower = resume_text.lower() if resume_text else ""
     skill_map = JOB_SKILL_MAPS.get(job_title.lower().strip(), JOB_SKILL_MAPS["default"])
     
-    # Extract years of experience
-    years_exp = 0
-    if resume_text:
-        for match in re.findall(r'(\d+)\s*(?:year|years|yrs)', resume_lower):
-            years_exp = max(years_exp, int(match))
-    
-    # Calculate resume content richness
-    word_count = len(resume_text.split()) if resume_text else 0
-    has_email = bool(re.search(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', resume_text)) if resume_text else False
-    has_education = bool(re.search(r'\b(bachelor|master|phd|degree|university|college|education)\b', resume_lower)) if resume_text else False
-    has_experience_section = bool(re.search(r'\b(experience|employment|work history)\b', resume_lower)) if resume_text else False
-    
-    # Check for ignored skills (wrong domain)
-    ignored_skills_found = [s for s in skill_map["ignore"] if s in resume_lower] if resume_text and skill_map["ignore"] else []
-    
-    # Base score starts at 50 (not 25!)
-    base_score = 50
-    
-    # Skills contribution (0-20)
+    # 1. TECHNICAL DEPTH SCORE (0-30)
+    technical_score = 0
     matched_core = [s for s in skill_map["core"] if s in resume_lower] if resume_text else []
+    
+    for skill in matched_core:
+        # Mentioned only: 2 points
+        technical_score += 2
+        
+        # Used in project context: +3 points
+        if re.search(rf'{skill}.*(?:project|built|developed|created|implemented)', resume_lower, re.IGNORECASE):
+            technical_score += 3
+        
+        # Has measurable impact: +3 points
+        if re.search(rf'{skill}.*(?:\d+%|\d+x|improved|increased|reduced|optimized)', resume_lower, re.IGNORECASE):
+            technical_score += 3
+    
+    technical_score = min(30, technical_score)
+    
+    # 2. PROJECT COMPLEXITY SCORE (0-20)
+    complexity_score = 0
+    complexity_indicators = {
+        'backend': r'\b(backend|server|api|rest|graphql|microservices)\b',
+        'database': r'\b(database|sql|mongodb|postgresql|mysql|redis)\b',
+        'frontend': r'\b(frontend|react|angular|vue|ui|ux)\b',
+        'deployment': r'\b(deploy|aws|azure|docker|kubernetes|ci/cd|jenkins)\b',
+        'authentication': r'\b(auth|authentication|jwt|oauth|security)\b',
+        'architecture': r'\b(architect|design pattern|scalable|distributed|system design)\b'
+    }
+    
+    for indicator, pattern in complexity_indicators.items():
+        if re.search(pattern, resume_lower, re.IGNORECASE):
+            complexity_score += 2
+    
+    complexity_score = min(20, complexity_score)
+    
+    # 3. RELEVANCE SCORE (0-20)
+    relevance_score = 0
+    
+    # Core skills alignment (weighted)
+    if matched_core:
+        alignment_ratio = len(matched_core) / max(len(skill_map["core"]), 1)
+        
+        if alignment_ratio >= 0.7:
+            relevance_score += 15
+        elif alignment_ratio >= 0.4:
+            relevance_score += 10
+        else:
+            relevance_score += 5
+    
+
+    # Transferable skills
     matched_trans = [s for s in skill_map["transferable"] if s in resume_lower] if resume_text else []
+    relevance_score += min(5, len(matched_trans))
     
-    # PENALTY: If resume has skills from ignored list (wrong domain), reduce score significantly
-    domain_mismatch_penalty = 0
-    if ignored_skills_found and len(ignored_skills_found) >= 2:
-        domain_mismatch_penalty = 25  # Heavy penalty for wrong domain
-        print(f"   ⚠️ DOMAIN MISMATCH: Found {len(ignored_skills_found)} skills from wrong domain: {ignored_skills_found[:3]}")
+    relevance_score = min(20, relevance_score)
     
-    skills_contribution = len(matched_core) * 4 + len(matched_trans) * 2
-    if candidate_skills:
-        skills_contribution += min(10, len(candidate_skills) * 2)
-    skills_contribution = min(20, skills_contribution)
+    # 4. IMPACT SCORE (0-15)
+    impact_score = 0
     
-    # If NO core skills matched but ignored skills found, set skills contribution to 0
-    if len(matched_core) == 0 and ignored_skills_found:
-        skills_contribution = 0
-        print(f"   ❌ NO CORE SKILLS MATCHED - Setting skills contribution to 0")
+    # Count metrics and quantifiable achievements
+    metrics_patterns = [
+        r'\d+%',  # Percentages
+        r'\d+x',  # Multipliers
+        r'\d+\+?\s*(?:users|customers|clients)',  # User counts
+        r'(?:improved|increased|reduced|optimized|enhanced).*?\d+',  # Performance improvements
+        r'\$\d+[kmb]?',  # Revenue/cost
+    ]
     
-    # Experience contribution (0-15)
-    exp_contribution = min(15, years_exp * 3 + (5 if has_experience_section else 0))
+    metrics_count = 0
+    for pattern in metrics_patterns:
+        metrics_count += len(re.findall(pattern, resume_lower, re.IGNORECASE))
     
-    # Random variation based on resume hash (5-20 points) - ALWAYS DIFFERENT
-    unique_variation = random.randint(5, 20)
+    impact_score = min(15, metrics_count * 3)
     
-    # Calculate final score WITH PENALTY
-    final_score = base_score + skills_contribution + exp_contribution + unique_variation - domain_mismatch_penalty
+    # 5. SENIORITY SCORE (0-15)
+    seniority_score = 0
     
-    print(f"   Base: {base_score}, Skills: {skills_contribution}, Exp: {exp_contribution}, Random: {unique_variation}, Penalty: -{domain_mismatch_penalty}")
-    print(f"   FINAL SCORE: {final_score}")
+    # Years of experience
+    years_exp = 0
+    for match in re.findall(r'(\d+)\s*(?:year|years|yrs)', resume_lower):
+        years_exp = max(years_exp, int(match))
     
-    # Ensure score is in range 30-95 (can go lower due to penalty)
-    final_score = max(30, min(95, final_score))
+    if years_exp >= 8:
+        seniority_score += 8
+    elif years_exp >= 5:
+        seniority_score += 6
+    elif years_exp >= 2:
+        seniority_score += 4
+    else:
+        seniority_score += 2
+    
+    # Leadership indicators
+    leadership_words = ['led', 'architected', 'designed', 'mentored', 'managed', 'directed', 'established', 'founded']
+    leadership_count = sum(1 for word in leadership_words if word in resume_lower)
+    seniority_score += min(7, leadership_count * 2)
+    
+    seniority_score = min(15, seniority_score)
+    
+    # CALCULATE FINAL SCORE (0-100)
+    final_score = technical_score + complexity_score + relevance_score + impact_score + seniority_score
+    
+    print(f"   Technical Depth: {technical_score}/30")
+    print(f"   Project Complexity: {complexity_score}/20")
+    print(f"   Relevance: {relevance_score}/20")
+    print(f"   Impact: {impact_score}/15")
+    print(f"   Seniority: {seniority_score}/15")
+    print(f"   FINAL SCORE: {final_score}/100")
+    
+
     
     # Determine match label and status
     if final_score >= 75:
@@ -638,39 +736,76 @@ def fallback_evaluation(resume_text: str, job_title: str, job_description: str,
     else:
         match_label, status = "Weak Fit", "rejected"
     
-    # Build strengths list
+    # Build strengths
     strengths = []
-    if matched_core:
-        strengths.append(f"Core skills: {', '.join(matched_core[:3])}")
-    if matched_trans:
-        strengths.append(f"Transferable: {', '.join(matched_trans[:2])}")
-    if years_exp >= 5:
-        strengths.append(f"{years_exp}+ years of experience")
-    elif years_exp >= 2:
-        strengths.append(f"{years_exp} years of experience")
-    if candidate_skills and len(candidate_skills) >= 3:
-        strengths.append(f"Technical proficiency: {', '.join(candidate_skills[:3])}")
-    if has_education:
-        strengths.append("Relevant educational background")
+    if technical_score >= 20:
+        strengths.append(f"Strong technical skills: {', '.join(matched_core[:3])}")
+    elif matched_core:
+        strengths.append(f"Relevant skills: {', '.join(matched_core[:3])}")
+    
+    if complexity_score >= 12:
+        strengths.append("Demonstrated complex project experience with full-stack capabilities")
+    
+    if impact_score >= 9:
+        strengths.append(f"Evidence of measurable impact with {metrics_count} quantifiable achievements")
+    
+    if seniority_score >= 10:
+        strengths.append(f"{years_exp}+ years experience with leadership indicators")
+    
     if not strengths:
         strengths.append("Basic qualifications present")
     
-    # Build gaps list
+    # Build gaps
     gaps = []
-    missing = [s for s in skill_map["core"] if s not in resume_lower]
-    if len(missing) > len(skill_map["core"]) / 2 and skill_map["core"]:
-        gaps.append(f"Missing core skills: {', '.join(missing[:2])}")
-    if years_exp < 2:
-        gaps.append("Limited professional experience")
-    if not has_education:
-        gaps.append("Educational background not clearly stated")
-    if ignored_skills_found:
-        gaps.append(f"Skills from different domain: {', '.join(ignored_skills_found[:2])}")
+    missing_core = [s for s in skill_map["core"][:5] if s not in resume_lower]
+    if len(missing_core) >= 3:
+        gaps.append(f"Missing key skills: {', '.join(missing_core[:2])}")
+    
+    if impact_score < 5:
+        gaps.append("Limited evidence of quantifiable impact or metrics")
+    
+    if complexity_score < 10:
+        gaps.append("Project complexity and technical depth could be stronger")
+    
     if not gaps:
         gaps.append("No significant gaps identified")
     
-    # Generate detailed, unique summary using 25+ diverse templates
-    template_num = random.randint(1, 28)
+    # Generate summary
+    exp_desc = f"{years_exp}+ years" if years_exp >= 1 else "entry-level"
+    summary = f"Candidate with {exp_desc} of experience showing {match_label.lower()} for {job_title}. "
+    summary += f"Technical evaluation: {technical_score}/30, Project complexity: {complexity_score}/20, Impact evidence: {impact_score}/15. "
+    
+    if final_score >= 75:
+        summary += "Strong alignment with requirements. Recommend immediate interview."
+    elif final_score >= 60:
+        summary += "Good potential with some gaps. Recommend phone screening."
+    else:
+        summary += "Significant gaps in key areas. Consider for review or rejection."
+    
+    ai_analysis = f"Evidence-based scoring: Technical depth {technical_score}/30 based on skill usage depth, not just mentions. "
+    ai_analysis += f"Project complexity {complexity_score}/20 evaluated on architecture indicators. "
+    ai_analysis += f"Impact score {impact_score}/15 from {metrics_count} quantifiable metrics. "
+    ai_analysis += f"Overall {match_label} ({final_score}/100) for {job_title}."
+    
+    return {
+        'technical_depth_score': technical_score,
+        'project_complexity_score': complexity_score,
+        'relevance_score': relevance_score,
+        'impact_score': impact_score,
+        'seniority_score': seniority_score,
+        'match_score': round(final_score, 1),
+        'match_label': match_label,
+        'candidate_summary': summary,
+        'key_strengths': strengths[:5],
+        'skill_gaps': gaps[:5],
+        'ai_analysis': ai_analysis,
+        'status': status,
+        'evidence_found': {
+            'metrics_count': metrics_count,
+            'leadership_indicators': leadership_count,
+            'project_depth_indicators': [k for k, v in complexity_indicators.items() if re.search(v, resume_lower, re.IGNORECASE)]
+        }
+    }
     
     # Template variables
     exp_desc = f"{years_exp}+ years" if years_exp >= 10 else f"{years_exp} years" if years_exp >= 1 else "entry-level"
@@ -764,7 +899,8 @@ def fallback_evaluation(resume_text: str, job_title: str, job_description: str,
     else:  # template_num == 28
         candidate_summary = f"Career profile reflects {exp_desc} with focus on {core_skills_str}. Match index calculates to {final_score}/100 versus {job_title} criteria. Additional competencies in {trans_skills_str} are present, but {gaps_str} need improvement. Suggested course: {'Advance to interview stage' if final_score >= 75 else 'Initial assessment' if final_score >= 60 else 'Place in consideration queue'}."
     
-    ai_analysis = f"Evaluation: Skills {skills_contribution}/20, Experience {exp_contribution}/15, Unique factors {unique_variation}/20. "
+    ai_analysis = f"Evaluation: Skills {skills_contribution}/20, Experience {exp_contribution}/15,Unique factors {unique_variation}/3. "
+    #Unique factors {unique_variation}/20.
     ai_analysis += f"Overall: {match_label} ({final_score}/100) for {job_title} position."
     
     return {
@@ -827,13 +963,14 @@ def simulate_resume_parsing(candidate: Candidate, db: Session, ai_analysis: dict
             candidate.stage = CandidateStage.SHORTLISTED
             candidate.display_status = "shortlisted"
         else:
-            candidate.stage = CandidateStage.REJECTED
-            candidate.display_status = "rejected"
+            candidate.stage = CandidateStage.RESUME_REJECTED
+            candidate.display_status = "resume_rejected"
         
         print(f"✓ Candidate {candidate.name}: Score={candidate.resume_score}, Stage={candidate.stage.value}")
     else:
         # No AI analysis - keep as uploaded with default score
-        candidate.resume_score = 50  # Default score when no job selected
+        #candidate.resume_score = 50  # Default score when no job selected
+        candidate.resume_score = 0 
         candidate.stage = CandidateStage.UPLOADED
         print(f"⚠ Candidate {candidate.name}: No AI analysis, using default score=50")
     
@@ -848,8 +985,6 @@ def get_candidates(
     stage: Optional[CandidateStage] = None,
     job_id: Optional[int] = None,
     min_score: Optional[float] = None,
-    month: Optional[str] = Query(None),
-    date: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -859,31 +994,15 @@ def get_candidates(
         query = query.filter(
             or_(
                 Candidate.name.ilike(f"%{search}%"),
-                Candidate.email.ilike(f"%{search}%"),
-                Candidate.current_company.ilike(f"%{search}%")
+                Candidate.email.ilike(f"%{search}%")
             )
         )
-    
     if stage:
         query = query.filter(Candidate.stage == stage)
-    
     if job_id:
         query = query.filter(Candidate.job_id == job_id)
-    
     if min_score is not None:
         query = query.filter(Candidate.resume_score >= min_score)
-    
-    # Apply date filter if provided (specific date)
-    if date:
-        query = query.filter(func.date(Candidate.created_at) == date)
-    # Apply month filter if provided
-    elif month:
-        year, month_num = map(int, month.split('-'))
-        query = query.filter(
-            extract('year', Candidate.created_at) == year,
-            extract('month', Candidate.created_at) == month_num
-        )
-    
     candidates = query.order_by(Candidate.created_at.desc()).offset(skip).limit(limit).all()
     
     # Add job title to response
