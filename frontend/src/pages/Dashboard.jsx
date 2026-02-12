@@ -79,12 +79,18 @@ export default function Dashboard() {
   }, [selectedMonth, selectedDate])
 
   const kpiCards = stats ? [
-    { title: 'Total Candidates', value: stats.total_candidates, icon: Users, color: 'text-blue-600', bg: 'bg-blue-100 dark:bg-blue-900/30', filter: {} },
-    { title: 'Shortlisted', value: stats.shortlisted, icon: UserCheck, color: 'text-purple-600', bg: 'bg-purple-100 dark:bg-purple-900/30', filter: { stage: 'shortlisted' } },
-    { title: 'Interviews', value: stats.interviews_scheduled, icon: Calendar, color: 'text-orange-600', bg: 'bg-orange-100 dark:bg-orange-900/30', filter: { stage: 'interview_scheduled' } },
-    { title: 'Selected', value: stats.selected, icon: Award, color: 'text-green-600', bg: 'bg-green-100 dark:bg-green-900/30', filter: { stage: 'selected' } },
-    { title: 'Rejected', value: stats.rejected, icon: UserX, color: 'text-red-600', bg: 'bg-red-100 dark:bg-red-900/30', filter: { stage: 'rejected' } },
-  ] : []
+    { title: 'Total Candidates', value: stats.total_candidates || 0, icon: Users, color: 'text-blue-600', bg: 'bg-blue-100 dark:bg-blue-900/30', filter: {} },
+    { title: 'Shortlisted', value: stats.shortlisted || 0, icon: UserCheck, color: 'text-purple-600', bg: 'bg-purple-100 dark:bg-purple-900/30', filter: { stage: 'shortlisted' } },
+    { title: 'Interviews', value: stats.interviews_scheduled || 0, icon: Calendar, color: 'text-orange-600', bg: 'bg-orange-100 dark:bg-orange-900/30', filter: { stage: 'interview_scheduled' } },
+    { title: 'Selected', value: stats.selected || 0, icon: Award, color: 'text-green-600', bg: 'bg-green-100 dark:bg-green-900/30', filter: { stage: 'selected' } },
+    { title: 'Rejected', value: stats.rejected || 0, icon: UserX, color: 'text-red-600', bg: 'bg-red-100 dark:bg-red-900/30', filter: { stage: 'rejected' } },
+  ] : [
+    { title: 'Total Candidates', value: 0, icon: Users, color: 'text-blue-600', bg: 'bg-blue-100 dark:bg-blue-900/30', filter: {} },
+    { title: 'Shortlisted', value: 0, icon: UserCheck, color: 'text-purple-600', bg: 'bg-purple-100 dark:bg-purple-900/30', filter: { stage: 'shortlisted' } },
+    { title: 'Interviews', value: 0, icon: Calendar, color: 'text-orange-600', bg: 'bg-orange-100 dark:bg-orange-900/30', filter: { stage: 'interview_scheduled' } },
+    { title: 'Selected', value: 0, icon: Award, color: 'text-green-600', bg: 'bg-green-100 dark:bg-green-900/30', filter: { stage: 'selected' } },
+    { title: 'Rejected', value: 0, icon: UserX, color: 'text-red-600', bg: 'bg-red-100 dark:bg-red-900/30', filter: { stage: 'rejected' } },
+  ]
 
   const handleCardClick = async (card) => {
     console.log('Card clicked:', card)
