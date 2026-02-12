@@ -18,6 +18,7 @@ class CandidateStage(str, enum.Enum):
     INTERVIEWED = "interviewed"
     NO_SHOW = "no_show"
     SELECTED = "selected"
+    RESUME_REJECTED = "resume_rejected"
     REJECTED = "rejected"
 
 class ParsingStatus(str, enum.Enum):
