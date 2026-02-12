@@ -115,6 +115,17 @@ async def startup_event():
             cursor.execute("ALTER TABLE candidates ADD COLUMN summary TEXT")
             conn.commit()
             print("✅ 'summary' column added in startup event")
+        
+        # CRITICAL: Fix RESUME_REJECTED values
+        cursor.execute("SELECT COUNT(*) FROM candidates WHERE stage = 'resume_rejected'")
+        count = cursor.fetchone()[0]
+        if count > 0:
+            print(f"⚠️  Found {count} candidates with 'resume_rejected' stage")
+            print("🔄 Converting to 'rejected'...")
+            cursor.execute("UPDATE candidates SET stage = 'rejected' WHERE stage = 'resume_rejected'")
+            conn.commit()
+            print(f"✅ Converted {count} candidates from 'resume_rejected' to 'rejected'")
+        
         conn.close()
     except Exception as e:
         print(f"❌ Startup verification error: {e}")
