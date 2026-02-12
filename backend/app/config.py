@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "groq")
     
     # CORS
-    ALLOWED_ORIGINS: str = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000,http://localhost:4173,https://glistening-youth-production.up.railway.app")
+    ALLOWED_ORIGINS: str = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000,http://localhost:4173,https://glistening-youth-production.up.railway.app,http://localhost:5174")
     
     @property
     def allowed_origins_list(self) -> List[str]:
