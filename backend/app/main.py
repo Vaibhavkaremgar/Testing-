@@ -101,42 +101,52 @@ app.include_router(communications.router)
 @app.on_event("startup")
 async def startup_event():
     """Seed database with initial data on startup"""
-    # Final verification that summary column exists
     import sqlite3
+    import os
+    
+    # Get correct database path from environment or default
+    db_url = os.getenv("DATABASE_URL", "sqlite:///./recruitment.db")
+    db_path = db_url.replace("sqlite:///", "")
+    print(f"📁 Using database: {db_path}")
+    
     try:
-        conn = sqlite3.connect("recruitment.db")
+        if not os.path.exists(db_path):
+            print(f"⚠️ Database not found at {db_path}")
+            return
+            
+        conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
-        cursor.execute("PRAGMA table_info(candidates)")
-        columns = [col[1] for col in cursor.fetchall()]
-        if 'summary' in columns:
-            print("✅ VERIFIED: 'summary' column exists in database")
-        else:
-            print("⚠️  WARNING: 'summary' column missing! Attempting to add...")
-            cursor.execute("ALTER TABLE candidates ADD COLUMN summary TEXT")
-            conn.commit()
-            print("✅ 'summary' column added in startup event")
+        
+        # Check if table exists
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='candidates'")
+        if not cursor.fetchone():
+            print("⚠️ Candidates table doesn't exist")
+            conn.close()
+            return
         
         # CRITICAL: Fix RESUME_REJECTED values
         cursor.execute("SELECT COUNT(*) FROM candidates WHERE stage = 'resume_rejected'")
         count = cursor.fetchone()[0]
         if count > 0:
-            print(f"⚠️  Found {count} candidates with 'resume_rejected' stage")
+            print(f"⚠️ Found {count} candidates with 'resume_rejected' stage")
             print("🔄 Converting to 'rejected'...")
             cursor.execute("UPDATE candidates SET stage = 'rejected' WHERE stage = 'resume_rejected'")
             conn.commit()
-            print(f"✅ Converted {count} candidates from 'resume_rejected' to 'rejected'")
+            print(f"✅ Converted {count} candidates")
+        else:
+            print("✅ No resume_rejected values found")
         
         conn.close()
     except Exception as e:
-        print(f"❌ Startup verification error: {e}")
+        print(f"❌ Startup error: {e}")
+        import traceback
+        traceback.print_exc()
     
-    # Seeding enabled for demo data
     seed_database()
-    pass
 
 @app.get("/api/health")
 def health_check():
-    return {"status": "healthy", "app": settings.APP_NAME}
+    return {"status": "healthy", "app": settings.APP_NAME, "cors": "enabled"}
 
 @app.get("/")
 def root():
