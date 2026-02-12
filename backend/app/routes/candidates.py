@@ -963,8 +963,8 @@ def simulate_resume_parsing(candidate: Candidate, db: Session, ai_analysis: dict
             candidate.stage = CandidateStage.SHORTLISTED
             candidate.display_status = "shortlisted"
         else:
-            candidate.stage = CandidateStage.RESUME_REJECTED
-            candidate.display_status = "resume_rejected"
+            candidate.stage = CandidateStage.REJECTED
+            candidate.display_status = "rejected"
         
         print(f"✓ Candidate {candidate.name}: Score={candidate.resume_score}, Stage={candidate.stage.value}")
     else:
