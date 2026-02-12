@@ -61,6 +61,8 @@ export default function Dashboard() {
           api.getActiveJobs().catch(e => { console.error('Jobs error:', e); return []; }),
           api.getUpcomingInterviews().catch(e => { console.error('Interviews error:', e); return []; })
         ])
+        console.log('📊 Dashboard Stats:', statsData)
+        console.log('📈 Funnel Data:', funnelData)
         setStats(statsData)
         setFunnel(funnelData)
         setResumeTrend(resumeData)
