@@ -47,6 +47,8 @@ def get_dashboard_stats(
     ).count() or 0
     selected = query.filter(Candidate.stage == CandidateStage.SELECTED).count() or 0
     
+    print(f"📊 Dashboard Stats: total={total}, shortlisted={shortlisted}, rejected={rejected}, interviews={interviews}, selected={selected}")
+    
     avg_resume = db.query(func.avg(Candidate.resume_score)).filter(
         Candidate.id.in_([c.id for c in query.all()])
     ).scalar() or 0
