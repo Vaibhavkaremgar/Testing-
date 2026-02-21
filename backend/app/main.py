@@ -11,13 +11,39 @@ from app.seed import seed_database
 
 # Run migrations BEFORE creating tables
 def run_migrations():
-    """Force delete old database and recreate with correct schema"""
+    """Add missing columns to Railway database"""
     db_path = "talentai.db"
     
-    if os.path.exists(db_path):
-        print("⚠️  Deleting old database...")
-        os.remove(db_path)
-        print("✅ Database deleted, will recreate")
+    if not os.path.exists(db_path):
+        return
+    
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        
+        # Add missing interview columns to candidates table
+        cursor.execute("PRAGMA table_info(candidates)")
+        columns = [col[1] for col in cursor.fetchall()]
+        
+        missing_cols = [
+            ('interview_video_url', 'VARCHAR(500)'),
+            ('interview_transcript', 'TEXT'),
+            ('interview_ai_summary', 'TEXT'),
+            ('interview_technical_score', 'FLOAT'),
+            ('interview_communication_score', 'FLOAT'),
+            ('interview_culture_fit_score', 'FLOAT')
+        ]
+        
+        for col_name, col_type in missing_cols:
+            if col_name not in columns:
+                cursor.execute(f"ALTER TABLE candidates ADD COLUMN {col_name} {col_type}")
+                print(f"✅ Added {col_name} column")
+        
+        conn.commit()
+        conn.close()
+        print("✅ Migration complete")
+    except Exception as e:
+        print(f"⚠️ Migration error: {e}")
 
 run_migrations()
 
