@@ -11,25 +11,13 @@ from app.seed import seed_database
 
 # Run migrations BEFORE creating tables
 def run_migrations():
-    """Run database migrations - CRITICAL for Railway deployment"""
+    """Force delete old database and recreate with correct schema"""
     db_path = "talentai.db"
     
-    # Force delete old database if it exists and recreate
     if os.path.exists(db_path):
-        try:
-            conn = sqlite3.connect(db_path)
-            cursor = conn.cursor()
-            cursor.execute("PRAGMA table_info(candidates)")
-            columns = [column[1] for column in cursor.fetchall()]
-            conn.close()
-            
-            # If predefined_questions column is missing, delete database
-            if 'predefined_questions' not in columns:
-                print("⚠️  Old database detected, deleting...")
-                os.remove(db_path)
-                print("✅ Database deleted, will recreate with correct schema")
-        except Exception as e:
-            print(f"⚠️  Migration check error: {e}")
+        print("⚠️  Deleting old database...")
+        os.remove(db_path)
+        print("✅ Database deleted, will recreate")
 
 run_migrations()
 
