@@ -80,15 +80,21 @@ export default function Resumes() {
   useEffect(() => {
     const fetchData = async () => {
       try {
+        console.log('Fetching candidates and jobs...')
         const [candidatesData, jobsData] = await Promise.all([
           api.getCandidates(),
           api.getJobs()
         ])
+        console.log('Jobs data received:', jobsData)
+        console.log('Jobs count:', jobsData?.length)
         setCandidates(candidatesData || [])
         setAllJobs(jobsData || [])  // Store all jobs
-        setJobs((jobsData || []).filter(job => job.is_active))  // Only active jobs for uploader
+        const activeJobs = (jobsData || []).filter(job => job.is_active)
+        console.log('Active jobs:', activeJobs)
+        setJobs(activeJobs)  // Only active jobs for uploader
       } catch (error) {
         console.error('Failed to fetch data:', error)
+        console.error('Error details:', error.message, error.stack)
         setCandidates([])
         setJobs([])
         setAllJobs([])

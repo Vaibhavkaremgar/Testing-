@@ -17,82 +17,50 @@ def run_migrations():
     try:
         # Ensure database file exists
         if not os.path.exists(db_path):
-            print("Database doesn't exist yet, will be created by SQLAlchemy")
+            print("✅ Database doesn't exist yet, will be created by SQLAlchemy")
             return
             
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         
-        # CRITICAL: Check if job_descriptions table has interview_questions column
-        # If not, delete the entire database and let it recreate
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='job_descriptions'")
-        if cursor.fetchone():
-            cursor.execute("PRAGMA table_info(job_descriptions)")
-            job_columns = [column[1] for column in cursor.fetchall()]
-            
-            if 'interview_questions' not in job_columns:
-                print("⚠️  CRITICAL: Database schema is outdated!")
-                print("🗑️  Deleting old database to recreate with correct schema...")
-                conn.close()
-                try:
-                    os.remove(db_path)
-                    print("✅ Old database deleted. Will create fresh database.")
-                except Exception as del_error:
-                    print(f"❌ Could not delete database: {del_error}")
-                    print("⚠️  Please manually delete talentai.db file on Railway")
-                return
+        # Check if job_descriptions table has interview_questions column
+        try:
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='job_descriptions'")
+            if cursor.fetchone():
+                cursor.execute("PRAGMA table_info(job_descriptions)")
+                job_columns = [column[1] for column in cursor.fetchall()]
+                
+                if 'interview_questions' not in job_columns:
+                    print("⚠️  MIGRATION: Adding 'interview_questions' column to job_descriptions table...")
+                    cursor.execute("ALTER TABLE job_descriptions ADD COLUMN interview_questions JSON")
+                    conn.commit()
+                    print("✅ MIGRATION COMPLETE: 'interview_questions' column added")
+        except Exception as e:
+            print(f"⚠️  Job migration skipped: {e}")
         
         # Check if candidates table exists
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='candidates'")
-        if cursor.fetchone():
-            # Check if summary column exists
-            cursor.execute("PRAGMA table_info(candidates)")
-            columns = [column[1] for column in cursor.fetchall()]
-            
-            if 'summary' not in columns:
-                print("⚠️  MIGRATION: Adding 'summary' column to candidates table...")
-                cursor.execute("ALTER TABLE candidates ADD COLUMN summary TEXT")
-                conn.commit()
-                print("✅ MIGRATION COMPLETE: 'summary' column added successfully")
-            
-            if 'display_status' not in columns:
-                print("⚠️  MIGRATION: Adding 'display_status' column to candidates table...")
-                cursor.execute("ALTER TABLE candidates ADD COLUMN display_status VARCHAR(50)")
-                conn.commit()
-                print("✅ MIGRATION COMPLETE: 'display_status' column added successfully")
-            
-            if 'predefined_questions' not in columns:
-                print("⚠️  MIGRATION: Adding 'predefined_questions' column to candidates table...")
-                cursor.execute("ALTER TABLE candidates ADD COLUMN predefined_questions TEXT")
-                conn.commit()
-                print("✅ MIGRATION COMPLETE: 'predefined_questions' column added successfully")
-        
-        # Check if interviews table exists and add async columns
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='interviews'")
-        if cursor.fetchone():
-            cursor.execute("PRAGMA table_info(interviews)")
-            interview_columns = [column[1] for column in cursor.fetchall()]
-            
-            async_columns = [
-                ('is_async', 'BOOLEAN DEFAULT 0'),
-                ('async_link', 'VARCHAR(500)'),
-                ('async_token', 'VARCHAR(255)'),
-                ('async_expires_at', 'DATETIME'),
-                ('async_started_at', 'DATETIME'),
-                ('async_completed_at', 'DATETIME'),
-                ('async_answers', 'JSON')
-            ]
-            
-            for col_name, col_type in async_columns:
-                if col_name not in interview_columns:
-                    print(f"⚠️  MIGRATION: Adding '{col_name}' column to interviews table...")
-                    cursor.execute(f"ALTER TABLE interviews ADD COLUMN {col_name} {col_type}")
+        try:
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='candidates'")
+            if cursor.fetchone():
+                cursor.execute("PRAGMA table_info(candidates)")
+                columns = [column[1] for column in cursor.fetchall()]
+                
+                if 'summary' not in columns:
+                    cursor.execute("ALTER TABLE candidates ADD COLUMN summary TEXT")
                     conn.commit()
-                    print(f"✅ MIGRATION COMPLETE: '{col_name}' column added successfully")
+                    print("✅ Added 'summary' column")
+                
+                if 'predefined_questions' not in columns:
+                    cursor.execute("ALTER TABLE candidates ADD COLUMN predefined_questions TEXT")
+                    conn.commit()
+                    print("✅ Added 'predefined_questions' column")
+        except Exception as e:
+            print(f"⚠️  Candidate migration skipped: {e}")
         
         conn.close()
+        print("✅ Migrations complete")
     except Exception as e:
-        print(f"❌ Migration error: {e}")
+        print(f"⚠️  Migration error: {e}")
         print("Continuing with startup...")
 
 run_migrations()
@@ -100,9 +68,6 @@ run_migrations()
 # Create database tables
 Base.metadata.create_all(bind=engine)
 
-# Run migrations AGAIN after table creation (for Railway)
-print("\n♻️  Running post-creation migration check...")
-run_migrations()
 print("✅ Database initialization complete\n")
 
 app = FastAPI(
@@ -147,49 +112,7 @@ app.include_router(async_interviews.router)
 
 @app.on_event("startup")
 async def startup_event():
-    """Seed database with initial data on startup"""
-    import sqlite3
-    import os
-    
-    # Get correct database path from environment or default
-    db_url = os.getenv("DATABASE_URL", "sqlite:///./talentai.db")
-    db_path = db_url.replace("sqlite:///./", "")
-    print(f"📁 Using database: {db_path}")
-    
-    try:
-        if not os.path.exists(db_path):
-            print(f"⚠️ Database not found at {db_path}")
-            return
-            
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        
-        # Check if table exists
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='candidates'")
-        if not cursor.fetchone():
-            print("⚠️ Candidates table doesn't exist")
-            conn.close()
-            return
-        
-        # CRITICAL: Fix RESUME_REJECTED values
-        cursor.execute("SELECT COUNT(*) FROM candidates WHERE stage = 'resume_rejected'")
-        count = cursor.fetchone()[0]
-        if count > 0:
-            print(f"⚠️ Found {count} candidates with 'resume_rejected' stage")
-            print("🔄 Converting to 'rejected'...")
-            cursor.execute("UPDATE candidates SET stage = 'rejected' WHERE stage = 'resume_rejected'")
-            conn.commit()
-            print(f"✅ Converted {count} candidates")
-        else:
-            print("✅ No resume_rejected values found")
-        
-        conn.close()
-    except Exception as e:
-        print(f"❌ Startup error: {e}")
-        import traceback
-        traceback.print_exc()
-    
-    # seed_database()  # Temporarily disabled until database schema is fixed
+    print("✅ Application started successfully")
 
 @app.get("/api/health")
 def health_check():

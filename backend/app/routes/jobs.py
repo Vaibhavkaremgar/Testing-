@@ -13,6 +13,18 @@ from app.auth import get_current_active_user
 
 router = APIRouter(prefix="/jobs", tags=["Job Descriptions"])
 
+@router.get("/debug/count")
+def debug_job_count(db: Session = Depends(get_db)):
+    """Debug endpoint to check job count without auth"""
+    total = db.query(JobDescription).count()
+    active = db.query(JobDescription).filter(JobDescription.is_active == True).count()
+    jobs = db.query(JobDescription).all()
+    return {
+        "total_jobs": total,
+        "active_jobs": active,
+        "jobs": [{"id": j.id, "title": j.title, "is_active": j.is_active, "has_interview_questions": j.interview_questions is not None} for j in jobs]
+    }
+
 @router.get("", response_model=List[JobDescriptionResponse])
 def get_jobs(
     skip: int = 0,
@@ -27,6 +39,10 @@ def get_jobs(
         query = query.filter(JobDescription.is_active == is_active)
     
     jobs = query.order_by(JobDescription.created_at.desc()).offset(skip).limit(limit).all()
+    
+    print(f"DEBUG: Found {len(jobs)} jobs in database")
+    for job in jobs:
+        print(f"  - Job {job.id}: {job.title}, is_active={job.is_active}, interview_questions={job.interview_questions}")
     
     # Add candidate count to each job
     result = []
