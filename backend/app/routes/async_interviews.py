@@ -41,12 +41,8 @@ def create_async_interview(
     
     # Generate unique token
     token = secrets.token_urlsafe(32)
-<<<<<<< HEAD
     # async_link = f"http://localhost:5173/async-interview/{token}"
     async_link = f"https://glistening-youth-production.up.railway.app/async-interview/{token}"
-=======
-    async_link = f"http://localhost:5173/async-interview/{token}"
->>>>>>> 8c388104a03f506429820a154d4322d9bf5b4396
     expires_at = datetime.utcnow() + timedelta(days=data.expires_in_days)
     
     interview = Interview(
