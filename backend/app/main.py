@@ -72,6 +72,33 @@ def run_migrations():
         else:
             print("ℹ️  job_descriptions table doesn't exist yet, will be created by SQLAlchemy")
         
+        # Check if interviews table exists and add async columns
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='interviews'")
+        if cursor.fetchone():
+            cursor.execute("PRAGMA table_info(interviews)")
+            interview_columns = [column[1] for column in cursor.fetchall()]
+            
+            async_columns = [
+                ('is_async', 'BOOLEAN DEFAULT 0'),
+                ('async_link', 'VARCHAR(500)'),
+                ('async_token', 'VARCHAR(255)'),
+                ('async_expires_at', 'DATETIME'),
+                ('async_started_at', 'DATETIME'),
+                ('async_completed_at', 'DATETIME'),
+                ('async_answers', 'JSON')
+            ]
+            
+            for col_name, col_type in async_columns:
+                if col_name not in interview_columns:
+                    print(f"⚠️  MIGRATION: Adding '{col_name}' column to interviews table...")
+                    cursor.execute(f"ALTER TABLE interviews ADD COLUMN {col_name} {col_type}")
+                    conn.commit()
+                    print(f"✅ MIGRATION COMPLETE: '{col_name}' column added successfully")
+                else:
+                    print(f"✅ '{col_name}' column already exists")
+        else:
+            print("ℹ️  interviews table doesn't exist yet, will be created by SQLAlchemy")
+        
         conn.close()
     except Exception as e:
         print(f"❌ Migration error: {e}")
