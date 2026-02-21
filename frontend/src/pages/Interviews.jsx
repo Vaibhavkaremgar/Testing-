@@ -493,8 +493,12 @@ export default function Interviews() {
                   className="w-full" 
                   variant="outline"
                   onClick={() => {
+<<<<<<< HEAD
                     // const url = `http://localhost:5000/?email=${encodeURIComponent(scheduleForm.email)}&name=${encodeURIComponent(scheduleForm.name)}&resume=${encodeURIComponent(scheduleForm.resumeText)}&jd=${encodeURIComponent(scheduleForm.jdText)}&questions=${encodeURIComponent(scheduleForm.predefinedQuestions)}`
                     const url = `https://your-interview-booking-app.railway.app/?email=${encodeURIComponent(scheduleForm.email)}&name=${encodeURIComponent(scheduleForm.name)}&resume=${encodeURIComponent(scheduleForm.resumeText)}&jd=${encodeURIComponent(scheduleForm.jdText)}&questions=${encodeURIComponent(scheduleForm.predefinedQuestions)}`
+=======
+                    const url = `http://localhost:5000/?email=${encodeURIComponent(scheduleForm.email)}&name=${encodeURIComponent(scheduleForm.name)}&resume=${encodeURIComponent(scheduleForm.resumeText)}&jd=${encodeURIComponent(scheduleForm.jdText)}&questions=${encodeURIComponent(scheduleForm.predefinedQuestions)}`
+>>>>>>> 8c388104a03f506429820a154d4322d9bf5b4396
                     window.open(url, '_blank')
                   }}
                 >

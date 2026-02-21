@@ -23,6 +23,21 @@ def run_migrations():
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         
+        # CRITICAL: Check if job_descriptions table has interview_questions column
+        # If not, delete the entire database and let it recreate
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='job_descriptions'")
+        if cursor.fetchone():
+            cursor.execute("PRAGMA table_info(job_descriptions)")
+            job_columns = [column[1] for column in cursor.fetchall()]
+            
+            if 'interview_questions' not in job_columns:
+                print("⚠️  CRITICAL: Database schema is outdated!")
+                print("🗑️  Deleting old database to recreate with correct schema...")
+                conn.close()
+                os.remove(db_path)
+                print("✅ Old database deleted. Will create fresh database.")
+                return
+        
         # Check if candidates table exists
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='candidates'")
         if cursor.fetchone():
@@ -35,18 +50,41 @@ def run_migrations():
                 cursor.execute("ALTER TABLE candidates ADD COLUMN summary TEXT")
                 conn.commit()
                 print("✅ MIGRATION COMPLETE: 'summary' column added successfully")
-            else:
-                print("✅ 'summary' column already exists")
             
             if 'display_status' not in columns:
                 print("⚠️  MIGRATION: Adding 'display_status' column to candidates table...")
                 cursor.execute("ALTER TABLE candidates ADD COLUMN display_status VARCHAR(50)")
                 conn.commit()
                 print("✅ MIGRATION COMPLETE: 'display_status' column added successfully")
-            else:
-                print("✅ 'display_status' column already exists")
-        else:
-            print("ℹ️  Candidates table doesn't exist yet, will be created by SQLAlchemy")
+            
+            if 'predefined_questions' not in columns:
+                print("⚠️  MIGRATION: Adding 'predefined_questions' column to candidates table...")
+                cursor.execute("ALTER TABLE candidates ADD COLUMN predefined_questions TEXT")
+                conn.commit()
+                print("✅ MIGRATION COMPLETE: 'predefined_questions' column added successfully")
+        
+        # Check if interviews table exists and add async columns
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='interviews'")
+        if cursor.fetchone():
+            cursor.execute("PRAGMA table_info(interviews)")
+            interview_columns = [column[1] for column in cursor.fetchall()]
+            
+            async_columns = [
+                ('is_async', 'BOOLEAN DEFAULT 0'),
+                ('async_link', 'VARCHAR(500)'),
+                ('async_token', 'VARCHAR(255)'),
+                ('async_expires_at', 'DATETIME'),
+                ('async_started_at', 'DATETIME'),
+                ('async_completed_at', 'DATETIME'),
+                ('async_answers', 'JSON')
+            ]
+            
+            for col_name, col_type in async_columns:
+                if col_name not in interview_columns:
+                    print(f"⚠️  MIGRATION: Adding '{col_name}' column to interviews table...")
+                    cursor.execute(f"ALTER TABLE interviews ADD COLUMN {col_name} {col_type}")
+                    conn.commit()
+                    print(f"✅ MIGRATION COMPLETE: '{col_name}' column added successfully")
         
         conn.close()
     except Exception as e:
