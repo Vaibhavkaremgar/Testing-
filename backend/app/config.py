@@ -25,12 +25,7 @@ class Settings(BaseSettings):
     LLM_PROVIDER: str = "groq"
     
     # CORS
-<<<<<<< HEAD
-    # ALLOWED_ORIGINS: str = "http://localhost:5173,http://localhost:3000,http://localhost:4173,https://glistening-youth-production.up.railway.app,http://localhost:5174"
     ALLOWED_ORIGINS: str = "https://glistening-youth-production.up.railway.app,http://localhost:5173,http://localhost:3000,http://localhost:4173,http://localhost:5174"
-=======
-    ALLOWED_ORIGINS: str = "http://localhost:5173,http://localhost:3000,http://localhost:4173,https://glistening-youth-production.up.railway.app,http://localhost:5174"
->>>>>>> 8c388104a03f506429820a154d4322d9bf5b4396
     
     @property
     def allowed_origins_list(self) -> List[str]:
