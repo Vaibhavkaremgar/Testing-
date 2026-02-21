@@ -45,8 +45,32 @@ def run_migrations():
                 print("✅ MIGRATION COMPLETE: 'display_status' column added successfully")
             else:
                 print("✅ 'display_status' column already exists")
+            
+            if 'predefined_questions' not in columns:
+                print("⚠️  MIGRATION: Adding 'predefined_questions' column to candidates table...")
+                cursor.execute("ALTER TABLE candidates ADD COLUMN predefined_questions TEXT")
+                conn.commit()
+                print("✅ MIGRATION COMPLETE: 'predefined_questions' column added successfully")
+            else:
+                print("✅ 'predefined_questions' column already exists")
         else:
             print("ℹ️  Candidates table doesn't exist yet, will be created by SQLAlchemy")
+        
+        # Check if job_descriptions table exists
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='job_descriptions'")
+        if cursor.fetchone():
+            cursor.execute("PRAGMA table_info(job_descriptions)")
+            job_columns = [column[1] for column in cursor.fetchall()]
+            
+            if 'interview_questions' not in job_columns:
+                print("⚠️  MIGRATION: Adding 'interview_questions' column to job_descriptions table...")
+                cursor.execute("ALTER TABLE job_descriptions ADD COLUMN interview_questions JSON")
+                conn.commit()
+                print("✅ MIGRATION COMPLETE: 'interview_questions' column added successfully")
+            else:
+                print("✅ 'interview_questions' column already exists")
+        else:
+            print("ℹ️  job_descriptions table doesn't exist yet, will be created by SQLAlchemy")
         
         conn.close()
     except Exception as e:
