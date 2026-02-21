@@ -78,24 +78,26 @@ app = FastAPI(
     redoc_url="/api/redoc"
 )
 
-# CORS middleware - Updated for Railway deployment
+# CORS middleware - MUST be first middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://glistening-youth-production.up.railway.app",  # Frontend Railway URL
-        "http://localhost:5173",  # Local development
-        "*"  # Allow all for testing
-    ],
+    allow_origins=["*"],  # Allow all origins
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # Create uploads directory
-os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+try:
+    os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+except Exception as e:
+    print(f"Warning: Could not create uploads directory: {e}")
 
 # Mount static files for uploads
-app.mount("/uploads", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads")
+try:
+    app.mount("/uploads", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads")
+except Exception as e:
+    print(f"Warning: Could not mount uploads directory: {e}")
 
 # Include routers
 app.include_router(auth.router, prefix="/api")
@@ -117,6 +119,23 @@ async def startup_event():
 @app.get("/api/health")
 def health_check():
     return {"status": "healthy", "app": settings.APP_NAME, "cors": "enabled"}
+
+@app.get("/api/test-db")
+def test_db():
+    """Test database connection"""
+    try:
+        from app.database import SessionLocal
+        from app.models import JobDescription
+        db = SessionLocal()
+        jobs = db.query(JobDescription).all()
+        db.close()
+        return {
+            "status": "success",
+            "jobs_count": len(jobs),
+            "jobs": [{"id": j.id, "title": j.title, "is_active": j.is_active} for j in jobs]
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
 
 @app.get("/")
 def root():
