@@ -11,14 +11,15 @@ class UserRole(str, enum.Enum):
     VIEWER = "viewer"
 
 class CandidateStage(str, enum.Enum):
-    UPLOADED = "uploaded"
-    SHORTLISTED = "shortlisted"
-    INTERVIEW_SCHEDULED = "interview_scheduled"
-    INTERVIEW_RESCHEDULED = "interview_rescheduled"
-    INTERVIEWED = "interviewed"
-    NO_SHOW = "no_show"
-    SELECTED = "selected"
-    REJECTED = "rejected"
+    APPLIED = "APPLIED"
+    SHORTLISTED = "SHORTLISTED"
+    RESUME_REJECTED = "RESUME_REJECTED"
+    INTERVIEW_SCHEDULED = "INTERVIEW_SCHEDULED"
+    INTERVIEW_RESCHEDULED = "INTERVIEW_RESCHEDULED"
+    INTERVIEWED = "INTERVIEWED"
+    NO_SHOW = "NO_SHOW"
+    SELECTED = "SELECTED"
+    REJECTED = "REJECTED"
 
 class ParsingStatus(str, enum.Enum):
     PENDING = "pending"
@@ -57,6 +58,7 @@ class JobDescription(Base):
     requirements = Column(Text)
     responsibilities = Column(Text)
     skills = Column(JSON)  # List of required skills
+    interview_questions = Column(JSON)  # Manually entered async interview questions
     is_active = Column(Boolean, default=True)
     status = Column(String(50), default='open')  # open, on_hold, filled
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -89,7 +91,7 @@ class Candidate(Base):
     work_experience = Column(JSON)  # Extracted work experience
     
     # Pipeline
-    stage = Column(Enum(CandidateStage), default=CandidateStage.UPLOADED)
+    stage = Column(Enum(CandidateStage), default=CandidateStage.APPLIED)
     stage_updated_at = Column(DateTime(timezone=True), server_default=func.now())
     
     # Source and decline tracking
@@ -100,6 +102,15 @@ class Candidate(Base):
     # Google Sheets sync
     synced_to_sheets = Column(Boolean, default=False)
     summary = Column(Text, nullable=True)  # Summary from Google Sheets
+    predefined_questions = Column(Text, nullable=True)  # AI-generated interview questions
+    
+    # Interview data (for candidates in INTERVIEWED, SELECTED, REJECTED stages)
+    interview_video_url = Column(String(500))  # Recorded interview video URL
+    interview_transcript = Column(Text)  # Interview transcript
+    interview_ai_summary = Column(Text)  # AI-generated interview summary
+    interview_technical_score = Column(Float)  # Technical skills score
+    interview_communication_score = Column(Float)  # Communication score
+    interview_culture_fit_score = Column(Float)  # Culture fit score
     
     # Relationships
     job_id = Column(Integer, ForeignKey("job_descriptions.id"))
@@ -120,13 +131,22 @@ class Interview(Base):
     candidate_id = Column(Integer, ForeignKey("candidates.id"), nullable=False)
     candidate = relationship("Candidate", back_populates="interviews")
     
-    interview_type = Column(String(100))  # screening, technical, hr, final
+    interview_type = Column(String(100))  # screening, technical, hr, final, async
     scheduled_at = Column(DateTime(timezone=True))
     duration_minutes = Column(Integer)
     meeting_link = Column(String(500))
     
+    # Async Interview
+    is_async = Column(Boolean, default=False)
+    async_link = Column(String(500))  # Unique link for candidate
+    async_token = Column(String(255), unique=True)  # Unique token for access
+    async_expires_at = Column(DateTime(timezone=True))  # Link expiry
+    async_started_at = Column(DateTime(timezone=True))  # When candidate started
+    async_completed_at = Column(DateTime(timezone=True))  # When candidate finished
+    async_answers = Column(JSON)  # Candidate's answers to questions
+    
     # Interview Results
-    status = Column(String(50), default="scheduled")  # scheduled, completed, cancelled
+    status = Column(String(50), default="scheduled")  # scheduled, in_progress, completed, cancelled, expired
     video_url = Column(String(500))
     transcript = Column(Text)
     ai_summary = Column(Text)

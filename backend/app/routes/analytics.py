@@ -35,35 +35,46 @@ def get_dashboard_stats(
             extract('month', Candidate.created_at) == month_num
         )
     
-    total = query.count() or 0
-    shortlisted = query.filter(Candidate.stage == CandidateStage.SHORTLISTED).count() or 0
-    rejected = query.filter(Candidate.stage == CandidateStage.REJECTED).count() or 0
-    interviews = query.filter(
-        Candidate.stage.in_([
-            CandidateStage.INTERVIEW_SCHEDULED, 
-            CandidateStage.INTERVIEW_RESCHEDULED,
-            CandidateStage.INTERVIEWED
-        ])
-    ).count() or 0
-    selected = query.filter(Candidate.stage == CandidateStage.SELECTED).count() or 0
+    # Count all candidates EXCLUDING APPLIED stage
+    all_candidates = query.all()
+    # Filter out APPLIED stage candidates
+    active_candidates = [c for c in all_candidates if c.stage != CandidateStage.APPLIED]
+    total = len(active_candidates)
     
-    print(f"📊 Dashboard Stats: total={total}, shortlisted={shortlisted}, rejected={rejected}, interviews={interviews}, selected={selected}")
+    shortlisted = sum(1 for c in active_candidates if c.stage == CandidateStage.SHORTLISTED)
+    resume_rejected = sum(1 for c in active_candidates if c.stage == CandidateStage.RESUME_REJECTED)
+    rejected = sum(1 for c in active_candidates if c.stage == CandidateStage.REJECTED)
+    interview_scheduled = sum(1 for c in active_candidates if c.stage in [CandidateStage.INTERVIEW_SCHEDULED, CandidateStage.INTERVIEW_RESCHEDULED, CandidateStage.INTERVIEWED])
+    selected = sum(1 for c in active_candidates if c.stage == CandidateStage.SELECTED)
     
+    print(f"📊 Dashboard Stats: total={total}, shortlisted={shortlisted}, resume_rejected={resume_rejected}, rejected={rejected}, interviews={interview_scheduled}, selected={selected}")
+    print(f"   Sum check: {shortlisted + resume_rejected + rejected + interview_scheduled + selected} (should equal total)")
+    
+    candidate_ids = [c.id for c in active_candidates]
     avg_resume = db.query(func.avg(Candidate.resume_score)).filter(
-        Candidate.id.in_([c.id for c in query.all()])
+        Candidate.id.in_(candidate_ids) if candidate_ids else False
     ).scalar() or 0
     
-    candidate_ids = [c.id for c in query.all()]
-    avg_interview = db.query(func.avg(Interview.interview_score)).filter(
-        Interview.candidate_id.in_(candidate_ids) if candidate_ids else False,
-        Interview.interview_score.isnot(None)
-    ).scalar() or 0
+    # Calculate avg interview score from candidates in SELECTED/REJECTED stages
+    interviewed_candidates = [c for c in active_candidates if c.stage in [CandidateStage.SELECTED, CandidateStage.REJECTED]]
+    if interviewed_candidates:
+        total_score = 0
+        count = 0
+        for c in interviewed_candidates:
+            if c.interview_technical_score and c.interview_communication_score and c.interview_culture_fit_score:
+                avg = (c.interview_technical_score + c.interview_communication_score + c.interview_culture_fit_score) / 3
+                total_score += avg
+                count += 1
+        avg_interview = total_score / count if count > 0 else 0
+    else:
+        avg_interview = 0
     
     return DashboardStats(
         total_candidates=total,
         shortlisted=shortlisted,
+        resume_rejected=resume_rejected,
         rejected=rejected,
-        interviews_scheduled=interviews,
+        interviews_scheduled=interview_scheduled,
         selected=selected,
         avg_resume_score=round(avg_resume, 1),
         avg_interview_score=round(avg_interview, 1)
@@ -104,20 +115,14 @@ def get_hiring_funnel(
     
     total = query.count() or 1
     shortlisted = query.filter(Candidate.stage == CandidateStage.SHORTLISTED).count() or 0
-    interviews = query.filter(
-        Candidate.stage.in_([
-            CandidateStage.INTERVIEW_SCHEDULED,
-            CandidateStage.INTERVIEW_RESCHEDULED, 
-            CandidateStage.INTERVIEWED
-        ])
-    ).count() or 0
+    interview_scheduled = query.filter(Candidate.stage == CandidateStage.INTERVIEW_SCHEDULED).count() or 0
     selected = query.filter(Candidate.stage == CandidateStage.SELECTED).count() or 0
-    rejected = query.filter(Candidate.stage == CandidateStage.REJECTED).count() or 0
+    rejected = query.filter(Candidate.stage.in_([CandidateStage.REJECTED, CandidateStage.RESUME_REJECTED])).count() or 0
     
     funnel_stages = [
         ("Total Candidates", total),
         ("Shortlisted", shortlisted),
-        ("Interviews", interviews),
+        ("Interview Scheduled", interview_scheduled),
         ("Selected", selected),
         ("Rejected", rejected),
     ]
@@ -152,7 +157,7 @@ def get_skill_heatmap(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    # Blacklist of non-skill terms to exclude from graphs
+    # Comprehensive blacklist of non-skill terms
     blacklist = {
         'engineering', 'communication', 'course', 'institute', 'university', 'board', 'year', 'of',
         'telangana', 'state', 'andhra', 'pradesh', 'karnataka', 'maharashtra', 'tamil', 'nadu',
@@ -170,18 +175,65 @@ def get_skill_heatmap(
         'enginnering)', 'course  institute  university/board  year  of', 'telangana state',
         'board of', 'achieve  objectives.', 'narayana', '(electroins and', 'academic  qualifications:  -',
         'junior  college', 'passing  gpa  /', 'jntuh', 'intermediate', 'inter(mpc)', 'cmr engineering',
-        'b. tech', 'b.tech', 'tech', 'mpc', 'qualifications', 'objectives', 'electroins', 'gpa'
+        'b. tech', 'b.tech', 'tech', 'mpc', 'qualifications', 'objectives', 'electroins', 'gpa',
+        'teamwork', 'leadership', 'problem solving', 'analytical', 'critical thinking', 'time management',
+        'work ethic', 'adaptability', 'creativity', 'collaboration', 'interpersonal', 'organizational',
+        'attention to detail', 'multitasking', 'decision making', 'conflict resolution', 'negotiation',
+        'presentation', 'public speaking', 'customer service', 'sales', 'marketing', 'management',
+        'highly relevant', 'relevant', 'signals', 'jd', 'workexperience', 'work experience'
     }
     
-    # First try to get real data from candidates
+    # Whitelist of valid technical skills
+    valid_skills = {
+        # Programming Languages
+        'python', 'java', 'javascript', 'typescript', 'c++', 'c#', 'php', 'ruby', 'go', 'rust',
+        'swift', 'kotlin', 'scala', 'r', 'matlab', 'perl', 'dart', 'c', 'objective-c',
+        # Web Technologies
+        'react', 'angular', 'vue', 'node.js', 'express', 'django', 'flask', 'spring', 'laravel',
+        'rails', 'html', 'html5', 'css', 'css3', 'bootstrap', 'tailwind', 'jquery', 'next.js',
+        'nuxt', 'svelte', 'ember', 'backbone', 'asp.net', '.net', 'blazor',
+        # Databases
+        'mysql', 'postgresql', 'mongodb', 'redis', 'sqlite', 'oracle', 'sql', 'sql server',
+        'cassandra', 'dynamodb', 'firebase', 'mariadb', 'elasticsearch', 'neo4j', 'couchdb',
+        # Cloud & DevOps
+        'aws', 'azure', 'gcp', 'docker', 'kubernetes', 'jenkins', 'git', 'github', 'gitlab',
+        'ci/cd', 'terraform', 'ansible', 'heroku', 'netlify', 'vercel', 'circleci', 'travis ci',
+        # Data Science & ML
+        'machine learning', 'deep learning', 'tensorflow', 'pytorch', 'pandas', 'numpy',
+        'scikit-learn', 'data analysis', 'ai', 'nlp', 'keras', 'opencv', 'spark', 'hadoop',
+        # APIs & Architecture
+        'rest api', 'graphql', 'microservices', 'linux', 'unix', 'bash', 'shell', 'powershell',
+        'api', 'restful', 'soap', 'grpc', 'websocket',
+        # Mobile
+        'android', 'ios', 'react native', 'flutter', 'xamarin', 'ionic',
+        # Tools & Others
+        'jira', 'confluence', 'slack', 'postman', 'vs code', 'intellij', 'eclipse', 'figma',
+        'photoshop', 'illustrator', 'sketch', 'xd', 'webpack', 'vite', 'babel', 'npm', 'yarn',
+        'maven', 'gradle', 'selenium', 'cypress', 'jest', 'mocha', 'junit', 'pytest'
+    }
+    
+    # Get candidates with skills
     candidates = db.query(Candidate).filter(Candidate.skills.isnot(None)).all()
     
     skill_data = {}
     for candidate in candidates:
         if candidate.skills:
             for skill in candidate.skills:
-                # Filter out blacklisted terms
-                if skill.lower() not in blacklist and len(skill) > 2:
+                skill_lower = skill.lower().strip()
+                
+                # Skip if contains special characters like %, +, numbers at start
+                if any(char in skill for char in ['%', '+', '0', '1', '2', '3', '4', '5', '6', '7', '8', '9']):
+                    continue
+                
+                # Filter: must be in whitelist OR (not in blacklist AND length 2-30 AND alphanumeric)
+                is_valid = (
+                    skill_lower in valid_skills or
+                    (skill_lower not in blacklist and 
+                     2 <= len(skill) <= 30 and 
+                     skill.replace('.', '').replace('-', '').replace(' ', '').replace('#', '').isalpha())
+                )
+                
+                if is_valid:
                     if skill not in skill_data:
                         skill_data[skill] = {"count": 0, "scores": []}
                     skill_data[skill]["count"] += 1
@@ -201,7 +253,7 @@ def get_skill_heatmap(
         result.sort(key=lambda x: x.count, reverse=True)
         return result[:15]
     
-    # Fallback to custom demo data if no real data
+    # Fallback to demo data if no real data
     custom_skills = [
         {"skill": "Python", "count": 24, "avg_score": 87.5},
         {"skill": "JavaScript", "count": 22, "avg_score": 84.2},
@@ -375,14 +427,15 @@ def get_active_jobs(
     
     result = []
     for job in jobs:
-        # Count candidates for this job
+        # Count candidates for this job (EXCLUDING APPLIED stage)
         total_candidates = db.query(func.count(Candidate.id)).filter(
-            Candidate.job_id == job.id
+            Candidate.job_id == job.id,
+            Candidate.stage != CandidateStage.APPLIED
         ).scalar() or 0
         
         selected = db.query(func.count(Candidate.id)).filter(
             Candidate.job_id == job.id,
-            Candidate.stage == CandidateStage.SELECTED
+            Candidate.stage == CandidateStage.SHORTLISTED
         ).scalar() or 0
         
         # Determine status

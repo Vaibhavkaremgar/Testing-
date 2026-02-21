@@ -167,69 +167,83 @@ def extract_resume_data(file_path: str, original_filename: str = None) -> dict:
     }
 
 def extract_skills_from_text(text: str) -> list:
-    """Extract technical skills from resume text"""
+    """Extract technical skills from resume text - Enhanced version"""
     import re
     
-    skills = set()
+    skills = []
     
-    # Find TECHNICAL SKILLS section specifically
-    tech_skills_pattern = r'TECHNICAL\s+SKILLS?\s*:?\s*[-\s]*(.*?)(?=\n\s*[A-Z][A-Z\s]+:|$)'
-    match = re.search(tech_skills_pattern, text, re.IGNORECASE | re.DOTALL)
+    # Find SKILLS section - stop at next major section
+    skills_match = re.search(r'(?:TECHNICAL\s+)?SKILLS?\s*:?\s*[\n\r]+(.*?)(?=\n\s*(?:WORK\s+EXPERIENCE|EXPERIENCE|EDUCATION|PROJECTS?|CERTIFICATIONS?|REFERENCES)\s*:?\s*$|\Z)', text, re.IGNORECASE | re.MULTILINE | re.DOTALL)
     
-    if match:
-        skills_text = match.group(1)
-        # Split by newlines and common delimiters
-        lines = re.split(r'[\n•]', skills_text)
-        for line in lines:
-            line = line.strip()
-            # Remove bullet points and extra spaces
-            line = re.sub(r'^[-•*\s]+', '', line)
-            line = line.strip()
-            
-            # Only add if it's a valid skill (2-30 chars, not empty)
-            if line and 2 <= len(line) <= 30:
-                # Skip common non-skill phrases
-                if not re.match(r'^(and|or|the|with|from|to)$', line, re.IGNORECASE):
-                    skills.add(line)
+    if not skills_match:
+        print("   No SKILLS section found, using pattern matching...")
+        # Fallback to pattern matching
+        skill_patterns = [
+            r'\b(?:Python|Java|JavaScript|TypeScript|C\+\+|C#|PHP|Ruby|Go|Rust|Swift|Kotlin|Scala|R|MATLAB|Perl|Dart)\b',
+            r'\b(?:React|Angular|Vue|Node\.js|Express|Django|Flask|Spring|Laravel|Rails|HTML5?|CSS3?|Bootstrap|Tailwind|jQuery|Next\.js|Nuxt|FastAPI|Spring Boot)\b',
+            r'\b(?:MySQL|PostgreSQL|MongoDB|Redis|SQLite|Oracle|SQL|SQL Server|Cassandra|DynamoDB|Firebase|MariaDB|Elasticsearch)\b',
+            r'\b(?:AWS|Azure|GCP|Docker|Kubernetes|Jenkins|Git|GitHub|GitLab|CI/CD|Terraform|Ansible|Heroku|Netlify)\b',
+            r'\b(?:Machine Learning|Deep Learning|TensorFlow|PyTorch|Pandas|NumPy|Scikit-learn|Data Analysis|AI|NLP|Keras|OpenCV)\b',
+            r'\b(?:REST API|GraphQL|Microservices|Linux|Unix|Bash|Shell|PowerShell|API|RESTful)\b',
+            r'\b(?:Jira|Confluence|Slack|Postman|VS Code|IntelliJ|Eclipse|Figma|Photoshop)\b'
+        ]
+        
+        skill_set = set()
+        for pattern in skill_patterns:
+            matches = re.findall(pattern, text, re.IGNORECASE)
+            for match in matches:
+                skill_set.add(match.strip())
+        
+        skills = list(skill_set)[:30]
+        print(f"   Found {len(skills)} skills via pattern matching")
+        return skills
     
-    # If technical skills found, return them
-    if skills:
-        return list(skills)[:20]
+    skills_text = skills_match.group(1).strip()
+    print(f"   Found SKILLS section: {skills_text[:100]}...")
     
-    # Fallback: Look for any SKILLS section
-    skills_pattern = r'(?:SKILLS?|KEY SKILLS?)\s*:?\s*[-\s]*(.*?)(?=\n\s*[A-Z][A-Z\s]+:|$)'
-    match = re.search(skills_pattern, text, re.IGNORECASE | re.DOTALL)
-    
-    if match:
-        skills_text = match.group(1)
-        lines = re.split(r'[\n•,]', skills_text)
-        for line in lines:
-            line = line.strip()
-            line = re.sub(r'^[-•*\s]+', '', line)
-            line = line.strip()
-            
-            if line and 2 <= len(line) <= 30:
-                if not re.match(r'^(and|or|the|with|from|to)$', line, re.IGNORECASE):
-                    skills.add(line)
-    
-    if skills:
-        return list(skills)[:20]
-    
-    # Last resort: Pattern matching for common technical skills
-    skill_patterns = [
-        r'\b(?:Python|Java|JavaScript|TypeScript|C\+\+|C#|PHP|Ruby|Go|Rust|Swift|Kotlin|Scala|R|MATLAB)\b',
-        r'\b(?:React|Angular|Vue|Node\.js|Express|Django|Flask|Spring|Laravel|Rails|HTML5?|CSS3?|Bootstrap|Tailwind|jQuery)\b',
-        r'\b(?:MySQL|PostgreSQL|MongoDB|Redis|SQLite|Oracle|SQL|SQL Server|Cassandra|DynamoDB|Firebase|MariaDB)\b',
-        r'\b(?:AWS|Azure|GCP|Docker|Kubernetes|Jenkins|Git|GitHub|GitLab|CI/CD|Terraform|Ansible)\b',
-        r'\b(?:Machine Learning|Deep Learning|TensorFlow|PyTorch|Pandas|NumPy|Scikit-learn|Data Analysis|AI|NLP)\b',
-        r'\b(?:REST API|GraphQL|Microservices|Linux|Unix|Bash|Shell|PowerShell)\b'
+    # Filter out section headers
+    section_headers = [
+        'work experience', 'experience', 'education', 'projects', 'certifications',
+        'professional experience', 'employment history', 'work history'
     ]
     
-    for pattern in skill_patterns:
-        matches = re.findall(pattern, text, re.IGNORECASE)
-        skills.update([m.strip() for m in matches])
+    # Parse all lines in skills section
+    lines = skills_text.split('\n')
     
-    return list(skills)[:20]
+    for line in lines:
+        line = line.strip()
+        if not line or len(line) < 2:
+            continue
+        
+        # Skip section headers
+        if any(header in line.lower() for header in section_headers):
+            break
+            
+        # Check if line has "Category: item1, item2, item3" format
+        if ':' in line:
+            parts = line.split(':', 1)
+            if len(parts) == 2:
+                category = parts[0].strip()
+                items_str = parts[1].strip()
+                
+                # Skip if category is a section header
+                if any(header in category.lower() for header in section_headers):
+                    break
+                
+                # Split by comma and add each skill
+                items = [item.strip() for item in items_str.split(',')]
+                for item in items:
+                    if item and len(item) >= 2 and not any(header in item.lower() for header in section_headers):
+                        skills.append(item)
+        else:
+            # Simple comma-separated list
+            items = [item.strip() for item in line.split(',')]
+            for item in items:
+                if item and len(item) >= 2 and not any(header in item.lower() for header in section_headers):
+                    skills.append(item)
+    
+    print(f"   Extracted {len(skills)} skills: {skills}")
+    return skills[:30]
 
 def extract_projects_from_text(text: str) -> list:
     """Extract project information from resume text"""
@@ -352,15 +366,7 @@ def analyze_resume_with_ai(candidate_data: dict, job_description: dict) -> dict:
     job_skills = job_description.get('skills', [])
     
     # Perform contextual analysis
-    evaluation = evaluate_candidate_contextually(
-        resume_text=full_text,
-        job_title=job_title,
-        job_description=job_desc,
-        job_requirements=job_requirements,
-        candidate_skills=skills,
-        experience_text=experience_text,
-        projects=projects
-    )
+    evaluation = evaluate_candidate_contextually(resume_text=full_text, job_title=job_title, job_description=job_desc, job_requirements=job_requirements, candidate_skills=skills, experience_text=experience_text, projects=projects, job_skills=job_skills)
     
     return {
         "candidate_name": name,
@@ -378,9 +384,7 @@ def analyze_resume_with_ai(candidate_data: dict, job_description: dict) -> dict:
         "status": evaluation['status']
     }
 
-def evaluate_candidate_contextually(resume_text: str, job_title: str, job_description: str, 
-                                   job_requirements: str, candidate_skills: list,
-                                   experience_text: str, projects: list) -> dict:
+def evaluate_candidate_contextually(resume_text: str, job_title: str, job_description: str, job_requirements: str, candidate_skills: list, experience_text: str, projects: list, job_skills: list = None) -> dict:
     """Evidence-based AI evaluation using LLM with structured scoring"""
     from app.config import settings
     import json
@@ -389,8 +393,8 @@ def evaluate_candidate_contextually(resume_text: str, job_title: str, job_descri
     print(f"   GROQ_API_KEY: {'✅ SET' if settings.GROQ_API_KEY else '❌ NOT SET'}")
     print(f"   LLM_PROVIDER: {settings.LLM_PROVIDER}")
     
-    # Enhanced prompt with structured evaluation criteria
-    prompt = f"""You are a senior technical recruiter with 15+ years of experience. Evaluate this candidate for the {job_title} position using evidence-based assessment.
+    # Enhanced prompt with weighted evaluation criteria
+    prompt = f"""You are a senior technical recruiter with 15+ years of experience. Evaluate this candidate for the {job_title} position using weighted scoring.
 
 JOB TITLE: {job_title}
 
@@ -403,43 +407,44 @@ JOB REQUIREMENTS:
 CANDIDATE RESUME:
 {resume_text[:3000]}
 
-EVALUATE BASED ON THESE CRITERIA:
+EVALUATE BASED ON THESE WEIGHTED CRITERIA:
 
-1. TECHNICAL DEPTH (0-30 points)
-   - Skill mastery level (mentioned vs used in projects vs measurable impact)
-   - Technology stack breadth and depth
-   - Advanced concepts and architecture knowledge
+1. SKILLS MATCH (0-45 points) - MOST IMPORTANT
+   - Must-have skills from JD (semantic match, not just keywords)
+   - Good-to-have skills
+   - Skills inferred from experience/projects (e.g., "Built Flask APIs" → Python, REST)
+   - Skill relevance and depth
 
-2. PROJECT COMPLEXITY (0-20 points)
-   - Backend/Frontend/Full-stack implementation
-   - Database design and API development
-   - Deployment, authentication, scalability
-   - System architecture and design patterns
+2. EXPERIENCE RELEVANCE & YEARS (0-25 points)
+   - Total years of experience
+   - Relevant experience (role/domain match)
+   - Recent experience (last 3-5 years weighted higher)
+   - Penalize irrelevant domains
 
-3. RELEVANCE TO JOB (0-20 points)
-   - Direct skill alignment (not just keyword matching)
-   - Domain experience match
-   - Role responsibility alignment
+3. PROJECT RELEVANCE (0-15 points)
+   - Real-world projects with tech stack alignment
+   - Project complexity and responsibility
+   - Backend role → APIs, DBs, scalability
+   - ML role → models, datasets, metrics
+   - Internship/academic projects get less weight
 
-4. EVIDENCE OF IMPACT (0-15 points)
-   - Quantifiable metrics (%, numbers, scale)
-   - Performance improvements
-   - User/revenue/efficiency impact
-   - Problem-solving outcomes
+4. EDUCATION & CERTIFICATIONS (0-10 points)
+   - Degree relevance (not institution prestige)
+   - Role-aligned certifications
+   - Irrelevant degrees are neutral
 
-5. SENIORITY & LEADERSHIP (0-15 points)
-   - Years of experience
-   - Leadership indicators (Led, Architected, Designed, Mentored)
-   - System design and scalability mentions
-   - Team collaboration and ownership
+5. SOFT SKILLS (0-5 points)
+   - Communication, leadership, team collaboration
+   - Only if backed by experience (not generic fluff)
+   - "Led 5-member team" ✅ vs "Hardworking team player" ❌
 
 Provide your analysis in this EXACT JSON format:
 {{
-  "technical_depth_score": <0-30>,
-  "project_complexity_score": <0-20>,
-  "relevance_score": <0-20>,
-  "impact_score": <0-15>,
-  "seniority_score": <0-15>,
+  "skills_score": <0-45>,
+  "experience_score": <0-25>,
+  "projects_score": <0-15>,
+  "education_score": <0-10>,
+  "soft_skills_score": <0-5>,
   "match_score": <sum of above, 0-100>,
   "match_label": "<Strong Fit|Potential Fit|Borderline Fit|Weak Fit>",
   "candidate_summary": "<3-4 sentence professional summary highlighting experience, key skills, alignment with job, and suitability>",
@@ -448,17 +453,18 @@ Provide your analysis in this EXACT JSON format:
   "ai_analysis": "<Detailed 4-5 sentence analysis explaining scores, what makes them strong/weak, evidence found, and hire recommendation>",
   "status": "<shortlisted|review|rejected>",
   "evidence_found": {{
-    "metrics_count": <number of quantifiable metrics found>,
-    "leadership_indicators": <number of leadership words found>,
-    "project_depth_indicators": ["<indicator1>", "<indicator2>"]
+    "must_have_skills_matched": <count>,
+    "good_to_have_skills_matched": <count>,
+    "years_of_experience": <number>,
+    "relevant_projects_count": <count>
   }}
 }}
 
 SCORING RULES:
-- Start from 0, build score based on EVIDENCE, not existence
-- Reward depth over breadth (skill used in project > skill mentioned)
-- Prioritize measurable impact (metrics, %, improvements)
-- Consider seniority level (junior vs mid vs senior expectations)
+- Skills carry 45% weight (most important for shortlisting)
+- Use semantic matching (meaning, not just keywords)
+- Penalize skill stuffing and buzzwords
+- Ignore large unexplained gaps
 - 75-100: Strong Fit (immediate interview)
 - 60-74: Potential Fit (phone screen)
 - 45-59: Borderline Fit (review with team)
@@ -478,23 +484,35 @@ Provide ONLY the JSON response, no additional text."""
             print(f"   ✅ OpenAI LLM response received!")
         else:
             print(f"   ⚠️  No LLM configured, using enhanced fallback...")
-            return enhanced_fallback_evaluation(resume_text, job_title, job_description, job_requirements, candidate_skills, experience_text, projects)
+            return enhanced_fallback_evaluation(resume_text, job_title, job_description, job_requirements, candidate_skills, experience_text, projects, job_skills)
         
         # Parse LLM response
         result = json.loads(response)
         print(f"   ✅ LLM Score Breakdown:")
-        print(f"      Technical Depth: {result.get('technical_depth_score', 0)}/30")
-        print(f"      Project Complexity: {result.get('project_complexity_score', 0)}/20")
-        print(f"      Relevance: {result.get('relevance_score', 0)}/20")
-        print(f"      Impact: {result.get('impact_score', 0)}/15")
-        print(f"      Seniority: {result.get('seniority_score', 0)}/15")
+        
+        # Support both old and new field names for backward compatibility
+        if 'skills_score' in result:
+            # New weighted scoring format
+            print(f"      Skills Match: {result.get('skills_score', 0)}/45")
+            print(f"      Experience: {result.get('experience_score', 0)}/25")
+            print(f"      Projects: {result.get('projects_score', 0)}/15")
+            print(f"      Education: {result.get('education_score', 0)}/10")
+            print(f"      Soft Skills: {result.get('soft_skills_score', 0)}/5")
+        else:
+            # Old format (fallback)
+            print(f"      Technical Depth: {result.get('technical_depth_score', 0)}/30")
+            print(f"      Project Complexity: {result.get('project_complexity_score', 0)}/20")
+            print(f"      Relevance: {result.get('relevance_score', 0)}/20")
+            print(f"      Impact: {result.get('impact_score', 0)}/15")
+            print(f"      Seniority: {result.get('seniority_score', 0)}/15")
+        
         print(f"      TOTAL: {result.get('match_score', 0)}/100")
         return result
         
     except Exception as e:
         print(f"   ❌ LLM evaluation failed: {e}")
         print(f"   ⚠️  Falling back to enhanced rule-based evaluation...")
-        return enhanced_fallback_evaluation(resume_text, job_title, job_description, job_requirements, candidate_skills, experience_text, projects)
+        return enhanced_fallback_evaluation(resume_text, job_title, job_description, job_requirements, candidate_skills, experience_text, projects, job_skills)
 
 def call_groq_llm(prompt: str, api_key: str) -> str:
     """Call Groq LLM API"""
@@ -570,7 +588,7 @@ JOB_SKILL_MAPS = {
         "ignore": ["javascript", "python", "java", "programming", "coding", "software", "development", "algorithm", "data structure", "react", "angular", "node", "api", "database", "sql", "html", "css"]
     },
     "software engineer": {
-        "core": ["programming", "coding", "algorithms", "data structures", "software development", "python", "java", "javascript", "c++", "c#", "git", "api", "database", "sql", "backend", "frontend", "full stack"],
+        "core": ["python", "java", "javascript", "react", "node", "sql", "mysql", "mongodb", "api", "rest", "git", "html", "css", "spring", "django", "flask"],
         "transferable": ["problem solving", "teamwork", "analytical", "debugging"],
         "ignore": ["recruitment", "hr", "hiring", "payroll", "employee relations", "onboarding", "talent acquisition", "human resources", "staffing", "benefits", "compensation"]
     },
@@ -602,306 +620,123 @@ JOB_SKILL_MAPS = {
     "default": {"core": [], "transferable": ["communication", "teamwork"], "ignore": []}
 }
 
-def enhanced_fallback_evaluation(resume_text: str, job_title: str, job_description: str, 
-                                job_requirements: str, candidate_skills: list,
-                                experience_text: str, projects: list) -> dict:
-    """Enhanced evidence-based evaluation without LLM"""
-    import re
+def enhanced_fallback_evaluation(resume_text: str, job_title: str, job_description: str, job_requirements: str, candidate_skills: list, experience_text: str, projects: list, job_skills: list = None) -> dict:
+    """Balanced scoring system using 5 components (Experience:35, Skills:30, Projects:20, Education:10, Soft Skills:5)"""
+    from app.balanced_scoring import evaluate_resume_balanced, extract_years_experience
     
-    print(f"\n📄 Enhanced Resume Analysis:")
-    print(f"   Text length: {len(resume_text)} chars")
-    print(f"   Skills found: {len(candidate_skills) if candidate_skills else 0}")
-    print(f"   Job title: {job_title}")
+    print(f"\n📄 Balanced Scoring System:")
+    print(f"   Job: {job_title}")
     
-    resume_lower = resume_text.lower() if resume_text else ""
-    skill_map = JOB_SKILL_MAPS.get(job_title.lower().strip(), JOB_SKILL_MAPS["default"])
+    # Extract years of experience
+    years_exp = extract_years_experience(resume_text)
     
-    # 1. TECHNICAL DEPTH SCORE (0-30)
-    technical_score = 0
-    matched_core = [s for s in skill_map["core"] if s in resume_lower] if resume_text else []
+    # FIX: Use JD skills from database instead of hardcoded map
+    if job_skills and len(job_skills) > 0:
+        required_skills = job_skills[:10]
+        print(f"   Using JD skills: {required_skills}")
+    else:
+        skill_map = JOB_SKILL_MAPS.get(job_title.lower().strip(), JOB_SKILL_MAPS["default"])
+        required_skills = skill_map.get("core", [])[:10]
+        print(f"   Fallback skills: {required_skills}")
     
-    for skill in matched_core:
-        # Mentioned only: 2 points
-        technical_score += 2
-        
-        # Used in project context: +3 points
-        if re.search(rf'{skill}.*(?:project|built|developed|created|implemented)', resume_lower, re.IGNORECASE):
-            technical_score += 3
-        
-        # Has measurable impact: +3 points
-        if re.search(rf'{skill}.*(?:\d+%|\d+x|improved|increased|reduced|optimized)', resume_lower, re.IGNORECASE):
-            technical_score += 3
+    print(f"   Required skills for {job_title}: {required_skills}")
     
-    technical_score = min(30, technical_score)
-    
-    # 2. PROJECT COMPLEXITY SCORE (0-20)
-    complexity_score = 0
-    complexity_indicators = {
-        'backend': r'\b(backend|server|api|rest|graphql|microservices)\b',
-        'database': r'\b(database|sql|mongodb|postgresql|mysql|redis)\b',
-        'frontend': r'\b(frontend|react|angular|vue|ui|ux)\b',
-        'deployment': r'\b(deploy|aws|azure|docker|kubernetes|ci/cd|jenkins)\b',
-        'authentication': r'\b(auth|authentication|jwt|oauth|security)\b',
-        'architecture': r'\b(architect|design pattern|scalable|distributed|system design)\b'
+    # Prepare data for balanced scoring
+    resume_data = {
+        'full_text': resume_text,
+        'years_of_experience': years_exp
     }
     
-    for indicator, pattern in complexity_indicators.items():
-        if re.search(pattern, resume_lower, re.IGNORECASE):
-            complexity_score += 2
-    
-    complexity_score = min(20, complexity_score)
-    
-    # 3. RELEVANCE SCORE (0-20)
-    relevance_score = 0
-    
-    # Core skills alignment (weighted)
-    if matched_core:
-        alignment_ratio = len(matched_core) / max(len(skill_map["core"]), 1)
-        
-        if alignment_ratio >= 0.7:
-            relevance_score += 15
-        elif alignment_ratio >= 0.4:
-            relevance_score += 10
-        else:
-            relevance_score += 5
-    
-
-    # Transferable skills
-    matched_trans = [s for s in skill_map["transferable"] if s in resume_lower] if resume_text else []
-    relevance_score += min(5, len(matched_trans))
-    
-    relevance_score = min(20, relevance_score)
-    
-    # 4. IMPACT SCORE (0-15)
-    impact_score = 0
-    
-    # Count metrics and quantifiable achievements
-    metrics_patterns = [
-        r'\d+%',  # Percentages
-        r'\d+x',  # Multipliers
-        r'\d+\+?\s*(?:users|customers|clients)',  # User counts
-        r'(?:improved|increased|reduced|optimized|enhanced).*?\d+',  # Performance improvements
-        r'\$\d+[kmb]?',  # Revenue/cost
-    ]
-    
-    metrics_count = 0
-    for pattern in metrics_patterns:
-        metrics_count += len(re.findall(pattern, resume_lower, re.IGNORECASE))
-    
-    impact_score = min(15, metrics_count * 3)
-    
-    # 5. SENIORITY SCORE (0-15)
-    seniority_score = 0
-    
-    # Years of experience
-    years_exp = 0
-    for match in re.findall(r'(\d+)\s*(?:year|years|yrs)', resume_lower):
-        years_exp = max(years_exp, int(match))
-    
-    if years_exp >= 8:
-        seniority_score += 8
-    elif years_exp >= 5:
-        seniority_score += 6
-    elif years_exp >= 2:
-        seniority_score += 4
+    # Determine experience range based on job title
+    if 'senior' in job_title.lower():
+        exp_min, exp_max = 5, 10
+    elif 'junior' in job_title.lower() or 'entry' in job_title.lower():
+        exp_min, exp_max = 0, 2
     else:
-        seniority_score += 2
+        exp_min, exp_max = 2, 5
     
-    # Leadership indicators
-    leadership_words = ['led', 'architected', 'designed', 'mentored', 'managed', 'directed', 'established', 'founded']
-    leadership_count = sum(1 for word in leadership_words if word in resume_lower)
-    seniority_score += min(7, leadership_count * 2)
+    job_requirements_data = {
+        'required_skills': required_skills,
+        'experience_min': exp_min,
+        'experience_max': exp_max,
+        'description': job_description,
+        'title': job_title
+    }
     
-    seniority_score = min(15, seniority_score)
+    # Evaluate using balanced scoring
+    result = evaluate_resume_balanced(resume_data, job_requirements_data)
     
-    # CALCULATE FINAL SCORE (0-100)
-    final_score = technical_score + complexity_score + relevance_score + impact_score + seniority_score
+    # Extract components
+    components = result['components']
+    final_score = result['total_score']
     
-    print(f"   Technical Depth: {technical_score}/30")
-    print(f"   Project Complexity: {complexity_score}/20")
-    print(f"   Relevance: {relevance_score}/20")
-    print(f"   Impact: {impact_score}/15")
-    print(f"   Seniority: {seniority_score}/15")
-    print(f"   FINAL SCORE: {final_score}/100")
-    
-
+    print(f"   Experience: {components['experience']['score']}/35")
+    print(f"   Skills: {components['skills']['score']}/30")
+    print(f"   Projects: {components['projects']['score']}/20")
+    print(f"   Education: {components['education']['score']}/10")
+    print(f"   Soft Skills: {components['soft_skills']['score']}/5")
+    print(f"   TOTAL: {final_score}/100")
     
     # Determine match label and status
-    if final_score >= 75:
+    if final_score >= 80:
         match_label, status = "Strong Fit", "shortlisted"
-    elif final_score >= 60:
-        match_label, status = "Potential Fit", "review"
-    elif final_score >= 45:
+    elif final_score >= 65:
+        match_label, status = "Potential Fit", "shortlisted"
+    elif final_score >= 50:
         match_label, status = "Borderline Fit", "review"
     else:
         match_label, status = "Weak Fit", "rejected"
     
-    # Build strengths
+    # Build strengths from components
     strengths = []
-    if technical_score >= 20:
-        strengths.append(f"Strong technical skills: {', '.join(matched_core[:3])}")
-    elif matched_core:
-        strengths.append(f"Relevant skills: {', '.join(matched_core[:3])}")
+    if components['skills']['match_percentage'] >= 80:
+        strengths.append(f"Excellent skills match: {len(components['skills']['matched_skills'])} of {len(required_skills)} required skills")
+    elif components['skills']['match_percentage'] >= 50:
+        strengths.append(f"Good skills match: {components['skills']['match_percentage']}%")
     
-    if complexity_score >= 12:
-        strengths.append("Demonstrated complex project experience with full-stack capabilities")
+    if components['experience']['score'] >= 20:
+        strengths.append(f"{years_exp} years experience - {components['experience']['assessment']}")
     
-    if impact_score >= 9:
-        strengths.append(f"Evidence of measurable impact with {metrics_count} quantifiable achievements")
+    if components['projects']['score'] >= 15:
+        strengths.append("Strong project portfolio with relevant complexity")
     
-    if seniority_score >= 10:
-        strengths.append(f"{years_exp}+ years experience with leadership indicators")
+    if components['education']['score'] >= 8:
+        strengths.append(f"Education: {components['education']['relevance']}")
+    
+    if components['soft_skills']['leadership'] > 0 or components['soft_skills']['collaboration'] > 0:
+        strengths.append(f"Leadership/collaboration: {components['soft_skills']['leadership']} + {components['soft_skills']['collaboration']} signals")
     
     if not strengths:
         strengths.append("Basic qualifications present")
     
     # Build gaps
     gaps = []
-    missing_core = [s for s in skill_map["core"][:5] if s not in resume_lower]
-    if len(missing_core) >= 3:
-        gaps.append(f"Missing key skills: {', '.join(missing_core[:2])}")
+    if components['skills']['match_percentage'] < 50:
+        missing_count = len(required_skills) - len(components['skills']['matched_skills'])
+        gaps.append(f"Missing {missing_count} key skills from requirements")
     
-    if impact_score < 5:
-        gaps.append("Limited evidence of quantifiable impact or metrics")
+    if components['experience']['score'] < 15:
+        gaps.append(f"Experience mismatch: {components['experience']['assessment']}")
     
-    if complexity_score < 10:
-        gaps.append("Project complexity and technical depth could be stronger")
+    if components['projects']['score'] < 10:
+        gaps.append("Limited project complexity or relevance")
+    
+    if components['education']['score'] < 5:
+        gaps.append("Education background not clearly relevant")
     
     if not gaps:
         gaps.append("No significant gaps identified")
     
-    # Generate summary
-    exp_desc = f"{years_exp}+ years" if years_exp >= 1 else "entry-level"
-    summary = f"Candidate with {exp_desc} of experience showing {match_label.lower()} for {job_title}. "
-    summary += f"Technical evaluation: {technical_score}/30, Project complexity: {complexity_score}/20, Impact evidence: {impact_score}/15. "
+    # Use the generated summary from balanced scoring
+    candidate_summary = result['summary']
     
-    if final_score >= 75:
-        summary += "Strong alignment with requirements. Recommend immediate interview."
-    elif final_score >= 60:
-        summary += "Good potential with some gaps. Recommend phone screening."
-    else:
-        summary += "Significant gaps in key areas. Consider for review or rejection."
-    
-    ai_analysis = f"Evidence-based scoring: Technical depth {technical_score}/30 based on skill usage depth, not just mentions. "
-    ai_analysis += f"Project complexity {complexity_score}/20 evaluated on architecture indicators. "
-    ai_analysis += f"Impact score {impact_score}/15 from {metrics_count} quantifiable metrics. "
-    ai_analysis += f"Overall {match_label} ({final_score}/100) for {job_title}."
-    
-    return {
-        'technical_depth_score': technical_score,
-        'project_complexity_score': complexity_score,
-        'relevance_score': relevance_score,
-        'impact_score': impact_score,
-        'seniority_score': seniority_score,
-        'match_score': round(final_score, 1),
-        'match_label': match_label,
-        'candidate_summary': summary,
-        'key_strengths': strengths[:5],
-        'skill_gaps': gaps[:5],
-        'ai_analysis': ai_analysis,
-        'status': status,
-        'evidence_found': {
-            'metrics_count': metrics_count,
-            'leadership_indicators': leadership_count,
-            'project_depth_indicators': [k for k, v in complexity_indicators.items() if re.search(v, resume_lower, re.IGNORECASE)]
-        }
-    }
-    
-    # Template variables
-    exp_desc = f"{years_exp}+ years" if years_exp >= 10 else f"{years_exp} years" if years_exp >= 1 else "entry-level"
-    core_skills_str = ', '.join(matched_core[:3]) if matched_core else ', '.join(candidate_skills[:3]) if candidate_skills else "general skills"
-    trans_skills_str = ', '.join(matched_trans[:2]) if matched_trans else "soft skills"
-    missing_critical = [s for s in skill_map["core"][:3] if s not in resume_lower]
-    gaps_str = ', '.join(missing_critical[:2]) if missing_critical else "minor areas"
-    
-    # 28 completely different templates
-    if template_num == 1:
-        candidate_summary = f"This applicant brings {exp_desc} of industry exposure with demonstrated capabilities in {core_skills_str}. The profile reveals competency alignment scoring {final_score}/100 against {job_title} requirements. Notable strengths include {trans_skills_str}, though {gaps_str} could benefit from further development. Overall assessment suggests {'immediate interview scheduling' if final_score >= 75 else 'phone screening consideration' if final_score >= 60 else 'comparative evaluation with other applicants'}."
-    
-    elif template_num == 2:
-        candidate_summary = f"Profile analysis indicates {exp_desc} professional background featuring {core_skills_str} expertise. Match evaluation yields {final_score}/100 compatibility with the {job_title} opening. Transferable competencies in {trans_skills_str} add value, while growth opportunities exist in {gaps_str}. Recommendation: {'Fast-track to interview panel' if final_score >= 75 else 'Schedule preliminary phone discussion' if final_score >= 60 else 'Hold for comparison with stronger candidates'}."
-    
-    elif template_num == 3:
-        candidate_summary = f"Candidate presents {exp_desc} track record with proficiency across {core_skills_str}. Algorithmic scoring places this resume at {final_score}/100 for {job_title} role fit. Additional assets include {trans_skills_str}, though {gaps_str} represent development zones. Suggested next step: {'Advance to technical interview' if final_score >= 75 else 'Conduct exploratory call' if final_score >= 60 else 'Maintain in reserve pool'}."
-    
-    elif template_num == 4:
-        candidate_summary = f"Resume showcases {exp_desc} of relevant experience emphasizing {core_skills_str}. Compatibility analysis registers {final_score}/100 against {job_title} specifications. Complementary strengths in {trans_skills_str} noted, with {gaps_str} flagged for attention. Action item: {'Priority interview invitation' if final_score >= 75 else 'Initial screening call' if final_score >= 60 else 'Secondary review cycle'}."
-    
-    elif template_num == 5:
-        candidate_summary = f"Applicant demonstrates {exp_desc} career progression featuring {core_skills_str} capabilities. Evaluation metric shows {final_score}/100 alignment with {job_title} criteria. Positive indicators include {trans_skills_str}, whereas {gaps_str} may require upskilling. Proposed action: {'Schedule face-to-face interview' if final_score >= 75 else 'Arrange preliminary discussion' if final_score >= 60 else 'Compare against alternative candidates'}."
-    
-    elif template_num == 6:
-        candidate_summary = f"With {exp_desc} under their belt, this candidate exhibits {core_skills_str} mastery. The resume scores {final_score}/100 when benchmarked against {job_title} needs. Supplementary skills like {trans_skills_str} enhance the profile, but {gaps_str} need addressing. Next move: {'Proceed directly to hiring manager' if final_score >= 75 else 'Conduct phone pre-screen' if final_score >= 60 else 'Place in consideration queue'}."
-    
-    elif template_num == 7:
-        candidate_summary = f"Professional history spans {exp_desc} with concentrated expertise in {core_skills_str}. Quantitative assessment yields {final_score}/100 match score for {job_title}. Ancillary competencies such as {trans_skills_str} are evident, while {gaps_str} present learning curves. Recommendation path: {'Immediate interview scheduling' if final_score >= 75 else 'Exploratory conversation' if final_score >= 60 else 'Deferred evaluation'}."
-    
-    elif template_num == 8:
-        candidate_summary = f"Background reflects {exp_desc} of hands-on work involving {core_skills_str}. Scoring algorithm places candidate at {final_score}/100 for {job_title} suitability. Beneficial attributes include {trans_skills_str}, though {gaps_str} indicate skill gaps. Advised course: {'Fast-track interview process' if final_score >= 75 else 'Initial phone assessment' if final_score >= 60 else 'Hold for batch comparison'}."
-    
-    elif template_num == 9:
-        candidate_summary = f"Experience portfolio covers {exp_desc} with focus on {core_skills_str}. Match index calculates to {final_score}/100 versus {job_title} requirements. Supporting skills in {trans_skills_str} are present, yet {gaps_str} require development. Strategic next step: {'Advance to interview round' if final_score >= 75 else 'Preliminary screening call' if final_score >= 60 else 'Secondary candidate pool'}."
-    
-    elif template_num == 10:
-        candidate_summary = f"Career trajectory shows {exp_desc} emphasizing {core_skills_str} application. Compatibility rating stands at {final_score}/100 for {job_title} position. Complementary abilities in {trans_skills_str} strengthen candidacy, while {gaps_str} need enhancement. Recommended pathway: {'Priority interview slot' if final_score >= 75 else 'Phone screening session' if final_score >= 60 else 'Comparative review process'}."
-    
-    elif template_num == 11:
-        candidate_summary = f"Possessing {exp_desc} of practical experience, the candidate shows {core_skills_str} competence. Evaluation framework assigns {final_score}/100 alignment with {job_title}. Value-add skills like {trans_skills_str} are apparent, but {gaps_str} could use improvement. Suggested action: {'Move to interview stage' if final_score >= 75 else 'Conduct initial call' if final_score >= 60 else 'Review alongside other profiles'}."
-    
-    elif template_num == 12:
-        candidate_summary = f"The resume highlights {exp_desc} of domain work featuring {core_skills_str}. Matching score registers {final_score}/100 against {job_title} benchmarks. Additional strengths in {trans_skills_str} are noted, whereas {gaps_str} represent growth areas. Action plan: {'Schedule comprehensive interview' if final_score >= 75 else 'Arrange exploratory call' if final_score >= 60 else 'Place in review queue'}."
-    
-    elif template_num == 13:
-        candidate_summary = f"Candidate's {exp_desc} background centers on {core_skills_str} utilization. Assessment produces {final_score}/100 fit score for {job_title} role. Positive elements include {trans_skills_str}, though {gaps_str} need attention. Recommended next phase: {'Direct to interview panel' if final_score >= 75 else 'Phone pre-qualification' if final_score >= 60 else 'Comparative analysis'}."
-    
-    elif template_num == 14:
-        candidate_summary = f"Work history encompasses {exp_desc} with {core_skills_str} as core competencies. Scoring mechanism indicates {final_score}/100 compatibility with {job_title}. Transferable skills such as {trans_skills_str} add dimension, while {gaps_str} may need training. Proposed next step: {'Expedite to interview' if final_score >= 75 else 'Initial screening discussion' if final_score >= 60 else 'Hold for further review'}."
-    
-    elif template_num == 15:
-        candidate_summary = f"Professional experience totals {exp_desc} with emphasis on {core_skills_str}. Match calculation shows {final_score}/100 alignment to {job_title} specifications. Supplemental capabilities in {trans_skills_str} are beneficial, yet {gaps_str} present challenges. Advised action: {'Proceed with interview' if final_score >= 75 else 'Preliminary phone contact' if final_score >= 60 else 'Secondary consideration'}."
-    
-    elif template_num == 16:
-        candidate_summary = f"Bringing {exp_desc} to the table, this profile demonstrates {core_skills_str} proficiency. Evaluation score reaches {final_score}/100 for {job_title} match. Auxiliary skills like {trans_skills_str} enhance appeal, but {gaps_str} require development. Next step recommendation: {'Interview immediately' if final_score >= 75 else 'Phone screening first' if final_score >= 60 else 'Compare with other applicants'}."
-    
-    elif template_num == 17:
-        candidate_summary = f"Resume indicates {exp_desc} of relevant work with {core_skills_str} at the forefront. Compatibility index measures {final_score}/100 against {job_title} criteria. Positive aspects include {trans_skills_str}, while {gaps_str} need addressing. Strategic recommendation: {'Fast-track interview' if final_score >= 75 else 'Exploratory phone call' if final_score >= 60 else 'Deferred decision'}."
-    
-    elif template_num == 18:
-        candidate_summary = f"Applicant offers {exp_desc} of industry experience highlighting {core_skills_str}. Match score computes to {final_score}/100 for {job_title} opening. Strengths in {trans_skills_str} are evident, though {gaps_str} indicate skill deficits. Recommended course: {'Advance to interviews' if final_score >= 75 else 'Initial assessment call' if final_score >= 60 else 'Batch evaluation'}."
-    
-    elif template_num == 19:
-        candidate_summary = f"Career span covers {exp_desc} with {core_skills_str} as primary focus. Algorithmic match yields {final_score}/100 for {job_title} position. Complementary traits like {trans_skills_str} are present, but {gaps_str} need work. Action pathway: {'Schedule interview round' if final_score >= 75 else 'Conduct phone screen' if final_score >= 60 else 'Hold for comparison'}."
-    
-    elif template_num == 20:
-        candidate_summary = f"Professional credentials include {exp_desc} featuring {core_skills_str} expertise. Scoring analysis places resume at {final_score}/100 versus {job_title} requirements. Additional assets in {trans_skills_str} noted, whereas {gaps_str} represent learning needs. Suggested pathway: {'Priority interview consideration' if final_score >= 75 else 'Preliminary discussion' if final_score >= 60 else 'Secondary review'}."
-    
-    elif template_num == 21:
-        candidate_summary = f"With {exp_desc} of practical application, candidate shows {core_skills_str} capability. Match evaluation registers {final_score}/100 for {job_title} fit. Beneficial skills in {trans_skills_str} strengthen profile, yet {gaps_str} could improve. Recommended action: {'Move forward to interview' if final_score >= 75 else 'Phone qualification call' if final_score >= 60 else 'Comparative assessment'}."
-    
-    elif template_num == 22:
-        candidate_summary = f"Background demonstrates {exp_desc} with concentrated {core_skills_str} experience. Compatibility score stands at {final_score}/100 for {job_title} role. Supporting competencies like {trans_skills_str} are visible, while {gaps_str} need enhancement. Next phase: {'Interview scheduling' if final_score >= 75 else 'Exploratory screening' if final_score >= 60 else 'Reserve candidate pool'}."
-    
-    elif template_num == 23:
-        candidate_summary = f"Candidate presents {exp_desc} career foundation built on {core_skills_str}. Assessment metric indicates {final_score}/100 match with {job_title}. Positive indicators include {trans_skills_str}, though {gaps_str} may require training. Proposed action: {'Direct interview invitation' if final_score >= 75 else 'Initial phone evaluation' if final_score >= 60 else 'Deferred consideration'}."
-    
-    elif template_num == 24:
-        candidate_summary = f"Experience base spans {exp_desc} emphasizing {core_skills_str} application. Scoring framework assigns {final_score}/100 alignment to {job_title}. Value-adding skills such as {trans_skills_str} are apparent, but {gaps_str} present gaps. Strategic next move: {'Expedite interview process' if final_score >= 75 else 'Preliminary phone contact' if final_score >= 60 else 'Batch comparison'}."
-    
-    elif template_num == 25:
-        candidate_summary = f"Professional journey includes {exp_desc} with {core_skills_str} as key strengths. Match calculation produces {final_score}/100 for {job_title} suitability. Ancillary abilities in {trans_skills_str} enhance candidacy, while {gaps_str} need development. Advised next step: {'Proceed to interview' if final_score >= 75 else 'Screening call' if final_score >= 60 else 'Hold for review'}."
-    
-    elif template_num == 26:
-        candidate_summary = f"Resume showcases {exp_desc} of targeted experience in {core_skills_str}. Evaluation score reaches {final_score}/100 against {job_title} benchmarks. Complementary skills like {trans_skills_str} add value, yet {gaps_str} require attention. Recommendation: {'Fast-track to hiring team' if final_score >= 75 else 'Phone pre-screen' if final_score >= 60 else 'Secondary evaluation'}."
-    
-    elif template_num == 27:
-        candidate_summary = f"Applicant's {exp_desc} background highlights {core_skills_str} mastery. Compatibility rating measures {final_score}/100 for {job_title} opening. Strengths in {trans_skills_str} are noted, whereas {gaps_str} indicate development zones. Action recommendation: {'Interview immediately' if final_score >= 75 else 'Exploratory call' if final_score >= 60 else 'Comparative review'}."
-    
-    else:  # template_num == 28
-        candidate_summary = f"Career profile reflects {exp_desc} with focus on {core_skills_str}. Match index calculates to {final_score}/100 versus {job_title} criteria. Additional competencies in {trans_skills_str} are present, but {gaps_str} need improvement. Suggested course: {'Advance to interview stage' if final_score >= 75 else 'Initial assessment' if final_score >= 60 else 'Place in consideration queue'}."
-    
-    ai_analysis = f"Evaluation: Skills {skills_contribution}/20, Experience {exp_contribution}/15,Unique factors {unique_variation}/3. "
-    #Unique factors {unique_variation}/20.
-    ai_analysis += f"Overall: {match_label} ({final_score}/100) for {job_title} position."
+    # AI analysis
+    ai_analysis = f"Balanced evaluation: Experience {components['experience']['score']}/35, "
+    ai_analysis += f"Skills {components['skills']['score']}/30, "
+    ai_analysis += f"Projects {components['projects']['score']}/20, "
+    ai_analysis += f"Education {components['education']['score']}/10, "
+    ai_analysis += f"Soft Skills {components['soft_skills']['score']}/5. "
+    ai_analysis += f"Overall: {match_label} ({final_score}/100)."
     
     return {
         'match_score': round(final_score, 1),
@@ -910,9 +745,9 @@ def enhanced_fallback_evaluation(resume_text: str, job_title: str, job_descripti
         'key_strengths': strengths[:5],
         'skill_gaps': gaps[:5],
         'ai_analysis': ai_analysis,
-        'status': status
+        'status': status,
+        'components': components  # Include detailed breakdown
     }
-
 
 def extract_skills_from_job_text(job_text: str) -> list:
     """Extract skills from job description text"""
@@ -943,39 +778,97 @@ def simulate_resume_parsing(candidate: Candidate, db: Session, ai_analysis: dict
     if ai_analysis:
         # Set score from AI analysis
         score = ai_analysis.get('match_score', 0)
-        candidate.resume_score = score if score > 0 else 50  # Default to 50 if 0
+        
+        # CRITICAL FIX: Never allow 0 score for valid resumes
+        if score == 0 and candidate.resume_text and len(candidate.resume_text.strip()) > 100:
+            print(f"⚠️ WARNING: Score is 0 but resume has {len(candidate.resume_text)} chars. Setting minimum score.")
+            score = 45  # Minimum "Borderline Fit" score
+        
+        candidate.resume_score = score
         
         # Set summary from AI analysis
         candidate.summary = ai_analysis.get('candidate_summary', '')
         
-        # Set skills from AI analysis
-        if 'key_strengths' in ai_analysis and ai_analysis['key_strengths']:
-            # Extract skill names from strengths
-            skills = []
-            for strength in ai_analysis['key_strengths']:
-                if ':' in strength:
-                    skill_part = strength.split(':')[1].strip()
-                    skills.extend([s.strip() for s in skill_part.split(',')])
-            candidate.skills = skills[:20] if skills else candidate.skills  # Keep extracted skills if no AI skills
+        # Generate predefined interview questions based on resume and job
+        if candidate.resume_text and candidate.job_id:
+            try:
+                from app.models import JobDescription
+                job = db.query(JobDescription).filter(JobDescription.id == candidate.job_id).first()
+                if job:
+                    questions = generate_interview_questions(candidate.resume_text, job.title, candidate.skills or [])
+                    candidate.predefined_questions = questions
+            except Exception as e:
+                print(f"⚠️ Question generation failed: {e}")
         
-        # Set stage based on score and threshold
-        if candidate.resume_score >= (candidate.score_threshold or 60):
+        # Set stage based on score thresholds
+        threshold = candidate.score_threshold or 60
+        if score >= threshold:
             candidate.stage = CandidateStage.SHORTLISTED
-            candidate.display_status = "shortlisted"
         else:
-            candidate.stage = CandidateStage.REJECTED
-            candidate.display_status = "rejected"
+            candidate.stage = CandidateStage.RESUME_REJECTED
         
-        print(f"✓ Candidate {candidate.name}: Score={candidate.resume_score}, Stage={candidate.stage.value}")
+        print(f"✓ Candidate {candidate.name}: Score={candidate.resume_score}, Threshold={threshold}, Stage={candidate.stage.value}")
     else:
-        # No AI analysis - keep as uploaded with default score
-        #candidate.resume_score = 50  # Default score when no job selected
-        candidate.resume_score = 0 
-        candidate.stage = CandidateStage.UPLOADED
-        print(f"⚠ Candidate {candidate.name}: No AI analysis, using default score=50")
+        # No AI analysis - set minimum score
+        candidate.resume_score = 40  # Minimum score when no analysis
+        candidate.stage = CandidateStage.APPLIED
+        print(f"⚠ Candidate {candidate.name}: No AI analysis, score=40")
     
     db.commit()
     db.refresh(candidate)
+
+def generate_interview_questions(resume_text: str, job_title: str, skills: list) -> str:
+    """Generate 3-5 interview questions based on resume and job"""
+    import random
+    
+    questions = []
+    
+    # Technical questions based on skills
+    if skills:
+        top_skills = skills[:3]
+        for skill in top_skills:
+            tech_questions = [
+                f"Can you describe a project where you used {skill} and the challenges you faced?",
+                f"How would you rate your proficiency in {skill} and what's your experience with it?",
+                f"Tell me about a time when you had to learn {skill} quickly for a project."
+            ]
+            questions.append(random.choice(tech_questions))
+    
+    # Role-specific questions
+    role_questions = {
+        'software engineer': [
+            "Describe your approach to debugging a complex production issue.",
+            "How do you ensure code quality in your projects?",
+            "Tell me about a time you optimized application performance."
+        ],
+        'backend': [
+            "How do you design scalable APIs?",
+            "Explain your experience with database optimization.",
+            "Describe a challenging integration you've implemented."
+        ],
+        'frontend': [
+            "How do you approach responsive design?",
+            "Describe your experience with state management.",
+            "How do you optimize frontend performance?"
+        ]
+    }
+    
+    job_lower = job_title.lower()
+    for key, qs in role_questions.items():
+        if key in job_lower:
+            questions.extend(random.sample(qs, min(2, len(qs))))
+            break
+    
+    # Generic behavioral questions
+    behavioral = [
+        "Tell me about a challenging project you worked on and how you overcame obstacles.",
+        "Describe a situation where you had to work with a difficult team member.",
+        "How do you prioritize tasks when working on multiple projects?"
+    ]
+    questions.append(random.choice(behavioral))
+    
+    # Return top 5 questions
+    return "\n".join([f"{i+1}. {q}" for i, q in enumerate(questions[:5])])
 
 @router.get("", response_model=List[CandidateResponse])
 def get_candidates(
@@ -1019,6 +912,7 @@ def get_candidates(
             "location": c.location,
             "linkedin_url": c.linkedin_url,
             "resume_file_path": c.resume_file_path,
+            "resume_text": c.resume_text,
             "parsing_status": c.parsing_status,
             "resume_score": c.resume_score,
             "score_threshold": c.score_threshold,
@@ -1030,6 +924,7 @@ def get_candidates(
             "job_id": c.job_id,
             "job_title": c.job.title if c.job else None,
             "summary": c.summary,
+            "predefined_questions": c.predefined_questions,
             "created_at": c.created_at
         }
         result.append(CandidateResponse(**candidate_dict))
@@ -1068,6 +963,7 @@ def get_candidate(
         "job_id": candidate.job_id,
         "job_title": candidate.job.title if candidate.job else None,
         "summary": candidate.summary,
+        "predefined_questions": candidate.predefined_questions,
         "created_at": candidate.created_at
     }
     return CandidateResponse(**candidate_dict)
@@ -1165,21 +1061,29 @@ async def upload_resume(
         
         # Get AI analysis (with or without job)
         if not job_data:
+            # NO JOB SELECTED: Use generic evaluation with common skills
             job_data = {
                 'title': 'General Position',
-                'description': '',
-                'requirements': '',
-                'skills': []
+                'description': 'General professional role',
+                'requirements': 'Professional experience with relevant skills',
+                'skills': ['communication', 'teamwork', 'problem solving']  # Generic skills
             }
+            print("⚠️  No job selected - using generic evaluation")
         
         ai_analysis = analyze_resume_with_ai(analysis_data, job_data)
         print("\n" + "="*50)
         print("AI ANALYSIS RESULT")
         print("="*50)
-        print(f"Match Score: {ai_analysis['match_score']}")
-        print(f"Status: {ai_analysis['status']}")
+        print(f"Match Score: {ai_analysis.get('match_score', 'NOT FOUND')}")
+        print(f"Status: {ai_analysis.get('status', 'NOT FOUND')}")
         print(f"Summary: {ai_analysis.get('candidate_summary', 'N/A')}")
+        print(f"Full Analysis Keys: {list(ai_analysis.keys())}")
         print("="*50 + "\n")
+        
+        # SAFETY CHECK: Ensure score is never 0 for valid resumes
+        if ai_analysis.get('match_score', 0) == 0 and full_text.strip():
+            print("⚠️  WARNING: Score is 0 but resume has content. Using minimum score of 30.")
+            ai_analysis['match_score'] = 30
         
         # Generate candidate ID: first 3 letters of name + job ID
         name_prefix = name[:3].upper() if name else "UNK"
@@ -1516,68 +1420,78 @@ def sync_candidates_to_sheets(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """Sync unsynced candidates to Google Sheets"""
-    try:
-        # Import here to avoid startup issues
-        from app.google_sheets import sheets_service
-        from app.models import JobDescription
-        
-        # Get candidates that haven't been synced yet - with job relationship loaded
-        unsynced_candidates = db.query(Candidate).filter(
-            (Candidate.synced_to_sheets == False) | 
-            (Candidate.synced_to_sheets == None)
-        ).all()
-        
-        print(f"Found {len(unsynced_candidates)} unsynced candidates")
-        
-        if not unsynced_candidates:
-            return {"synced_count": 0, "message": "No new candidates to sync"}
-        
-        # Generate candidate IDs for candidates that don't have them
-        candidates_updated = 0
-        for candidate in unsynced_candidates:
-            if not candidate.candidate_id:
-                name_prefix = candidate.name[:3].upper() if candidate.name else "UNK"
-                job_suffix = str(candidate.job_id) if candidate.job_id else "000"
-                candidate.candidate_id = f"{name_prefix}{job_suffix}"
-                candidates_updated += 1
-        
-        if candidates_updated > 0:
-            db.commit()
-            print(f"Generated candidate IDs for {candidates_updated} candidates")
-        
-        # Refresh to load relationships
-        for candidate in unsynced_candidates:
-            db.refresh(candidate)
-        
-        # Sync to Google Sheets
-        result = sheets_service.sync_candidates_to_sheet(unsynced_candidates)
-        
-        print(f"Sync result: {result}")
-        
-        if not result.get('success', False):
-            raise HTTPException(status_code=500, detail=result.get('error', 'Sync failed'))
-        
-        # Mark candidates as synced
-        for candidate in unsynced_candidates:
-            candidate.synced_to_sheets = True
-        
-        db.commit()
-        
-        return {
-            "synced_count": result["synced_count"],
-            "sheets_synced": result["synced_count"],
-            "message": f"Successfully synced {result['synced_count']} candidates to Google Sheets"
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Sync error: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+    """Sync candidates to Google Sheets via webhook"""
+    import requests
+    
+    webhook_url = "https://script.google.com/macros/s/AKfycby23M_BBZw4VBE1p6Y8MrcBF_66mfOzGvuEckR2RHLs98mE9TEb9AMixQMLZ2IqsgLwPA/exec"
+    
+    # If webhook URL is set, use simple webhook method
+    if webhook_url and webhook_url != "PASTE_YOUR_WEBHOOK_URL_HERE":
+        try:
+            from app.models import JobDescription
+            
+            candidates = db.query(Candidate).filter(Candidate.stage != CandidateStage.APPLIED).all()
+            
+            if not candidates:
+                return {"success": True, "synced_count": 0, "message": "No candidates to sync"}
+            
+            candidates_data = []
+            for c in candidates:
+                if not c.candidate_id:
+                    c.candidate_id = f"{c.name[:3].upper() if c.name else 'UNK'}{c.job_id or '000'}"
+                    db.commit()
+                
+                job_id_str, job_title, job_description = '', '', ''
+                if c.job_id:
+                    job = db.query(JobDescription).filter(JobDescription.id == c.job_id).first()
+                    if job:
+                        job_id_str = job.job_id or str(c.job_id)
+                        job_title = job.title or ''
+                        job_description = (job.description[:1000] + '...') if job.description and len(job.description) > 1000 else (job.description or '')
+                
+                resume_text = (c.resume_text[:2000] + '...') if c.resume_text and len(c.resume_text) > 2000 else (c.resume_text or '')
+                skills_str = ', '.join(c.skills) if c.skills else ''
+                
+                candidates_data.append({
+                    'candidate_id': c.candidate_id,
+                    'name': c.name or '',
+                    'email': c.email or '',
+                    'phone': c.phone or '',
+                    'job_id': job_id_str,
+                    'job_title': job_title,
+                    'resume_text': resume_text,
+                    'job_description': job_description,
+                    'score': str(c.resume_score) if c.resume_score is not None else '',
+                    'skills': skills_str,
+                    'resume_evaluated': '',  # Leave blank for N8N workflow
+                    'summary': c.summary or '',
+                    'predefined_questions': c.predefined_questions or ''
+                })
+            
+            print(f"Sending {len(candidates_data)} candidates to webhook...")
+            response = requests.post(webhook_url, json={'candidates': candidates_data}, timeout=30)
+            
+            if response.status_code == 200:
+                result = response.json()
+                synced = result.get('synced_count', 0)
+                print(f"✅ Successfully synced {synced} candidates")
+                return {
+                    'success': True,
+                    'synced_count': synced,
+                    'sheets_synced': synced,
+                    'message': f'Successfully synced {synced} new candidates to Google Sheets'
+                }
+            else:
+                raise HTTPException(status_code=500, detail=f'Webhook failed: {response.text}')
+        except Exception as e:
+            print(f"❌ Webhook sync failed: {str(e)}")
+            raise HTTPException(status_code=500, detail=f'Sync failed: {str(e)}')
+    
+    # If no webhook URL, show error
+    raise HTTPException(
+        status_code=400, 
+        detail="Google Sheets webhook not configured. Please update webhook_url in candidates.py (line 1850)"
+    )
 
 @router.post("/sync-from-sheets")
 def sync_scores_from_sheets(
@@ -1602,6 +1516,27 @@ def sync_scores_from_sheets(
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/clear-sheets")
+def clear_sheets_data(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Clear all data from Google Sheets"""
+    import requests
+    
+    webhook_url = "https://script.google.com/macros/s/AKfycby23M_BBZw4VBE1p6Y8MrcBF_66mfOzGvuEckR2RHLs98mE9TEb9AMixQMLZ2IqsgLwPA/exec"
+    
+    try:
+        response = requests.post(webhook_url, json={'action': 'clear'}, timeout=30)
+        
+        if response.status_code == 200:
+            return {'success': True, 'message': 'Google Sheets cleared successfully'}
+        else:
+            raise HTTPException(status_code=500, detail=f'Clear failed: {response.text}')
+    except Exception as e:
+        print(f"❌ Clear sheets failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f'Clear failed: {str(e)}')
 @router.get("/export-csv")
 def export_candidates_csv(
     db: Session = Depends(get_db),
@@ -1672,12 +1607,16 @@ def delete_candidate(
         db.delete(db_candidate)
         db.commit()
         
-        # Delete from Google Sheets
+        # Delete from Google Sheets via webhook
         if sheets_candidate_id:
             try:
-                sheets_service.delete_candidate_from_sheet(sheets_candidate_id)
+                import requests
+                webhook_url = "https://script.google.com/macros/s/AKfycby23M_BBZw4VBE1p6Y8MrcBF_66mfOzGvuEckR2RHLs98mE9TEb9AMixQMLZ2IqsgLwPA/exec"
+                response = requests.post(webhook_url, json={'action': 'delete', 'candidate_id': sheets_candidate_id}, timeout=10)
+                if response.status_code == 200:
+                    print(f"✅ Deleted {sheets_candidate_id} from Google Sheets")
             except Exception as e:
-                print(f"Sheets deletion failed: {e}")
+                print(f"⚠️ Sheets deletion failed: {e}")
         
         return {"message": "Candidate deleted successfully"}
     except HTTPException:
@@ -1688,37 +1627,106 @@ def delete_candidate(
         raise HTTPException(status_code=500, detail=f"Delete failed: {str(e)}")
 
 @router.get("/{candidate_id}/resume-file")
-def get_resume_file(
+async def get_resume_file(
     candidate_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    token: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
 ):
-    candidate = db.query(Candidate).filter(Candidate.id == candidate_id).first()
-    if not candidate:
-        raise HTTPException(status_code=404, detail="Candidate not found")
+    from app.auth import verify_token
+    from fastapi.responses import Response, HTMLResponse
+    import base64
     
-    if not candidate.resume_file_path:
-        raise HTTPException(status_code=404, detail="No resume file path stored for this candidate")
-    
-    # Check if file exists
-    if not os.path.exists(candidate.resume_file_path):
-        print(f"Resume file not found at path: {candidate.resume_file_path}")
-        raise HTTPException(status_code=404, detail=f"Resume file not found on server. Path: {candidate.resume_file_path}")
-    
-    # Determine media type based on file extension
-    file_ext = os.path.splitext(candidate.resume_file_path)[1].lower()
-    media_type_map = {
-        '.pdf': 'application/pdf',
-        '.doc': 'application/msword',
-        '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-    }
-    media_type = media_type_map.get(file_ext, 'application/octet-stream')
-    
-    return FileResponse(
-        candidate.resume_file_path,
-        media_type=media_type,
-        filename=f"{candidate.name}_resume{file_ext}"
-    )
+    try:
+        if not token:
+            raise HTTPException(status_code=401, detail="Token required")
+        
+        token_data = verify_token(token)
+        if not token_data:
+            raise HTTPException(status_code=401, detail="Invalid or expired token")
+        
+        user = db.query(User).filter(User.email == token_data.email).first()
+        if not user:
+            raise HTTPException(status_code=401, detail="User not found")
+        
+        candidate = db.query(Candidate).filter(Candidate.id == candidate_id).first()
+        if not candidate:
+            raise HTTPException(status_code=404, detail="Candidate not found")
+        
+        if not candidate.resume_file_path:
+            raise HTTPException(status_code=404, detail="No resume file uploaded for this candidate")
+        
+        if not os.path.exists(candidate.resume_file_path):
+            raise HTTPException(status_code=404, detail=f"Resume file not found at path: {candidate.resume_file_path}")
+        
+        file_ext = os.path.splitext(candidate.resume_file_path)[1].lower()
+        
+        # Read file content
+        with open(candidate.resume_file_path, 'rb') as f:
+            file_content = f.read()
+        
+        # Convert Word to PDF for viewing, or return PDF directly
+        if file_ext == '.pdf':
+            return Response(
+                content=file_content,
+                media_type='application/pdf',
+                headers={"Content-Disposition": f'inline; filename="{candidate.name}_resume.pdf"'}
+            )
+        elif file_ext in ['.doc', '.docx']:
+            # Try to convert Word to PDF for inline viewing
+            try:
+                import subprocess
+                import tempfile
+                
+                # Create temp PDF file
+                with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as temp_pdf:
+                    temp_pdf_path = temp_pdf.name
+                
+                # Try LibreOffice conversion (if available)
+                try:
+                    subprocess.run(
+                        ['soffice', '--headless', '--convert-to', 'pdf', '--outdir', 
+                         os.path.dirname(temp_pdf_path), candidate.resume_file_path],
+                        check=True, timeout=30, capture_output=True
+                    )
+                    converted_pdf = os.path.join(os.path.dirname(temp_pdf_path), 
+                                                os.path.splitext(os.path.basename(candidate.resume_file_path))[0] + '.pdf')
+                    
+                    if os.path.exists(converted_pdf):
+                        with open(converted_pdf, 'rb') as f:
+                            pdf_content = f.read()
+                        os.unlink(converted_pdf)
+                        os.unlink(temp_pdf_path)
+                        return Response(
+                            content=pdf_content,
+                            media_type='application/pdf',
+                            headers={"Content-Disposition": f'inline; filename="{candidate.name}_resume.pdf"'}
+                        )
+                except:
+                    pass
+                
+                os.unlink(temp_pdf_path)
+            except:
+                pass
+            
+            # Fallback: download Word file
+            media_type = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' if file_ext == '.docx' else 'application/msword'
+            return Response(
+                content=file_content,
+                media_type=media_type,
+                headers={"Content-Disposition": f'attachment; filename="{candidate.name}_resume{file_ext}"'}
+            )
+        else:
+            # Other file types
+            return Response(
+                content=file_content,
+                media_type='application/octet-stream',
+                headers={"Content-Disposition": f'inline; filename="{candidate.name}_resume{file_ext}"'}
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Resume file error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to load resume: {str(e)}")
 
 @router.get("/{candidate_id}/ai-analysis")
 def get_ai_analysis(
@@ -1824,5 +1832,10 @@ def get_pipeline_stages(
             for c in candidates
         ]
     return stages
+
+
+
+
+
 
 

@@ -7,8 +7,9 @@ import os
 
 class GoogleSheetsService:
     def __init__(self):
-        # Your Google Sheet ID
-        self.sheet_id = "18ugwqo2-_A80zPP_JfCRL6sDKNGBCweWkxsFuSmfQmE"
+        # Your Google Sheet ID - REPLACE WITH YOUR SHEET ID
+        # Get it from: https://docs.google.com/spreadsheets/d/[YOUR_SHEET_ID]/edit
+        self.sheet_id = "YOUR_SHEET_ID_HERE"
         self.service = None
         self.is_configured = False
         self._initialize_service()
