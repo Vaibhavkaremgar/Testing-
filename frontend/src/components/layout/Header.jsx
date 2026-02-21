@@ -37,6 +37,9 @@ export function Header() {
           api.getInterviews({ limit: 3 })
         ])
         
+        // Get read notifications from localStorage
+        const readNotifications = JSON.parse(localStorage.getItem('readNotifications') || '[]')
+        
         const notificationList = []
         
         // Recent candidates
@@ -44,13 +47,14 @@ export function Header() {
           const timeDiff = new Date() - new Date(candidate.created_at)
           const hoursAgo = Math.floor(timeDiff / (1000 * 60 * 60))
           const timeText = hoursAgo < 1 ? 'Just now' : hoursAgo < 24 ? `${hoursAgo}h ago` : `${Math.floor(hoursAgo / 24)}d ago`
+          const notifId = `candidate-${candidate.id}`
           
           notificationList.push({
-            id: `candidate-${candidate.id}`,
+            id: notifId,
             type: 'candidate',
             message: `New candidate ${candidate.name} applied${candidate.job_title ? ` for ${candidate.job_title}` : ''}`,
             time: timeText,
-            unread: hoursAgo < 24,
+            unread: hoursAgo < 24 && !readNotifications.includes(notifId),
             data: candidate
           })
         })
@@ -60,13 +64,14 @@ export function Header() {
           const timeDiff = new Date() - new Date(interview.created_at)
           const hoursAgo = Math.floor(timeDiff / (1000 * 60 * 60))
           const timeText = hoursAgo < 1 ? 'Just now' : hoursAgo < 24 ? `${hoursAgo}h ago` : `${Math.floor(hoursAgo / 24)}d ago`
+          const notifId = `interview-${interview.id}`
           
           notificationList.push({
-            id: `interview-${interview.id}`,
+            id: notifId,
             type: 'interview',
             message: `Interview ${interview.status === 'completed' ? 'completed' : 'scheduled'} with ${interview.candidate_name}`,
             time: timeText,
-            unread: hoursAgo < 12,
+            unread: hoursAgo < 12 && !readNotifications.includes(notifId),
             data: interview
           })
         })
@@ -74,7 +79,6 @@ export function Header() {
         setNotifications(notificationList.sort((a, b) => b.unread - a.unread))
       } catch (error) {
         console.error('Failed to fetch notifications:', error)
-        // Fallback to mock data
         setNotifications([
           { id: 1, type: 'system', message: 'Welcome to HireFlow!', time: '1 hour ago', unread: true },
           { id: 2, type: 'system', message: 'System maintenance scheduled', time: '2 hours ago', unread: false },
@@ -83,7 +87,6 @@ export function Header() {
     }
     
     fetchNotifications()
-    // Refresh notifications every 5 minutes
     const interval = setInterval(fetchNotifications, 5 * 60 * 1000)
     return () => clearInterval(interval)
   }, [])
@@ -133,10 +136,16 @@ export function Header() {
     setNotifications(prev => 
       prev.map(n => n.id === notificationId ? { ...n, unread: false } : n)
     )
+    const readNotifications = JSON.parse(localStorage.getItem('readNotifications') || '[]')
+    if (!readNotifications.includes(notificationId)) {
+      localStorage.setItem('readNotifications', JSON.stringify([...readNotifications, notificationId]))
+    }
   }
 
   const markAllAsRead = () => {
     setNotifications(prev => prev.map(n => ({ ...n, unread: false })))
+    const allIds = notifications.map(n => n.id)
+    localStorage.setItem('readNotifications', JSON.stringify(allIds))
   }
 
   const handleNotificationClick = (notification) => {
@@ -165,8 +174,8 @@ export function Header() {
     <header 
       className="flex h-16 items-center justify-between border-b px-6" 
       style={{ 
-        backgroundColor: isDark ? '' : '#ffffff', 
-        boxShadow: isDark ? '' : '0 1px 2px 0 rgb(0 0 0 / 0.05)' 
+        backgroundColor: isDark ? 'rgb(15, 23, 42)' : 'rgb(255, 255, 255)', 
+        boxShadow: isDark ? '0 1px 3px 0 rgb(0 0 0 / 0.3)' : '0 1px 3px 0 rgb(0 0 0 / 0.1)' 
       }}
     >
       {/* Search */}

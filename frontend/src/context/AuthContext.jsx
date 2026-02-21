@@ -12,8 +12,11 @@ export function AuthProvider({ children }) {
     if (token) {
       api.getMe()
         .then(setUser)
-        .catch(() => {
-          localStorage.removeItem('token')
+        .catch((error) => {
+          // Only logout if token is explicitly invalid (401), not on network errors
+          if (error.response?.status === 401) {
+            localStorage.removeItem('token')
+          }
         })
         .finally(() => setLoading(false))
     } else {

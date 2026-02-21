@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { useTheme } from '@/context/ThemeContext'
 import { api } from '@/lib/api'
@@ -10,8 +11,9 @@ import { Label } from '@/components/ui/label'
 import { User, Bell, Shield, Palette, Key, Save, Target } from 'lucide-react'
 
 export default function Settings() {
-  const { user } = useAuth()
+  const { user, logout } = useAuth()
   const { theme, setTheme } = useTheme()
+  const navigate = useNavigate()
   const [profileData, setProfileData] = useState({
     full_name: user?.full_name || '',
     email: user?.email || '',
@@ -97,9 +99,15 @@ export default function Settings() {
     }
     
     try {
-      await api.changePassword(passwordData.currentPassword, passwordData.newPassword)
-      alert('Password updated successfully!')
+      const response = await api.changePassword(passwordData.currentPassword, passwordData.newPassword)
+      alert('Password updated successfully! You will be logged out. Please login with your new password.')
       setPasswordData({ currentPassword: '', newPassword: '' })
+      
+      // Logout user and redirect to login page
+      setTimeout(() => {
+        logout()
+        navigate('/login')
+      }, 1000)
     } catch (error) {
       alert(error.message || 'Failed to update password')
     }

@@ -50,6 +50,7 @@ class JobDescriptionBase(BaseModel):
     requirements: Optional[str] = None
     responsibilities: Optional[str] = None
     skills: Optional[List[str]] = None
+    interview_questions: Optional[List[Any]] = None
 
 class JobDescriptionCreate(JobDescriptionBase):
     pass
@@ -97,6 +98,7 @@ class CandidateUpdate(BaseModel):
 class CandidateResponse(CandidateBase):
     id: int
     resume_file_path: Optional[str] = None
+    resume_text: Optional[str] = None
     parsing_status: ParsingStatus
     resume_score: Optional[float] = None
     score_threshold: Optional[float] = None
@@ -108,6 +110,13 @@ class CandidateResponse(CandidateBase):
     job_id: Optional[int] = None
     job_title: Optional[str] = None
     summary: Optional[str] = None
+    predefined_questions: Optional[str] = None
+    interview_video_url: Optional[str] = None
+    interview_transcript: Optional[str] = None
+    interview_ai_summary: Optional[str] = None
+    interview_technical_score: Optional[float] = None
+    interview_communication_score: Optional[float] = None
+    interview_culture_fit_score: Optional[float] = None
     created_at: datetime
     
     class Config:
@@ -191,6 +200,7 @@ class EmailTemplateResponse(EmailTemplateBase):
 class DashboardStats(BaseModel):
     total_candidates: int
     shortlisted: int
+    resume_rejected: int
     rejected: int
     interviews_scheduled: int
     selected: int

@@ -36,11 +36,11 @@ export function Sidebar() {
     <div 
       className="flex h-full w-64 flex-col border-r"
       style={{
-        background: isDark ? '' : 'linear-gradient(to bottom, rgb(248, 250, 252), rgb(255, 255, 255))'
+        background: isDark ? 'rgb(15, 23, 42)' : 'linear-gradient(to bottom, rgb(241, 245, 249), rgb(248, 250, 252))'
       }}
     >
       {/* Logo */}
-      <div className="flex h-16 items-center gap-3 px-6 border-b" style={{ backgroundColor: isDark ? '' : 'rgba(255, 255, 255, 0.5)' }}>
+      <div className="flex h-16 items-center gap-3 px-6 border-b" style={{ backgroundColor: isDark ? 'rgb(30, 41, 59)' : 'rgb(255, 255, 255)' }}>
         <div>
           <span className="text-lg font-bold">PONTIS</span>
           <p className="text-xs text-muted-foreground">Recruitment System</p>

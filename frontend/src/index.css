@@ -64,6 +64,11 @@
   body {
     @apply bg-background text-foreground;
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    overscroll-behavior: none;
+    touch-action: pan-y pinch-zoom;
+  }
+  html {
+    overscroll-behavior: none;
   }
 }
 

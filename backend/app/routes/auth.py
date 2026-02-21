@@ -89,8 +89,9 @@ def change_password(
     
     current_user.hashed_password = get_password_hash(password_data.new_password)
     db.commit()
+    db.refresh(current_user)
     
-    return {"message": "Password updated successfully", "success": True}
+    return {"message": "Password updated successfully", "success": True, "logout_required": True}
 
 @router.put("/profile", response_model=UserResponse)
 def update_profile(

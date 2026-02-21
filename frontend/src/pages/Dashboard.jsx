@@ -80,16 +80,16 @@ export default function Dashboard() {
 
   const kpiCards = stats ? [
     { title: 'Total Candidates', value: stats.total_candidates || 0, icon: Users, color: 'text-blue-600', bg: 'bg-blue-100 dark:bg-blue-900/30', filter: {} },
-    { title: 'Shortlisted', value: stats.shortlisted || 0, icon: UserCheck, color: 'text-purple-600', bg: 'bg-purple-100 dark:bg-purple-900/30', filter: { stage: 'shortlisted' } },
-    { title: 'Interviews', value: stats.interviews_scheduled || 0, icon: Calendar, color: 'text-orange-600', bg: 'bg-orange-100 dark:bg-orange-900/30', filter: { stage: 'interview_scheduled' } },
-    { title: 'Selected', value: stats.selected || 0, icon: Award, color: 'text-green-600', bg: 'bg-green-100 dark:bg-green-900/30', filter: { stage: 'selected' } },
-    { title: 'Rejected', value: stats.rejected || 0, icon: UserX, color: 'text-red-600', bg: 'bg-red-100 dark:bg-red-900/30', filter: { stage: 'rejected' } },
+    { title: 'Shortlisted', value: stats.shortlisted || 0, icon: UserCheck, color: 'text-purple-600', bg: 'bg-purple-100 dark:bg-purple-900/30', filter: { stage: 'SHORTLISTED' } },
+    { title: 'Interviews', value: stats.interviews_scheduled || 0, icon: Calendar, color: 'text-orange-600', bg: 'bg-orange-100 dark:bg-orange-900/30', filter: { stages: ['INTERVIEW_SCHEDULED', 'INTERVIEW_RESCHEDULED', 'INTERVIEWED'] } },
+    { title: 'Selected', value: stats.selected || 0, icon: Award, color: 'text-green-600', bg: 'bg-green-100 dark:bg-green-900/30', filter: { stage: 'SELECTED' } },
+    { title: 'Rejected', value: stats.rejected || 0, icon: UserX, color: 'text-red-600', bg: 'bg-red-100 dark:bg-red-900/30', filter: { stage: 'REJECTED' } },
   ] : [
     { title: 'Total Candidates', value: 0, icon: Users, color: 'text-blue-600', bg: 'bg-blue-100 dark:bg-blue-900/30', filter: {} },
-    { title: 'Shortlisted', value: 0, icon: UserCheck, color: 'text-purple-600', bg: 'bg-purple-100 dark:bg-purple-900/30', filter: { stage: 'shortlisted' } },
-    { title: 'Interviews', value: 0, icon: Calendar, color: 'text-orange-600', bg: 'bg-orange-100 dark:bg-orange-900/30', filter: { stage: 'interview_scheduled' } },
-    { title: 'Selected', value: 0, icon: Award, color: 'text-green-600', bg: 'bg-green-100 dark:bg-green-900/30', filter: { stage: 'selected' } },
-    { title: 'Rejected', value: 0, icon: UserX, color: 'text-red-600', bg: 'bg-red-100 dark:bg-red-900/30', filter: { stage: 'rejected' } },
+    { title: 'Shortlisted', value: 0, icon: UserCheck, color: 'text-purple-600', bg: 'bg-purple-100 dark:bg-purple-900/30', filter: { stage: 'SHORTLISTED' } },
+    { title: 'Interviews', value: 0, icon: Calendar, color: 'text-orange-600', bg: 'bg-orange-100 dark:bg-orange-900/30', filter: { stages: ['INTERVIEW_SCHEDULED', 'INTERVIEW_RESCHEDULED', 'INTERVIEWED'] } },
+    { title: 'Selected', value: 0, icon: Award, color: 'text-green-600', bg: 'bg-green-100 dark:bg-green-900/30', filter: { stage: 'SELECTED' } },
+    { title: 'Rejected', value: 0, icon: UserX, color: 'text-red-600', bg: 'bg-red-100 dark:bg-red-900/30', filter: { stage: 'REJECTED' } },
   ]
 
   const handleCardClick = async (card) => {
@@ -103,8 +103,22 @@ export default function Dashboard() {
       } else if (selectedMonth !== 'all') {
         filter.month = selectedMonth
       }
-      const candidates = await api.getCandidates(filter)
-      setCardCandidates(candidates || [])
+      
+      // Handle multiple stages filter
+      if (filter.stages && filter.stages.length > 0) {
+        // Fetch candidates for each stage and combine
+        const allCandidates = []
+        for (const stage of filter.stages) {
+          const stageFilter = { ...filter, stage }
+          delete stageFilter.stages
+          const candidates = await api.getCandidates(stageFilter)
+          allCandidates.push(...(candidates || []))
+        }
+        setCardCandidates(allCandidates)
+      } else {
+        const candidates = await api.getCandidates(filter)
+        setCardCandidates(candidates || [])
+      }
     } catch (error) {
       console.error('Failed to fetch card candidates:', error)
       setCardCandidates([])
@@ -485,7 +499,7 @@ export default function Dashboard() {
       </div>
 
       {/* Modal for Card Details */}
-      {selectedCard && selectedCard.title && (
+      {selectedCard && selectedCard.title && cardCandidates !== null && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={closeModal}>
           <div className="bg-card rounded-lg p-6 max-w-4xl w-full mx-4 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-4">

@@ -42,8 +42,7 @@ class ApiClient {
     })
 
     if (response.status === 401) {
-      this.setToken(null)
-      window.location.href = '/login'
+      // Don't auto-logout, just throw error
       throw new Error('Unauthorized')
     }
 

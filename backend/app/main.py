@@ -5,14 +5,14 @@ import os
 import sqlite3
 from app.config import settings
 from app.database import engine, Base
-from app.routes import auth, candidates, jobs, interviews, analytics, email_templates, clients, webhooks, communications
+from app.routes import auth, candidates, jobs, interviews, analytics, email_templates, clients, webhooks, communications, async_interviews
 from app.routes import settings as settings_routes
 from app.seed import seed_database
 
 # Run migrations BEFORE creating tables
 def run_migrations():
     """Run database migrations - CRITICAL for Railway deployment"""
-    db_path = "recruitment.db"
+    db_path = "talentai.db"
     
     try:
         # Ensure database file exists
@@ -71,10 +71,14 @@ app = FastAPI(
     redoc_url="/api/redoc"
 )
 
-# CORS middleware
+# CORS middleware - Updated for Railway deployment
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins temporarily
+    allow_origins=[
+        "https://glistening-youth-production.up.railway.app",  # Frontend Railway URL
+        "http://localhost:5173",  # Local development
+        "*"  # Allow all for testing
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -97,6 +101,7 @@ app.include_router(settings_routes.router, prefix="/api")
 app.include_router(clients.router, prefix="/api")
 app.include_router(webhooks.router, prefix="/api")
 app.include_router(communications.router)
+app.include_router(async_interviews.router)
 
 @app.on_event("startup")
 async def startup_event():
@@ -105,8 +110,8 @@ async def startup_event():
     import os
     
     # Get correct database path from environment or default
-    db_url = os.getenv("DATABASE_URL", "sqlite:///./recruitment.db")
-    db_path = db_url.replace("sqlite:///", "")
+    db_url = os.getenv("DATABASE_URL", "sqlite:///./talentai.db")
+    db_path = db_url.replace("sqlite:///./", "")
     print(f"📁 Using database: {db_path}")
     
     try:

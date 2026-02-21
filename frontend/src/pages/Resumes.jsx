@@ -13,10 +13,12 @@ import {
 export default function Resumes() {
   const [candidates, setCandidates] = useState([])
   const [jobs, setJobs] = useState([])
+  const [allJobs, setAllJobs] = useState([]) // Store all jobs for filter
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
   const [search, setSearch] = useState('')
-  const [selectedJob, setSelectedJob] = useState('')
+  const [selectedJobForUpload, setSelectedJobForUpload] = useState('')
+  const [selectedJobForFilter, setSelectedJobForFilter] = useState('')
   const [uploadType, setUploadType] = useState('single')
   const [error, setError] = useState('')
   const [selectedFiles, setSelectedFiles] = useState([])
@@ -32,6 +34,7 @@ export default function Resumes() {
   const [summaryLoading, setSummaryLoading] = useState(false)
   const [aiAnalysis, setAiAnalysis] = useState(null)
   const [analysisLoading, setAnalysisLoading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState({ show: false, current: 0, total: 0, status: 'uploading' })
 
   // Load minimum passing score from localStorage
   useEffect(() => {
@@ -63,28 +66,32 @@ export default function Resumes() {
 
   const fetchCandidates = useCallback(async () => {
     try {
-      const jobId = selectedJob ? parseInt(selectedJob) : undefined
+      const jobId = selectedJobForFilter ? parseInt(selectedJobForFilter) : undefined
       const data = await api.getCandidates({ search, job_id: jobId })
-      setCandidates(data || [])
+      // Filter out APPLIED candidates
+      const filteredData = (data || []).filter(c => c.stage !== 'APPLIED')
+      setCandidates(filteredData)
     } catch (error) {
       console.error('Failed to fetch candidates:', error)
       setCandidates([])
     }
-  }, [search, selectedJob])
+  }, [search, selectedJobForFilter])
 
   useEffect(() => {
     const fetchData = async () => {
       try {
         const [candidatesData, jobsData] = await Promise.all([
           api.getCandidates(),
-          api.getJobs({ is_active: true })
+          api.getJobs()
         ])
         setCandidates(candidatesData || [])
-        setJobs((jobsData || []).filter(job => job.is_active))
+        setAllJobs(jobsData || [])  // Store all jobs
+        setJobs((jobsData || []).filter(job => job.is_active))  // Only active jobs for uploader
       } catch (error) {
         console.error('Failed to fetch data:', error)
         setCandidates([])
         setJobs([])
+        setAllJobs([])
       } finally {
         setLoading(false)
       }
@@ -95,7 +102,7 @@ export default function Resumes() {
   useEffect(() => {
     const debounce = setTimeout(fetchCandidates, 300)
     return () => clearTimeout(debounce)
-  }, [search, selectedJob, fetchCandidates])
+  }, [search, selectedJobForFilter, fetchCandidates])
 
   const handleDrag = (e) => {
     e.preventDefault()
@@ -180,21 +187,28 @@ export default function Resumes() {
     setUploading(true)
     setError('')
     
+    // Show progress for bulk uploads
+    if (files.length > 1 || uploadType === 'zip') {
+      setUploadProgress({ show: true, current: 0, total: files.length, status: 'uploading' })
+    }
+    
     console.log('Starting upload with:', {
       filesCount: files.length,
-      selectedJob,
-      jobId: selectedJob ? parseInt(selectedJob) : null,
+      selectedJobForUpload,
+      jobId: selectedJobForUpload ? parseInt(selectedJobForUpload) : null,
       uploadType,
       threshold: minPassingScore
     })
     
     try {
-      const jobId = selectedJob ? parseInt(selectedJob) : null
+      const jobId = selectedJobForUpload ? parseInt(selectedJobForUpload) : null
       
       if (uploadType === 'zip') {
         console.log('ZIP file upload')
         const result = await api.zipUploadResumes(files[0], jobId, minPassingScore)
         console.log('ZIP upload result:', result)
+        const successCount = result.results?.filter(r => r.status === 'success').length || 0
+        setUploadProgress({ show: true, current: successCount, total: result.results?.length || 0, status: 'completed' })
       } else if (files.length === 1) {
         console.log('Single file upload')
         const result = await api.uploadResume(files[0], jobId, minPassingScore)
@@ -203,16 +217,19 @@ export default function Resumes() {
         console.log('Bulk file upload')
         const result = await api.bulkUploadResumes(files, jobId, minPassingScore)
         console.log('Bulk upload result:', result)
+        const successCount = result.results?.filter(r => r.status === 'success').length || 0
+        setUploadProgress({ show: true, current: successCount, total: files.length, status: 'completed' })
       }
       
-      // Refresh candidates list to show new data with scores and status
       await fetchCandidates()
       
-      // Show success message
-      alert('Resume(s) uploaded successfully! Scores and status have been calculated.')
+      if (files.length === 1 && uploadType !== 'zip') {
+        alert('Resume uploaded successfully!')
+      }
     } catch (error) {
       console.error('Upload failed:', error)
       setError(`Upload failed: ${error.message}`)
+      setUploadProgress({ show: false, current: 0, total: 0, status: 'error' })
     } finally {
       setUploading(false)
     }
@@ -315,57 +332,16 @@ export default function Resumes() {
       return
     }
 
-    try {
-      const url = api.getResumeFileUrl(candidate.id)
-      const token = api.getToken()
-      
-      if (!token) {
-        alert('Authentication required. Please log in again.')
-        return
-      }
-
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      })
-      
-      if (!response.ok) {
-        if (response.status === 404) {
-          throw new Error('Resume file not found on server')
-        } else if (response.status === 401) {
-          throw new Error('Authentication failed. Please log in again.')
-        } else {
-          throw new Error(`Failed to fetch resume (Status: ${response.status})`)
-        }
-      }
-      
-      const blob = await response.blob()
-      
-      if (blob.size === 0) {
-        throw new Error('Resume file is empty')
-      }
-      
-      const blobUrl = window.URL.createObjectURL(blob)
-      const newWindow = window.open(blobUrl, '_blank')
-      
-      if (!newWindow) {
-        // Popup blocked - download instead
-        const link = document.createElement('a')
-        link.href = blobUrl
-        link.download = `${candidate.name}_resume.pdf`
-        document.body.appendChild(link)
-        link.click()
-        document.body.removeChild(link)
-      }
-      
-      // Clean up the blob URL after a delay
-      setTimeout(() => window.URL.revokeObjectURL(blobUrl), 5000)
-    } catch (error) {
-      console.error('Error viewing resume:', error)
-      alert(`Unable to view resume: ${error.message}`)
+    const url = api.getResumeFileUrl(candidate.id)
+    const token = api.getToken()
+    
+    if (!token) {
+      alert('Authentication required. Please log in again.')
+      return
     }
+
+    // Open file in new tab (backend handles Word to PDF conversion if LibreOffice is installed)
+    window.open(`${url}?token=${encodeURIComponent(token)}`, '_blank')
   }
 
   const handleResumeSummary = async (candidate) => {
@@ -470,11 +446,11 @@ export default function Resumes() {
           <div className="flex gap-4 mb-4">
             <select
               className="flex h-10 rounded-lg border border-input bg-background px-3 py-2 text-sm"
-              value={selectedJob}
-              onChange={(e) => setSelectedJob(e.target.value)}
+              value={selectedJobForUpload}
+              onChange={(e) => setSelectedJobForUpload(e.target.value)}
             >
               <option value="">Select Job (Optional)</option>
-              {jobs.filter(job => job.is_active).map((job) => (
+              {jobs.map((job) => (
                 <option key={job.id} value={job.id}>
                   {job.company_name ? `${job.company_name} - ${job.title}` : job.title}
                 </option>
@@ -569,11 +545,11 @@ export default function Resumes() {
         </div>
         <select
           className="flex h-10 rounded-lg border border-input bg-background px-3 py-2 text-sm"
-          value={selectedJob}
-          onChange={(e) => setSelectedJob(e.target.value)}
+          value={selectedJobForFilter}
+          onChange={(e) => setSelectedJobForFilter(e.target.value)}
         >
           <option value="">All Jobs</option>
-          {jobs.filter(job => job.is_active).map((job) => (
+          {allJobs.map((job) => (
             <option key={job.id} value={job.id}>
               {job.company_name ? `${job.company_name} - ${job.title}` : job.title}
             </option>
@@ -594,6 +570,35 @@ export default function Resumes() {
         >
           <Sheet className="h-4 w-4" />
           {syncing ? 'Syncing...' : 'Sync FROM Sheets'}
+        </Button>
+        <Button 
+          onClick={() => {
+            const csv = [
+              ['Name', 'Email', 'Phone', 'Job', 'Score', 'Stage', 'Skills', 'Date'].join(','),
+              ...candidates.map(c => [
+                c.name,
+                c.email,
+                c.phone || '',
+                c.job_title || '',
+                c.resume_score || '',
+                c.stage,
+                (c.skills || []).join('; '),
+                new Date(c.created_at).toLocaleDateString()
+              ].join(','))
+            ].join('\n')
+            const blob = new Blob([csv], { type: 'text/csv' })
+            const url = URL.createObjectURL(blob)
+            const a = document.createElement('a')
+            a.href = url
+            a.download = `candidates_${new Date().toISOString().split('T')[0]}.csv`
+            a.click()
+          }}
+          disabled={candidates.length === 0}
+          variant="outline"
+          className="flex items-center gap-2"
+        >
+          <FileText className="h-4 w-4" />
+          Export CSV
         </Button>
       </div>
 
@@ -672,12 +677,24 @@ export default function Resumes() {
                       )}
                     </td>
                     <td className="p-4">
-                      {candidate.stage === 'interview_scheduled' ? (
-                        <Badge className="bg-blue-500">Interview Scheduled</Badge>
-                      ) : candidate.stage === 'shortlisted' ? (
+                      {candidate.stage === 'APPLIED' ? (
+                        <Badge className="bg-gray-500">Applied</Badge>
+                      ) : candidate.stage === 'SHORTLISTED' ? (
                         <Badge className="bg-green-500">Shortlisted</Badge>
-                      ) : candidate.stage === 'rejected' ? (
-                        <Badge className="bg-red-500">Rejected</Badge>
+                      ) : candidate.stage === 'RESUME_REJECTED' ? (
+                        <Badge className="bg-red-400">Resume Rejected</Badge>
+                      ) : candidate.stage === 'INTERVIEW_SCHEDULED' ? (
+                        <Badge className="bg-blue-500">Interview Scheduled</Badge>
+                      ) : candidate.stage === 'INTERVIEW_RESCHEDULED' ? (
+                        <Badge className="bg-yellow-500">Interview Rescheduled</Badge>
+                      ) : candidate.stage === 'INTERVIEWED' ? (
+                        <Badge className="bg-purple-500">Interviewed</Badge>
+                      ) : candidate.stage === 'NO_SHOW' ? (
+                        <Badge className="bg-orange-500">No Show</Badge>
+                      ) : candidate.stage === 'SELECTED' ? (
+                        <Badge className="bg-emerald-500">Selected</Badge>
+                      ) : candidate.stage === 'REJECTED' ? (
+                        <Badge className="bg-red-600">Rejected</Badge>
                       ) : (
                         <span className="text-muted-foreground">-</span>
                       )}
@@ -943,6 +960,33 @@ export default function Resumes() {
                   <p className="text-sm leading-relaxed">{resumeSummary}</p>
                 )}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Upload Progress Modal */}
+      {uploadProgress.show && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-card rounded-lg p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold mb-4">
+              {uploadProgress.status === 'uploading' ? 'Uploading Resumes...' : 'Upload Complete'}
+            </h3>
+            <div className="space-y-4">
+              <div>
+                <div className="flex justify-between text-sm mb-2">
+                  <span>Progress</span>
+                  <span className="font-medium">{uploadProgress.current} / {uploadProgress.total}</span>
+                </div>
+                <Progress value={(uploadProgress.current / uploadProgress.total) * 100} className="h-2" />
+              </div>
+              {uploadProgress.status === 'completed' && (
+                <div className="flex justify-end">
+                  <Button onClick={() => setUploadProgress({ show: false, current: 0, total: 0, status: 'uploading' })}>
+                    Close
+                  </Button>
+                </div>
+              )}
             </div>
           </div>
         </div>

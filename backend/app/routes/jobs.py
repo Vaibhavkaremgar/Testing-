@@ -50,6 +50,7 @@ def get_jobs(
             "requirements": job.requirements,
             "responsibilities": job.responsibilities,
             "skills": job.skills,
+            "interview_questions": job.interview_questions,
             "is_active": job.is_active,
             "created_at": job.created_at,
             "candidate_count": candidate_count
@@ -87,6 +88,7 @@ def get_job(
         "requirements": job.requirements,
         "responsibilities": job.responsibilities,
         "skills": job.skills,
+        "interview_questions": job.interview_questions,
         "is_active": job.is_active,
         "created_at": job.created_at,
         "candidate_count": candidate_count
@@ -137,6 +139,7 @@ def create_job(
         "requirements": db_job.requirements,
         "responsibilities": db_job.responsibilities,
         "skills": db_job.skills,
+        "interview_questions": db_job.interview_questions,
         "is_active": db_job.is_active,
         "created_at": db_job.created_at,
         "candidate_count": 0
@@ -180,6 +183,7 @@ def update_job(
         "requirements": db_job.requirements,
         "responsibilities": db_job.responsibilities,
         "skills": db_job.skills,
+        "interview_questions": db_job.interview_questions,
         "is_active": db_job.is_active,
         "created_at": db_job.created_at,
         "candidate_count": candidate_count
