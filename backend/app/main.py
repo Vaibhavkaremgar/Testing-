@@ -34,8 +34,12 @@ def run_migrations():
                 print("⚠️  CRITICAL: Database schema is outdated!")
                 print("🗑️  Deleting old database to recreate with correct schema...")
                 conn.close()
-                os.remove(db_path)
-                print("✅ Old database deleted. Will create fresh database.")
+                try:
+                    os.remove(db_path)
+                    print("✅ Old database deleted. Will create fresh database.")
+                except Exception as del_error:
+                    print(f"❌ Could not delete database: {del_error}")
+                    print("⚠️  Please manually delete talentai.db file on Railway")
                 return
         
         # Check if candidates table exists
@@ -185,7 +189,7 @@ async def startup_event():
         import traceback
         traceback.print_exc()
     
-    seed_database()
+    # seed_database()  # Temporarily disabled until database schema is fixed
 
 @app.get("/api/health")
 def health_check():
