@@ -111,12 +111,6 @@ class CandidateResponse(CandidateBase):
     job_title: Optional[str] = None
     summary: Optional[str] = None
     predefined_questions: Optional[str] = None
-    interview_video_url: Optional[str] = None
-    interview_transcript: Optional[str] = None
-    interview_ai_summary: Optional[str] = None
-    interview_technical_score: Optional[float] = None
-    interview_communication_score: Optional[float] = None
-    interview_culture_fit_score: Optional[float] = None
     created_at: datetime
     
     class Config:

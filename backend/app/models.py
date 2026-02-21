@@ -101,16 +101,8 @@ class Candidate(Base):
     
     # Google Sheets sync
     synced_to_sheets = Column(Boolean, default=False)
-    summary = Column(Text, nullable=True)  # Summary from Google Sheets
-    predefined_questions = Column(Text, nullable=True)  # AI-generated interview questions
-    
-    # Interview data (for candidates in INTERVIEWED, SELECTED, REJECTED stages)
-    interview_video_url = Column(String(500))  # Recorded interview video URL
-    interview_transcript = Column(Text)  # Interview transcript
-    interview_ai_summary = Column(Text)  # AI-generated interview summary
-    interview_technical_score = Column(Float)  # Technical skills score
-    interview_communication_score = Column(Float)  # Communication score
-    interview_culture_fit_score = Column(Float)  # Culture fit score
+    summary = Column(Text, nullable=True)
+    predefined_questions = Column(Text, nullable=True)
     
     # Relationships
     job_id = Column(Integer, ForeignKey("job_descriptions.id"))
