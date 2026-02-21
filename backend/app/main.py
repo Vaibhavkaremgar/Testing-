@@ -12,10 +12,20 @@ from app.seed import seed_database
 # Run migrations BEFORE creating tables
 def run_migrations():
     """Add missing columns to Railway database"""
-    db_path = "talentai.db"
+    # Check both local and Railway database paths
+    db_paths = ["talentai.db", "/data/app.db"]
+    db_path = None
     
-    if not os.path.exists(db_path):
+    for path in db_paths:
+        if os.path.exists(path):
+            db_path = path
+            break
+    
+    if not db_path:
+        print("⚠️ No database found, will create new one")
         return
+    
+    print(f"🔧 Running migrations on {db_path}...")
     
     try:
         conn = sqlite3.connect(db_path)
@@ -36,14 +46,19 @@ def run_migrations():
         
         for col_name, col_type in missing_cols:
             if col_name not in columns:
-                cursor.execute(f"ALTER TABLE candidates ADD COLUMN {col_name} {col_type}")
-                print(f"✅ Added {col_name} column")
+                try:
+                    cursor.execute(f"ALTER TABLE candidates ADD COLUMN {col_name} {col_type}")
+                    print(f"✅ Added {col_name} column")
+                except Exception as e:
+                    print(f"⚠️ Could not add {col_name}: {e}")
         
         conn.commit()
         conn.close()
         print("✅ Migration complete")
     except Exception as e:
-        print(f"⚠️ Migration error: {e}")
+        print(f"❌ Migration error: {e}")
+        import traceback
+        traceback.print_exc()
 
 run_migrations()
 

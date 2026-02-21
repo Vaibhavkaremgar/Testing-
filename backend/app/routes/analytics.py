@@ -22,63 +22,85 @@ def get_dashboard_stats(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    query = db.query(Candidate)
-    
-    # Apply date filter if provided (specific date)
-    if date:
-        query = query.filter(func.date(Candidate.created_at) == date)
-    # Apply month filter if provided
-    elif month:
-        year, month_num = map(int, month.split('-'))
-        query = query.filter(
-            extract('year', Candidate.created_at) == year,
-            extract('month', Candidate.created_at) == month_num
+    try:
+        query = db.query(Candidate)
+        
+        # Apply date filter if provided (specific date)
+        if date:
+            query = query.filter(func.date(Candidate.created_at) == date)
+        # Apply month filter if provided
+        elif month:
+            year, month_num = map(int, month.split('-'))
+            query = query.filter(
+                extract('year', Candidate.created_at) == year,
+                extract('month', Candidate.created_at) == month_num
+            )
+        
+        # Count all candidates EXCLUDING APPLIED stage
+        all_candidates = query.all()
+        # Filter out APPLIED stage candidates
+        active_candidates = [c for c in all_candidates if c.stage != CandidateStage.APPLIED]
+        total = len(active_candidates)
+        
+        shortlisted = sum(1 for c in active_candidates if c.stage == CandidateStage.SHORTLISTED)
+        resume_rejected = sum(1 for c in active_candidates if c.stage == CandidateStage.RESUME_REJECTED)
+        rejected = sum(1 for c in active_candidates if c.stage == CandidateStage.REJECTED)
+        interview_scheduled = sum(1 for c in active_candidates if c.stage in [CandidateStage.INTERVIEW_SCHEDULED, CandidateStage.INTERVIEW_RESCHEDULED, CandidateStage.INTERVIEWED])
+        selected = sum(1 for c in active_candidates if c.stage == CandidateStage.SELECTED)
+        
+        print(f"📊 Dashboard Stats: total={total}, shortlisted={shortlisted}, resume_rejected={resume_rejected}, rejected={rejected}, interviews={interview_scheduled}, selected={selected}")
+        print(f"   Sum check: {shortlisted + resume_rejected + rejected + interview_scheduled + selected} (should equal total)")
+        
+        candidate_ids = [c.id for c in active_candidates]
+        avg_resume = db.query(func.avg(Candidate.resume_score)).filter(
+            Candidate.id.in_(candidate_ids) if candidate_ids else False
+        ).scalar() or 0
+        
+        # Calculate avg interview score from candidates in SELECTED/REJECTED stages
+        interviewed_candidates = [c for c in active_candidates if c.stage in [CandidateStage.SELECTED, CandidateStage.REJECTED]]
+        if interviewed_candidates:
+            total_score = 0
+            count = 0
+            for c in interviewed_candidates:
+                try:
+                    tech = getattr(c, 'interview_technical_score', None)
+                    comm = getattr(c, 'interview_communication_score', None)
+                    cult = getattr(c, 'interview_culture_fit_score', None)
+                    if tech and comm and cult:
+                        avg = (tech + comm + cult) / 3
+                        total_score += avg
+                        count += 1
+                except AttributeError:
+                    continue
+            avg_interview = total_score / count if count > 0 else 0
+        else:
+            avg_interview = 0
+        
+        return DashboardStats(
+            total_candidates=total,
+            shortlisted=shortlisted,
+            resume_rejected=resume_rejected,
+            rejected=rejected,
+            interviews_scheduled=interview_scheduled,
+            selected=selected,
+            avg_resume_score=round(avg_resume, 1),
+            avg_interview_score=round(avg_interview, 1)
         )
-    
-    # Count all candidates EXCLUDING APPLIED stage
-    all_candidates = query.all()
-    # Filter out APPLIED stage candidates
-    active_candidates = [c for c in all_candidates if c.stage != CandidateStage.APPLIED]
-    total = len(active_candidates)
-    
-    shortlisted = sum(1 for c in active_candidates if c.stage == CandidateStage.SHORTLISTED)
-    resume_rejected = sum(1 for c in active_candidates if c.stage == CandidateStage.RESUME_REJECTED)
-    rejected = sum(1 for c in active_candidates if c.stage == CandidateStage.REJECTED)
-    interview_scheduled = sum(1 for c in active_candidates if c.stage in [CandidateStage.INTERVIEW_SCHEDULED, CandidateStage.INTERVIEW_RESCHEDULED, CandidateStage.INTERVIEWED])
-    selected = sum(1 for c in active_candidates if c.stage == CandidateStage.SELECTED)
-    
-    print(f"📊 Dashboard Stats: total={total}, shortlisted={shortlisted}, resume_rejected={resume_rejected}, rejected={rejected}, interviews={interview_scheduled}, selected={selected}")
-    print(f"   Sum check: {shortlisted + resume_rejected + rejected + interview_scheduled + selected} (should equal total)")
-    
-    candidate_ids = [c.id for c in active_candidates]
-    avg_resume = db.query(func.avg(Candidate.resume_score)).filter(
-        Candidate.id.in_(candidate_ids) if candidate_ids else False
-    ).scalar() or 0
-    
-    # Calculate avg interview score from candidates in SELECTED/REJECTED stages
-    interviewed_candidates = [c for c in active_candidates if c.stage in [CandidateStage.SELECTED, CandidateStage.REJECTED]]
-    if interviewed_candidates:
-        total_score = 0
-        count = 0
-        for c in interviewed_candidates:
-            if c.interview_technical_score and c.interview_communication_score and c.interview_culture_fit_score:
-                avg = (c.interview_technical_score + c.interview_communication_score + c.interview_culture_fit_score) / 3
-                total_score += avg
-                count += 1
-        avg_interview = total_score / count if count > 0 else 0
-    else:
-        avg_interview = 0
-    
-    return DashboardStats(
-        total_candidates=total,
-        shortlisted=shortlisted,
-        resume_rejected=resume_rejected,
-        rejected=rejected,
-        interviews_scheduled=interview_scheduled,
-        selected=selected,
-        avg_resume_score=round(avg_resume, 1),
-        avg_interview_score=round(avg_interview, 1)
-    )
+    except Exception as e:
+        print(f"❌ Dashboard stats error: {e}")
+        import traceback
+        traceback.print_exc()
+        # Return default values on error
+        return DashboardStats(
+            total_candidates=0,
+            shortlisted=0,
+            resume_rejected=0,
+            rejected=0,
+            interviews_scheduled=0,
+            selected=0,
+            avg_resume_score=0.0,
+            avg_interview_score=0.0
+        )
 
 @router.get("/pipeline-stats", response_model=List[PipelineStats])
 def get_pipeline_stats(
