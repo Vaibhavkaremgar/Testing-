@@ -1839,32 +1839,3 @@ def get_pipeline_stages(
 
 
 
-
-@router.post("/migrate-rejected-stages")
-def migrate_rejected_stages(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
-):
-    """Migrate old REJECTED candidates to RESUME_REJECTED if they have low scores"""
-    try:
-        # Find all REJECTED candidates with scores below 60
-        rejected_candidates = db.query(Candidate).filter(
-            Candidate.stage == CandidateStage.REJECTED,
-            Candidate.resume_score < 60
-        ).all()
-        
-        migrated_count = 0
-        for candidate in rejected_candidates:
-            candidate.stage = CandidateStage.RESUME_REJECTED
-            migrated_count += 1
-        
-        db.commit()
-        
-        return {
-            "success": True,
-            "migrated_count": migrated_count,
-            "message": f"Successfully migrated {migrated_count} candidates from REJECTED to RESUME_REJECTED"
-        }
-    except Exception as e:
-        db.rollback()
-        raise HTTPException(status_code=500, detail=f"Migration failed: {str(e)}")
