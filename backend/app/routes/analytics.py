@@ -508,3 +508,245 @@ def get_upcoming_interviews(
         })
     
     return result
+
+@router.get("/dashboard-stats-with-trends")
+def get_dashboard_stats_with_trends(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Enhanced dashboard stats with week-over-week % changes"""
+    from datetime import datetime, timedelta
+    
+    today = datetime.now()
+    week_ago = today - timedelta(days=7)
+    two_weeks_ago = today - timedelta(days=14)
+    
+    # Current week stats
+    current_total = db.query(func.count(Candidate.id)).filter(
+        Candidate.created_at >= week_ago,
+        Candidate.stage != CandidateStage.APPLIED
+    ).scalar() or 0
+    
+    current_shortlisted = db.query(func.count(Candidate.id)).filter(
+        Candidate.created_at >= week_ago,
+        Candidate.stage == CandidateStage.SHORTLISTED
+    ).scalar() or 0
+    
+    current_interviews = db.query(func.count(Candidate.id)).filter(
+        Candidate.created_at >= week_ago,
+        Candidate.stage.in_([CandidateStage.INTERVIEW_SCHEDULED, CandidateStage.INTERVIEWED])
+    ).scalar() or 0
+    
+    current_selected = db.query(func.count(Candidate.id)).filter(
+        Candidate.created_at >= week_ago,
+        Candidate.stage == CandidateStage.SELECTED
+    ).scalar() or 0
+    
+    # Previous week stats
+    prev_total = db.query(func.count(Candidate.id)).filter(
+        Candidate.created_at >= two_weeks_ago,
+        Candidate.created_at < week_ago,
+        Candidate.stage != CandidateStage.APPLIED
+    ).scalar() or 1
+    
+    prev_shortlisted = db.query(func.count(Candidate.id)).filter(
+        Candidate.created_at >= two_weeks_ago,
+        Candidate.created_at < week_ago,
+        Candidate.stage == CandidateStage.SHORTLISTED
+    ).scalar() or 1
+    
+    prev_interviews = db.query(func.count(Candidate.id)).filter(
+        Candidate.created_at >= two_weeks_ago,
+        Candidate.created_at < week_ago,
+        Candidate.stage.in_([CandidateStage.INTERVIEW_SCHEDULED, CandidateStage.INTERVIEWED])
+    ).scalar() or 1
+    
+    prev_selected = db.query(func.count(Candidate.id)).filter(
+        Candidate.created_at >= two_weeks_ago,
+        Candidate.created_at < week_ago,
+        Candidate.stage == CandidateStage.SELECTED
+    ).scalar() or 1
+    
+    # Calculate % changes
+    def calc_change(current, previous):
+        if previous == 0:
+            return 100.0 if current > 0 else 0.0
+        return round(((current - previous) / previous) * 100, 1)
+    
+    # New KPIs
+    interviewed_count = db.query(func.count(Candidate.id)).filter(
+        Candidate.stage == CandidateStage.INTERVIEWED
+    ).scalar() or 1
+    
+    offers_made = db.query(func.count(Candidate.id)).filter(
+        Candidate.stage == CandidateStage.SELECTED
+    ).scalar() or 0
+    
+    interview_to_offer_rate = round((offers_made / interviewed_count) * 100, 1) if interviewed_count > 0 else 0
+    
+    selected_candidates = db.query(Candidate).filter(
+        Candidate.stage == CandidateStage.SELECTED
+    ).all()
+    
+    avg_selected_score = round(
+        sum(c.resume_score for c in selected_candidates if c.resume_score) / len(selected_candidates), 1
+    ) if selected_candidates else 0
+    
+    # Offer acceptance (mock for now - needs offer_status field)
+    offer_acceptance_rate = 85.0  # Mock value
+    
+    return {
+        "total_candidates": {
+            "value": current_total,
+            "change": calc_change(current_total, prev_total)
+        },
+        "shortlisted": {
+            "value": current_shortlisted,
+            "change": calc_change(current_shortlisted, prev_shortlisted)
+        },
+        "interviews": {
+            "value": current_interviews,
+            "change": calc_change(current_interviews, prev_interviews)
+        },
+        "selected": {
+            "value": current_selected,
+            "change": calc_change(current_selected, prev_selected)
+        },
+        "interview_to_offer_rate": {
+            "value": interview_to_offer_rate,
+            "change": 5.2  # Mock
+        },
+        "avg_selected_score": {
+            "value": avg_selected_score,
+            "change": 3.1  # Mock
+        },
+        "offer_acceptance_rate": {
+            "value": offer_acceptance_rate,
+            "change": -2.3  # Mock
+        }
+    }
+
+@router.get("/stale-candidates")
+def get_stale_candidates(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Get candidates stuck in same stage > 7 days"""
+    from datetime import datetime, timedelta
+    
+    seven_days_ago = datetime.now() - timedelta(days=7)
+    
+    stale = db.query(Candidate).filter(
+        Candidate.stage_updated_at < seven_days_ago,
+        Candidate.stage.in_([
+            CandidateStage.SHORTLISTED,
+            CandidateStage.INTERVIEW_SCHEDULED,
+            CandidateStage.INTERVIEWED
+        ])
+    ).order_by(Candidate.stage_updated_at).limit(10).all()
+    
+    result = []
+    for candidate in stale:
+        days_stuck = (datetime.now() - candidate.stage_updated_at).days if candidate.stage_updated_at else 0
+        result.append({
+            "id": candidate.id,
+            "name": candidate.name,
+            "stage": candidate.stage.value,
+            "days_in_stage": days_stuck,
+            "job_title": candidate.job.title if candidate.job else None
+        })
+    
+    return result
+
+@router.get("/top-skill-gaps")
+def get_top_skill_gaps(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Top 5 skills missing from rejected candidates"""
+    from app.models import JobDescription
+    
+    # Get rejected candidates with job requirements
+    rejected = db.query(Candidate).filter(
+        Candidate.stage.in_([CandidateStage.REJECTED, CandidateStage.RESUME_REJECTED]),
+        Candidate.job_id.isnot(None)
+    ).all()
+    
+    skill_gaps = Counter()
+    
+    for candidate in rejected:
+        if candidate.job and candidate.job.skills:
+            candidate_skills = set(s.lower() for s in (candidate.skills or []))
+            required_skills = set(s.lower() for s in candidate.job.skills)
+            missing = required_skills - candidate_skills
+            skill_gaps.update(missing)
+    
+    top_gaps = skill_gaps.most_common(5)
+    return [{"skill": skill, "gap_count": count} for skill, count in top_gaps]
+
+@router.get("/slowest-roles")
+def get_slowest_roles(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Roles taking longest to close (avg days from posting to hire)"""
+    from app.models import JobDescription
+    from datetime import datetime
+    
+    jobs = db.query(JobDescription).filter(JobDescription.is_active == True).all()
+    
+    role_times = []
+    for job in jobs:
+        selected = db.query(Candidate).filter(
+            Candidate.job_id == job.id,
+            Candidate.stage == CandidateStage.SELECTED
+        ).all()
+        
+        if selected:
+            avg_days = sum(
+                (c.stage_updated_at - c.created_at).days 
+                for c in selected if c.stage_updated_at
+            ) / len(selected)
+        else:
+            # For open roles, calculate days since posting
+            avg_days = (datetime.now() - job.created_at).days if hasattr(job, 'created_at') else 30
+        
+        role_times.append({
+            "role": job.title,
+            "department": job.department,
+            "avg_days_to_close": round(avg_days, 1)
+        })
+    
+    role_times.sort(key=lambda x: x["avg_days_to_close"], reverse=True)
+    return role_times[:5]
+
+@router.get("/hire-quality-trend")
+def get_hire_quality_trend(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Trend of average scores of selected candidates over time"""
+    from datetime import datetime, timedelta
+    
+    months = []
+    for i in range(6, 0, -1):
+        month_start = datetime.now() - timedelta(days=30*i)
+        month_end = datetime.now() - timedelta(days=30*(i-1))
+        
+        selected = db.query(Candidate).filter(
+            Candidate.stage == CandidateStage.SELECTED,
+            Candidate.created_at >= month_start,
+            Candidate.created_at < month_end
+        ).all()
+        
+        avg_score = round(
+            sum(c.resume_score for c in selected if c.resume_score) / len(selected), 1
+        ) if selected else 0
+        
+        months.append({
+            "month": month_start.strftime("%b"),
+            "avg_score": avg_score,
+            "hires": len(selected)
+        })
+    
+    return months
