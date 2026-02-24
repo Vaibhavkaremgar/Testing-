@@ -107,6 +107,8 @@ class CandidateResponse(CandidateBase):
     work_experience: Optional[List[Any]] = None
     stage: CandidateStage
     stage_updated_at: datetime
+    stage_entered_at: Optional[datetime] = None
+    applied_at: Optional[datetime] = None
     job_id: Optional[int] = None
     job_title: Optional[str] = None
     summary: Optional[str] = None

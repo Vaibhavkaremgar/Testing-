@@ -93,6 +93,8 @@ class Candidate(Base):
     # Pipeline
     stage = Column(Enum(CandidateStage), default=CandidateStage.APPLIED)
     stage_updated_at = Column(DateTime(timezone=True), server_default=func.now())
+    stage_entered_at = Column(DateTime(timezone=True), server_default=func.now())
+    applied_at = Column(DateTime(timezone=True), server_default=func.now())
     
     # Source and decline tracking
     source = Column(String(100))  # LinkedIn, Referral, Job Board, Career Site, etc.
