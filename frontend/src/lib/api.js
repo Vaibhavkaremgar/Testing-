@@ -389,6 +389,10 @@ class ApiClient {
     return this.request('/analytics/hiring-metrics')
   }
 
+  async getHiringIntelligence() {
+    return this.request('/analytics/hiring-intelligence')
+  }
+
   async getActiveJobs() {
     return this.request('/analytics/active-jobs')
   }
