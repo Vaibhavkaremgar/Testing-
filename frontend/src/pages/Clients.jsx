@@ -57,12 +57,58 @@ export default function Clients() {
 
   const fetchData = async () => {
     try {
-      const [clientsData, statsData] = await Promise.all([
-        api.getClients(),
-        api.getClientStats()
-      ])
-      setClients(clientsData)
+      // Get stats from backend
+      const statsData = await api.getClientStats()
       setStats(statsData)
+      
+      // Get unique clients from jobs
+      const jobs = await api.getJobs()
+      const clientMap = new Map()
+      
+      jobs.forEach(job => {
+        const companyName = job.company_name
+        if (!companyName) return
+        
+        if (!clientMap.has(companyName)) {
+          clientMap.set(companyName, {
+            id: companyName,
+            name: companyName,
+            industry: job.department || 'N/A',
+            total_positions: 0,
+            positions_filled: 0,
+            positions_open: 0,
+            is_active: job.is_active,
+            acceptance_rate: 0,
+            avg_time_to_hire: 0
+          })
+        }
+        
+        const client = clientMap.get(companyName)
+        if (job.is_active) {
+          client.total_positions += job.vacancies || 0
+        }
+      })
+      
+      // Get candidates to calculate filled positions
+      const candidates = await api.getCandidates()
+      candidates.forEach(candidate => {
+        if (candidate.stage === 'SELECTED' && candidate.job_id) {
+          const job = jobs.find(j => j.id === candidate.job_id)
+          if (job && job.company_name) {
+            const client = clientMap.get(job.company_name)
+            if (client) {
+              client.positions_filled++
+            }
+          }
+        }
+      })
+      
+      // Calculate open positions
+      clientMap.forEach(client => {
+        client.positions_open = client.total_positions - client.positions_filled
+      })
+      
+      setClients(Array.from(clientMap.values()))
     } catch (error) {
       console.error('Failed to fetch data:', error)
     } finally {
@@ -106,14 +152,7 @@ export default function Clients() {
   }
 
   const handleDelete = async (id) => {
-    if (confirm('Are you sure you want to delete this client?')) {
-      try {
-        await api.deleteClient(id)
-        await fetchData()
-      } catch (error) {
-        console.error('Failed to delete client:', error)
-      }
-    }
+    alert('Cannot delete clients. Clients are derived from Jobs. Delete the jobs instead.')
   }
 
   const getHiringStatus = (client) => {
@@ -145,83 +184,11 @@ export default function Clients() {
         </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
-            <Button onClick={() => { setEditingClient(null); setFormData({ name: '', industry: '', contact_person: '', contact_email: '', contact_phone: '', total_positions: 0, positions_filled: 0, positions_open: 0 }) }}>
+            <Button onClick={() => alert('To add a client, create a job with a company name in the Jobs tab')}>
               <Plus className="h-4 w-4 mr-2" />
               Add Client
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>{editingClient ? 'Edit Client' : 'Add New Client'}</DialogTitle>
-            </DialogHeader>
-            <form onSubmit={handleSubmit} className="space-y-4 mt-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Client Name *</label>
-                  <Input value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} required />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Industry</label>
-                  <Input value={formData.industry} onChange={(e) => setFormData({ ...formData, industry: e.target.value })} />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Contact Person</label>
-                  <Input value={formData.contact_person} onChange={(e) => setFormData({ ...formData, contact_person: e.target.value })} />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Contact Email</label>
-                  <Input type="email" value={formData.contact_email} onChange={(e) => setFormData({ ...formData, contact_email: e.target.value })} />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Contact Phone</label>
-                  <Input value={formData.contact_phone} onChange={(e) => setFormData({ ...formData, contact_phone: e.target.value })} />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Total Positions</label>
-                  <Input 
-                    type="number" 
-                    value={formData.total_positions} 
-                    onChange={(e) => setFormData({ ...formData, total_positions: parseInt(e.target.value) || 0 })} 
-                    disabled={editingClient !== null}
-                    className={editingClient ? "bg-muted cursor-not-allowed" : ""}
-                  />
-                  {editingClient && (
-                    <p className="text-xs text-muted-foreground">Auto-calculated from jobs</p>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Positions Filled</label>
-                  <Input 
-                    type="number" 
-                    value={formData.positions_filled} 
-                    onChange={(e) => setFormData({ ...formData, positions_filled: parseInt(e.target.value) || 0 })} 
-                    disabled={editingClient !== null}
-                    className={editingClient ? "bg-muted cursor-not-allowed" : ""}
-                  />
-                  {editingClient && (
-                    <p className="text-xs text-muted-foreground">Auto-calculated from jobs</p>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Positions Open</label>
-                  <Input 
-                    type="number" 
-                    value={formData.positions_open} 
-                    onChange={(e) => setFormData({ ...formData, positions_open: parseInt(e.target.value) || 0 })} 
-                    disabled={editingClient !== null}
-                    className={editingClient ? "bg-muted cursor-not-allowed" : ""}
-                  />
-                  {editingClient && (
-                    <p className="text-xs text-muted-foreground">Auto-calculated from jobs</p>
-                  )}
-                </div>
-              </div>
-              <div className="flex justify-end gap-2">
-                <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-                <Button type="submit">{editingClient ? 'Update' : 'Create'} Client</Button>
-              </div>
-            </form>
-          </DialogContent>
         </Dialog>
       </div>
 
