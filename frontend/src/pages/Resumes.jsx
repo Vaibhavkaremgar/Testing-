@@ -8,8 +8,16 @@ import { Progress } from '@/components/ui/progress'
 import { api } from '@/lib/api'
 import { cn, formatDate, getScoreColor, getStageColor, formatStage } from '@/lib/utils'
 import {
-  Upload, FileText, Search, Filter, MoreHorizontal, Edit, CheckCircle, Clock, AlertCircle, Trash2, Sheet, Eye
+  Upload, FileText, Search, Filter, MoreHorizontal, Edit, CheckCircle, Clock, AlertCircle, Trash2, Sheet, Eye, X
 } from 'lucide-react'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuCheckboxItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 
 export default function Resumes() {
   const [searchParams] = useSearchParams()
@@ -22,6 +30,9 @@ export default function Resumes() {
   const [search, setSearch] = useState('')
   const [selectedJobForUpload, setSelectedJobForUpload] = useState('')
   const [selectedJobForFilter, setSelectedJobForFilter] = useState('')
+  const [jobFilter, setJobFilter] = useState([])
+  const [scoreFilter, setScoreFilter] = useState([])
+  const [statusFilter, setStatusFilter] = useState([])
   const [uploadType, setUploadType] = useState('single')
   const [error, setError] = useState('')
   const [selectedFiles, setSelectedFiles] = useState([])
@@ -69,16 +80,37 @@ export default function Resumes() {
 
   const fetchCandidates = useCallback(async () => {
     try {
-      const jobId = selectedJobForFilter ? parseInt(selectedJobForFilter) : undefined
-      const data = await api.getCandidates({ search, job_id: jobId, client: selectedClient })
-      // Filter out APPLIED candidates
-      const filteredData = (data || []).filter(c => c.stage !== 'APPLIED')
+      const data = await api.getCandidates({ search, client: selectedClient })
+      let filteredData = (data || []).filter(c => c.stage !== 'APPLIED')
+      
+      if (jobFilter.length > 0) {
+        filteredData = filteredData.filter(c => jobFilter.includes(c.job_id?.toString()))
+      }
+      
+      if (scoreFilter.length > 0) {
+        filteredData = filteredData.filter(c => {
+          const score = c.resume_score || 0
+          return scoreFilter.some(range => {
+            if (range === '0-20') return score >= 0 && score <= 20
+            if (range === '21-40') return score >= 21 && score <= 40
+            if (range === '41-60') return score >= 41 && score <= 60
+            if (range === '61-80') return score >= 61 && score <= 80
+            if (range === '81-100') return score >= 81 && score <= 100
+            return false
+          })
+        })
+      }
+      
+      if (statusFilter.length > 0) {
+        filteredData = filteredData.filter(c => statusFilter.includes(c.stage))
+      }
+      
       setCandidates(filteredData)
     } catch (error) {
       console.error('Failed to fetch candidates:', error)
       setCandidates([])
     }
-  }, [search, selectedJobForFilter, selectedClient])
+  }, [search, selectedClient, jobFilter, scoreFilter, statusFilter])
 
   useEffect(() => {
     const fetchData = async () => {
@@ -111,7 +143,7 @@ export default function Resumes() {
   useEffect(() => {
     const debounce = setTimeout(fetchCandidates, 300)
     return () => clearTimeout(debounce)
-  }, [search, selectedJobForFilter, fetchCandidates])
+  }, [search, fetchCandidates])
 
   const handleDrag = (e) => {
     e.preventDefault()
@@ -552,18 +584,78 @@ export default function Resumes() {
             className="pl-10"
           />
         </div>
-        <select
-          className="flex h-10 rounded-lg border border-input bg-background px-3 py-2 text-sm"
-          value={selectedJobForFilter}
-          onChange={(e) => setSelectedJobForFilter(e.target.value)}
-        >
-          <option value="">All Jobs</option>
-          {allJobs.map((job) => (
-            <option key={job.id} value={job.id}>
-              {job.company_name ? `${job.company_name} - ${job.title}` : job.title}
-            </option>
-          ))}
-        </select>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="icon">
+              <Filter className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuLabel>Filter by Job</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {allJobs.map((job) => (
+              <DropdownMenuCheckboxItem
+                key={job.id}
+                checked={jobFilter.includes(job.id.toString())}
+                onCheckedChange={(checked) => {
+                  setJobFilter(prev => 
+                    checked ? [...prev, job.id.toString()] : prev.filter(id => id !== job.id.toString())
+                  )
+                }}
+              >
+                {job.company_name ? `${job.company_name} - ${job.title}` : job.title}
+              </DropdownMenuCheckboxItem>
+            ))}
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel>Filter by Score</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {['0-20', '21-40', '41-60', '61-80', '81-100'].map((range) => (
+              <DropdownMenuCheckboxItem
+                key={range}
+                checked={scoreFilter.includes(range)}
+                onCheckedChange={(checked) => {
+                  setScoreFilter(prev => 
+                    checked ? [...prev, range] : prev.filter(r => r !== range)
+                  )
+                }}
+              >
+                {range}
+              </DropdownMenuCheckboxItem>
+            ))}
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel>Filter by Status</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuCheckboxItem
+              checked={statusFilter.includes('SHORTLISTED')}
+              onCheckedChange={(checked) => {
+                setStatusFilter(prev => 
+                  checked ? [...prev, 'SHORTLISTED'] : prev.filter(s => s !== 'SHORTLISTED')
+                )
+              }}
+            >
+              Shortlisted
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem
+              checked={statusFilter.includes('RESUME_REJECTED')}
+              onCheckedChange={(checked) => {
+                setStatusFilter(prev => 
+                  checked ? [...prev, 'RESUME_REJECTED'] : prev.filter(s => s !== 'RESUME_REJECTED')
+                )
+              }}
+            >
+              Rejected
+            </DropdownMenuCheckboxItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        {(jobFilter.length > 0 || scoreFilter.length > 0 || statusFilter.length > 0) && (
+          <Button variant="ghost" size="icon" onClick={() => {
+            setJobFilter([])
+            setScoreFilter([])
+            setStatusFilter([])
+          }}>
+            <X className="h-4 w-4" />
+          </Button>
+        )}
         <Button 
           onClick={handleSyncToSheets} 
           disabled={syncing || candidates.length === 0}
