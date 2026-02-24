@@ -540,3 +540,87 @@ def get_upcoming_interviews(
         })
     
     return result
+
+@router.get("/hiring-metrics")
+def get_hiring_metrics(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    from app.models import JobDescription
+    from datetime import datetime, timedelta
+    import random
+    
+    # Mock data for demonstration
+    return {
+        "all": {
+            "time_to_hire": 18,
+            "time_to_fill": 25,
+            "offer_acceptance_rate": 75,
+            "withdrawal_rate": 12,
+            "cost_per_hire": 3500,
+            "hire_conversion": 8.5,
+            "vacancy_fill_rate": 82,
+            "weekly_change": {
+                "time_to_hire": -2.5,
+                "time_to_fill": -3.1,
+                "offer_acceptance_rate": 5.2,
+                "withdrawal_rate": -1.8,
+                "cost_per_hire": -8.3,
+                "hire_conversion": 2.1,
+                "vacancy_fill_rate": 4.5
+            }
+        },
+        "technical": {
+            "days_to_hire": 22,
+            "days_to_fill": 30,
+            "acceptance_rate": 70,
+            "withdrawal_rate": 15
+        },
+        "non_technical": {
+            "days_to_hire": 14,
+            "days_to_fill": 20,
+            "acceptance_rate": 80,
+            "withdrawal_rate": 8
+        },
+        "pipeline": [
+            {
+                "role": "Senior Backend Engineer",
+                "department": "technical",
+                "leads": 150,
+                "applicants": 85,
+                "first_interview": 25,
+                "second_interview": 12,
+                "final_interview": 6,
+                "offers": 3
+            },
+            {
+                "role": "Frontend Developer",
+                "department": "technical",
+                "leads": 120,
+                "applicants": 70,
+                "first_interview": 22,
+                "second_interview": 10,
+                "final_interview": 5,
+                "offers": 2
+            },
+            {
+                "role": "HR Manager",
+                "department": "non_technical",
+                "leads": 80,
+                "applicants": 45,
+                "first_interview": 18,
+                "second_interview": 8,
+                "final_interview": 4,
+                "offers": 2
+            }
+        ],
+        "offer_stats": {
+            "offers_accepted": 45,
+            "offers_provided": 60,
+            "rejected_candidates": 320,
+            "total_candidates": 500,
+            "hired": 45,
+            "shortlisted": 120,
+            "vacancies": 55
+        }
+    }

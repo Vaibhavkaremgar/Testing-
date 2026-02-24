@@ -385,6 +385,10 @@ class ApiClient {
     return this.request('/analytics/offer-acceptance-rate')
   }
 
+  async getHiringMetrics() {
+    return this.request('/analytics/hiring-metrics')
+  }
+
   async getActiveJobs() {
     return this.request('/analytics/active-jobs')
   }

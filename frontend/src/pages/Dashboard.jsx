@@ -6,8 +6,12 @@ import { Input } from '@/components/ui/input'
 import { api } from '@/lib/api'
 import { cn, getScoreColor, formatDate } from '@/lib/utils'
 import { useSearchParams } from 'react-router-dom'
+import MetricCard from '@/components/analytics/MetricCard'
+import ComparisonPanel from '@/components/analytics/ComparisonPanel'
+import PipelineTable from '@/components/analytics/PipelineTable'
+import OfferStatsCard from '@/components/analytics/OfferStatsCard'
 import {
-  Users, UserCheck, UserX, Calendar, Award, TrendingUp, FileText, X, CalendarIcon, Briefcase, Clock, CheckCircle
+  Users, UserCheck, UserX, Calendar, Award, TrendingUp, FileText, X, CalendarIcon, Briefcase, Clock, CheckCircle, DollarSign, Target, TrendingDown
 } from 'lucide-react'
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -39,6 +43,8 @@ export default function Dashboard() {
   const [selectedCard, setSelectedCard] = useState(null)
   const [cardCandidates, setCardCandidates] = useState([])
   const [cardLoading, setCardLoading] = useState(false)
+  const [hiringMetrics, setHiringMetrics] = useState(null)
+  const [departmentFilter, setDepartmentFilter] = useState('all')
 
   // Force close modal on mount and prevent any stuck state
   useEffect(() => {
@@ -59,13 +65,14 @@ export default function Dashboard() {
         } else if (selectedMonth !== 'all') {
           params.month = selectedMonth
         }
-        const [statsData, funnelData, resumeData, interviewData, jobs, interviews] = await Promise.all([
+        const [statsData, funnelData, resumeData, interviewData, jobs, interviews, metrics] = await Promise.all([
           api.getDashboardStats(params).catch(e => { console.error('Stats error:', e); return null; }),
           api.getHiringFunnel(params).catch(e => { console.error('Funnel error:', e); return []; }),
           api.getResumeScoresTrend().catch(e => { console.error('Resume trend error:', e); return []; }),
           api.getInterviewScoresTrend().catch(e => { console.error('Interview trend error:', e); return []; }),
           api.getActiveJobs().catch(e => { console.error('Jobs error:', e); return []; }),
-          api.getUpcomingInterviews().catch(e => { console.error('Interviews error:', e); return []; })
+          api.getUpcomingInterviews().catch(e => { console.error('Interviews error:', e); return []; }),
+          api.getHiringMetrics().catch(e => { console.error('Metrics error:', e); return null; })
         ])
         console.log('📊 Dashboard Stats:', statsData)
         console.log('📈 Funnel Data:', funnelData)
@@ -75,6 +82,7 @@ export default function Dashboard() {
         setInterviewTrend(interviewData)
         setActiveJobs(jobs)
         setUpcomingInterviews(interviews)
+        setHiringMetrics(metrics)
       } catch (error) {
         console.error('Failed to fetch dashboard data:', error)
       } finally {
@@ -503,6 +511,148 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Advanced Hiring Analytics */}
+      {hiringMetrics && (
+        <>
+          {/* Department Filter */}
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium">Department:</span>
+            <div className="flex gap-2">
+              <Button 
+                variant={departmentFilter === 'all' ? 'default' : 'outline'} 
+                size="sm"
+                onClick={() => setDepartmentFilter('all')}
+              >
+                All
+              </Button>
+              <Button 
+                variant={departmentFilter === 'technical' ? 'default' : 'outline'} 
+                size="sm"
+                onClick={() => setDepartmentFilter('technical')}
+              >
+                Technical
+              </Button>
+              <Button 
+                variant={departmentFilter === 'non_technical' ? 'default' : 'outline'} 
+                size="sm"
+                onClick={() => setDepartmentFilter('non_technical')}
+              >
+                Non-Technical
+              </Button>
+            </div>
+          </div>
+
+          {/* Hiring Metrics Cards */}
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <MetricCard 
+              title="Time to Hire" 
+              value={hiringMetrics[departmentFilter]?.time_to_hire || 0} 
+              unit=" days"
+              change={hiringMetrics[departmentFilter]?.weekly_change?.time_to_hire}
+              isGood={false}
+              icon={Clock}
+            />
+            <MetricCard 
+              title="Time to Fill" 
+              value={hiringMetrics[departmentFilter]?.time_to_fill || 0} 
+              unit=" days"
+              change={hiringMetrics[departmentFilter]?.weekly_change?.time_to_fill}
+              isGood={false}
+              icon={Calendar}
+            />
+            <MetricCard 
+              title="Offer Acceptance" 
+              value={hiringMetrics[departmentFilter]?.offer_acceptance_rate || 0} 
+              unit="%"
+              change={hiringMetrics[departmentFilter]?.weekly_change?.offer_acceptance_rate}
+              isGood={true}
+              icon={CheckCircle}
+            />
+            <MetricCard 
+              title="Withdrawal Rate" 
+              value={hiringMetrics[departmentFilter]?.withdrawal_rate || 0} 
+              unit="%"
+              change={hiringMetrics[departmentFilter]?.weekly_change?.withdrawal_rate}
+              isGood={false}
+              icon={TrendingDown}
+            />
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-3">
+            <MetricCard 
+              title="Cost per Hire" 
+              value={hiringMetrics[departmentFilter]?.cost_per_hire || 0} 
+              unit=""
+              change={hiringMetrics[departmentFilter]?.weekly_change?.cost_per_hire}
+              isGood={false}
+              icon={DollarSign}
+            />
+            <MetricCard 
+              title="Hire Conversion" 
+              value={hiringMetrics[departmentFilter]?.hire_conversion || 0} 
+              unit="%"
+              change={hiringMetrics[departmentFilter]?.weekly_change?.hire_conversion}
+              isGood={true}
+              icon={Target}
+            />
+            <MetricCard 
+              title="Vacancy Fill Rate" 
+              value={hiringMetrics[departmentFilter]?.vacancy_fill_rate || 0} 
+              unit="%"
+              change={hiringMetrics[departmentFilter]?.weekly_change?.vacancy_fill_rate}
+              isGood={true}
+              icon={TrendingUp}
+            />
+          </div>
+
+          {/* Technical vs Non-Technical Comparison */}
+          {hiringMetrics.technical && hiringMetrics.non_technical && (
+            <ComparisonPanel 
+              technical={hiringMetrics.technical}
+              nonTechnical={hiringMetrics.non_technical}
+            />
+          )}
+
+          {/* Pipeline Table */}
+          {hiringMetrics.pipeline && hiringMetrics.pipeline.length > 0 && (
+            <PipelineTable data={hiringMetrics.pipeline} />
+          )}
+
+          {/* Offer & Hiring Stats */}
+          {hiringMetrics.offer_stats && (
+            <div>
+              <h3 className="text-lg font-semibold mb-4">Offer & Hiring Statistics</h3>
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                <OfferStatsCard 
+                  title="Offers Accepted vs Provided"
+                  numerator={hiringMetrics.offer_stats.offers_accepted}
+                  denominator={hiringMetrics.offer_stats.offers_provided}
+                  color="green"
+                />
+                <OfferStatsCard 
+                  title="Rejected vs Total Candidates"
+                  numerator={hiringMetrics.offer_stats.rejected_candidates}
+                  denominator={hiringMetrics.offer_stats.total_candidates}
+                  color="red"
+                />
+                <OfferStatsCard 
+                  title="Hired vs Shortlisted"
+                  numerator={hiringMetrics.offer_stats.hired}
+                  denominator={hiringMetrics.offer_stats.shortlisted}
+                  color="blue"
+                />
+                <OfferStatsCard 
+                  title="Hired vs Vacancies"
+                  numerator={hiringMetrics.offer_stats.hired}
+                  denominator={hiringMetrics.offer_stats.vacancies}
+                  color="yellow"
+                />
+              </div>
+            </div>
+          )}
+        </>
+      )}
 
       {/* Modal for Card Details */}
       {selectedCard && selectedCard.title && cardCandidates !== null && (
