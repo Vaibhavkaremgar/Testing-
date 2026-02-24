@@ -227,15 +227,8 @@ class ApiClient {
     })
   }
 
-  async getPipelineStages(params = {}) {
-    const searchParams = new URLSearchParams()
-    Object.entries(params).forEach(([key, value]) => {
-      if (value !== undefined && value !== null && value !== '') {
-        searchParams.append(key, value)
-      }
-    })
-    const query = searchParams.toString()
-    return this.request(`/candidates/pipeline/stages${query ? `?${query}` : ''}`)
+  async getPipelineStages() {
+    return this.request('/candidates/pipeline/stages')
   }
 
   async syncCandidatesToSheets() {
