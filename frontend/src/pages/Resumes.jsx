@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -11,6 +12,8 @@ import {
 } from 'lucide-react'
 
 export default function Resumes() {
+  const [searchParams] = useSearchParams()
+  const selectedClient = searchParams.get('client')
   const [candidates, setCandidates] = useState([])
   const [jobs, setJobs] = useState([])
   const [allJobs, setAllJobs] = useState([]) // Store all jobs for filter
@@ -67,7 +70,7 @@ export default function Resumes() {
   const fetchCandidates = useCallback(async () => {
     try {
       const jobId = selectedJobForFilter ? parseInt(selectedJobForFilter) : undefined
-      const data = await api.getCandidates({ search, job_id: jobId })
+      const data = await api.getCandidates({ search, job_id: jobId, client: selectedClient })
       // Filter out APPLIED candidates
       const filteredData = (data || []).filter(c => c.stage !== 'APPLIED')
       setCandidates(filteredData)
@@ -75,7 +78,7 @@ export default function Resumes() {
       console.error('Failed to fetch candidates:', error)
       setCandidates([])
     }
-  }, [search, selectedJobForFilter])
+  }, [search, selectedJobForFilter, selectedClient])
 
   useEffect(() => {
     const fetchData = async () => {

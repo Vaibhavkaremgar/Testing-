@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -11,6 +12,8 @@ import {
 } from 'lucide-react'
 
 export default function Interviews() {
+  const [searchParams] = useSearchParams()
+  const selectedClient = searchParams.get('client')
   const [interviews, setInterviews] = useState([])
   const [selectedInterview, setSelectedInterview] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -33,9 +36,10 @@ export default function Interviews() {
     const fetchInterviews = async () => {
       try {
         // Get only SELECTED and REJECTED candidates
+        const params = selectedClient ? { client: selectedClient } : {}
         const [selected, rejected] = await Promise.all([
-          api.getCandidates({ stage: 'SELECTED' }),
-          api.getCandidates({ stage: 'REJECTED' })
+          api.getCandidates({ stage: 'SELECTED', ...params }),
+          api.getCandidates({ stage: 'REJECTED', ...params })
         ])
         
         const allCandidates = [...selected, ...rejected]
@@ -91,7 +95,7 @@ export default function Interviews() {
     fetchInterviews()
     fetchCandidates()
     fetchJobs()
-  }, [])
+  }, [selectedClient])
 
   const handleScheduleInterview = async () => {
     try {

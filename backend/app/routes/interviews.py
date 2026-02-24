@@ -46,9 +46,11 @@ def get_interviews(
     limit: int = 100,
     candidate_id: Optional[int] = None,
     status: Optional[str] = None,
+    client: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
+    from app.models import JobDescription
     query = db.query(Interview)
     
     if candidate_id:
@@ -56,6 +58,9 @@ def get_interviews(
     
     if status:
         query = query.filter(Interview.status == status)
+    
+    if client:
+        query = query.join(Candidate).join(JobDescription).filter(JobDescription.company_name == client)
     
     interviews = query.order_by(Interview.scheduled_at.desc()).offset(skip).limit(limit).all()
     

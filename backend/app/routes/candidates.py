@@ -878,9 +878,11 @@ def get_candidates(
     stage: Optional[CandidateStage] = None,
     job_id: Optional[int] = None,
     min_score: Optional[float] = None,
+    client: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
+    from app.models import JobDescription
     query = db.query(Candidate)
     
     if search:
@@ -896,6 +898,8 @@ def get_candidates(
         query = query.filter(Candidate.job_id == job_id)
     if min_score is not None:
         query = query.filter(Candidate.resume_score >= min_score)
+    if client:
+        query = query.join(JobDescription).filter(JobDescription.company_name == client)
     candidates = query.order_by(Candidate.created_at.desc()).offset(skip).limit(limit).all()
     
     # Add job title to response
@@ -1812,13 +1816,18 @@ def get_resume_summary(
 
 @router.get("/pipeline/stages")
 def get_pipeline_stages(
+    client: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
     """Get candidates grouped by stage for Kanban board"""
+    from app.models import JobDescription
     stages = {}
     for stage in CandidateStage:
-        candidates = db.query(Candidate).filter(Candidate.stage == stage).all()
+        query = db.query(Candidate).filter(Candidate.stage == stage)
+        if client:
+            query = query.join(JobDescription).filter(JobDescription.company_name == client)
+        candidates = query.all()
         stages[stage.value] = [
             {
                 "id": c.id,

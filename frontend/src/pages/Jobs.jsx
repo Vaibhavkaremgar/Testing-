@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -10,6 +11,8 @@ import { formatDate } from '@/lib/utils'
 import { Plus, Briefcase, MapPin, Clock, Users, Edit, Trash2, Upload, FileText } from 'lucide-react'
 
 export default function Jobs() {
+  const [searchParams] = useSearchParams()
+  const selectedClient = searchParams.get('client')
   const [jobs, setJobs] = useState([])
   const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -36,7 +39,7 @@ export default function Jobs() {
 
   const fetchJobs = async () => {
     try {
-      const data = await api.getJobs()
+      const data = await api.getJobs({ client: selectedClient })
       setJobs(data)
     } catch (error) {
       console.error('Failed to fetch jobs:', error)
@@ -47,7 +50,7 @@ export default function Jobs() {
 
   useEffect(() => {
     fetchJobs()
-  }, [])
+  }, [selectedClient])
 
   const handleSubmit = async (e) => {
     e.preventDefault()

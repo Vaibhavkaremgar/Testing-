@@ -30,6 +30,7 @@ def get_jobs(
     skip: int = 0,
     limit: int = 100,
     is_active: Optional[bool] = None,
+    client: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -37,6 +38,8 @@ def get_jobs(
     
     if is_active is not None:
         query = query.filter(JobDescription.is_active == is_active)
+    if client:
+        query = query.filter(JobDescription.company_name == client)
     
     jobs = query.order_by(JobDescription.created_at.desc()).offset(skip).limit(limit).all()
     
