@@ -8,8 +8,19 @@ import { Progress } from '@/components/ui/progress'
 import { api } from '@/lib/api'
 import { cn, formatDate, getScoreColor, getStageColor, formatStage } from '@/lib/utils'
 import {
-  Upload, FileText, Search, Filter, MoreHorizontal, Edit, CheckCircle, Clock, AlertCircle, Trash2, Sheet, Eye
+  Upload, FileText, Search, Filter, MoreHorizontal, Edit, CheckCircle, Clock, AlertCircle, Trash2, Sheet, Eye, ChevronDown
 } from 'lucide-react'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 
 export default function Resumes() {
   const [searchParams] = useSearchParams()
@@ -21,7 +32,8 @@ export default function Resumes() {
   const [uploading, setUploading] = useState(false)
   const [search, setSearch] = useState('')
   const [selectedJobForUpload, setSelectedJobForUpload] = useState('')
-  const [selectedJobForFilter, setSelectedJobForFilter] = useState('')
+  const [filterType, setFilterType] = useState('') // 'job', 'score', 'status'
+  const [filterValue, setFilterValue] = useState('')
   const [uploadType, setUploadType] = useState('single')
   const [error, setError] = useState('')
   const [selectedFiles, setSelectedFiles] = useState([])
@@ -69,16 +81,35 @@ export default function Resumes() {
 
   const fetchCandidates = useCallback(async () => {
     try {
-      const jobId = selectedJobForFilter ? parseInt(selectedJobForFilter) : undefined
-      const data = await api.getCandidates({ search, job_id: jobId, client: selectedClient })
+      const params = { search, client: selectedClient }
+      
+      // Apply filter based on type
+      if (filterType === 'job' && filterValue) {
+        params.job_id = parseInt(filterValue)
+      } else if (filterType === 'score' && filterValue) {
+        const [min, max] = filterValue.split('-').map(Number)
+        params.min_score = min
+      } else if (filterType === 'status' && filterValue) {
+        params.stage = filterValue
+      }
+      
+      const data = await api.getCandidates(params)
       // Filter out APPLIED candidates
       const filteredData = (data || []).filter(c => c.stage !== 'APPLIED')
-      setCandidates(filteredData)
+      
+      // Apply score range filter on frontend if needed
+      let finalData = filteredData
+      if (filterType === 'score' && filterValue) {
+        const [min, max] = filterValue.split('-').map(Number)
+        finalData = filteredData.filter(c => c.resume_score >= min && c.resume_score <= max)
+      }
+      
+      setCandidates(finalData)
     } catch (error) {
       console.error('Failed to fetch candidates:', error)
       setCandidates([])
     }
-  }, [search, selectedJobForFilter, selectedClient])
+  }, [search, selectedClient, filterType, filterValue])
 
   useEffect(() => {
     const fetchData = async () => {
@@ -552,18 +583,87 @@ export default function Resumes() {
             className="pl-10"
           />
         </div>
-        <select
-          className="flex h-10 rounded-lg border border-input bg-background px-3 py-2 text-sm"
-          value={selectedJobForFilter}
-          onChange={(e) => setSelectedJobForFilter(e.target.value)}
-        >
-          <option value="">All Jobs</option>
-          {allJobs.map((job) => (
-            <option key={job.id} value={job.id}>
-              {job.company_name ? `${job.company_name} - ${job.title}` : job.title}
-            </option>
-          ))}
-        </select>
+        
+        {/* Filter Dropdown */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" className="gap-2">
+              <Filter className="h-4 w-4" />
+              {filterType ? (
+                filterType === 'job' ? 'Job' :
+                filterType === 'score' ? 'Score' :
+                filterType === 'status' ? 'Status' : 'Filter'
+              ) : 'Filter'}
+              {filterValue && <Badge variant="secondary" className="ml-1">{filterValue}</Badge>}
+              <ChevronDown className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuLabel>Filter By</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            
+            {/* Jobs Filter */}
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>Jobs</DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="max-h-[300px] overflow-y-auto">
+                <DropdownMenuItem onClick={() => { setFilterType(''); setFilterValue('') }}>
+                  All Jobs
+                </DropdownMenuItem>
+                {allJobs.map((job) => (
+                  <DropdownMenuItem 
+                    key={job.id} 
+                    onClick={() => { setFilterType('job'); setFilterValue(job.id.toString()) }}
+                  >
+                    {job.company_name ? `${job.company_name} - ${job.title}` : job.title}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+            
+            {/* Score Filter */}
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>Score Range</DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="max-h-[300px] overflow-y-auto">
+                <DropdownMenuItem onClick={() => { setFilterType(''); setFilterValue('') }}>
+                  All Scores
+                </DropdownMenuItem>
+                {[...Array(10)].map((_, i) => {
+                  const min = i * 10 + 1
+                  const max = (i + 1) * 10
+                  return (
+                    <DropdownMenuItem 
+                      key={i} 
+                      onClick={() => { setFilterType('score'); setFilterValue(`${min}-${max}`) }}
+                    >
+                      {min}-{max}
+                    </DropdownMenuItem>
+                  )
+                })}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+            
+            {/* Status Filter */}
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>Status</DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                <DropdownMenuItem onClick={() => { setFilterType(''); setFilterValue('') }}>
+                  All Status
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => { setFilterType('status'); setFilterValue('SHORTLISTED') }}>
+                  Shortlisted
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => { setFilterType('status'); setFilterValue('RESUME_REJECTED') }}>
+                  Rejected
+                </DropdownMenuItem>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+            
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => { setFilterType(''); setFilterValue('') }}>
+              Clear Filter
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
         <Button 
           onClick={handleSyncToSheets} 
           disabled={syncing || candidates.length === 0}
