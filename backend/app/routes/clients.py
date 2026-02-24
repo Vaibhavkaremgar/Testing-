@@ -15,11 +15,26 @@ def get_client_stats(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    total_clients = db.query(func.count(Client.id)).scalar()
-    active_clients = db.query(func.count(Client.id)).filter(Client.is_active == True).scalar()
-    total_positions = db.query(func.sum(Client.total_positions)).scalar() or 0
-    open_positions = db.query(func.sum(Client.positions_open)).scalar() or 0
-    filled_positions = db.query(func.sum(Client.positions_filled)).scalar() or 0
+    # Total Clients = Unique company names in jobs
+    total_clients = db.query(func.count(func.distinct(JobDescription.company))).scalar() or 0
+    
+    # Active Clients = Unique company names in active jobs
+    active_clients = db.query(func.count(func.distinct(JobDescription.company))).filter(
+        JobDescription.is_active == True
+    ).scalar() or 0
+    
+    # Total Positions = Sum of vacancies from ACTIVE jobs only
+    total_positions = db.query(func.sum(JobDescription.vacancies)).filter(
+        JobDescription.is_active == True
+    ).scalar() or 0
+    
+    # Filled Positions = Count of candidates in SELECTED stage
+    filled_positions = db.query(func.count(Candidate.id)).filter(
+        Candidate.stage == CandidateStage.SELECTED
+    ).scalar() or 0
+    
+    # Open Positions = Total Positions - Filled Positions
+    open_positions = max(0, total_positions - filled_positions)
     
     return {
         "total_clients": total_clients,

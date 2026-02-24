@@ -19,11 +19,32 @@ router = APIRouter(prefix="/analytics", tags=["Analytics"])
 def get_dashboard_stats(
     month: Optional[str] = Query(None),
     date: Optional[str] = Query(None),
+    client: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
     try:
         query = db.query(Candidate)
+        
+        # Apply client filter if provided
+        if client:
+            from app.models import JobDescription
+            job_ids = db.query(JobDescription.id).filter(JobDescription.company_name == client).all()
+            job_ids = [j[0] for j in job_ids]
+            if job_ids:
+                query = query.filter(Candidate.job_id.in_(job_ids))
+            else:
+                # No jobs for this client, return zeros
+                return DashboardStats(
+                    total_candidates=0,
+                    shortlisted=0,
+                    resume_rejected=0,
+                    rejected=0,
+                    interviews_scheduled=0,
+                    selected=0,
+                    avg_resume_score=0.0,
+                    avg_interview_score=0.0
+                )
         
         # Apply date filter if provided (specific date)
         if date:
@@ -119,10 +140,21 @@ def get_pipeline_stats(
 def get_hiring_funnel(
     month: Optional[str] = Query(None),
     date: Optional[str] = Query(None),
+    client: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
     query = db.query(Candidate)
+    
+    # Apply client filter if provided
+    if client:
+        from app.models import JobDescription
+        job_ids = db.query(JobDescription.id).filter(JobDescription.company_name == client).all()
+        job_ids = [j[0] for j in job_ids]
+        if job_ids:
+            query = query.filter(Candidate.job_id.in_(job_ids))
+        else:
+            return []
     
     # Apply date filter if provided (specific date)
     if date:

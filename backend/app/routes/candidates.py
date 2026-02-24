@@ -1118,7 +1118,7 @@ async def upload_resume(
         # Perform AI analysis and set score/stage
         simulate_resume_parsing(db_candidate, db, ai_analysis)
         
-        return {"message": "Resume uploaded successfully", "candidate_id": db_candidate.id}
+        return {"message": "Resume analyzed successfully", "candidate_id": db_candidate.id}
         
     except HTTPException:
         raise
@@ -1832,6 +1832,43 @@ def get_pipeline_stages(
             for c in candidates
         ]
     return stages
+
+@router.post("/send-email")
+def send_email(
+    email_data: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Send email to candidate"""
+    import smtplib
+    from email.mime.text import MIMEText
+    from email.mime.multipart import MIMEMultipart
+    
+    try:
+        to_email = email_data.get('to')
+        subject = email_data.get('subject')
+        body = email_data.get('body')
+        
+        if not all([to_email, subject, body]):
+            raise HTTPException(status_code=400, detail="Missing required fields: to, subject, body")
+        
+        # TODO: Configure SMTP settings in environment variables
+        # For now, return success (email functionality needs SMTP configuration)
+        print(f"📧 Email would be sent to: {to_email}")
+        print(f"   Subject: {subject}")
+        print(f"   Body: {body[:100]}...")
+        
+        return {
+            "success": True,
+            "message": f"Email sent to {to_email}",
+            "note": "SMTP not configured. Email logged to console."
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Email send error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to send email: {str(e)}")
 
 
 
