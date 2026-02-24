@@ -227,8 +227,15 @@ class ApiClient {
     })
   }
 
-  async getPipelineStages() {
-    return this.request('/candidates/pipeline/stages')
+  async getPipelineStages(params = {}) {
+    const searchParams = new URLSearchParams()
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null) {
+        searchParams.append(key, value)
+      }
+    })
+    const query = searchParams.toString()
+    return this.request(`/candidates/pipeline/stages${query ? `?${query}` : ''}`)
   }
 
   async syncCandidatesToSheets() {
@@ -490,8 +497,15 @@ class ApiClient {
   }
 
   // Communications
-  async getCommunications() {
-    return this.request('/webhook/communications')
+  async getCommunications(params = {}) {
+    const searchParams = new URLSearchParams()
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null) {
+        searchParams.append(key, value)
+      }
+    })
+    const query = searchParams.toString()
+    return this.request(`/webhook/communications${query ? `?${query}` : ''}`)
   }
 
   async deleteEmailCommunication(id) {

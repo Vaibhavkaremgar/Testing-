@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { api } from '@/lib/api'
@@ -81,13 +82,17 @@ function StageColumn({ stage, candidates, onCardClick }) {
 }
 
 export default function Pipeline() {
+  const [searchParams] = useSearchParams()
+  const selectedClient = searchParams.get('client')
   const [stages, setStages] = useState({})
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     const fetchPipeline = async () => {
       try {
-        const data = await api.getPipelineStages()
+        const params = {}
+        if (selectedClient) params.client = selectedClient
+        const data = await api.getPipelineStages(params)
         setStages(data)
       } catch (error) {
         console.error('Failed to fetch pipeline:', error)
@@ -96,7 +101,7 @@ export default function Pipeline() {
       }
     }
     fetchPipeline()
-  }, [])
+  }, [selectedClient])
 
   const handleCardClick = async (candidate) => {
     // No special click handling needed

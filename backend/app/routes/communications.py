@@ -15,9 +15,11 @@ def get_communications(
     candidate_id: int = None,
     status: str = None,
     email_type: str = None,
+    client: str = None,
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
+    from app.models import JobDescription
     query = db.query(EmailCommunication)
     if candidate_id:
         query = query.filter(EmailCommunication.candidate_id == candidate_id)
@@ -25,6 +27,8 @@ def get_communications(
         query = query.filter(EmailCommunication.status == status)
     if email_type:
         query = query.filter(EmailCommunication.email_type == email_type)
+    if client:
+        query = query.join(Candidate).join(JobDescription).filter(JobDescription.company_name == client)
     return query.order_by(desc(EmailCommunication.created_at)).all()
 
 @router.post("", response_model=EmailCommunicationResponse)

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -15,6 +16,8 @@ import {
 } from '@/components/ui/dropdown-menu'
 
 export default function Communications() {
+  const [searchParams] = useSearchParams()
+  const selectedClient = searchParams.get('client')
   const [searchTerm, setSearchTerm] = useState('')
   const [typeFilter, setTypeFilter] = useState([])
   const [statusFilter, setStatusFilter] = useState([])
@@ -56,7 +59,7 @@ export default function Communications() {
     }, 5000)
     
     return () => clearInterval(interval)
-  }, [])
+  }, [selectedClient])
 
   const handleDelete = async (id) => {
     if (confirm('Are you sure you want to delete this email record?')) {
@@ -73,7 +76,9 @@ export default function Communications() {
 
   const fetchCommunications = async () => {
     try {
-      const data = await api.getCommunications()
+      const params = {}
+      if (selectedClient) params.client = selectedClient
+      const data = await api.getCommunications(params)
       setCommunications(data)
     } catch (error) {
       console.error('Failed to fetch communications:', error)
