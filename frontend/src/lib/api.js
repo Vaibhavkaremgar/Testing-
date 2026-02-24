@@ -497,6 +497,14 @@ class ApiClient {
   async deleteEmailCommunication(id) {
     return this.request(`/webhook/communications/${id}`, { method: 'DELETE' })
   }
+
+  // Send Email
+  async sendEmail(emailData) {
+    return this.request('/candidates/send-email', {
+      method: 'POST',
+      body: JSON.stringify(emailData),
+    })
+  }
 }
 
 export const api = new ApiClient()

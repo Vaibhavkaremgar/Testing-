@@ -875,7 +875,7 @@ export default function Resumes() {
 
               {/* AI Analysis */}
               <div>
-                <h3 className="font-semibold mb-3">AI Resume Analysis</h3>
+                <h3 className="font-semibold mb-3">Pontis Insight</h3>
                 {analysisLoading ? (
                   <div className="flex items-center gap-2 text-muted-foreground">
                     <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
@@ -938,6 +938,47 @@ export default function Resumes() {
                 ) : (
                   <p className="text-sm text-muted-foreground">No AI analysis available for this candidate.</p>
                 )}
+              </div>
+
+              {/* Send Interview Invitation Button */}
+              <div className="pt-4 border-t">
+                <div className="flex gap-3">
+                  <Button 
+                    className="flex-1"
+                    onClick={async () => {
+                      try {
+                        await api.sendEmail({
+                          to: selectedCandidate.email,
+                          subject: 'Interview Invitation - You have been shortlisted!',
+                          body: `Dear ${selectedCandidate.name},\n\nCongratulations! You have been shortlisted for the position${candidateJob ? ` of ${candidateJob.title}` : ''}.\n\nPlease select a convenient time slot for your interview by replying to this email.\n\nBest regards,\nRecruitment Team`
+                        })
+                        alert(`Interview invitation sent to ${selectedCandidate.email}`)
+                      } catch (error) {
+                        alert(`Failed to send email: ${error.message}`)
+                      }
+                    }}
+                  >
+                    Send Interview Invitation
+                  </Button>
+                  <Button 
+                    variant="destructive"
+                    className="flex-1"
+                    onClick={async () => {
+                      try {
+                        await api.sendEmail({
+                          to: selectedCandidate.email,
+                          subject: 'Application Status Update',
+                          body: `Dear ${selectedCandidate.name},\n\nThank you for your interest in the position${candidateJob ? ` of ${candidateJob.title}` : ''}.\n\nAfter careful consideration, we regret to inform you that we will not be moving forward with your application at this time.\n\nWe appreciate the time you invested in the application process and wish you the best in your job search.\n\nBest regards,\nRecruitment Team`
+                        })
+                        alert(`Rejection email sent to ${selectedCandidate.email}`)
+                      } catch (error) {
+                        alert(`Failed to send email: ${error.message}`)
+                      }
+                    }}
+                  >
+                    Decline Invitation
+                  </Button>
+                </div>
               </div>
             </div>
           </div>

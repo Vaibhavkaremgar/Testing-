@@ -11,8 +11,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Search, Bell, Sun, Moon, LogOut, User, Settings, X } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { Search, Bell, Sun, Moon, LogOut, User, Settings, X, Building2 } from 'lucide-react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import { api } from '@/lib/api'
 
@@ -20,13 +20,40 @@ export function Header() {
   const { user, logout } = useAuth()
   const { theme, setTheme } = useTheme()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [notifications, setNotifications] = useState([])
   const [showNotifications, setShowNotifications] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState({ candidates: [], jobs: [], interviews: [] })
   const [showSearchResults, setShowSearchResults] = useState(false)
   const [searching, setSearching] = useState(false)
+  const [clients, setClients] = useState([])
+  const [selectedClient, setSelectedClient] = useState(searchParams.get('client') || '')
   const isDark = theme === 'dark'
+
+  // Fetch clients
+  useEffect(() => {
+    const fetchClients = async () => {
+      try {
+        const jobs = await api.getJobs()
+        const uniqueClients = [...new Set(jobs.map(j => j.company_name).filter(Boolean))]
+        setClients(uniqueClients.sort())
+      } catch (error) {
+        console.error('Failed to fetch clients:', error)
+      }
+    }
+    fetchClients()
+  }, [])
+
+  // Handle client selection
+  const handleClientChange = (client) => {
+    setSelectedClient(client)
+    if (client) {
+      setSearchParams({ client })
+    } else {
+      setSearchParams({})
+    }
+  }
 
   // Fetch real notifications
   useEffect(() => {
@@ -290,6 +317,20 @@ export function Header() {
 
       {/* Right side */}
       <div className="flex items-center gap-3">
+        {/* Client Filter */}
+        <select
+          className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+          value={selectedClient}
+          onChange={(e) => handleClientChange(e.target.value)}
+        >
+          <option value="">All Clients</option>
+          {clients.map((client) => (
+            <option key={client} value={client}>
+              {client}
+            </option>
+          ))}
+        </select>
+
         {/* Theme toggle */}
         <Button
           variant="ghost"

@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { api } from '@/lib/api'
 import { cn, getScoreColor, formatDate } from '@/lib/utils'
+import { useSearchParams } from 'react-router-dom'
 import {
   Users, UserCheck, UserX, Calendar, Award, TrendingUp, FileText, X, CalendarIcon, Briefcase, Clock, CheckCircle
 } from 'lucide-react'
@@ -21,6 +22,8 @@ import {
 const COLORS = ['#3b82f6', '#8b5cf6', '#06b6d4', '#10b981', '#f59e0b']
 
 export default function Dashboard() {
+  const [searchParams] = useSearchParams()
+  const selectedClient = searchParams.get('client')
   const [stats, setStats] = useState(null)
   const [funnel, setFunnel] = useState([])
   const [resumeTrend, setResumeTrend] = useState([])
@@ -48,6 +51,9 @@ export default function Dashboard() {
     const fetchData = async () => {
       try {
         const params = {}
+        if (selectedClient) {
+          params.client = selectedClient
+        }
         if (selectedDate) {
           params.date = selectedDate
         } else if (selectedMonth !== 'all') {
@@ -76,7 +82,7 @@ export default function Dashboard() {
       }
     }
     fetchData()
-  }, [selectedMonth, selectedDate])
+  }, [selectedMonth, selectedDate, selectedClient])
 
   const kpiCards = stats ? [
     { title: 'Total Candidates', value: stats.total_candidates || 0, icon: Users, color: 'text-blue-600', bg: 'bg-blue-100 dark:bg-blue-900/30', filter: {} },
