@@ -586,13 +586,12 @@ export default function Resumes() {
         </div>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="icon">
-              <Filter className="h-4 w-4" />
+            <Button variant="outline" className="w-32">
+              <Filter className="h-4 w-4 mr-2" />
+              Job
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
-            <DropdownMenuLabel>Filter by Job</DropdownMenuLabel>
-            <DropdownMenuSeparator />
             {allJobs.map((job) => (
               <DropdownMenuCheckboxItem
                 key={job.id}
@@ -606,9 +605,16 @@ export default function Resumes() {
                 {job.company_name ? `${job.company_name} - ${job.title}` : job.title}
               </DropdownMenuCheckboxItem>
             ))}
-            <DropdownMenuSeparator />
-            <DropdownMenuLabel>Filter by Score</DropdownMenuLabel>
-            <DropdownMenuSeparator />
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" className="w-32">
+              <Filter className="h-4 w-4 mr-2" />
+              Score
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-40">
             {['0-20', '21-40', '41-60', '61-80', '81-100'].map((range) => (
               <DropdownMenuCheckboxItem
                 key={range}
@@ -622,9 +628,16 @@ export default function Resumes() {
                 {range}
               </DropdownMenuCheckboxItem>
             ))}
-            <DropdownMenuSeparator />
-            <DropdownMenuLabel>Filter by Status</DropdownMenuLabel>
-            <DropdownMenuSeparator />
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" className="w-32">
+              <Filter className="h-4 w-4 mr-2" />
+              Status
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-40">
             <DropdownMenuCheckboxItem
               checked={statusFilter.includes('SHORTLISTED')}
               onCheckedChange={(checked) => {
