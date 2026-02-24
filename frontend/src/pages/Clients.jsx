@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -9,6 +10,8 @@ import { api } from '@/lib/api'
 import { Plus, Building2, TrendingUp, TrendingDown, AlertCircle, Users, Clock, CheckCircle2, Edit, Trash2, X } from 'lucide-react'
 
 export default function Clients() {
+  const [searchParams] = useSearchParams()
+  const selectedClient = searchParams.get('client')
   const [clients, setClients] = useState([])
   const [stats, setStats] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -23,7 +26,7 @@ export default function Clients() {
 
   useEffect(() => {
     fetchData()
-  }, [])
+  }, [selectedClient])
 
   const handleStatClick = (statType) => {
     let filtered = []
@@ -57,12 +60,12 @@ export default function Clients() {
 
   const fetchData = async () => {
     try {
-      // Get stats from backend
+      // Get stats from backend (filtered by client if selected)
       const statsData = await api.getClientStats()
-      setStats(statsData)
       
-      // Get unique clients from jobs
-      const jobs = await api.getJobs()
+      // Get unique clients from jobs (filtered by client if selected)
+      const jobsParams = selectedClient ? { client: selectedClient } : {}
+      const jobs = await api.getJobs(jobsParams)
       const clientMap = new Map()
       
       jobs.forEach(job => {
@@ -89,8 +92,9 @@ export default function Clients() {
         }
       })
       
-      // Get candidates to calculate filled positions
-      const candidates = await api.getCandidates()
+      // Get candidates to calculate filled positions (filtered by client if selected)
+      const candidatesParams = selectedClient ? { client: selectedClient } : {}
+      const candidates = await api.getCandidates(candidatesParams)
       candidates.forEach(candidate => {
         if (candidate.stage === 'SELECTED' && candidate.job_id) {
           const job = jobs.find(j => j.id === candidate.job_id)
@@ -108,7 +112,18 @@ export default function Clients() {
         client.positions_open = client.total_positions - client.positions_filled
       })
       
-      setClients(Array.from(clientMap.values()))
+      const clientsList = Array.from(clientMap.values())
+      setClients(clientsList)
+      
+      // Calculate filtered stats
+      const filteredStats = {
+        total_clients: clientsList.length,
+        active_clients: clientsList.filter(c => c.is_active).length,
+        total_positions: clientsList.reduce((sum, c) => sum + c.total_positions, 0),
+        open_positions: clientsList.reduce((sum, c) => sum + c.positions_open, 0),
+        filled_positions: clientsList.reduce((sum, c) => sum + c.positions_filled, 0)
+      }
+      setStats(filteredStats)
     } catch (error) {
       console.error('Failed to fetch data:', error)
     } finally {
