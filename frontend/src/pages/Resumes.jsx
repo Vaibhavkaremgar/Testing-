@@ -265,7 +265,7 @@ export default function Resumes() {
       await fetchCandidates()
       
       if (files.length === 1 && uploadType !== 'zip') {
-        alert('Resume uploaded successfully!')
+        alert('Resume analyzed successfully!')
       }
     } catch (error) {
       console.error('Upload failed:', error)
