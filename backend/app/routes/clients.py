@@ -16,10 +16,10 @@ def get_client_stats(
     current_user: User = Depends(get_current_active_user)
 ):
     # Total Clients = Unique company names in jobs
-    total_clients = db.query(func.count(func.distinct(JobDescription.company))).scalar() or 0
+    total_clients = db.query(func.count(func.distinct(JobDescription.company_name))).scalar() or 0
     
     # Active Clients = Unique company names in active jobs
-    active_clients = db.query(func.count(func.distinct(JobDescription.company))).filter(
+    active_clients = db.query(func.count(func.distinct(JobDescription.company_name))).filter(
         JobDescription.is_active == True
     ).scalar() or 0
     
