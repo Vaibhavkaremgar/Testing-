@@ -541,6 +541,78 @@ def get_upcoming_interviews(
     
     return result
 
+@router.get("/hiring-intelligence")
+def get_hiring_intelligence(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    from app.models import JobDescription
+    from datetime import datetime, timedelta
+    
+    insights = []
+    
+    # 1. Detect candidates stuck in stages (>7 days)
+    stuck_candidates = db.query(Candidate).filter(
+        Candidate.stage.in_([CandidateStage.SHORTLISTED, CandidateStage.INTERVIEW_SCHEDULED]),
+        Candidate.stage_entered_at.isnot(None)
+    ).all()
+    
+    stuck_count = 0
+    for c in stuck_candidates:
+        days_in_stage = (datetime.utcnow() - c.stage_entered_at).days
+        if days_in_stage > 7:
+            stuck_count += 1
+    
+    if stuck_count > 0:
+        insights.append(f"{stuck_count} candidate{'s' if stuck_count > 1 else ''} waiting over 7 days in pipeline - action needed")
+    
+    # 2. High-scoring candidates ready for interview
+    ready_candidates = db.query(Candidate).filter(
+        Candidate.stage == CandidateStage.SHORTLISTED,
+        Candidate.resume_score >= 85
+    ).count()
+    
+    if ready_candidates > 0:
+        insights.append(f"{ready_candidates} high-scoring candidate{'s' if ready_candidates > 1 else ''} (85+) ready for interview scheduling")
+    
+    # 3. Interviews completed awaiting decision
+    interviewed = db.query(Candidate).filter(
+        Candidate.stage == CandidateStage.INTERVIEWED
+    ).count()
+    
+    if interviewed > 0:
+        insights.append(f"{interviewed} interview{'s' if interviewed > 1 else ''} completed - pending hiring decision")
+    
+    # 4. Jobs with no recent activity
+    jobs = db.query(JobDescription).filter(JobDescription.is_active == True).all()
+    stale_jobs = []
+    for job in jobs:
+        recent_candidates = db.query(Candidate).filter(
+            Candidate.job_id == job.id,
+            Candidate.created_at >= datetime.utcnow() - timedelta(days=14)
+        ).count()
+        if recent_candidates == 0:
+            stale_jobs.append(job.title)
+    
+    if len(stale_jobs) > 0:
+        insights.append(f"{len(stale_jobs)} role{'s' if len(stale_jobs) > 1 else ''} with no applications in 14 days - review job posting")
+    
+    # 5. Offer-ready candidates
+    offer_ready = db.query(Candidate).filter(
+        Candidate.stage == CandidateStage.INTERVIEWED,
+        Candidate.resume_score >= 80
+    ).count()
+    
+    if offer_ready > 0:
+        insights.append(f"{offer_ready} strong candidate{'s' if offer_ready > 1 else ''} ready for offer - don't lose them to competitors")
+    
+    # If no insights, add positive message
+    if len(insights) == 0:
+        insights.append("Pipeline is healthy - all candidates progressing smoothly")
+        insights.append("No urgent actions required today")
+    
+    return {"insights": insights[:5]}
+
 @router.get("/hiring-metrics")
 def get_hiring_metrics(
     db: Session = Depends(get_db),
