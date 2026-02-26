@@ -13,8 +13,7 @@ import {
   Bot,
   UserCheck,
   Building2,
-  MessageSquare,
-  Clock
+  MessageSquare
 } from 'lucide-react'
 
 const navigation = [
@@ -25,7 +24,6 @@ const navigation = [
   { name: 'Interviews', href: '/interviews', icon: Video },
   { name: 'Clients', href: '/clients', icon: Building2 },
   { name: 'Analytics', href: '/analytics', icon: BarChart3 },
-  { name: 'Time to Hire', href: '/time-to-hire', icon: Clock },
   { name: 'Communications', href: '/communications', icon: MessageSquare },
   { name: 'Settings', href: '/settings', icon: Settings },
 ]
