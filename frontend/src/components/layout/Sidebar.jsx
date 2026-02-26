@@ -68,7 +68,7 @@ export function Sidebar() {
             <item.icon className="h-5 w-5" />
             {item.name}
           </NavLink>
-        )})}}
+        )})}
       </nav>
 
       {/* Footer */}
