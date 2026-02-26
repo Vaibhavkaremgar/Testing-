@@ -9,6 +9,7 @@ import Resumes from '@/pages/Resumes'
 import Pipeline from '@/pages/Pipeline'
 import Interviews from '@/pages/Interviews'
 import Analytics from '@/pages/Analytics'
+import TimeToHire from '@/pages/TimeToHire'
 import Jobs from '@/pages/Jobs'
 import Clients from '@/pages/Clients'
 import Communications from '@/pages/Communications'
@@ -87,6 +88,14 @@ function App() {
           element={
             <ProtectedRoute>
               <Analytics />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/time-to-hire"
+          element={
+            <ProtectedRoute>
+              <TimeToHire />
             </ProtectedRoute>
           }
         />

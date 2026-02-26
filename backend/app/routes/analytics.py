@@ -696,3 +696,35 @@ def get_hiring_metrics(
             "vacancies": 55
         }
     }
+
+@router.get("/time-to-hire-stages")
+def get_time_to_hire_stages(
+    department: Optional[str] = Query(None),
+    role: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    from app.models import JobDescription
+    import random
+    
+    # Demo data with stage breakdown
+    base_data = [
+        {"month": "Aug", "screening": 5.2, "scheduling": 3.8, "technical": 12.5, "offer": 7.0, "dropoff": 15},
+        {"month": "Sep", "screening": 6.1, "scheduling": 4.2, "technical": 14.8, "offer": 7.0, "dropoff": 18},
+        {"month": "Oct", "screening": 4.5, "scheduling": 3.2, "technical": 11.1, "offer": 7.0, "dropoff": 12},
+        {"month": "Nov", "screening": 5.8, "scheduling": 4.5, "technical": 13.2, "offer": 6.7, "dropoff": 16},
+        {"month": "Dec", "screening": 7.2, "scheduling": 5.5, "technical": 15.5, "offer": 7.5, "dropoff": 22},
+        {"month": "Jan", "screening": 4.8, "scheduling": 3.5, "technical": 12.0, "offer": 7.0, "dropoff": 14}
+    ]
+    
+    # Adjust based on filters
+    if department == "Engineering":
+        for d in base_data:
+            d["technical"] *= 1.3
+            d["dropoff"] += 5
+    elif department == "Sales":
+        for d in base_data:
+            d["screening"] *= 0.7
+            d["technical"] *= 0.6
+    
+    return base_data

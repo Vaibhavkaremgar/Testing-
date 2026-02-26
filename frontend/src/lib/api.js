@@ -401,6 +401,17 @@ class ApiClient {
     return this.request('/analytics/upcoming-interviews')
   }
 
+  async getTimeToHireStages(params = {}) {
+    const searchParams = new URLSearchParams()
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null) {
+        searchParams.append(key, value)
+      }
+    })
+    const query = searchParams.toString()
+    return this.request(`/analytics/time-to-hire-stages${query ? `?${query}` : ''}`)
+  }
+
   // Email Templates
   async getEmailTemplates() {
     return this.request('/email-templates')

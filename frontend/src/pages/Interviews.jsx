@@ -383,10 +383,20 @@ export default function Interviews() {
             <div className="space-y-4">
               <div>
                 <label className="text-sm font-medium mb-1 block">Name</label>
-                <select
+                <input
+                  type="text"
                   className="w-full h-10 rounded-lg border border-input bg-background px-3 py-2 text-sm"
                   value={scheduleForm.name}
-  onChange={async (e) => {
+                  readOnly
+                  placeholder="Select candidate from dropdown below"
+                />
+              </div>
+              
+              <div>
+                <label className="text-sm font-medium mb-1 block">Select Candidate</label>
+                <select
+                  className="w-full h-10 rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                  onChange={async (e) => {
                     const selectedCandidate = candidates.find(c => c.name === e.target.value)
                     const job = jobs.find(j => j.id === selectedCandidate?.job_id)
                     
