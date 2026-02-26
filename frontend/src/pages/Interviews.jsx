@@ -372,7 +372,7 @@ export default function Interviews() {
       {/* Schedule Interview Modal */}
       {showScheduleModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowScheduleModal(false)}>
-          <div className="bg-card rounded-lg p-6 max-w-md w-full mx-4" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-card rounded-lg p-6 max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-bold">Schedule Interview</h2>
               <Button variant="ghost" size="icon" onClick={() => setShowScheduleModal(false)}>
@@ -384,6 +384,7 @@ export default function Interviews() {
               <div>
                 <label className="text-sm font-medium mb-1 block">Candidate Name</label>
                 <select
+                  key={scheduleForm.name || 'empty'}
                   className="w-full h-10 rounded-lg border border-input bg-background px-3 py-2 text-sm"
                   value={scheduleForm.name}
                   onChange={async (e) => {
