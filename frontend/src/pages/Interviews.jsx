@@ -384,7 +384,6 @@ export default function Interviews() {
               <div>
                 <label className="text-sm font-medium mb-1 block">Candidate Name</label>
                 <select
-                  key={scheduleForm.name || 'empty'}
                   className="w-full h-10 rounded-lg border border-input bg-background px-3 py-2 text-sm"
                   value={scheduleForm.name}
                   onChange={async (e) => {
@@ -494,7 +493,7 @@ export default function Interviews() {
                   className="w-full" 
                   variant="outline"
                   onClick={() => {
-                    window.open(url, '_blank')
+                    window.open('https://calendly.com', '_blank')
                   }}
                 >
                   Book Interview Slot
