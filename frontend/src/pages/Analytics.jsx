@@ -6,6 +6,12 @@ import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area
 } from 'recharts'
+import {
+  generateTimeToHireInsight,
+  generateScoreDistributionInsight,
+  generateDepartmentInsight,
+  generateSkillInsight
+} from '@/lib/insights'
 
 const COLORS = ['#3b82f6', '#8b5cf6', '#06b6d4', '#10b981', '#f59e0b', '#ef4444']
 
@@ -90,6 +96,13 @@ export default function Analytics() {
                 </AreaChart>
               </ResponsiveContainer>
             </div>
+            {generateTimeToHireInsight(timeToHire) && (
+              <div className="px-6 pb-4">
+                <p className="text-sm text-muted-foreground bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg border border-blue-200 dark:border-blue-800">
+                  💡 {generateTimeToHireInsight(timeToHire)}
+                </p>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -120,6 +133,13 @@ export default function Analytics() {
                 </BarChart>
               </ResponsiveContainer>
             </div>
+            {generateScoreDistributionInsight(scoreDistribution) && (
+              <div className="px-6 pb-4">
+                <p className="text-sm text-muted-foreground bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg border border-blue-200 dark:border-blue-800">
+                  💡 {generateScoreDistributionInsight(scoreDistribution)}
+                </p>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -147,6 +167,13 @@ export default function Analytics() {
                 </BarChart>
               </ResponsiveContainer>
             </div>
+            {generateDepartmentInsight(departmentData) && (
+              <div className="px-6 pb-4">
+                <p className="text-sm text-muted-foreground bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg border border-blue-200 dark:border-blue-800">
+                  💡 {generateDepartmentInsight(departmentData)}
+                </p>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -173,6 +200,13 @@ export default function Analytics() {
                 </BarChart>
               </ResponsiveContainer>
             </div>
+            {generateSkillInsight(skillHeatmap) && (
+              <div className="px-6 pb-4">
+                <p className="text-sm text-muted-foreground bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg border border-blue-200 dark:border-blue-800">
+                  💡 {generateSkillInsight(skillHeatmap)}
+                </p>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>

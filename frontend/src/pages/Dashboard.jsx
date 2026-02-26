@@ -23,6 +23,11 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
+import {
+  generateResumeTrendInsight,
+  generateInterviewTrendInsight,
+  generateFunnelInsight
+} from '@/lib/insights'
 
 const COLORS = ['#3b82f6', '#8b5cf6', '#06b6d4', '#10b981', '#f59e0b']
 
@@ -379,6 +384,13 @@ export default function Dashboard() {
                 </LineChart>
               </ResponsiveContainer>
             </div>
+            {generateResumeTrendInsight(resumeTrend) && (
+              <div className="px-6 pb-4">
+                <p className="text-sm text-muted-foreground bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg border border-blue-200 dark:border-blue-800">
+                  💡 {generateResumeTrendInsight(resumeTrend)}
+                </p>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -406,6 +418,13 @@ export default function Dashboard() {
                 </BarChart>
               </ResponsiveContainer>
             </div>
+            {generateInterviewTrendInsight(interviewTrend) && (
+              <div className="px-6 pb-4">
+                <p className="text-sm text-muted-foreground bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg border border-blue-200 dark:border-blue-800">
+                  💡 {generateInterviewTrendInsight(interviewTrend)}
+                </p>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -440,6 +459,13 @@ export default function Dashboard() {
               </FunnelChart>
             </ResponsiveContainer>
           </div>
+          {generateFunnelInsight(funnel) && (
+            <div className="px-6 pb-4">
+              <p className="text-sm text-muted-foreground bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg border border-blue-200 dark:border-blue-800">
+                💡 {generateFunnelInsight(funnel)}
+              </p>
+            </div>
+          )}
         </CardContent>
       </Card>
 
