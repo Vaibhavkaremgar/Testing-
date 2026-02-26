@@ -384,39 +384,39 @@ export default function Interviews() {
               <div>
                 <label className="text-sm font-medium mb-1 block">Candidate Name</label>
                 <select
+                  key={scheduleForm.name || 'empty'}
                   className="w-full h-10 rounded-lg border border-input bg-background px-3 py-2 text-sm"
                   value={scheduleForm.name}
                   onChange={async (e) => {
-                    const candidateId = e.target.value
-                    const selectedCandidate = candidates.find(c => c.id === candidateId)
+                    const selectedCandidate = candidates.find(c => c.name === e.target.value)
                     const job = jobs.find(j => j.id === selectedCandidate?.job_id)
-
+                    
+                    // Fetch predefined questions for the selected candidate
                     let predefinedQuestions = 'No predefined questions available'
-
-                    if (candidateId) {
+                    if (selectedCandidate?.id) {
                       try {
-                        const candidateDetails = await api.getCandidate(candidateId)
+                        const candidateDetails = await api.getCandidate(selectedCandidate.id)
                         predefinedQuestions = candidateDetails.predefined_questions || 'No predefined questions available'
                       } catch (error) {
                         console.error('Failed to fetch candidate details:', error)
                       }
                     }
-
-                    setScheduleForm(prev => ({
-                      ...prev,
-                      name: selectedCandidate?.name || '',
+                    
+                    setScheduleForm({
+                      ...scheduleForm, 
+                      name: e.target.value,
                       email: selectedCandidate?.email || '',
-                      jobId: job?.id || '',
+                      jobId: job?.job_id || job?.id || '',
                       jobTitle: job?.title || '',
                       resumeText: selectedCandidate?.resume_text || 'No resume text available',
                       jdText: job?.description || 'No job description available',
-                      predefinedQuestions
-                    }))
+                      predefinedQuestions: predefinedQuestions
+                    })
                   }}
                 >
                   <option value="">-- Select a candidate --</option>
                   {candidates.map((candidate) => (
-                    <option key={candidate.id} value={candidate.id}>
+                    <option key={candidate.id} value={candidate.name}>
                       {candidate.name}
                     </option>
                   ))}
@@ -494,7 +494,7 @@ export default function Interviews() {
                   className="w-full" 
                   variant="outline"
                   onClick={() => {
-                    window.open('https://calendly.com', '_blank')
+                    window.open(url, '_blank')
                   }}
                 >
                   Book Interview Slot
