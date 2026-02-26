@@ -382,7 +382,7 @@ export default function Interviews() {
             
             <div className="space-y-4">
               <div>
-                <label className="text-sm font-medium mb-1 block">Select Candidate</label>
+                <label className="text-sm font-medium mb-1 block">Candidate Name</label>
                 <select
                   className="w-full h-10 rounded-lg border border-input bg-background px-3 py-2 text-sm"
                   value={scheduleForm.name}
@@ -413,7 +413,7 @@ export default function Interviews() {
                     })
                   }}
                 >
-                  <option value="">Select candidate</option>
+                  <option value="">-- Select a candidate --</option>
                   {candidates.map((candidate) => (
                     <option key={candidate.id} value={candidate.name}>
                       {candidate.name}
