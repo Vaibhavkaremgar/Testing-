@@ -1055,12 +1055,17 @@ export default function Resumes() {
                     className="flex-1"
                     onClick={async () => {
                       try {
-                        await api.sendEmail({
-                          to: selectedCandidate.email,
-                          subject: 'Interview Invitation - You have been shortlisted!',
-                          body: `Dear ${selectedCandidate.name},\n\nCongratulations! You have been shortlisted for the position${candidateJob ? ` of ${candidateJob.title}` : ''}.\n\nPlease select a convenient time slot for your interview by replying to this email.\n\nBest regards,\nRecruitment Team`
-                        })
-                        alert(`Interview invitation sent to ${selectedCandidate.email}`)
+                        const result = await api.sendEmail(
+                          selectedCandidate.id,
+                          'interview_invitation',
+                          'Interview Invitation - You have been shortlisted!',
+                          `Dear ${selectedCandidate.name},\n\nCongratulations! You have been shortlisted for the position${candidateJob ? ` of ${candidateJob.title}` : ''}.\n\nPlease select a convenient time slot for your interview by replying to this email.\n\nBest regards,\nRecruitment Team`
+                        )
+                        if (result.success) {
+                          alert(`Interview invitation sent to ${selectedCandidate.email}`)
+                        } else {
+                          alert(`Failed to send email: ${result.message}`)
+                        }
                       } catch (error) {
                         alert(`Failed to send email: ${error.message}`)
                       }
@@ -1073,12 +1078,17 @@ export default function Resumes() {
                     className="flex-1"
                     onClick={async () => {
                       try {
-                        await api.sendEmail({
-                          to: selectedCandidate.email,
-                          subject: 'Application Status Update',
-                          body: `Dear ${selectedCandidate.name},\n\nThank you for your interest in the position${candidateJob ? ` of ${candidateJob.title}` : ''}.\n\nAfter careful consideration, we regret to inform you that we will not be moving forward with your application at this time.\n\nWe appreciate the time you invested in the application process and wish you the best in your job search.\n\nBest regards,\nRecruitment Team`
-                        })
-                        alert(`Rejection email sent to ${selectedCandidate.email}`)
+                        const result = await api.sendEmail(
+                          selectedCandidate.id,
+                          'rejection',
+                          'Application Status Update',
+                          `Dear ${selectedCandidate.name},\n\nThank you for your interest in the position${candidateJob ? ` of ${candidateJob.title}` : ''}.\n\nAfter careful consideration, we regret to inform you that we will not be moving forward with your application at this time.\n\nWe appreciate the time you invested in the application process and wish you the best in your job search.\n\nBest regards,\nRecruitment Team`
+                        )
+                        if (result.success) {
+                          alert(`Rejection email sent to ${selectedCandidate.email}`)
+                        } else {
+                          alert(`Failed to send email: ${result.message}`)
+                        }
                       } catch (error) {
                         alert(`Failed to send email: ${error.message}`)
                       }

@@ -521,10 +521,15 @@ class ApiClient {
   }
 
   // Send Email
-  async sendEmail(emailData) {
-    return this.request('/candidates/send-email', {
+  async sendEmail(candidateId, emailType, subject, body) {
+    return this.request('/email/send', {
       method: 'POST',
-      body: JSON.stringify(emailData),
+      body: JSON.stringify({
+        candidate_id: candidateId,
+        email_type: emailType,
+        subject: subject,
+        body: body
+      }),
     })
   }
 }
