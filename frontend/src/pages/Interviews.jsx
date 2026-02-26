@@ -387,10 +387,13 @@ export default function Interviews() {
                   className="w-full h-10 rounded-lg border border-input bg-background px-3 py-2 text-sm"
                   value={scheduleForm.name}
                   onChange={async (e) => {
-                    const selectedCandidate = candidates.find(c => c.name === e.target.value)
+                    const candidateName = e.target.value
+                    const selectedCandidate = candidates.find(c => c.name === candidateName)
                     const job = jobs.find(j => j.id === selectedCandidate?.job_id)
                     
-                    // Fetch predefined questions for the selected candidate
+                    console.log('Selected candidate:', selectedCandidate)
+                    console.log('Job found:', job)
+                    
                     let predefinedQuestions = 'No predefined questions available'
                     if (selectedCandidate?.id) {
                       try {
@@ -403,7 +406,7 @@ export default function Interviews() {
                     
                     setScheduleForm({
                       ...scheduleForm, 
-                      name: e.target.value,
+                      name: candidateName,
                       email: selectedCandidate?.email || '',
                       jobId: job?.job_id || job?.id || '',
                       jobTitle: job?.title || '',
