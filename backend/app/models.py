@@ -49,7 +49,7 @@ class User(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
-    candidates = relationship("Candidate", back_populates="created_by_user")
+    candidates = relationship("Candidate", back_populates="created_by_user", foreign_keys="[Candidate.created_by]")
 
 class JobDescription(Base):
     __tablename__ = "job_descriptions"
