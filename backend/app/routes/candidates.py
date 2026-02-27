@@ -138,7 +138,7 @@ def extract_resume_data(file_path: str, original_filename: str = None) -> dict:
                 name = line
                 break
             
-            # Extract skills
+            # Extract skills (normalized to lowercase)
             skills = extract_skills_from_text(text)
             
             # Extract projects
@@ -167,10 +167,42 @@ def extract_resume_data(file_path: str, original_filename: str = None) -> dict:
     }
 
 def extract_skills_from_text(text: str) -> list:
-    """Extract technical skills from resume text - Enhanced version"""
+    """Extract technical skills from resume text - Enhanced version with case normalization"""
     import re
     
+    # Skill aliases - map variations to canonical form
+    SKILL_ALIASES = {
+        'js': 'javascript',
+        'ts': 'typescript',
+        'py': 'python',
+        'node': 'node.js',
+        'nodejs': 'node.js',
+        'react.js': 'react',
+        'reactjs': 'react',
+        'vue.js': 'vue',
+        'vuejs': 'vue',
+        'angular.js': 'angular',
+        'angularjs': 'angular',
+        'next': 'next.js',
+        'nextjs': 'next.js',
+        'express.js': 'express',
+        'expressjs': 'express',
+        'mongo': 'mongodb',
+        'postgres': 'postgresql',
+        'k8s': 'kubernetes',
+        'docker-compose': 'docker',
+        'git': 'git',
+        'github': 'git',
+        'gitlab': 'git'
+    }
+    
+    def normalize_skill(skill: str) -> str:
+        """Normalize skill name using aliases"""
+        skill_lower = skill.lower().strip()
+        return SKILL_ALIASES.get(skill_lower, skill_lower)
+    
     skills = []
+    skill_set = set()  # Use set to avoid duplicates
     
     # Find SKILLS section - stop at next major section
     skills_match = re.search(r'(?:TECHNICAL\s+)?SKILLS?\s*:?\s*[\n\r]+(.*?)(?=\n\s*(?:WORK\s+EXPERIENCE|EXPERIENCE|EDUCATION|PROJECTS?|CERTIFICATIONS?|REFERENCES)\s*:?\s*$|\Z)', text, re.IGNORECASE | re.MULTILINE | re.DOTALL)
@@ -188,13 +220,14 @@ def extract_skills_from_text(text: str) -> list:
             r'\b(?:Jira|Confluence|Slack|Postman|VS Code|IntelliJ|Eclipse|Figma|Photoshop)\b'
         ]
         
-        skill_set = set()
         for pattern in skill_patterns:
             matches = re.findall(pattern, text, re.IGNORECASE)
             for match in matches:
-                skill_set.add(match.strip())
+                normalized = normalize_skill(match.strip())
+                skill_set.add(normalized)
         
-        skills = list(skill_set)[:30]
+        # Capitalize first letter for display
+        skills = [s.capitalize() for s in skill_set][:30]
         print(f"   Found {len(skills)} skills via pattern matching")
         return skills
     
@@ -230,20 +263,24 @@ def extract_skills_from_text(text: str) -> list:
                 if any(header in category.lower() for header in section_headers):
                     break
                 
-                # Split by comma and add each skill
+                # Split by comma and add each skill (normalized)
                 items = [item.strip() for item in items_str.split(',')]
                 for item in items:
                     if item and len(item) >= 2 and not any(header in item.lower() for header in section_headers):
-                        skills.append(item)
+                        normalized = normalize_skill(item)
+                        skill_set.add(normalized)
         else:
             # Simple comma-separated list
             items = [item.strip() for item in line.split(',')]
             for item in items:
                 if item and len(item) >= 2 and not any(header in item.lower() for header in section_headers):
-                    skills.append(item)
+                    normalized = normalize_skill(item)
+                    skill_set.add(normalized)
     
+    # Capitalize first letter for display
+    skills = [s.capitalize() for s in skill_set][:30]
     print(f"   Extracted {len(skills)} skills: {skills}")
-    return skills[:30]
+    return skills
 
 def extract_projects_from_text(text: str) -> list:
     """Extract project information from resume text"""

@@ -211,6 +211,37 @@ def get_skill_heatmap(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
+    # Skill aliases - map variations to canonical form
+    SKILL_ALIASES = {
+        'js': 'javascript',
+        'ts': 'typescript',
+        'py': 'python',
+        'node': 'node.js',
+        'nodejs': 'node.js',
+        'react.js': 'react',
+        'reactjs': 'react',
+        'vue.js': 'vue',
+        'vuejs': 'vue',
+        'angular.js': 'angular',
+        'angularjs': 'angular',
+        'next': 'next.js',
+        'nextjs': 'next.js',
+        'express.js': 'express',
+        'expressjs': 'express',
+        'mongo': 'mongodb',
+        'postgres': 'postgresql',
+        'k8s': 'kubernetes',
+        'docker-compose': 'docker',
+        'git': 'git',
+        'github': 'git',
+        'gitlab': 'git'
+    }
+    
+    def normalize_skill(skill: str) -> str:
+        """Normalize skill name using aliases"""
+        skill_lower = skill.lower().strip()
+        return SKILL_ALIASES.get(skill_lower, skill_lower)
+    
     # Comprehensive blacklist of non-skill terms
     blacklist = {
         'engineering', 'communication', 'course', 'institute', 'university', 'board', 'year', 'of',
@@ -288,12 +319,13 @@ def get_skill_heatmap(
                 )
                 
                 if is_valid:
-                    # Use lowercase as key for aggregation
-                    if skill_lower not in skill_data:
-                        skill_data[skill_lower] = {"count": 0, "scores": []}
-                    skill_data[skill_lower]["count"] += 1
+                    # Normalize using aliases, then use as key for aggregation
+                    normalized = normalize_skill(skill)
+                    if normalized not in skill_data:
+                        skill_data[normalized] = {"count": 0, "scores": []}
+                    skill_data[normalized]["count"] += 1
                     if candidate.resume_score:
-                        skill_data[skill_lower]["scores"].append(candidate.resume_score)
+                        skill_data[normalized]["scores"].append(candidate.resume_score)
     
     # If we have real data, use it
     if skill_data:
