@@ -15,20 +15,9 @@ import {
   UserCheck,
   Building2,
   MessageSquare,
-  UserCog
+  UserCog,
+  User as UserIcon
 } from 'lucide-react'
-
-const baseNavigation = [
-  { name: 'Dashboard', href: '/', icon: LayoutDashboard },
-  { name: 'Jobs', href: '/jobs', icon: Briefcase },
-  { name: 'Resumes', href: '/resumes', icon: FileText },
-  { name: 'Candidates', href: '/pipeline', icon: Users },
-  { name: 'Interviews', href: '/interviews', icon: Video },
-  { name: 'Clients', href: '/clients', icon: Building2 },
-  { name: 'Analytics', href: '/analytics', icon: BarChart3 },
-  { name: 'Communications', href: '/communications', icon: MessageSquare },
-  { name: 'Settings', href: '/settings', icon: Settings },
-]
 
 export function Sidebar() {
   const { theme } = useTheme()
@@ -36,10 +25,39 @@ export function Sidebar() {
   const [searchParams] = useSearchParams()
   const isDark = theme === 'dark'
   
-  const navigation = [...baseNavigation]
-  if (user?.role === 'admin') {
-    navigation.push({ name: 'Users', href: '/admin/users', icon: UserCog })
+  // Role-based navigation
+  const getNavigation = () => {
+    const isAdmin = user?.role === 'admin'
+    
+    // Admin sees everything
+    if (isAdmin) {
+      return [
+        { name: 'Dashboard', href: '/', icon: LayoutDashboard },
+        { name: 'Jobs', href: '/jobs', icon: Briefcase },
+        { name: 'Resumes', href: '/resumes', icon: FileText },
+        { name: 'Candidates', href: '/pipeline', icon: Users },
+        { name: 'Interviews', href: '/interviews', icon: Video },
+        { name: 'Clients', href: '/clients', icon: Building2 },
+        { name: 'Analytics', href: '/analytics', icon: BarChart3 },
+        { name: 'Communications', href: '/communications', icon: MessageSquare },
+        { name: 'Settings', href: '/settings', icon: Settings },
+        { name: 'Users', href: '/admin/users', icon: UserCog },
+      ]
+    }
+    
+    // Regular users (recruiter, hiring_manager, viewer) see limited tabs
+    return [
+      { name: 'Dashboard', href: '/', icon: LayoutDashboard },
+      { name: 'Jobs', href: '/jobs', icon: Briefcase },
+      { name: 'Candidates', href: '/pipeline', icon: Users },
+      { name: 'Interviews', href: '/interviews', icon: Video },
+      { name: 'Communications', href: '/communications', icon: MessageSquare },
+      { name: 'Analytics', href: '/analytics', icon: BarChart3 },
+      { name: 'Profile', href: '/profile', icon: UserIcon },
+    ]
   }
+  
+  const navigation = getNavigation()
   
   return (
     <div 

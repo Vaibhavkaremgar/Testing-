@@ -104,6 +104,7 @@ class Candidate(Base):
     source = Column(String(100))  # LinkedIn, Referral, Job Board, Career Site, etc.
     decline_reason = Column(Text)  # Reason for rejection
     offer_status = Column(String(50))  # made, accepted, declined
+    internal_notes = Column(Text)  # Internal recruiter notes
     
     # Google Sheets sync
     synced_to_sheets = Column(Boolean, default=False)

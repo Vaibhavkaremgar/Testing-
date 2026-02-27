@@ -205,6 +205,13 @@ class ApiClient {
     })
   }
 
+  async updateCandidateNotes(id, notes) {
+    return this.request(`/candidates/${id}/notes`, {
+      method: 'PATCH',
+      body: JSON.stringify({ notes }),
+    })
+  }
+
   async deleteCandidate(id) {
     return this.request(`/candidates/${id}`, { method: 'DELETE' })
   }

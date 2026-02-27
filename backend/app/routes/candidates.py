@@ -1924,3 +1924,22 @@ def send_email(
 
 
 
+
+
+@router.patch("/{candidate_id}/notes")
+def update_candidate_notes(
+    candidate_id: int,
+    notes_data: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Update internal notes for a candidate"""
+    candidate = db.query(Candidate).filter(Candidate.id == candidate_id).first()
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    
+    candidate.internal_notes = notes_data.get('notes', '')
+    db.commit()
+    db.refresh(candidate)
+    
+    return {"message": "Notes updated successfully", "notes": candidate.internal_notes}
