@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     DEBUG: bool = True
     
     # Database
-    DATABASE_URL: str = "sqlite:///./talentai.db"
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:////data/app.db")
     
     # JWT
     SECRET_KEY: str = "your-secret-key-min-32-characters-long-change-this-in-production"
@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 30  # 30 days
     
     # File Upload
-    UPLOAD_DIR: str = "uploads"
+    UPLOAD_DIR: str = os.getenv("UPLOAD_DIR", "/data/uploads")  # Use /data/uploads for Railway volume
     MAX_FILE_SIZE: int = 10 * 1024 * 1024  # 10MB
     
     # LLM Configuration
