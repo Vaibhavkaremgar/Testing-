@@ -13,6 +13,8 @@ import Jobs from '@/pages/Jobs'
 import Clients from '@/pages/Clients'
 import Communications from '@/pages/Communications'
 import Settings from '@/pages/Settings'
+import Profile from '@/pages/Profile'
+import AdminUsers from '@/pages/AdminUsers'
 
 function ProtectedRoute({ children }) {
   const { isAuthenticated, loading } = useAuth()
@@ -119,6 +121,22 @@ function App() {
           element={
             <ProtectedRoute>
               <Settings />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/profile"
+          element={
+            <ProtectedRoute>
+              <Profile />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/users"
+          element={
+            <ProtectedRoute>
+              <AdminUsers />
             </ProtectedRoute>
           }
         />

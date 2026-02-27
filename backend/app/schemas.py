@@ -15,6 +15,9 @@ class UserBase(BaseModel):
     email: EmailStr
     full_name: str
     role: UserRole = UserRole.RECRUITER
+    phone: Optional[str] = None
+    department: Optional[str] = None
+    bio: Optional[str] = None
 
 class UserCreate(UserBase):
     password: str
@@ -22,10 +25,24 @@ class UserCreate(UserBase):
 class UserResponse(UserBase):
     id: int
     is_active: bool
+    avatar_url: Optional[str] = None
     created_at: datetime
     
     class Config:
         from_attributes = True
+
+class UserUpdate(BaseModel):
+    full_name: Optional[str] = None
+    phone: Optional[str] = None
+    department: Optional[str] = None
+    bio: Optional[str] = None
+    email: Optional[EmailStr] = None
+
+class AdminUserUpdate(BaseModel):
+    full_name: Optional[str] = None
+    email: Optional[EmailStr] = None
+    role: Optional[UserRole] = None
+    is_active: Optional[bool] = None
 
 class UserLogin(BaseModel):
     email: EmailStr

@@ -1,6 +1,7 @@
 import { NavLink, useSearchParams } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { useTheme } from '@/context/ThemeContext'
+import { useAuth } from '@/context/AuthContext'
 import {
   LayoutDashboard,
   FileText,
@@ -13,10 +14,11 @@ import {
   Bot,
   UserCheck,
   Building2,
-  MessageSquare
+  MessageSquare,
+  UserCog
 } from 'lucide-react'
 
-const navigation = [
+const baseNavigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
   { name: 'Jobs', href: '/jobs', icon: Briefcase },
   { name: 'Resumes', href: '/resumes', icon: FileText },
@@ -30,8 +32,14 @@ const navigation = [
 
 export function Sidebar() {
   const { theme } = useTheme()
+  const { user } = useAuth()
   const [searchParams] = useSearchParams()
   const isDark = theme === 'dark'
+  
+  const navigation = [...baseNavigation]
+  if (user?.role === 'admin') {
+    navigation.push({ name: 'Users', href: '/admin/users', icon: UserCog })
+  }
   
   return (
     <div 

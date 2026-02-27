@@ -130,6 +130,32 @@ class ApiClient {
     })
   }
 
+  async uploadAvatar(file) {
+    const formData = new FormData()
+    formData.append('file', file)
+    return this.request('/auth/profile/avatar', {
+      method: 'POST',
+      body: formData,
+    })
+  }
+
+  async getAllUsers() {
+    return this.request('/auth/users')
+  }
+
+  async updateUser(userId, userData) {
+    return this.request(`/auth/users/${userId}`, {
+      method: 'PUT',
+      body: JSON.stringify(userData),
+    })
+  }
+
+  async deleteUser(userId) {
+    return this.request(`/auth/users/${userId}`, {
+      method: 'DELETE',
+    })
+  }
+
   logout() {
     this.setToken(null)
   }

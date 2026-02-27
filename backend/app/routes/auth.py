@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from datetime import timedelta
+from typing import List
 from app.database import get_db
 from app.models import User
-from app.schemas import Token, UserCreate, UserResponse, UserLogin, PasswordUpdate
+from app.schemas import Token, UserCreate, UserResponse, UserLogin, PasswordUpdate, UserUpdate, AdminUserUpdate
 from app.auth import (
     get_password_hash,
     create_access_token,
@@ -95,17 +96,15 @@ def change_password(
 
 @router.put("/profile", response_model=UserResponse)
 def update_profile(
-    profile_data: dict,
+    profile_data: UserUpdate,
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
-    # Update allowed fields
-    if "full_name" in profile_data:
-        current_user.full_name = profile_data["full_name"]
-    if "email" in profile_data:
-        # Check if email is already taken by another user
+    if profile_data.full_name:
+        current_user.full_name = profile_data.full_name
+    if profile_data.email:
         existing_user = db.query(User).filter(
-            User.email == profile_data["email"],
+            User.email == profile_data.email,
             User.id != current_user.id
         ).first()
         if existing_user:
@@ -113,8 +112,136 @@ def update_profile(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Email already in use"
             )
-        current_user.email = profile_data["email"]
+        current_user.email = profile_data.email
+    if profile_data.phone is not None:
+        current_user.phone = profile_data.phone
+    if profile_data.department is not None:
+        current_user.department = profile_data.department
+    if profile_data.bio is not None:
+        current_user.bio = profile_data.bio
     
     db.commit()
     db.refresh(current_user)
     return current_user
+
+@router.post("/profile/avatar")
+def upload_avatar(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    import os
+    from pathlib import Path
+    
+    allowed_extensions = {'.jpg', '.jpeg', '.png', '.gif'}
+    file_ext = os.path.splitext(file.filename)[1].lower()
+    
+    if file_ext not in allowed_extensions:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only image files are allowed (jpg, jpeg, png, gif)"
+        )
+    
+    upload_dir = Path("uploads/avatars")
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    
+    filename = f"user_{current_user.id}{file_ext}"
+    file_path = upload_dir / filename
+    
+    with open(file_path, "wb") as buffer:
+        buffer.write(file.file.read())
+    
+    current_user.avatar_url = f"/uploads/avatars/{filename}"
+    db.commit()
+    db.refresh(current_user)
+    
+    return {"avatar_url": current_user.avatar_url}
+
+# Admin endpoints
+@router.get("/users", response_model=List[UserResponse])
+def get_all_users(
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    from app.models import UserRole
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admins can access this endpoint"
+        )
+    
+    users = db.query(User).all()
+    return users
+
+@router.put("/users/{user_id}", response_model=UserResponse)
+def update_user(
+    user_id: int,
+    user_data: AdminUserUpdate,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    from app.models import UserRole
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admins can update users"
+        )
+    
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    if user_data.full_name:
+        user.full_name = user_data.full_name
+    if user_data.email:
+        existing = db.query(User).filter(
+            User.email == user_data.email,
+            User.id != user_id
+        ).first()
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email already in use"
+            )
+        user.email = user_data.email
+    if user_data.role:
+        user.role = user_data.role
+    if user_data.is_active is not None:
+        user.is_active = user_data.is_active
+    
+    db.commit()
+    db.refresh(user)
+    return user
+
+@router.delete("/users/{user_id}")
+def delete_user(
+    user_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    from app.models import UserRole
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admins can delete users"
+        )
+    
+    if user_id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete your own account"
+        )
+    
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    db.delete(user)
+    db.commit()
+    return {"message": "User deleted successfully"}
