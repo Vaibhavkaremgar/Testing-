@@ -12,6 +12,10 @@ from app.seed import seed_database
 # Run migrations BEFORE creating tables
 def run_migrations():
     """Add missing columns to Railway database"""
+    # TEMPORARILY DISABLED - causing crashes
+    print("⚠️ Migrations temporarily disabled")
+    return
+    
     # Check both local and Railway database paths
     db_paths = ["talentai.db", "/data/app.db"]
     db_path = None
