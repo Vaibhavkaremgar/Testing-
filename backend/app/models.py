@@ -128,7 +128,7 @@ class Candidate(Base):
     job = relationship("JobDescription", back_populates="candidates")
     
     created_by = Column(Integer, ForeignKey("users.id"))
-    created_by_user = relationship("User", back_populates="candidates")
+    created_by_user = relationship("User", back_populates="candidates", foreign_keys=[created_by])
     
     interviews = relationship("Interview", back_populates="candidate")
     
