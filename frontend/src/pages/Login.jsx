@@ -1,18 +1,27 @@
-import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Bot, Loader2 } from 'lucide-react'
+import { Bot, Loader2, ArrowLeft } from 'lucide-react'
 
 export default function Login() {
-  const [email, setEmail] = useState('recruiter@talentai.com')
+  const location = useLocation()
+  const selectedUser = location.state?.selectedUser
+  
+  const [email, setEmail] = useState(selectedUser?.email || 'recruiter@talentai.com')
   const [password, setPassword] = useState('recruiter123')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const { login } = useAuth()
   const navigate = useNavigate()
+
+  useEffect(() => {
+    if (selectedUser) {
+      setEmail(selectedUser.email)
+    }
+  }, [selectedUser])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -33,6 +42,17 @@ export default function Login() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background to-muted p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
+          {selectedUser && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="absolute top-4 left-4"
+              onClick={() => navigate('/select-user')}
+            >
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back
+            </Button>
+          )}
           <div className="flex justify-center mb-4">
             <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-primary">
               <Bot className="h-8 w-8 text-primary-foreground" />

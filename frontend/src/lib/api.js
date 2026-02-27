@@ -139,6 +139,10 @@ class ApiClient {
     })
   }
 
+  async getPublicUsers() {
+    return this.request('/auth/users/public')
+  }
+
   async getAllUsers() {
     return this.request('/auth/users')
   }
