@@ -27,6 +27,12 @@ class ParsingStatus(str, enum.Enum):
     COMPLETED = "completed"
     FAILED = "failed"
 
+class ReviewStatus(str, enum.Enum):
+    UNASSIGNED = "unassigned"
+    PENDING = "pending"
+    INTERVIEW_INVITED = "interview_invited"
+    REJECTED = "rejected"
+
 class User(Base):
     __tablename__ = "users"
     
@@ -105,6 +111,12 @@ class Candidate(Base):
     decline_reason = Column(Text)  # Reason for rejection
     offer_status = Column(String(50))  # made, accepted, declined
     internal_notes = Column(Text)  # Internal recruiter notes
+    
+    # Resume review assignment
+    assigned_to_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    review_status = Column(Enum(ReviewStatus), default=ReviewStatus.UNASSIGNED)
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)
+    reviewed_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     
     # Google Sheets sync
     synced_to_sheets = Column(Boolean, default=False)

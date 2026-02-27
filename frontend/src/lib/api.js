@@ -212,6 +212,24 @@ class ApiClient {
     })
   }
 
+  async assignCandidate(id, userId) {
+    return this.request(`/candidates/${id}/assign`, {
+      method: 'POST',
+      body: JSON.stringify({ assigned_to_user_id: userId }),
+    })
+  }
+
+  async reviewCandidate(id, action) {
+    return this.request(`/candidates/${id}/review`, {
+      method: 'POST',
+      body: JSON.stringify({ action }),
+    })
+  }
+
+  async getMyAssignedCandidates() {
+    return this.request('/candidates/assigned/me')
+  }
+
   async deleteCandidate(id) {
     return this.request(`/candidates/${id}`, { method: 'DELETE' })
   }

@@ -45,10 +45,11 @@ export function Sidebar() {
       ]
     }
     
-    // Regular users (recruiter, hiring_manager, viewer) see limited tabs
+    // Regular users see Resumes tab for review
     return [
       { name: 'Dashboard', href: '/', icon: LayoutDashboard },
       { name: 'Jobs', href: '/jobs', icon: Briefcase },
+      { name: 'Resumes', href: '/resumes', icon: FileText },
       { name: 'Candidates', href: '/pipeline', icon: Users },
       { name: 'Interviews', href: '/interviews', icon: Video },
       { name: 'Communications', href: '/communications', icon: MessageSquare },

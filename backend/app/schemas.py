@@ -1,7 +1,7 @@
 from pydantic import BaseModel, EmailStr
 from typing import Optional, List, Any
 from datetime import datetime
-from app.models import UserRole, CandidateStage, ParsingStatus
+from app.models import UserRole, CandidateStage, ParsingStatus, ReviewStatus
 
 # Auth Schemas
 class Token(BaseModel):
@@ -111,6 +111,12 @@ class CandidateUpdate(BaseModel):
     location: Optional[str] = None
     stage: Optional[CandidateStage] = None
     job_id: Optional[int] = None
+
+class CandidateAssign(BaseModel):
+    assigned_to_user_id: int
+
+class CandidateReview(BaseModel):
+    action: str  # "interview" or "reject"
 
 class CandidateResponse(CandidateBase):
     id: int

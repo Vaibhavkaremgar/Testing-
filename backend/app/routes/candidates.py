@@ -1943,3 +1943,108 @@ def update_candidate_notes(
     db.refresh(candidate)
     
     return {"message": "Notes updated successfully", "notes": candidate.internal_notes}
+
+
+@router.post("/{candidate_id}/assign")
+def assign_candidate_to_user(
+    candidate_id: int,
+    assign_data: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Assign candidate to a user for review (Admin only)"""
+    from app.models import ReviewStatus
+    
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can assign resumes")
+    
+    candidate = db.query(Candidate).filter(Candidate.id == candidate_id).first()
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    
+    assigned_to_user_id = assign_data.get('assigned_to_user_id')
+    if not assigned_to_user_id:
+        raise HTTPException(status_code=400, detail="assigned_to_user_id is required")
+    
+    # Verify user exists
+    assigned_user = db.query(User).filter(User.id == assigned_to_user_id).first()
+    if not assigned_user:
+        raise HTTPException(status_code=404, detail="Assigned user not found")
+    
+    candidate.assigned_to_user_id = assigned_to_user_id
+    candidate.review_status = ReviewStatus.PENDING
+    candidate.reviewed_at = None
+    candidate.reviewed_by_user_id = None
+    
+    db.commit()
+    db.refresh(candidate)
+    
+    return {"message": f"Candidate assigned to {assigned_user.full_name}", "candidate_id": candidate.id}
+
+@router.post("/{candidate_id}/review")
+def review_candidate(
+    candidate_id: int,
+    review_data: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Review candidate - send interview invitation or reject"""
+    from app.models import ReviewStatus
+    from datetime import datetime
+    
+    candidate = db.query(Candidate).filter(Candidate.id == candidate_id).first()
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    
+    # Check if user is assigned to this candidate
+    if candidate.assigned_to_user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You are not assigned to review this candidate")
+    
+    action = review_data.get('action')  # "interview" or "reject"
+    
+    if action == "interview":
+        candidate.review_status = ReviewStatus.INTERVIEW_INVITED
+        candidate.stage = CandidateStage.INTERVIEW_SCHEDULED
+        message = "Interview invitation sent"
+    elif action == "reject":
+        candidate.review_status = ReviewStatus.REJECTED
+        candidate.stage = CandidateStage.REJECTED
+        message = "Candidate rejected"
+    else:
+        raise HTTPException(status_code=400, detail="Invalid action. Use 'interview' or 'reject'")
+    
+    candidate.reviewed_at = datetime.utcnow()
+    candidate.reviewed_by_user_id = current_user.id
+    
+    db.commit()
+    db.refresh(candidate)
+    
+    return {"message": message, "candidate_id": candidate.id, "review_status": candidate.review_status.value}
+
+@router.get("/assigned/me")
+def get_my_assigned_candidates(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Get candidates assigned to current user"""
+    from app.models import ReviewStatus
+    
+    candidates = db.query(Candidate).filter(
+        Candidate.assigned_to_user_id == current_user.id
+    ).all()
+    
+    result = []
+    for c in candidates:
+        result.append({
+            "id": c.id,
+            "name": c.name,
+            "email": c.email,
+            "phone": c.phone,
+            "resume_score": c.resume_score,
+            "job_title": c.job.title if c.job else None,
+            "review_status": c.review_status.value if c.review_status else "unassigned",
+            "assigned_at": c.created_at.isoformat() if c.created_at else None,
+            "reviewed_at": c.reviewed_at.isoformat() if c.reviewed_at else None
+        })
+    
+    return result
