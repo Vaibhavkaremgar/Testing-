@@ -52,6 +52,25 @@ def run_migrations():
                 except Exception as e:
                     print(f"⚠️ Could not add {col_name}: {e}")
         
+        # Add user profile columns
+        cursor.execute("PRAGMA table_info(users)")
+        user_columns = [col[1] for col in cursor.fetchall()]
+        
+        user_cols = [
+            ('phone', 'VARCHAR(50)'),
+            ('department', 'VARCHAR(255)'),
+            ('bio', 'TEXT'),
+            ('avatar_url', 'VARCHAR(500)')
+        ]
+        
+        for col_name, col_type in user_cols:
+            if col_name not in user_columns:
+                try:
+                    cursor.execute(f"ALTER TABLE users ADD COLUMN {col_name} {col_type}")
+                    print(f"✅ Added {col_name} to users")
+                except Exception as e:
+                    print(f"⚠️ Could not add {col_name}: {e}")
+        
         conn.commit()
         conn.close()
         print("✅ Migration complete")
