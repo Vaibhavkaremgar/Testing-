@@ -94,14 +94,13 @@ app = FastAPI(
     redoc_url="/api/redoc"
 )
 
-# CORS middleware - MUST be first middleware
+# CORS middleware - Allow all origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins
-    allow_credentials=False,  # Must be False when allow_origins is "*"
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["*"]
 )
 
 # Create uploads directory
