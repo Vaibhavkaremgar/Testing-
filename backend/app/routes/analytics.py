@@ -288,19 +288,22 @@ def get_skill_heatmap(
                 )
                 
                 if is_valid:
-                    if skill not in skill_data:
-                        skill_data[skill] = {"count": 0, "scores": []}
-                    skill_data[skill]["count"] += 1
+                    # Use lowercase as key for aggregation
+                    if skill_lower not in skill_data:
+                        skill_data[skill_lower] = {"count": 0, "scores": []}
+                    skill_data[skill_lower]["count"] += 1
                     if candidate.resume_score:
-                        skill_data[skill]["scores"].append(candidate.resume_score)
+                        skill_data[skill_lower]["scores"].append(candidate.resume_score)
     
     # If we have real data, use it
     if skill_data:
         result = []
-        for skill, data in skill_data.items():
+        for skill_lower, data in skill_data.items():
             avg_score = sum(data["scores"]) / len(data["scores"]) if data["scores"] else 0
+            # Capitalize first letter for display
+            skill_display = skill_lower.capitalize()
             result.append(SkillHeatmapData(
-                skill=skill,
+                skill=skill_display,
                 count=data["count"],
                 avg_score=round(avg_score, 1)
             ))
