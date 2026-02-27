@@ -4,7 +4,6 @@ import { DashboardLayout } from '@/components/layout/DashboardLayout'
 import ErrorBoundary from '@/components/ErrorBoundary'
 import { Toaster } from '@/hooks/use-toast'
 import Login from '@/pages/Login'
-import UserSelect from '@/pages/UserSelect'
 import Dashboard from '@/pages/Dashboard'
 import Resumes from '@/pages/Resumes'
 import Pipeline from '@/pages/Pipeline'
@@ -49,7 +48,6 @@ function App() {
   return (
     <ErrorBoundary>
       <Routes>
-        <Route path="/select-user" element={<UserSelect />} />
         <Route
           path="/login"
           element={isAuthenticated ? <Navigate to="/" replace /> : <Login />}
@@ -142,7 +140,7 @@ function App() {
             </ProtectedRoute>
           }
         />
-        <Route path="*" element={<Navigate to="/select-user" replace />} />
+        <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
       <Toaster />
     </ErrorBoundary>
