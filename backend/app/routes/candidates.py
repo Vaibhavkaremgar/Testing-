@@ -223,11 +223,9 @@ def extract_skills_from_text(text: str) -> list:
         for pattern in skill_patterns:
             matches = re.findall(pattern, text, re.IGNORECASE)
             for match in matches:
-                normalized = normalize_skill(match.strip())
-                skill_set.add(normalized)
+                skill_set.add(match.strip())  # Keep original casing
         
-        # Capitalize first letter for display
-        skills = [s.capitalize() for s in skill_set][:30]
+        skills = list(skill_set)[:30]
         print(f"   Found {len(skills)} skills via pattern matching")
         return skills
     
@@ -263,22 +261,19 @@ def extract_skills_from_text(text: str) -> list:
                 if any(header in category.lower() for header in section_headers):
                     break
                 
-                # Split by comma and add each skill (normalized)
+                # Split by comma and add each skill (keep original)
                 items = [item.strip() for item in items_str.split(',')]
                 for item in items:
                     if item and len(item) >= 2 and not any(header in item.lower() for header in section_headers):
-                        normalized = normalize_skill(item)
-                        skill_set.add(normalized)
+                        skill_set.add(item)  # Keep original
         else:
             # Simple comma-separated list
             items = [item.strip() for item in line.split(',')]
             for item in items:
                 if item and len(item) >= 2 and not any(header in item.lower() for header in section_headers):
-                    normalized = normalize_skill(item)
-                    skill_set.add(normalized)
+                    skill_set.add(item)  # Keep original
     
-    # Capitalize first letter for display
-    skills = [s.capitalize() for s in skill_set][:30]
+    skills = list(skill_set)[:30]
     print(f"   Extracted {len(skills)} skills: {skills}")
     return skills
 
