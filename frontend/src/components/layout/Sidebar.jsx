@@ -49,7 +49,7 @@ export function Sidebar() {
     // Regular users see My Assignments
     return [
       { name: 'Dashboard', href: '/', icon: LayoutDashboard },
-      { name: 'My Assignments', href: '/my-assignments', icon: ClipboardList },
+      { name: 'Resumes', href: '/my-assignments', icon: FileText },
       { name: 'Jobs', href: '/jobs', icon: Briefcase },
       { name: 'Candidates', href: '/pipeline', icon: Users },
       { name: 'Interviews', href: '/interviews', icon: Video },
