@@ -226,6 +226,13 @@ class ApiClient {
     })
   }
 
+  async reviewCandidate(id, action) {
+    return this.request(`/candidates/${id}/review`, {
+      method: 'POST',
+      body: JSON.stringify({ action }),
+    })
+  }
+
   async getMyAssignedCandidates() {
     return this.request('/candidates/assigned/me')
   }

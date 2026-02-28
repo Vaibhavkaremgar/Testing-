@@ -1887,7 +1887,13 @@ def bulk_assign_candidates(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """Bulk assign candidates to a user"""
+    """Bulk assign candidates to a user (Admin only)"""
+    from app.models import UserRole, ReviewStatus
+    
+    # Admin only
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Only admins can assign candidates")
+    
     candidate_ids = assignment_data.get('candidate_ids', [])
     user_id = assignment_data.get('user_id')
     
@@ -1899,15 +1905,19 @@ def bulk_assign_candidates(
     if not assigned_user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    # Update candidates
+    # Update candidates and collect names
     updated_count = 0
+    candidate_names = []
     for candidate_id in candidate_ids:
         candidate = db.query(Candidate).filter(Candidate.id == candidate_id).first()
         if candidate:
             candidate.assigned_to_user_id = user_id
+            candidate.review_status = ReviewStatus.PENDING
+            candidate_names.append(candidate.name)
             updated_count += 1
     
     db.commit()
+    
     return {"message": f"Successfully assigned {updated_count} candidates to {assigned_user.full_name}", "updated_count": updated_count}
 
 @router.post("/send-email")

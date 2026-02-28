@@ -15,6 +15,7 @@ import Communications from '@/pages/Communications'
 import Settings from '@/pages/Settings'
 import Profile from '@/pages/Profile'
 import AdminUsers from '@/pages/AdminUsers'
+import MyAssignments from '@/pages/MyAssignments'
 
 function ProtectedRoute({ children }) {
   const { isAuthenticated, loading } = useAuth()
@@ -129,6 +130,14 @@ function App() {
           element={
             <ProtectedRoute>
               <Profile />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/my-assignments"
+          element={
+            <ProtectedRoute>
+              <MyAssignments />
             </ProtectedRoute>
           }
         />

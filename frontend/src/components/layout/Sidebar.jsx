@@ -16,7 +16,8 @@ import {
   Building2,
   MessageSquare,
   UserCog,
-  User as UserIcon
+  User as UserIcon,
+  ClipboardList
 } from 'lucide-react'
 
 export function Sidebar() {
@@ -45,9 +46,10 @@ export function Sidebar() {
       ]
     }
     
-    // Regular users see Resumes tab for review
+    // Regular users see My Assignments
     return [
       { name: 'Dashboard', href: '/', icon: LayoutDashboard },
+      { name: 'My Assignments', href: '/my-assignments', icon: ClipboardList },
       { name: 'Jobs', href: '/jobs', icon: Briefcase },
       { name: 'Resumes', href: '/resumes', icon: FileText },
       { name: 'Candidates', href: '/pipeline', icon: Users },

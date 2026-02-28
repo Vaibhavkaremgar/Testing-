@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { api } from '@/lib/api'
+import { useAuth } from '@/context/AuthContext'
 import { cn, formatDate, getScoreColor, getStageColor, formatStage } from '@/lib/utils'
 import {
   Upload, FileText, Search, Filter, MoreHorizontal, Edit, CheckCircle, Clock, AlertCircle, Trash2, Sheet, Eye, X
@@ -22,6 +23,7 @@ import {
 export default function Resumes() {
   const [searchParams] = useSearchParams()
   const selectedClient = searchParams.get('client')
+  const { user: currentUser } = useAuth()
   const [candidates, setCandidates] = useState([])
   const [jobs, setJobs] = useState([])
   const [allJobs, setAllJobs] = useState([]) // Store all jobs for filter
@@ -581,7 +583,7 @@ export default function Resumes() {
       </Card>
 
       {/* Assignment Bar */}
-      {selectedCandidates.length > 0 && (
+      {selectedCandidates.length > 0 && currentUser?.role === 'admin' && (
         <Card className="bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800">
           <CardContent className="p-4">
             <div className="flex items-center gap-4">
