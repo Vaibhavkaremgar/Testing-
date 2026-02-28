@@ -30,12 +30,19 @@ export default function AdminUsers() {
   const [searchQuery, setSearchQuery] = useState('')
   const [loading, setLoading] = useState(true)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
+  const [addDialogOpen, setAddDialogOpen] = useState(false)
   const [selectedUser, setSelectedUser] = useState(null)
   const [editData, setEditData] = useState({
     full_name: '',
     email: '',
     role: '',
     is_active: true
+  })
+  const [newUserData, setNewUserData] = useState({
+    full_name: '',
+    email: '',
+    password: '',
+    role: 'recruiter'
   })
 
   useEffect(() => {
@@ -111,6 +118,23 @@ export default function AdminUsers() {
     }
   }
 
+  const handleAddUser = async () => {
+    if (!newUserData.full_name || !newUserData.email || !newUserData.password) {
+      alert('Please fill all required fields')
+      return
+    }
+
+    try {
+      await api.register(newUserData)
+      alert('User added successfully!')
+      setAddDialogOpen(false)
+      setNewUserData({ full_name: '', email: '', password: '', role: 'recruiter' })
+      fetchUsers()
+    } catch (error) {
+      alert(error.message || 'Failed to add user')
+    }
+  }
+
   const getRoleBadgeVariant = (role) => {
     switch (role) {
       case 'admin':
@@ -139,7 +163,7 @@ export default function AdminUsers() {
           <h1 className="text-2xl font-bold">User Management</h1>
           <p className="text-muted-foreground">Manage system users and permissions</p>
         </div>
-        <Button>
+        <Button onClick={() => setAddDialogOpen(true)}>
           <UserPlus className="h-4 w-4 mr-2" />
           Add User
         </Button>
@@ -246,9 +270,11 @@ export default function AdminUsers() {
                         {u.department || '-'}
                       </td>
                       <td className="py-3 px-4">
-                        <Badge variant={u.is_active ? 'default' : 'secondary'}>
-                          {u.is_active ? 'Active' : 'Inactive'}
-                        </Badge>
+                        {u.is_online ? (
+                          <Badge className="bg-green-500">Online</Badge>
+                        ) : (
+                          <Badge variant="secondary">Offline</Badge>
+                        )}
                       </td>
                       <td className="py-3 px-4 text-sm text-muted-foreground">
                         {new Date(u.created_at).toLocaleDateString()}
@@ -281,6 +307,64 @@ export default function AdminUsers() {
           )}
         </CardContent>
       </Card>
+
+      {/* Add User Dialog */}
+      <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add New User</DialogTitle>
+            <DialogDescription>Create a new user account</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Full Name *</Label>
+              <Input
+                value={newUserData.full_name}
+                onChange={(e) => setNewUserData({ ...newUserData, full_name: e.target.value })}
+                placeholder="John Doe"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Email *</Label>
+              <Input
+                type="email"
+                value={newUserData.email}
+                onChange={(e) => setNewUserData({ ...newUserData, email: e.target.value })}
+                placeholder="john@example.com"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Password *</Label>
+              <Input
+                type="password"
+                value={newUserData.password}
+                onChange={(e) => setNewUserData({ ...newUserData, password: e.target.value })}
+                placeholder="••••••••"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Role</Label>
+              <Select value={newUserData.role} onValueChange={(value) => setNewUserData({ ...newUserData, role: value })}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="admin">Admin</SelectItem>
+                  <SelectItem value="recruiter">Recruiter</SelectItem>
+                  <SelectItem value="hiring_manager">Hiring Manager</SelectItem>
+                  <SelectItem value="viewer">Viewer</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleAddUser}>Add User</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Edit Dialog */}
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>

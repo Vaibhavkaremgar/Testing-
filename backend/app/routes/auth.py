@@ -49,6 +49,11 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
             headers={"WWW-Authenticate": "Bearer"},
         )
     
+    # Update last login
+    from datetime import datetime
+    user.last_login_at = datetime.utcnow()
+    db.commit()
+    
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={"sub": user.email}, expires_delta=access_token_expires
@@ -63,6 +68,11 @@ def login_json(user_login: UserLogin, db: Session = Depends(get_db)):
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password"
         )
+    
+    # Update last login
+    from datetime import datetime
+    user.last_login_at = datetime.utcnow()
+    db.commit()
     
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
@@ -170,6 +180,8 @@ def get_all_users(
     db: Session = Depends(get_db)
 ):
     from app.models import UserRole
+    from datetime import datetime, timedelta
+    
     if current_user.role != UserRole.ADMIN:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -177,7 +189,34 @@ def get_all_users(
         )
     
     users = db.query(User).all()
-    return users
+    
+    # Add online status based on last_login_at (online if logged in within last 15 minutes)
+    result = []
+    for user in users:
+        user_dict = {
+            "id": user.id,
+            "email": user.email,
+            "full_name": user.full_name,
+            "role": user.role,
+            "phone": user.phone,
+            "department": user.department,
+            "bio": user.bio,
+            "avatar_url": user.avatar_url,
+            "is_active": user.is_active,
+            "created_at": user.created_at,
+            "updated_at": user.updated_at,
+            "last_login_at": user.last_login_at,
+            "is_online": False
+        }
+        
+        # Check if user is online (logged in within last 15 minutes)
+        if user.last_login_at:
+            time_diff = datetime.utcnow() - user.last_login_at
+            user_dict["is_online"] = time_diff < timedelta(minutes=15)
+        
+        result.append(user_dict)
+    
+    return result
 
 @router.put("/users/{user_id}", response_model=UserResponse)
 def update_user(

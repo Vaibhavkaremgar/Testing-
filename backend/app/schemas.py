@@ -26,7 +26,10 @@ class UserResponse(UserBase):
     id: int
     is_active: bool
     avatar_url: Optional[str] = None
+    last_login_at: Optional[datetime] = None
+    is_online: Optional[bool] = False
     created_at: datetime
+    updated_at: Optional[datetime] = None
     
     class Config:
         from_attributes = True
