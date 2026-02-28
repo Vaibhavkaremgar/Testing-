@@ -142,6 +142,8 @@ def upload_avatar(
 ):
     import os
     from pathlib import Path
+    from PIL import Image
+    import io
     
     allowed_extensions = {'.jpg', '.jpeg', '.png', '.gif'}
     file_ext = os.path.splitext(file.filename)[1].lower()
@@ -155,11 +157,35 @@ def upload_avatar(
     upload_dir = Path("uploads/avatars")
     upload_dir.mkdir(parents=True, exist_ok=True)
     
-    filename = f"user_{current_user.id}{file_ext}"
-    file_path = upload_dir / filename
+    # Read and resize image
+    image_data = file.file.read()
+    image = Image.open(io.BytesIO(image_data))
     
-    with open(file_path, "wb") as buffer:
-        buffer.write(file.file.read())
+    # Convert RGBA to RGB if needed
+    if image.mode == 'RGBA':
+        background = Image.new('RGB', image.size, (255, 255, 255))
+        background.paste(image, mask=image.split()[3])
+        image = background
+    
+    # Resize to 200x200 maintaining aspect ratio and crop to square
+    size = 200
+    image.thumbnail((size * 2, size * 2), Image.Resampling.LANCZOS)
+    
+    # Crop to square from center
+    width, height = image.size
+    if width != height:
+        min_dim = min(width, height)
+        left = (width - min_dim) // 2
+        top = (height - min_dim) // 2
+        image = image.crop((left, top, left + min_dim, top + min_dim))
+    
+    # Final resize to exact 200x200
+    image = image.resize((size, size), Image.Resampling.LANCZOS)
+    
+    # Save optimized image
+    filename = f"user_{current_user.id}.jpg"
+    file_path = upload_dir / filename
+    image.save(file_path, 'JPEG', quality=90, optimize=True)
     
     current_user.avatar_url = f"/uploads/avatars/{filename}"
     db.commit()
