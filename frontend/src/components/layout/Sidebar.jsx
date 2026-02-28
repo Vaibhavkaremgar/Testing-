@@ -51,7 +51,6 @@ export function Sidebar() {
       { name: 'Dashboard', href: '/', icon: LayoutDashboard },
       { name: 'My Assignments', href: '/my-assignments', icon: ClipboardList },
       { name: 'Jobs', href: '/jobs', icon: Briefcase },
-      { name: 'Resumes', href: '/resumes', icon: FileText },
       { name: 'Candidates', href: '/pipeline', icon: Users },
       { name: 'Interviews', href: '/interviews', icon: Video },
       { name: 'Communications', href: '/communications', icon: MessageSquare },
