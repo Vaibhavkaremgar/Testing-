@@ -587,9 +587,15 @@ export default function Resumes() {
         <Card className="bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800">
           <CardContent className="p-4">
             <div className="flex items-center gap-4">
-              <span className="font-medium">{selectedCandidates.length} selected</span>
+              <div className="flex items-center gap-2">
+                <span className="font-medium text-lg">{selectedCandidates.length}</span>
+                <span className="text-sm text-muted-foreground">candidate{selectedCandidates.length > 1 ? 's' : ''} selected</span>
+                {selectedCandidates.length > 20 && (
+                  <Badge variant="destructive" className="ml-2">Max 20 allowed</Badge>
+                )}
+              </div>
               <select
-                className="flex h-10 rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                className="flex h-10 rounded-lg border border-input bg-background px-3 py-2 text-sm min-w-[200px]"
                 value={selectedUser}
                 onChange={(e) => setSelectedUser(e.target.value)}
               >
@@ -603,7 +609,11 @@ export default function Resumes() {
               <Button
                 onClick={async () => {
                   if (!selectedUser) {
-                    alert('Please select a user')
+                    alert('Please select a user to assign candidates')
+                    return
+                  }
+                  if (selectedCandidates.length > 20) {
+                    alert('You can only assign up to 20 candidates at a time')
                     return
                   }
                   setAssigning(true)
@@ -619,15 +629,19 @@ export default function Resumes() {
                     setAssigning(false)
                   }
                 }}
-                disabled={assigning || !selectedUser}
+                disabled={assigning || !selectedUser || selectedCandidates.length > 20}
+                className="bg-primary hover:bg-primary/90"
               >
-                {assigning ? 'Assigning...' : 'Send'}
+                {assigning ? 'Assigning...' : 'Send to User'}
               </Button>
               <Button
-                variant="ghost"
-                onClick={() => setSelectedCandidates([])}
+                variant="outline"
+                onClick={() => {
+                  setSelectedCandidates([])
+                  setSelectedUser('')
+                }}
               >
-                Clear
+                Clear Selection
               </Button>
             </div>
           </CardContent>
