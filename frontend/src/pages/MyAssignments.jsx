@@ -102,7 +102,7 @@ export default function MyAssignments() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold">My Resumes</h1>
-        <p className="text-muted-foreground">Review candidates assigned to you</p>
+        <p className="text-muted-foreground">Review and evaluate candidates assigned to you</p>
       </div>
 
       {candidates.length === 0 ? (
