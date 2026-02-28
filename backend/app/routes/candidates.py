@@ -914,8 +914,12 @@ def get_candidates(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    from app.models import JobDescription
+    from app.models import JobDescription, UserRole
     query = db.query(Candidate)
+    
+    # Filter by assigned candidates for non-admin users
+    if current_user.role != UserRole.ADMIN:
+        query = query.filter(Candidate.assigned_to_user_id == current_user.id)
     
     if client:
         query = query.join(JobDescription).filter(JobDescription.company_name == client)
