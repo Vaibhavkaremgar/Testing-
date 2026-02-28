@@ -296,6 +296,20 @@ export default function MyAssignments() {
                         <p className="text-sm text-muted-foreground">Location</p>
                         <p>{candidateJob.location}</p>
                       </div>
+                      <div>
+                        <p className="text-sm text-muted-foreground">Employment Type</p>
+                        <p>{candidateJob.employment_type}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-muted-foreground">Experience Level</p>
+                        <p>{candidateJob.experience_level}</p>
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-sm text-muted-foreground mb-2">Job Description</p>
+                      <div className="text-sm whitespace-pre-wrap bg-background p-3 rounded border max-h-40 overflow-y-auto">
+                        {candidateJob.description}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -303,7 +317,7 @@ export default function MyAssignments() {
 
               {/* AI Analysis */}
               <div>
-                <h3 className="font-semibold mb-3">AI Analysis</h3>
+                <h3 className="font-semibold mb-3">Pontis Insight</h3>
                 {analysisLoading ? (
                   <div className="flex items-center gap-2 text-muted-foreground">
                     <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
@@ -313,7 +327,7 @@ export default function MyAssignments() {
                   <div className="space-y-4">
                     {selectedCandidate.summary && (
                       <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg border border-blue-200 dark:border-blue-800">
-                        <p className="text-sm font-medium mb-2 text-blue-900 dark:text-blue-100">📋 Summary</p>
+                        <p className="text-sm font-medium mb-2 text-blue-900 dark:text-blue-100">📋 Candidate Summary</p>
                         <p className="text-sm text-blue-800 dark:text-blue-200 leading-relaxed">{selectedCandidate.summary}</p>
                       </div>
                     )}
@@ -360,7 +374,7 @@ export default function MyAssignments() {
                     )}
                   </div>
                 ) : (
-                  <p className="text-sm text-muted-foreground">No AI analysis available.</p>
+                  <p className="text-sm text-muted-foreground">No AI analysis available for this candidate.</p>
                 )}
               </div>
 
