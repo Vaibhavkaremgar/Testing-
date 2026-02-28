@@ -36,10 +36,17 @@ export function AuthProvider({ children }) {
     setUser(null)
   }
 
+  const refreshUser = async () => {
+    const userData = await api.getMe()
+    setUser(userData)
+    return userData
+  }
+
   const value = {
     user,
     login,
     logout,
+    refreshUser,
     loading,
     isAuthenticated: !!user,
   }

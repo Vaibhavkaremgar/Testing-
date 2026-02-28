@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 30  # 30 days
     
     # File Upload
-    UPLOAD_DIR: str = os.getenv("UPLOAD_DIR", "/data/uploads")  # Use /data/uploads for Railway volume
+    UPLOAD_DIR: str = os.getenv("UPLOAD_DIR", "uploads")  # Local uploads directory
     MAX_FILE_SIZE: int = 10 * 1024 * 1024  # 10MB
     
     # LLM Configuration
