@@ -24,7 +24,13 @@ def get_dashboard_stats(
     current_user: User = Depends(get_current_active_user)
 ):
     try:
+        from app.models import UserRole
+        
         query = db.query(Candidate)
+        
+        # Filter by assigned candidates for non-admin users
+        if current_user.role != UserRole.ADMIN:
+            query = query.filter(Candidate.assigned_to_user_id == current_user.id)
         
         # Apply client filter if provided
         if client:
