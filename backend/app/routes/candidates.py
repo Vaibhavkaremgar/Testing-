@@ -2094,3 +2094,40 @@ def get_my_assigned_candidates(
         "review_status": c.review_status.value if c.review_status else "UNASSIGNED",
         "assigned_at": c.updated_at
     } for c in candidates]
+
+
+@router.post("/bulk-assign")
+def bulk_assign_candidates(
+    data: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Bulk assign multiple candidates to a user (Admin only)"""
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can assign candidates")
+    
+    candidate_ids = data.get('candidate_ids', [])
+    user_id = data.get('user_id')
+    
+    if not candidate_ids or not user_id:
+        raise HTTPException(status_code=400, detail="candidate_ids and user_id are required")
+    
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    assigned_count = 0
+    for cid in candidate_ids:
+        candidate = db.query(Candidate).filter(Candidate.id == cid).first()
+        if candidate:
+            candidate.assigned_to_user_id = user_id
+            candidate.review_status = "PENDING"
+            assigned_count += 1
+    
+    db.commit()
+    
+    return {
+        "message": f"{assigned_count} candidates assigned to {user.full_name}",
+        "assigned_count": assigned_count,
+        "assigned_to": user.full_name
+    }
