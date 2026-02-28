@@ -2048,3 +2048,49 @@ def get_my_assigned_candidates(
         })
     
     return result
+
+
+@router.post("/{candidate_id}/assign")
+def assign_candidate(
+    candidate_id: int,
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Assign candidate to a user for review (Admin only)"""
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can assign candidates")
+    
+    candidate = db.query(Candidate).filter(Candidate.id == candidate_id).first()
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+    
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    candidate.assigned_to_user_id = user_id
+    candidate.review_status = "PENDING"
+    db.commit()
+    
+    return {"message": f"Candidate assigned to {user.full_name}", "assigned_to": user.full_name}
+
+@router.get("/assigned-to-me")
+def get_my_assigned_candidates(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Get candidates assigned to current user"""
+    candidates = db.query(Candidate).filter(
+        Candidate.assigned_to_user_id == current_user.id
+    ).all()
+    
+    return [{
+        "id": c.id,
+        "name": c.name,
+        "email": c.email,
+        "resume_score": c.resume_score,
+        "job_title": c.job.title if c.job else None,
+        "review_status": c.review_status.value if c.review_status else "UNASSIGNED",
+        "assigned_at": c.updated_at
+    } for c in candidates]
