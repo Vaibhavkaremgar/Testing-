@@ -46,11 +46,12 @@ export function Sidebar() {
       ]
     }
     
-    // Regular users - Resumes shows assigned resumes
+    // Regular users see My Assignments
     return [
       { name: 'Dashboard', href: '/', icon: LayoutDashboard },
-      { name: 'Resumes', href: '/my-assignments', icon: FileText },
+      { name: 'My Assignments', href: '/my-assignments', icon: ClipboardList },
       { name: 'Jobs', href: '/jobs', icon: Briefcase },
+      { name: 'Resumes', href: '/resumes', icon: FileText },
       { name: 'Candidates', href: '/pipeline', icon: Users },
       { name: 'Interviews', href: '/interviews', icon: Video },
       { name: 'Communications', href: '/communications', icon: MessageSquare },
