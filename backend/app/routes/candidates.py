@@ -1881,6 +1881,35 @@ def get_pipeline_stages(
         ]
     return stages
 
+@router.post("/bulk-assign")
+def bulk_assign_candidates(
+    assignment_data: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Bulk assign candidates to a user"""
+    candidate_ids = assignment_data.get('candidate_ids', [])
+    user_id = assignment_data.get('user_id')
+    
+    if not candidate_ids or not user_id:
+        raise HTTPException(status_code=400, detail="Missing candidate_ids or user_id")
+    
+    # Verify user exists
+    assigned_user = db.query(User).filter(User.id == user_id).first()
+    if not assigned_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Update candidates
+    updated_count = 0
+    for candidate_id in candidate_ids:
+        candidate = db.query(Candidate).filter(Candidate.id == candidate_id).first()
+        if candidate:
+            candidate.assigned_to_user_id = user_id
+            updated_count += 1
+    
+    db.commit()
+    return {"message": f"Successfully assigned {updated_count} candidates to {assigned_user.full_name}", "updated_count": updated_count}
+
 @router.post("/send-email")
 def send_email(
     email_data: dict,

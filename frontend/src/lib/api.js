@@ -230,6 +230,16 @@ class ApiClient {
     return this.request('/candidates/assigned/me')
   }
 
+  async bulkAssignCandidates(candidateIds, userId) {
+    return this.request('/candidates/bulk-assign', {
+      method: 'POST',
+      body: JSON.stringify({
+        candidate_ids: candidateIds,
+        user_id: userId
+      }),
+    })
+  }
+
   async deleteCandidate(id) {
     return this.request(`/candidates/${id}`, { method: 'DELETE' })
   }

@@ -49,6 +49,10 @@ export default function Resumes() {
   const [aiAnalysis, setAiAnalysis] = useState(null)
   const [analysisLoading, setAnalysisLoading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState({ show: false, current: 0, total: 0, status: 'uploading' })
+  const [selectedCandidates, setSelectedCandidates] = useState([])
+  const [users, setUsers] = useState([])
+  const [selectedUser, setSelectedUser] = useState('')
+  const [assigning, setAssigning] = useState(false)
 
   // Load minimum passing score from localStorage
   useEffect(() => {
@@ -116,9 +120,10 @@ export default function Resumes() {
     const fetchData = async () => {
       try {
         console.log('Fetching candidates and jobs...')
-        const [candidatesData, jobsData] = await Promise.all([
+        const [candidatesData, jobsData, usersData] = await Promise.all([
           api.getCandidates(),
-          api.getJobs()
+          api.getJobs(),
+          api.getPublicUsers()
         ])
         console.log('Jobs data received:', jobsData)
         console.log('Jobs count:', jobsData?.length)
@@ -127,12 +132,14 @@ export default function Resumes() {
         const activeJobs = (jobsData || []).filter(job => job.is_active)
         console.log('Active jobs:', activeJobs)
         setJobs(activeJobs)  // Only active jobs for uploader
+        setUsers(usersData || [])
       } catch (error) {
         console.error('Failed to fetch data:', error)
         console.error('Error details:', error.message, error.stack)
         setCandidates([])
         setJobs([])
         setAllJobs([])
+        setUsers([])
       } finally {
         setLoading(false)
       }
@@ -573,6 +580,58 @@ export default function Resumes() {
         </CardContent>
       </Card>
 
+      {/* Assignment Bar */}
+      {selectedCandidates.length > 0 && (
+        <Card className="bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-4">
+              <span className="font-medium">{selectedCandidates.length} selected</span>
+              <select
+                className="flex h-10 rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                value={selectedUser}
+                onChange={(e) => setSelectedUser(e.target.value)}
+              >
+                <option value="">Select User to Assign</option>
+                {users.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.full_name} ({user.role})
+                  </option>
+                ))}
+              </select>
+              <Button
+                onClick={async () => {
+                  if (!selectedUser) {
+                    alert('Please select a user')
+                    return
+                  }
+                  setAssigning(true)
+                  try {
+                    const result = await api.bulkAssignCandidates(selectedCandidates, parseInt(selectedUser))
+                    alert(result.message)
+                    setSelectedCandidates([])
+                    setSelectedUser('')
+                    await fetchCandidates()
+                  } catch (error) {
+                    alert(`Assignment failed: ${error.message}`)
+                  } finally {
+                    setAssigning(false)
+                  }
+                }}
+                disabled={assigning || !selectedUser}
+              >
+                {assigning ? 'Assigning...' : 'Send'}
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => setSelectedCandidates([])}
+              >
+                Clear
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Filters */}
       <div className="flex gap-4 items-center">
         <div className="relative flex-1 max-w-md">
@@ -723,6 +782,20 @@ export default function Resumes() {
             <table className="w-full">
               <thead>
                 <tr className="border-b bg-muted/50">
+                  <th className="text-left p-4 font-medium w-12">
+                    <input
+                      type="checkbox"
+                      checked={selectedCandidates.length === candidates.length && candidates.length > 0}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedCandidates(candidates.map(c => c.id))
+                        } else {
+                          setSelectedCandidates([])
+                        }
+                      }}
+                      className="w-4 h-4"
+                    />
+                  </th>
                   <th className="text-left p-4 font-medium">Candidate</th>
                   <th className="text-left p-4 font-medium">Job</th>
                   <th className="text-left p-4 font-medium">Score</th>
@@ -735,6 +808,20 @@ export default function Resumes() {
               <tbody>
                 {candidates.map((candidate) => (
                   <tr key={candidate.id} className="border-b hover:bg-muted/50 transition-colors cursor-pointer" onClick={() => handleViewCandidate(candidate)}>
+                    <td className="p-4" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={selectedCandidates.includes(candidate.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedCandidates([...selectedCandidates, candidate.id])
+                          } else {
+                            setSelectedCandidates(selectedCandidates.filter(id => id !== candidate.id))
+                          }
+                        }}
+                        className="w-4 h-4"
+                      />
+                    </td>
                     <td className="p-4" onClick={(e) => e.stopPropagation()}>
                       {editingCandidate?.id === candidate.id ? (
                         <div className="space-y-2">

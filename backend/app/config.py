@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     DEBUG: bool = True
     
     # Database
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:////data/app.db")
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./app.db")  # Keep old path for now
     
     # JWT
     SECRET_KEY: str = "your-secret-key-min-32-characters-long-change-this-in-production"
