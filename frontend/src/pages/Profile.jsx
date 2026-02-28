@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '@/context/AuthContext'
 import { api } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -6,7 +6,14 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
-import { User, Mail, Phone, Building2, FileText, Camera, Save } from 'lucide-react'
+import { User, Mail, Phone, Building2, FileText, Camera, Save, Upload, X } from 'lucide-react'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 
 export default function Profile() {
   const { user } = useAuth()
@@ -20,6 +27,11 @@ export default function Profile() {
   const [avatarFile, setAvatarFile] = useState(null)
   const [avatarPreview, setAvatarPreview] = useState(null)
   const [loading, setLoading] = useState(false)
+  const [showCameraDialog, setShowCameraDialog] = useState(false)
+  const [cameraStream, setCameraStream] = useState(null)
+  const videoRef = useRef(null)
+  const canvasRef = useRef(null)
+  const fileInputRef = useRef(null)
 
   useEffect(() => {
     if (user) {
@@ -35,6 +47,52 @@ export default function Profile() {
       }
     }
   }, [user])
+
+  useEffect(() => {
+    return () => {
+      if (cameraStream) {
+        cameraStream.getTracks().forEach(track => track.stop())
+      }
+    }
+  }, [cameraStream])
+
+  const startCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } })
+      setCameraStream(stream)
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream
+      }
+      setShowCameraDialog(true)
+    } catch (error) {
+      alert('Unable to access camera. Please check permissions.')
+    }
+  }
+
+  const stopCamera = () => {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(track => track.stop())
+      setCameraStream(null)
+    }
+    setShowCameraDialog(false)
+  }
+
+  const capturePhoto = () => {
+    if (videoRef.current && canvasRef.current) {
+      const video = videoRef.current
+      const canvas = canvasRef.current
+      canvas.width = video.videoWidth
+      canvas.height = video.videoHeight
+      canvas.getContext('2d').drawImage(video, 0, 0)
+      
+      canvas.toBlob((blob) => {
+        const file = new File([blob], 'camera-photo.jpg', { type: 'image/jpeg' })
+        setAvatarFile(file)
+        setAvatarPreview(canvas.toDataURL('image/jpeg'))
+        stopCamera()
+      }, 'image/jpeg', 0.95)
+    }
+  }
 
   const handleAvatarChange = (e) => {
     const file = e.target.files[0]
@@ -113,24 +171,36 @@ export default function Profile() {
                   <User className="h-12 w-12 text-primary" />
                 </div>
               )}
-              <label
-                htmlFor="avatar-upload"
-                className="absolute bottom-0 right-0 p-2 bg-primary text-primary-foreground rounded-full cursor-pointer hover:bg-primary/90"
-              >
-                <Camera className="h-4 w-4" />
-                <input
-                  id="avatar-upload"
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={handleAvatarChange}
-                />
-              </label>
             </div>
-            <div className="flex-1">
-              <p className="text-sm text-muted-foreground mb-2">
-                Recommended: Square image, at least 200x200px
+            <div className="flex-1 space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Upload or capture a profile picture
               </p>
+              <div className="flex gap-2">
+                <Button
+                  onClick={() => fileInputRef.current?.click()}
+                  variant="outline"
+                  size="sm"
+                >
+                  <Upload className="h-4 w-4 mr-2" />
+                  Choose File
+                </Button>
+                <Button
+                  onClick={startCamera}
+                  variant="outline"
+                  size="sm"
+                >
+                  <Camera className="h-4 w-4 mr-2" />
+                  Take Photo
+                </Button>
+              </div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleAvatarChange}
+              />
               {avatarFile && (
                 <Button onClick={handleAvatarUpload} disabled={loading} size="sm">
                   <Save className="h-4 w-4 mr-2" />
@@ -224,6 +294,39 @@ export default function Profile() {
           </Button>
         </CardContent>
       </Card>
+
+      {/* Camera Dialog */}
+      <Dialog open={showCameraDialog} onOpenChange={stopCamera}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Take a Photo</DialogTitle>
+            <DialogDescription>
+              Position yourself in the frame and click capture
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="relative bg-black rounded-lg overflow-hidden">
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                className="w-full h-auto"
+              />
+            </div>
+            <canvas ref={canvasRef} className="hidden" />
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={stopCamera}>
+                <X className="h-4 w-4 mr-2" />
+                Cancel
+              </Button>
+              <Button onClick={capturePhoto}>
+                <Camera className="h-4 w-4 mr-2" />
+                Capture
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
