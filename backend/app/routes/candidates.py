@@ -1862,10 +1862,12 @@ def get_pipeline_stages(
     current_user: User = Depends(get_current_active_user)
 ):
     """Get candidates grouped by stage for Kanban board"""
-    from app.models import JobDescription
+    from app.models import JobDescription, UserRole
     stages = {}
     for stage in CandidateStage:
         query = db.query(Candidate).filter(Candidate.stage == stage)
+        if current_user.role != UserRole.ADMIN:
+            query = query.filter(Candidate.assigned_to_user_id == current_user.id)
         if client:
             query = query.join(JobDescription).filter(JobDescription.company_name == client)
         candidates = query.all()

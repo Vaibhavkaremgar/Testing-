@@ -34,6 +34,7 @@ def get_jobs(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
+    from app.models import UserRole
     query = db.query(JobDescription)
     
     if is_active is not None:
@@ -51,9 +52,16 @@ def get_jobs(
     # Add candidate count to each job
     result = []
     for job in jobs:
-        candidate_count = db.query(func.count(Candidate.id)).filter(
+        candidate_query = db.query(func.count(Candidate.id)).filter(
             Candidate.job_id == job.id
-        ).scalar()
+        )
+        if current_user.role != UserRole.ADMIN:
+            candidate_query = candidate_query.filter(Candidate.assigned_to_user_id == current_user.id)
+        candidate_count = candidate_query.scalar()
+        
+        # Skip jobs with no assigned candidates for non-admin users
+        if current_user.role != UserRole.ADMIN and candidate_count == 0:
+            continue
         
         job_dict = {
             "id": job.id,
@@ -85,13 +93,17 @@ def get_job(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
+    from app.models import UserRole
     job = db.query(JobDescription).filter(JobDescription.id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     
-    candidate_count = db.query(func.count(Candidate.id)).filter(
+    candidate_query = db.query(func.count(Candidate.id)).filter(
         Candidate.job_id == job.id
-    ).scalar()
+    )
+    if current_user.role != UserRole.ADMIN:
+        candidate_query = candidate_query.filter(Candidate.assigned_to_user_id == current_user.id)
+    candidate_count = candidate_query.scalar()
     
     job_dict = {
         "id": job.id,

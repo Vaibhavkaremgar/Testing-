@@ -150,7 +150,11 @@ def get_hiring_funnel(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
+    from app.models import UserRole
     query = db.query(Candidate)
+    
+    if current_user.role != UserRole.ADMIN:
+        query = query.filter(Candidate.assigned_to_user_id == current_user.id)
     
     # Apply client filter if provided
     if client:
@@ -515,7 +519,7 @@ def get_active_jobs(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    from app.models import JobDescription
+    from app.models import JobDescription, UserRole
     from sqlalchemy import func, case
     
     jobs = db.query(JobDescription).filter(JobDescription.is_active == True).all()
@@ -523,15 +527,25 @@ def get_active_jobs(
     result = []
     for job in jobs:
         # Count candidates for this job (EXCLUDING APPLIED stage)
-        total_candidates = db.query(func.count(Candidate.id)).filter(
+        candidate_query = db.query(func.count(Candidate.id)).filter(
             Candidate.job_id == job.id,
             Candidate.stage != CandidateStage.APPLIED
-        ).scalar() or 0
+        )
+        if current_user.role != UserRole.ADMIN:
+            candidate_query = candidate_query.filter(Candidate.assigned_to_user_id == current_user.id)
+        total_candidates = candidate_query.scalar() or 0
         
-        selected = db.query(func.count(Candidate.id)).filter(
+        # Skip jobs with no assigned candidates for non-admin users
+        if current_user.role != UserRole.ADMIN and total_candidates == 0:
+            continue
+        
+        selected_query = db.query(func.count(Candidate.id)).filter(
             Candidate.job_id == job.id,
             Candidate.stage == CandidateStage.SHORTLISTED
-        ).scalar() or 0
+        )
+        if current_user.role != UserRole.ADMIN:
+            selected_query = selected_query.filter(Candidate.assigned_to_user_id == current_user.id)
+        selected = selected_query.scalar() or 0
         
         # Determine status
         status = 'open'
@@ -558,16 +572,24 @@ def get_upcoming_interviews(
     current_user: User = Depends(get_current_active_user)
 ):
     from datetime import datetime, timedelta
+    from app.models import UserRole
     
     # Get interviews scheduled for next 7 days
     today = datetime.now()
     next_week = today + timedelta(days=7)
     
-    interviews = db.query(Interview).filter(
+    interview_query = db.query(Interview).filter(
         Interview.scheduled_at >= today,
         Interview.scheduled_at <= next_week,
         Interview.status == 'scheduled'
-    ).order_by(Interview.scheduled_at).limit(10).all()
+    )
+    
+    if current_user.role != UserRole.ADMIN:
+        interview_query = interview_query.join(Candidate).filter(
+            Candidate.assigned_to_user_id == current_user.id
+        )
+    
+    interviews = interview_query.order_by(Interview.scheduled_at).limit(10).all()
     
     result = []
     for interview in interviews:
