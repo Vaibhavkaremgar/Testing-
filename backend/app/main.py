@@ -11,77 +11,12 @@ from app.seed import seed_database
 
 # Run migrations BEFORE creating tables
 def run_migrations():
-    """Add missing columns to Railway database"""
-    # TEMPORARILY DISABLED - causing crashes
-    print("⚠️ Migrations temporarily disabled")
-    return
-    
-    # Check both local and Railway database paths
-    db_paths = ["talentai.db", "/data/app.db"]
-    db_path = None
-    
-    for path in db_paths:
-        if os.path.exists(path):
-            db_path = path
-            break
-    
-    if not db_path:
-        print("⚠️ No database found, will create new one")
-        return
-    
-    print(f"🔧 Running migrations on {db_path}...")
-    
+    """Add missing columns to database"""
+    from app.migrations import run_migrations as run_auto_migrations
     try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        
-        # Add missing interview columns to candidates table
-        cursor.execute("PRAGMA table_info(candidates)")
-        columns = [col[1] for col in cursor.fetchall()]
-        
-        missing_cols = [
-            ('interview_video_url', 'VARCHAR(500)'),
-            ('interview_transcript', 'TEXT'),
-            ('interview_ai_summary', 'TEXT'),
-            ('interview_technical_score', 'FLOAT'),
-            ('interview_communication_score', 'FLOAT'),
-            ('interview_culture_fit_score', 'FLOAT')
-        ]
-        
-        for col_name, col_type in missing_cols:
-            if col_name not in columns:
-                try:
-                    cursor.execute(f"ALTER TABLE candidates ADD COLUMN {col_name} {col_type}")
-                    print(f"✅ Added {col_name} column")
-                except Exception as e:
-                    print(f"⚠️ Could not add {col_name}: {e}")
-        
-        # Add user profile columns
-        cursor.execute("PRAGMA table_info(users)")
-        user_columns = [col[1] for col in cursor.fetchall()]
-        
-        user_cols = [
-            ('phone', 'VARCHAR(50)'),
-            ('department', 'VARCHAR(255)'),
-            ('bio', 'TEXT'),
-            ('avatar_url', 'VARCHAR(500)')
-        ]
-        
-        for col_name, col_type in user_cols:
-            if col_name not in user_columns:
-                try:
-                    cursor.execute(f"ALTER TABLE users ADD COLUMN {col_name} {col_type}")
-                    print(f"✅ Added {col_name} to users")
-                except Exception as e:
-                    print(f"⚠️ Could not add {col_name}: {e}")
-        
-        conn.commit()
-        conn.close()
-        print("✅ Migration complete")
+        run_auto_migrations()
     except Exception as e:
-        print(f"❌ Migration error: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"⚠️ Migration warning: {e}")
 
 run_migrations()
 
