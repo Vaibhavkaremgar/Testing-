@@ -8,6 +8,7 @@ import { useAuth } from '@/context/AuthContext'
 import { cn, formatDate } from '@/lib/utils'
 import { Eye } from 'lucide-react'
 
+// User Resumes Page - Shows assigned candidates for review
 export default function MyAssignments() {
   const { user } = useAuth()
   const [candidates, setCandidates] = useState([])
