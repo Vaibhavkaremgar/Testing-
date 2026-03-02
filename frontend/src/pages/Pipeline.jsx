@@ -5,6 +5,8 @@ import { Badge } from '@/components/ui/badge'
 import { api } from '@/lib/api'
 import { cn, getScoreColor } from '@/lib/utils'
 import { Briefcase, Star } from 'lucide-react'
+import { DndContext, DragOverlay, closestCorners, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
+import { useToast } from '@/hooks/use-toast'
 
 const STAGES = [
   { id: 'SHORTLISTED', label: 'Shortlisted', color: 'bg-green-500' },
@@ -17,7 +19,7 @@ const STAGES = [
   { id: 'REJECTED', label: 'Rejected', color: 'bg-red-600' },
 ]
 
-function CandidateCard({ candidate, onCardClick, isShortlisted }) {
+function CandidateCard({ candidate, onCardClick, isShortlisted, isDragging }) {
   const calculateDaysInStage = (stageEnteredAt) => {
     if (!stageEnteredAt) return null
     const entered = new Date(stageEnteredAt)
@@ -41,7 +43,13 @@ function CandidateCard({ candidate, onCardClick, isShortlisted }) {
   const isRejected = candidate.stage === 'REJECTED'
 
   return (
-    <Card className="transition-shadow" onClick={() => onCardClick && onCardClick(candidate)}>
+    <Card 
+      className={cn(
+        "transition-shadow cursor-grab active:cursor-grabbing",
+        isDragging && "opacity-50"
+      )} 
+      onClick={() => onCardClick && onCardClick(candidate)}
+    >
       <CardContent className="p-3">
         <div className="flex items-start gap-2">
           <div className="flex-1 min-w-0">
@@ -89,7 +97,7 @@ function CandidateCard({ candidate, onCardClick, isShortlisted }) {
   )
 }
 
-function StageColumn({ stage, candidates, onCardClick }) {
+function StageColumn({ stage, candidates, onCardClick, isOver }) {
   const isShortlisted = stage.id === 'SHORTLISTED'
   
   return (
@@ -101,10 +109,29 @@ function StageColumn({ stage, candidates, onCardClick }) {
           {candidates.length}
         </Badge>
       </div>
-      <div className="flex-1 bg-muted/50 rounded-xl p-2 min-h-[500px]">
+      <div 
+        className={cn(
+          "flex-1 bg-muted/50 rounded-xl p-2 min-h-[500px] transition-colors",
+          isOver && "bg-primary/10 ring-2 ring-primary"
+        )}
+      >
         <div className="space-y-2">
           {candidates.map((candidate) => (
-            <CandidateCard key={candidate.id} candidate={candidate} onCardClick={onCardClick} isShortlisted={isShortlisted} />
+            <div
+              key={candidate.id}
+              draggable
+              onDragStart={(e) => {
+                e.dataTransfer.effectAllowed = 'move'
+                e.dataTransfer.setData('candidateId', candidate.id)
+                e.dataTransfer.setData('fromStage', stage.id)
+              }}
+            >
+              <CandidateCard 
+                candidate={candidate} 
+                onCardClick={onCardClick} 
+                isShortlisted={isShortlisted}
+              />
+            </div>
           ))}
         </div>
         {candidates.length === 0 && (
@@ -122,6 +149,8 @@ export default function Pipeline() {
   const selectedClient = searchParams.get('client')
   const [stages, setStages] = useState({})
   const [loading, setLoading] = useState(true)
+  const [dragOverStage, setDragOverStage] = useState(null)
+  const { toast } = useToast()
 
   useEffect(() => {
     const fetchPipeline = async () => {
@@ -143,6 +172,53 @@ export default function Pipeline() {
     // No special click handling needed
   }
 
+  const handleDrop = async (e, toStage) => {
+    e.preventDefault()
+    setDragOverStage(null)
+    
+    const candidateId = e.dataTransfer.getData('candidateId')
+    const fromStage = e.dataTransfer.getData('fromStage')
+    
+    if (!candidateId || fromStage === toStage) return
+    
+    try {
+      await api.updateCandidateStage(candidateId, toStage)
+      
+      // Update local state
+      setStages(prev => {
+        const candidate = prev[fromStage]?.find(c => c.id === parseInt(candidateId))
+        if (!candidate) return prev
+        
+        return {
+          ...prev,
+          [fromStage]: prev[fromStage].filter(c => c.id !== parseInt(candidateId)),
+          [toStage]: [...(prev[toStage] || []), { ...candidate, stage: toStage }]
+        }
+      })
+      
+      toast({
+        title: 'Success',
+        description: 'Candidate stage updated successfully',
+      })
+    } catch (error) {
+      console.error('Failed to update stage:', error)
+      toast({
+        title: 'Error',
+        description: 'Failed to update candidate stage',
+        variant: 'destructive',
+      })
+    }
+  }
+
+  const handleDragOver = (e, stageId) => {
+    e.preventDefault()
+    setDragOverStage(stageId)
+  }
+
+  const handleDragLeave = () => {
+    setDragOverStage(null)
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -161,12 +237,19 @@ export default function Pipeline() {
       <div className="flex-1 overflow-x-auto pb-4">
         <div className="flex gap-4 h-full min-w-max">
           {STAGES.map((stage) => (
-            <StageColumn
+            <div
               key={stage.id}
-              stage={stage}
-              candidates={stages[stage.id] || []}
-              onCardClick={handleCardClick}
-            />
+              onDrop={(e) => handleDrop(e, stage.id)}
+              onDragOver={(e) => handleDragOver(e, stage.id)}
+              onDragLeave={handleDragLeave}
+            >
+              <StageColumn
+                stage={stage}
+                candidates={stages[stage.id] || []}
+                onCardClick={handleCardClick}
+                isOver={dragOverStage === stage.id}
+              />
+            </div>
           ))}
         </div>
       </div>
