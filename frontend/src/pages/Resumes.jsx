@@ -890,24 +890,10 @@ export default function Resumes() {
                       )}
                     </td>
                     <td className="p-4">
-                      {candidate.stage === 'APPLIED' ? (
-                        <Badge className="bg-gray-500">Applied</Badge>
-                      ) : candidate.stage === 'SHORTLISTED' ? (
-                        <Badge className="bg-green-500">Shortlisted</Badge>
-                      ) : candidate.stage === 'RESUME_REJECTED' ? (
-                        <Badge className="bg-red-400">Resume Rejected</Badge>
-                      ) : candidate.stage === 'INTERVIEW_SCHEDULED' ? (
-                        <Badge className="bg-blue-500">Interview Scheduled</Badge>
-                      ) : candidate.stage === 'INTERVIEW_RESCHEDULED' ? (
-                        <Badge className="bg-yellow-500">Interview Rescheduled</Badge>
-                      ) : candidate.stage === 'INTERVIEWED' ? (
-                        <Badge className="bg-purple-500">Interviewed</Badge>
-                      ) : candidate.stage === 'NO_SHOW' ? (
-                        <Badge className="bg-orange-500">No Show</Badge>
-                      ) : candidate.stage === 'SELECTED' ? (
-                        <Badge className="bg-emerald-500">Selected</Badge>
-                      ) : candidate.stage === 'REJECTED' ? (
-                        <Badge className="bg-red-600">Rejected</Badge>
+                      {candidate.resume_score !== null && candidate.resume_score !== undefined ? (
+                        <span className="text-sm font-medium">
+                          {candidate.resume_score >= (jobScores[candidate.job_id] || 60) ? 'Shortlisted' : 'Rejected'}
+                        </span>
                       ) : (
                         <span className="text-muted-foreground">-</span>
                       )}
