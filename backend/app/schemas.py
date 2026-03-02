@@ -66,6 +66,7 @@ class JobDescriptionBase(BaseModel):
     experience_required: Optional[str] = None
     salary_range: Optional[str] = None
     vacancies: Optional[int] = 1
+    min_passing_score: Optional[int] = 60
     description: Optional[str] = None
     requirements: Optional[str] = None
     responsibilities: Optional[str] = None

@@ -27,6 +27,7 @@ export default function Jobs() {
     experience_required: '',
     salary_range: '',
     vacancies: 1,
+    min_passing_score: 60,
     description: '',
     requirements: '',
     skills: '',
@@ -76,7 +77,7 @@ export default function Jobs() {
       setEditingJob(null)
       setFormData({
         title: '', job_id: '', company_name: '', department: '', location: '', employment_type: 'Full-time',
-        experience_required: '', salary_range: '', vacancies: 1, description: '', requirements: '', skills: '',
+        experience_required: '', salary_range: '', vacancies: 1, min_passing_score: 60, description: '', requirements: '', skills: '',
         interview_questions: []
       })
       await fetchJobs()
@@ -98,6 +99,7 @@ export default function Jobs() {
       experience_required: job.experience_required || '',
       salary_range: job.salary_range || '',
       vacancies: job.vacancies || 1,
+      min_passing_score: job.min_passing_score || 60,
       description: job.description || '',
       requirements: job.requirements || '',
       skills: job.skills?.join(', ') || '',
@@ -157,7 +159,7 @@ export default function Jobs() {
   const resetForm = () => {
     setFormData({
       title: '', job_id: '', company_name: '', department: '', location: '', employment_type: 'Full-time',
-      experience_required: '', salary_range: '', vacancies: 1, description: '', requirements: '', skills: '',
+      experience_required: '', salary_range: '', vacancies: 1, min_passing_score: 60, description: '', requirements: '', skills: '',
       interview_questions: []
     })
     setInputMethod('manual')
@@ -341,6 +343,17 @@ export default function Jobs() {
                     value={formData.vacancies}
                     onChange={(e) => setFormData({ ...formData, vacancies: parseInt(e.target.value) || 1 })}
                     placeholder="Number of positions"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Minimum Passing Score</label>
+                  <Input
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={formData.min_passing_score}
+                    onChange={(e) => setFormData({ ...formData, min_passing_score: parseInt(e.target.value) || 60 })}
+                    placeholder="Resume score threshold"
                   />
                 </div>
               </div>

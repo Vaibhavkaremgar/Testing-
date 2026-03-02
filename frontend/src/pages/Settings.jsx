@@ -162,41 +162,7 @@ export default function Settings() {
         </CardContent>
       </Card>
 
-      {/* Resume Scoring */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-primary/10">
-              <Target className="h-5 w-5 text-primary" />
-            </div>
-            <div>
-              <CardTitle className="text-base">Resume Scoring</CardTitle>
-              <CardDescription>Adjust AI resume scoring parameters</CardDescription>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="space-y-2">
-            <Label>Minimum Passing Score</Label>
-            <div className="flex items-center gap-4">
-              <Input
-                type="number"
-                min="0"
-                max="100"
-                value={scoreSettings.minPassingScore}
-                onChange={(e) => setScoreSettings({...scoreSettings, minPassingScore: parseInt(e.target.value)})}
-                className="w-20"
-              />
-              <span className="text-sm text-muted-foreground">out of 100</span>
-            </div>
-          </div>
-          
-          <Button onClick={handleScoreSettingsUpdate}>
-            <Save className="h-4 w-4 mr-2" />
-            Save Scoring Settings
-          </Button>
-        </CardContent>
-      </Card>
+      {/* Resume Scoring - REMOVED */}
 
       {/* Appearance */}
       <Card>

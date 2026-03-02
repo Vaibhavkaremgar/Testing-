@@ -65,6 +65,7 @@ class JobDescription(Base):
     experience_required = Column(String(100))
     salary_range = Column(String(100))
     vacancies = Column(Integer, default=1)  # Number of open positions
+    min_passing_score = Column(Integer, default=60)  # Minimum resume score to pass
     description = Column(Text)
     requirements = Column(Text)
     responsibilities = Column(Text)

@@ -44,6 +44,7 @@ export default function Resumes() {
   const [selectedCandidate, setSelectedCandidate] = useState(null)
   const [candidateJob, setCandidateJob] = useState(null)
   const [minPassingScore, setMinPassingScore] = useState(60)
+  const [jobScores, setJobScores] = useState({})
   const [syncing, setSyncing] = useState(false)
   const [viewingResume, setViewingResume] = useState(null)
   const [resumeSummary, setResumeSummary] = useState(null)
@@ -56,32 +57,21 @@ export default function Resumes() {
   const [selectedUser, setSelectedUser] = useState('')
   const [assigning, setAssigning] = useState(false)
 
-  // Load minimum passing score from localStorage
+  // Load job-specific minimum passing scores
   useEffect(() => {
-    const savedScore = localStorage.getItem('minPassingScore')
-    if (savedScore) {
-      setMinPassingScore(parseInt(savedScore))
-    }
-
-    // Listen for localStorage changes (cross-tab)
-    const handleStorageChange = (e) => {
-      if (e.key === 'minPassingScore') {
-        setMinPassingScore(parseInt(e.newValue) || 60)
+    const fetchJobScores = async () => {
+      try {
+        const jobsData = await api.getJobs()
+        const scores = {}
+        jobsData.forEach(job => {
+          scores[job.id] = job.min_passing_score || 60
+        })
+        setJobScores(scores)
+      } catch (error) {
+        console.error('Failed to fetch job scores:', error)
       }
     }
-
-    // Listen for custom events (same page)
-    const handleScoreChange = (e) => {
-      setMinPassingScore(e.detail.newScore)
-    }
-
-    window.addEventListener('storage', handleStorageChange)
-    window.addEventListener('minPassingScoreChanged', handleScoreChange)
-    
-    return () => {
-      window.removeEventListener('storage', handleStorageChange)
-      window.removeEventListener('minPassingScoreChanged', handleScoreChange)
-    }
+    fetchJobScores()
   }, [])
 
   const fetchCandidates = useCallback(async () => {
@@ -884,7 +874,9 @@ export default function Resumes() {
                     <td className="p-4">
                       {candidate.resume_score !== null && candidate.resume_score !== undefined ? (
                         <div className="flex items-center gap-2">
-                          <span className={cn('font-semibold', candidate.resume_score >= 80 ? 'text-green-600' : candidate.resume_score >= 60 ? 'text-yellow-600' : 'text-red-600')}>
+                          <span className={cn('font-semibold', 
+                            candidate.resume_score >= (jobScores[candidate.job_id] || 60) ? 'text-green-600' : 'text-red-600'
+                          )}>
                             {candidate.resume_score}
                           </span>
                           <Progress value={candidate.resume_score} className="w-16 h-2" />
