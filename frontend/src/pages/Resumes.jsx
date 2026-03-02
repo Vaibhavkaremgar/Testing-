@@ -1117,7 +1117,7 @@ export default function Resumes() {
                 )}
               </div>
 
-              {/* Send Interview Invitation Button */}
+              {/* Action Buttons */}
               <div className="pt-4 border-t">
                 <div className="flex gap-3">
                   <Button 
@@ -1145,6 +1145,33 @@ export default function Resumes() {
                     }}
                   >
                     Send Interview Invitation
+                  </Button>
+                  <Button 
+                    variant="outline"
+                    className="flex-1"
+                    onClick={async () => {
+                      try {
+                        await api.updateCandidateStage(selectedCandidate.id, 'INTERVIEW_RESCHEDULED')
+                        await fetchCandidates()
+                        const result = await api.sendEmail(
+                          selectedCandidate.id,
+                          'interview_reschedule',
+                          'Interview Reschedule Request',
+                          `Dear ${selectedCandidate.name},\n\nWe need to reschedule your interview for the position${candidateJob ? ` of ${candidateJob.title}` : ''}.\n\nPlease reply with your available time slots and we will confirm a new interview time.\n\nWe apologize for any inconvenience.\n\nBest regards,\nRecruitment Team`
+                        )
+                        if (result.success) {
+                          alert(`Reschedule request sent to ${selectedCandidate.email}`)
+                        } else {
+                          alert(`Email sent but status updated`)
+                        }
+                        handleCloseModal()
+                      } catch (error) {
+                        console.error('Error:', error)
+                        alert(`Failed: ${error.message}`)
+                      }
+                    }}
+                  >
+                    Interview Reschedule
                   </Button>
                   <Button 
                     variant="destructive"
