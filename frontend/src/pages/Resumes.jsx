@@ -9,7 +9,7 @@ import { api } from '@/lib/api'
 import { useAuth } from '@/context/AuthContext'
 import { cn, formatDate, getScoreColor, getStageColor, formatStage } from '@/lib/utils'
 import {
-  Upload, FileText, Search, Filter, MoreHorizontal, Edit, CheckCircle, Clock, AlertCircle, Trash2, Sheet, Eye, X, Calendar
+  Upload, FileText, Search, Filter, MoreHorizontal, Edit, CheckCircle, Clock, AlertCircle, Trash2, Sheet, Eye, X
 } from 'lucide-react'
 import {
   DropdownMenu,
@@ -333,16 +333,7 @@ export default function Resumes() {
     }
   }
 
-  const handleRescheduleInterview = async (candidateId) => {
-    try {
-      await api.updateCandidateStage(candidateId, 'INTERVIEW_RESCHEDULED')
-      await fetchCandidates()
-      alert('Interview rescheduled successfully')
-    } catch (error) {
-      console.error('Failed to reschedule interview:', error)
-      setError(`Failed to reschedule interview: ${error.message}`)
-    }
-  }
+
 
   const handleViewCandidate = async (candidate) => {
     setSelectedCandidate(candidate)
@@ -914,9 +905,6 @@ export default function Resumes() {
                             </Button>
                             <Button variant="ghost" size="icon" onClick={() => handleEdit(candidate)} title="Edit">
                               <Edit className="h-4 w-4" />
-                            </Button>
-                            <Button variant="ghost" size="icon" onClick={() => handleRescheduleInterview(candidate.id)} title="Interview Reschedule">
-                              <Calendar className="h-4 w-4 text-yellow-600" />
                             </Button>
                             <Button variant="ghost" size="icon" onClick={() => handleDelete(candidate.id)} title="Delete">
                               <Trash2 className="h-4 w-4 text-destructive" />
