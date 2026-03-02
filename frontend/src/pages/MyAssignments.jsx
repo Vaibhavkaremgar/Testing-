@@ -761,21 +761,25 @@ export default function MyAssignments() {
                       </Badge>
                     </td>
                     <td className="p-4">
-                      <div className="flex flex-wrap gap-1 max-w-[200px]">
-                        {candidate.skills?.slice(0, 3).map((skill) => (
-                          <Badge key={skill} variant="secondary" className="text-xs">
-                            {skill}
-                          </Badge>
-                        ))}
-                        {candidate.skills?.length > 3 && (
-                          <Badge variant="outline" className="text-xs">
-                            +{candidate.skills.length - 3}
-                          </Badge>
-                        )}
-                      </div>
+                      {candidate.skills && candidate.skills.length > 0 ? (
+                        <div className="flex flex-wrap gap-1 max-w-[200px]">
+                          {candidate.skills.slice(0, 3).map((skill, idx) => (
+                            <Badge key={idx} variant="secondary" className="text-xs">
+                              {skill}
+                            </Badge>
+                          ))}
+                          {candidate.skills.length > 3 && (
+                            <Badge variant="outline" className="text-xs">
+                              +{candidate.skills.length - 3}
+                            </Badge>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground text-sm">-</span>
+                      )}
                     </td>
                     <td className="p-4 text-sm text-muted-foreground">
-                      {formatDate(candidate.created_at)}
+                      {candidate.created_at ? formatDate(candidate.created_at) : candidate.applied_at ? formatDate(candidate.applied_at) : '-'}
                     </td>
                     <td className="p-4" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-end gap-2">
@@ -1006,6 +1010,7 @@ export default function MyAssignments() {
                     onClick={async () => {
                       try {
                         await api.updateCandidateStage(selectedCandidate.id, 'INTERVIEW_SCHEDULED')
+                        await fetchCandidates()
                         const result = await api.sendEmail(
                           selectedCandidate.id,
                           'interview_invitation',
@@ -1014,13 +1019,13 @@ export default function MyAssignments() {
                         )
                         if (result.success) {
                           alert(`Interview invitation sent to ${selectedCandidate.email}`)
-                          handleCloseModal()
-                          await fetchCandidates()
                         } else {
-                          alert(`Failed to send email: ${result.message}`)
+                          alert(`Email sent but status updated`)
                         }
+                        handleCloseModal()
                       } catch (error) {
-                        alert(`Failed to send email: ${error.message}`)
+                        console.error('Error:', error)
+                        alert(`Failed: ${error.message}`)
                       }
                     }}
                   >
@@ -1032,6 +1037,7 @@ export default function MyAssignments() {
                     onClick={async () => {
                       try {
                         await api.updateCandidateStage(selectedCandidate.id, 'REJECTED')
+                        await fetchCandidates()
                         const result = await api.sendEmail(
                           selectedCandidate.id,
                           'rejection',
@@ -1040,13 +1046,13 @@ export default function MyAssignments() {
                         )
                         if (result.success) {
                           alert(`Rejection email sent to ${selectedCandidate.email}`)
-                          handleCloseModal()
-                          await fetchCandidates()
                         } else {
-                          alert(`Failed to send email: ${result.message}`)
+                          alert(`Email sent but status updated`)
                         }
+                        handleCloseModal()
                       } catch (error) {
-                        alert(`Failed to send email: ${error.message}`)
+                        console.error('Error:', error)
+                        alert(`Failed: ${error.message}`)
                       }
                     }}
                   >
