@@ -9,7 +9,7 @@ import { api } from '@/lib/api'
 import { useAuth } from '@/context/AuthContext'
 import { cn, formatDate, getScoreColor, getStageColor, formatStage } from '@/lib/utils'
 import {
-  Upload, FileText, Search, Filter, MoreHorizontal, Edit, CheckCircle, Clock, AlertCircle, Trash2, Sheet, Eye, X, Calendar
+  Upload, FileText, Search, Filter, MoreHorizontal, Edit, CheckCircle, Clock, AlertCircle, Trash2, Sheet, Eye, X
 } from 'lucide-react'
 import {
   DropdownMenu,
@@ -20,7 +20,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 
-export default function MyAssignments() {
+export default function Resumes() {
   const [searchParams] = useSearchParams()
   const selectedClient = searchParams.get('client')
   const { user: currentUser } = useAuth()
@@ -52,6 +52,10 @@ export default function MyAssignments() {
   const [aiAnalysis, setAiAnalysis] = useState(null)
   const [analysisLoading, setAnalysisLoading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState({ show: false, current: 0, total: 0, status: 'uploading' })
+  const [selectedCandidates, setSelectedCandidates] = useState([])
+  const [users, setUsers] = useState([])
+  const [selectedUser, setSelectedUser] = useState('')
+  const [assigning, setAssigning] = useState(false)
 
   // Load job-specific minimum passing scores
   useEffect(() => {
@@ -76,7 +80,7 @@ export default function MyAssignments() {
 
   const fetchCandidates = useCallback(async () => {
     try {
-      const data = await api.getMyAssignedCandidates()
+      const data = await api.getCandidates({ search, client: selectedClient })
       let filteredData = (data || []).filter(c => c.stage !== 'APPLIED')
       
       if (jobFilter.length > 0) {
@@ -112,9 +116,10 @@ export default function MyAssignments() {
     const fetchData = async () => {
       try {
         console.log('Fetching candidates and jobs...')
-        const [candidatesData, jobsData] = await Promise.all([
-          api.getMyAssignedCandidates(),
-          api.getJobs()
+        const [candidatesData, jobsData, usersData] = await Promise.all([
+          api.getCandidates(),
+          api.getJobs(),
+          api.getPublicUsers()
         ])
         console.log('Jobs data received:', jobsData)
         console.log('Jobs count:', jobsData?.length)
@@ -122,13 +127,15 @@ export default function MyAssignments() {
         setAllJobs(jobsData || [])  // Store all jobs
         const activeJobs = (jobsData || []).filter(job => job.is_active)
         console.log('Active jobs:', activeJobs)
-        setJobs(activeJobs)
+        setJobs(activeJobs)  // Only active jobs for uploader
+        setUsers(usersData || [])
       } catch (error) {
         console.error('Failed to fetch data:', error)
         console.error('Error details:', error.message, error.stack)
         setCandidates([])
         setJobs([])
         setAllJobs([])
+        setUsers([])
       } finally {
         setLoading(false)
       }
@@ -289,6 +296,13 @@ export default function MyAssignments() {
       await api.updateCandidate(editingCandidate.id, editForm)
       setEditingCandidate(null)
       await fetchCandidates()
+      
+      // Auto-sync to sheets after update
+      try {
+        await api.syncCandidatesToSheets()
+      } catch (syncError) {
+        console.error('Auto-sync to sheets failed:', syncError)
+      }
     } catch (error) {
       console.error('Update failed:', error)
       setError(`Update failed: ${error.message}`)
@@ -305,21 +319,17 @@ export default function MyAssignments() {
       try {
         await api.deleteCandidate(id)
         await fetchCandidates()
+        
+        // Auto-sync to sheets after delete
+        try {
+          await api.syncCandidatesToSheets()
+        } catch (syncError) {
+          console.error('Auto-sync to sheets failed:', syncError)
+        }
       } catch (error) {
         console.error('Delete failed:', error)
         setError(`Delete failed: ${error.message}`)
       }
-    }
-  }
-
-  const handleRescheduleInterview = async (candidateId) => {
-    try {
-      await api.updateCandidateStage(candidateId, 'INTERVIEW_RESCHEDULED')
-      await fetchCandidates()
-      alert('Interview rescheduled successfully')
-    } catch (error) {
-      console.error('Failed to reschedule interview:', error)
-      setError(`Failed to reschedule interview: ${error.message}`)
     }
   }
 
@@ -467,8 +477,8 @@ export default function MyAssignments() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">My Resumes</h1>
-        <p className="text-muted-foreground">Review and manage assigned candidates</p>
+        <h1 className="text-2xl font-bold">Resume Management</h1>
+        <p className="text-muted-foreground">Upload and manage candidate resumes</p>
       </div>
 
       {/* Upload Section */}
@@ -568,6 +578,72 @@ export default function MyAssignments() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Assignment Bar */}
+      {selectedCandidates.length > 0 && currentUser?.role === 'admin' && (
+        <Card className="bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <span className="font-medium text-lg">{selectedCandidates.length}</span>
+                <span className="text-sm text-muted-foreground">candidate{selectedCandidates.length > 1 ? 's' : ''} selected</span>
+                {selectedCandidates.length > 20 && (
+                  <Badge variant="destructive" className="ml-2">Max 20 allowed</Badge>
+                )}
+              </div>
+              <select
+                className="flex h-10 rounded-lg border border-input bg-background px-3 py-2 text-sm min-w-[200px]"
+                value={selectedUser}
+                onChange={(e) => setSelectedUser(e.target.value)}
+              >
+                <option value="">Select User to Assign</option>
+                {users.map((user) => (
+                  <option key={user.id} value={user.id}>
+                    {user.full_name} ({user.role})
+                  </option>
+                ))}
+              </select>
+              <Button
+                onClick={async () => {
+                  if (!selectedUser) {
+                    alert('Please select a user to assign candidates')
+                    return
+                  }
+                  if (selectedCandidates.length > 20) {
+                    alert('You can only assign up to 20 candidates at a time')
+                    return
+                  }
+                  setAssigning(true)
+                  try {
+                    const result = await api.bulkAssignCandidates(selectedCandidates, parseInt(selectedUser))
+                    alert(result.message)
+                    setSelectedCandidates([])
+                    setSelectedUser('')
+                    await fetchCandidates()
+                  } catch (error) {
+                    alert(`Assignment failed: ${error.message}`)
+                  } finally {
+                    setAssigning(false)
+                  }
+                }}
+                disabled={assigning || !selectedUser || selectedCandidates.length > 20}
+                className="bg-primary hover:bg-primary/90"
+              >
+                {assigning ? 'Assigning...' : 'Send to User'}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setSelectedCandidates([])
+                  setSelectedUser('')
+                }}
+              >
+                Clear Selection
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Filters */}
       <div className="flex gap-4 items-center">
@@ -674,6 +750,20 @@ export default function MyAssignments() {
             <table className="w-full">
               <thead>
                 <tr className="border-b bg-muted/50">
+                  <th className="text-left p-4 font-medium w-12">
+                    <input
+                      type="checkbox"
+                      checked={selectedCandidates.length === candidates.length && candidates.length > 0}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedCandidates(candidates.map(c => c.id))
+                        } else {
+                          setSelectedCandidates([])
+                        }
+                      }}
+                      className="w-4 h-4"
+                    />
+                  </th>
                   <th className="text-left p-4 font-medium">Candidate</th>
                   <th className="text-left p-4 font-medium">Job</th>
                   <th className="text-left p-4 font-medium">Score</th>
@@ -686,6 +776,20 @@ export default function MyAssignments() {
               <tbody>
                 {candidates.map((candidate) => (
                   <tr key={candidate.id} className="border-b hover:bg-muted/50 transition-colors cursor-pointer" onClick={() => handleViewCandidate(candidate)}>
+                    <td className="p-4" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={selectedCandidates.includes(candidate.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedCandidates([...selectedCandidates, candidate.id])
+                          } else {
+                            setSelectedCandidates(selectedCandidates.filter(id => id !== candidate.id))
+                          }
+                        }}
+                        className="w-4 h-4"
+                      />
+                    </td>
                     <td className="p-4" onClick={(e) => e.stopPropagation()}>
                       {editingCandidate?.id === candidate.id ? (
                         <div className="space-y-2">
@@ -761,25 +865,21 @@ export default function MyAssignments() {
                       </Badge>
                     </td>
                     <td className="p-4">
-                      {candidate.skills && candidate.skills.length > 0 ? (
-                        <div className="flex flex-wrap gap-1 max-w-[200px]">
-                          {candidate.skills.slice(0, 3).map((skill, idx) => (
-                            <Badge key={idx} variant="secondary" className="text-xs">
-                              {skill}
-                            </Badge>
-                          ))}
-                          {candidate.skills.length > 3 && (
-                            <Badge variant="outline" className="text-xs">
-                              +{candidate.skills.length - 3}
-                            </Badge>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-muted-foreground text-sm">-</span>
-                      )}
+                      <div className="flex flex-wrap gap-1 max-w-[200px]">
+                        {candidate.skills?.slice(0, 3).map((skill) => (
+                          <Badge key={skill} variant="secondary" className="text-xs">
+                            {skill}
+                          </Badge>
+                        ))}
+                        {candidate.skills?.length > 3 && (
+                          <Badge variant="outline" className="text-xs">
+                            +{candidate.skills.length - 3}
+                          </Badge>
+                        )}
+                      </div>
                     </td>
                     <td className="p-4 text-sm text-muted-foreground">
-                      {candidate.created_at ? formatDate(candidate.created_at) : candidate.applied_at ? formatDate(candidate.applied_at) : '-'}
+                      {formatDate(candidate.created_at)}
                     </td>
                     <td className="p-4" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-end gap-2">
@@ -797,13 +897,10 @@ export default function MyAssignments() {
                             <Button variant="ghost" size="icon" onClick={() => handleViewResume(candidate)} title="View Resume">
                               <Eye className="h-4 w-4" />
                             </Button>
-                            <Button variant="ghost" size="icon" onClick={() => handleEdit(candidate)} title="Edit">
+                            <Button variant="ghost" size="icon" onClick={() => handleEdit(candidate)}>
                               <Edit className="h-4 w-4" />
                             </Button>
-                            <Button variant="ghost" size="icon" onClick={() => handleRescheduleInterview(candidate.id)} title="Interview Reschedule">
-                              <Calendar className="h-4 w-4 text-yellow-600" />
-                            </Button>
-                            <Button variant="ghost" size="icon" onClick={() => handleDelete(candidate.id)} title="Delete">
+                            <Button variant="ghost" size="icon" onClick={() => handleDelete(candidate.id)}>
                               <Trash2 className="h-4 w-4 text-destructive" />
                             </Button>
                           </>
@@ -1009,8 +1106,6 @@ export default function MyAssignments() {
                     className="flex-1"
                     onClick={async () => {
                       try {
-                        await api.updateCandidateStage(selectedCandidate.id, 'INTERVIEW_SCHEDULED')
-                        await fetchCandidates()
                         const result = await api.sendEmail(
                           selectedCandidate.id,
                           'interview_invitation',
@@ -1020,12 +1115,10 @@ export default function MyAssignments() {
                         if (result.success) {
                           alert(`Interview invitation sent to ${selectedCandidate.email}`)
                         } else {
-                          alert(`Email sent but status updated`)
+                          alert(`Failed to send email: ${result.message}`)
                         }
-                        handleCloseModal()
                       } catch (error) {
-                        console.error('Error:', error)
-                        alert(`Failed: ${error.message}`)
+                        alert(`Failed to send email: ${error.message}`)
                       }
                     }}
                   >
@@ -1036,8 +1129,6 @@ export default function MyAssignments() {
                     className="flex-1"
                     onClick={async () => {
                       try {
-                        await api.updateCandidateStage(selectedCandidate.id, 'REJECTED')
-                        await fetchCandidates()
                         const result = await api.sendEmail(
                           selectedCandidate.id,
                           'rejection',
@@ -1047,12 +1138,10 @@ export default function MyAssignments() {
                         if (result.success) {
                           alert(`Rejection email sent to ${selectedCandidate.email}`)
                         } else {
-                          alert(`Email sent but status updated`)
+                          alert(`Failed to send email: ${result.message}`)
                         }
-                        handleCloseModal()
                       } catch (error) {
-                        console.error('Error:', error)
-                        alert(`Failed: ${error.message}`)
+                        alert(`Failed to send email: ${error.message}`)
                       }
                     }}
                   >
