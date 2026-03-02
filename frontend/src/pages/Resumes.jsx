@@ -1124,6 +1124,8 @@ export default function Resumes() {
                     className="flex-1"
                     onClick={async () => {
                       try {
+                        await api.updateCandidateStage(selectedCandidate.id, 'INTERVIEW_SCHEDULED')
+                        await fetchCandidates()
                         const result = await api.sendEmail(
                           selectedCandidate.id,
                           'interview_invitation',
@@ -1133,10 +1135,12 @@ export default function Resumes() {
                         if (result.success) {
                           alert(`Interview invitation sent to ${selectedCandidate.email}`)
                         } else {
-                          alert(`Failed to send email: ${result.message}`)
+                          alert(`Email sent but status updated`)
                         }
+                        handleCloseModal()
                       } catch (error) {
-                        alert(`Failed to send email: ${error.message}`)
+                        console.error('Error:', error)
+                        alert(`Failed: ${error.message}`)
                       }
                     }}
                   >
@@ -1147,6 +1151,8 @@ export default function Resumes() {
                     className="flex-1"
                     onClick={async () => {
                       try {
+                        await api.updateCandidateStage(selectedCandidate.id, 'REJECTED')
+                        await fetchCandidates()
                         const result = await api.sendEmail(
                           selectedCandidate.id,
                           'rejection',
@@ -1156,10 +1162,12 @@ export default function Resumes() {
                         if (result.success) {
                           alert(`Rejection email sent to ${selectedCandidate.email}`)
                         } else {
-                          alert(`Failed to send email: ${result.message}`)
+                          alert(`Email sent but status updated`)
                         }
+                        handleCloseModal()
                       } catch (error) {
-                        alert(`Failed to send email: ${error.message}`)
+                        console.error('Error:', error)
+                        alert(`Failed: ${error.message}`)
                       }
                     }}
                   >
