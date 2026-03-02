@@ -72,6 +72,10 @@ export default function Resumes() {
       }
     }
     fetchJobScores()
+    
+    // Refresh job scores every 5 seconds to catch updates
+    const interval = setInterval(fetchJobScores, 5000)
+    return () => clearInterval(interval)
   }, [])
 
   const fetchCandidates = useCallback(async () => {
