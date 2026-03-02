@@ -4,7 +4,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { api } from '@/lib/api'
 import { cn, getScoreColor } from '@/lib/utils'
-import { Briefcase, Star } from 'lucide-react'
+import { Briefcase, Star, Undo2 } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { DndContext, DragOverlay, closestCorners, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { useToast } from '@/hooks/use-toast'
 
@@ -150,6 +151,7 @@ export default function Pipeline() {
   const [stages, setStages] = useState({})
   const [loading, setLoading] = useState(true)
   const [dragOverStage, setDragOverStage] = useState(null)
+  const [lastMove, setLastMove] = useState(null)
   const { toast } = useToast()
 
   useEffect(() => {
@@ -184,6 +186,15 @@ export default function Pipeline() {
     try {
       await api.updateCandidateStage(candidateId, toStage)
       
+      // Store move for undo
+      const candidate = stages[fromStage]?.find(c => c.id === parseInt(candidateId))
+      setLastMove({
+        candidateId: parseInt(candidateId),
+        candidateName: candidate?.name,
+        fromStage,
+        toStage
+      })
+      
       // Update local state
       setStages(prev => {
         const candidate = prev[fromStage]?.find(c => c.id === parseInt(candidateId))
@@ -210,6 +221,40 @@ export default function Pipeline() {
     }
   }
 
+  const handleUndo = async () => {
+    if (!lastMove) return
+    
+    try {
+      await api.updateCandidateStage(lastMove.candidateId, lastMove.fromStage)
+      
+      // Update local state
+      setStages(prev => {
+        const candidate = prev[lastMove.toStage]?.find(c => c.id === lastMove.candidateId)
+        if (!candidate) return prev
+        
+        return {
+          ...prev,
+          [lastMove.toStage]: prev[lastMove.toStage].filter(c => c.id !== lastMove.candidateId),
+          [lastMove.fromStage]: [...(prev[lastMove.fromStage] || []), { ...candidate, stage: lastMove.fromStage }]
+        }
+      })
+      
+      toast({
+        title: 'Undone',
+        description: `Moved ${lastMove.candidateName} back to previous stage`,
+      })
+      
+      setLastMove(null)
+    } catch (error) {
+      console.error('Failed to undo:', error)
+      toast({
+        title: 'Error',
+        description: 'Failed to undo move',
+        variant: 'destructive',
+      })
+    }
+  }
+
   const handleDragOver = (e, stageId) => {
     e.preventDefault()
     setDragOverStage(stageId)
@@ -229,9 +274,22 @@ export default function Pipeline() {
 
   return (
     <div className="h-full flex flex-col">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold">Candidate Pipeline</h1>
-        <p className="text-muted-foreground">View candidates by stage</p>
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Candidate Pipeline</h1>
+          <p className="text-muted-foreground">View candidates by stage</p>
+        </div>
+        {lastMove && (
+          <Button
+            onClick={handleUndo}
+            variant="outline"
+            size="sm"
+            className="gap-2"
+          >
+            <Undo2 className="h-4 w-4" />
+            Undo Last Move
+          </Button>
+        )}
       </div>
 
       <div className="flex-1 overflow-x-auto pb-4">
