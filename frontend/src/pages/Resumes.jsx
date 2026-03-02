@@ -738,51 +738,6 @@ export default function Resumes() {
             <X className="h-4 w-4" />
           </Button>
         )}
-        <Button 
-          onClick={handleSyncToSheets} 
-          disabled={syncing || candidates.length === 0}
-          className="flex items-center gap-2"
-        >
-          <Sheet className="h-4 w-4" />
-          {syncing ? 'Syncing...' : 'Sync TO Sheets'}
-        </Button>
-        <Button 
-          onClick={handleSyncFromSheets} 
-          disabled={syncing}
-          className="flex items-center gap-2"
-        >
-          <Sheet className="h-4 w-4" />
-          {syncing ? 'Syncing...' : 'Sync FROM Sheets'}
-        </Button>
-        <Button 
-          onClick={() => {
-            const csv = [
-              ['Name', 'Email', 'Phone', 'Job', 'Score', 'Stage', 'Skills', 'Date'].join(','),
-              ...candidates.map(c => [
-                c.name,
-                c.email,
-                c.phone || '',
-                c.job_title || '',
-                c.resume_score || '',
-                c.stage,
-                (c.skills || []).join('; '),
-                new Date(c.created_at).toLocaleDateString()
-              ].join(','))
-            ].join('\n')
-            const blob = new Blob([csv], { type: 'text/csv' })
-            const url = URL.createObjectURL(blob)
-            const a = document.createElement('a')
-            a.href = url
-            a.download = `candidates_${new Date().toISOString().split('T')[0]}.csv`
-            a.click()
-          }}
-          disabled={candidates.length === 0}
-          variant="outline"
-          className="flex items-center gap-2"
-        >
-          <FileText className="h-4 w-4" />
-          Export CSV
-        </Button>
       </div>
 
       {/* Table */}
@@ -892,7 +847,7 @@ export default function Resumes() {
                     <td className="p-4">
                       {candidate.resume_score !== null && candidate.resume_score !== undefined ? (
                         <span className="text-sm font-medium">
-                          {candidate.resume_score >= (jobScores[candidate.job_id] || 60) ? 'Shortlisted' : 'Rejected'}
+                          {candidate.resume_score >= (candidate.score_threshold || 60) ? 'Shortlisted' : 'Rejected'}
                         </span>
                       ) : (
                         <span className="text-muted-foreground">-</span>
