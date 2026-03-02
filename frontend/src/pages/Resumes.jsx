@@ -236,30 +236,33 @@ export default function Resumes() {
       setUploadProgress({ show: true, current: 0, total: files.length, status: 'uploading' })
     }
     
+    // Get threshold from selected job's min_passing_score
+    const jobId = selectedJobForUpload ? parseInt(selectedJobForUpload) : null
+    const threshold = jobId ? (jobScores[jobId] || 60) : 60
+    
     console.log('Starting upload with:', {
       filesCount: files.length,
       selectedJobForUpload,
-      jobId: selectedJobForUpload ? parseInt(selectedJobForUpload) : null,
+      jobId,
       uploadType,
-      threshold: minPassingScore
+      threshold
     })
     
     try {
-      const jobId = selectedJobForUpload ? parseInt(selectedJobForUpload) : null
       
       if (uploadType === 'zip') {
         console.log('ZIP file upload')
-        const result = await api.zipUploadResumes(files[0], jobId, minPassingScore)
+        const result = await api.zipUploadResumes(files[0], jobId, threshold)
         console.log('ZIP upload result:', result)
         const successCount = result.results?.filter(r => r.status === 'success').length || 0
         setUploadProgress({ show: true, current: successCount, total: result.results?.length || 0, status: 'completed' })
       } else if (files.length === 1) {
         console.log('Single file upload')
-        const result = await api.uploadResume(files[0], jobId, minPassingScore)
+        const result = await api.uploadResume(files[0], jobId, threshold)
         console.log('Upload result:', result)
       } else {
         console.log('Bulk file upload')
-        const result = await api.bulkUploadResumes(files, jobId, minPassingScore)
+        const result = await api.bulkUploadResumes(files, jobId, threshold)
         console.log('Bulk upload result:', result)
         const successCount = result.results?.filter(r => r.status === 'success').length || 0
         setUploadProgress({ show: true, current: successCount, total: files.length, status: 'completed' })
