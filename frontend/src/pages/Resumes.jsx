@@ -9,7 +9,7 @@ import { api } from '@/lib/api'
 import { useAuth } from '@/context/AuthContext'
 import { cn, formatDate, getScoreColor, getStageColor, formatStage } from '@/lib/utils'
 import {
-  Upload, FileText, Search, Filter, MoreHorizontal, Edit, CheckCircle, Clock, AlertCircle, Trash2, Sheet, Eye, X
+  Upload, FileText, Search, Filter, MoreHorizontal, Edit, CheckCircle, Clock, AlertCircle, Trash2, Sheet, Eye, X, Calendar
 } from 'lucide-react'
 import {
   DropdownMenu,
@@ -330,6 +330,17 @@ export default function Resumes() {
         console.error('Delete failed:', error)
         setError(`Delete failed: ${error.message}`)
       }
+    }
+  }
+
+  const handleRescheduleInterview = async (candidateId) => {
+    try {
+      await api.updateCandidateStage(candidateId, 'INTERVIEW_RESCHEDULED')
+      await fetchCandidates()
+      alert('Interview rescheduled successfully')
+    } catch (error) {
+      console.error('Failed to reschedule interview:', error)
+      setError(`Failed to reschedule interview: ${error.message}`)
     }
   }
 
@@ -750,20 +761,22 @@ export default function Resumes() {
             <table className="w-full">
               <thead>
                 <tr className="border-b bg-muted/50">
-                  <th className="text-left p-4 font-medium w-12">
-                    <input
-                      type="checkbox"
-                      checked={selectedCandidates.length === candidates.length && candidates.length > 0}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setSelectedCandidates(candidates.map(c => c.id))
-                        } else {
-                          setSelectedCandidates([])
-                        }
-                      }}
-                      className="w-4 h-4"
-                    />
-                  </th>
+                  {currentUser?.role === 'admin' && (
+                    <th className="text-left p-4 font-medium w-12">
+                      <input
+                        type="checkbox"
+                        checked={selectedCandidates.length === candidates.length && candidates.length > 0}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedCandidates(candidates.map(c => c.id))
+                          } else {
+                            setSelectedCandidates([])
+                          }
+                        }}
+                        className="w-4 h-4"
+                      />
+                    </th>
+                  )}
                   <th className="text-left p-4 font-medium">Candidate</th>
                   <th className="text-left p-4 font-medium">Job</th>
                   <th className="text-left p-4 font-medium">Score</th>
@@ -776,20 +789,22 @@ export default function Resumes() {
               <tbody>
                 {candidates.map((candidate) => (
                   <tr key={candidate.id} className="border-b hover:bg-muted/50 transition-colors cursor-pointer" onClick={() => handleViewCandidate(candidate)}>
-                    <td className="p-4" onClick={(e) => e.stopPropagation()}>
-                      <input
-                        type="checkbox"
-                        checked={selectedCandidates.includes(candidate.id)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setSelectedCandidates([...selectedCandidates, candidate.id])
-                          } else {
-                            setSelectedCandidates(selectedCandidates.filter(id => id !== candidate.id))
-                          }
-                        }}
-                        className="w-4 h-4"
-                      />
-                    </td>
+                    {currentUser?.role === 'admin' && (
+                      <td className="p-4" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={selectedCandidates.includes(candidate.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedCandidates([...selectedCandidates, candidate.id])
+                            } else {
+                              setSelectedCandidates(selectedCandidates.filter(id => id !== candidate.id))
+                            }
+                          }}
+                          className="w-4 h-4"
+                        />
+                      </td>
+                    )}
                     <td className="p-4" onClick={(e) => e.stopPropagation()}>
                       {editingCandidate?.id === candidate.id ? (
                         <div className="space-y-2">
@@ -897,10 +912,13 @@ export default function Resumes() {
                             <Button variant="ghost" size="icon" onClick={() => handleViewResume(candidate)} title="View Resume">
                               <Eye className="h-4 w-4" />
                             </Button>
-                            <Button variant="ghost" size="icon" onClick={() => handleEdit(candidate)}>
+                            <Button variant="ghost" size="icon" onClick={() => handleEdit(candidate)} title="Edit">
                               <Edit className="h-4 w-4" />
                             </Button>
-                            <Button variant="ghost" size="icon" onClick={() => handleDelete(candidate.id)}>
+                            <Button variant="ghost" size="icon" onClick={() => handleRescheduleInterview(candidate.id)} title="Interview Reschedule">
+                              <Calendar className="h-4 w-4 text-yellow-600" />
+                            </Button>
+                            <Button variant="ghost" size="icon" onClick={() => handleDelete(candidate.id)} title="Delete">
                               <Trash2 className="h-4 w-4 text-destructive" />
                             </Button>
                           </>
