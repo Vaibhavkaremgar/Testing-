@@ -25,6 +25,7 @@ export default function Communications() {
   const [loading, setLoading] = useState(true)
   const [selectedStat, setSelectedStat] = useState(null)
   const [filteredEmails, setFilteredEmails] = useState([])
+  const [selectedEmail, setSelectedEmail] = useState(null)
 
   const handleStatClick = (statType) => {
     let filtered = []
@@ -264,13 +265,13 @@ export default function Communications() {
               </thead>
               <tbody>
                 {filteredCommunications.map((comm) => (
-                  <tr key={comm.id} className="border-b hover:bg-muted/50">
+                  <tr key={comm.id} className="border-b hover:bg-muted/50 cursor-pointer" onClick={() => setSelectedEmail(comm)}>
                     <td className="p-3 text-sm">{comm.candidate}</td>
                     <td className="p-3 text-sm text-muted-foreground">{comm.email}</td>
                     <td className="p-3 text-sm">{comm.type}</td>
                     <td className="p-3 text-sm">{getStatusBadge(comm.status)}</td>
                     <td className="p-3 text-sm">{comm.date}</td>
-                    <td className="p-3 text-right">
+                    <td className="p-3 text-right" onClick={(e) => e.stopPropagation()}>
                       <Button 
                         variant="ghost" 
                         size="icon" 
@@ -292,6 +293,54 @@ export default function Communications() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Email Details Modal */}
+      {selectedEmail && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setSelectedEmail(null)}>
+          <div className="bg-card rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-bold">Email Details</h2>
+              <Button variant="ghost" size="icon" onClick={() => setSelectedEmail(null)}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-sm text-muted-foreground">Candidate Name</p>
+                  <p className="font-medium">{selectedEmail.candidate}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Email</p>
+                  <p>{selectedEmail.email}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Type</p>
+                  <p>{selectedEmail.type}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Status</p>
+                  <div>{getStatusBadge(selectedEmail.status)}</div>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Date</p>
+                  <p>{selectedEmail.date}</p>
+                </div>
+              </div>
+              
+              {selectedEmail.message && (
+                <div>
+                  <p className="text-sm text-muted-foreground mb-2">Email Message</p>
+                  <div className="bg-muted p-4 rounded-lg whitespace-pre-wrap text-sm">
+                    {selectedEmail.message}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal for Stat Details */}
       {selectedStat && (
@@ -322,13 +371,13 @@ export default function Communications() {
                     </thead>
                     <tbody>
                       {filteredEmails.map((comm) => (
-                        <tr key={comm.id} className="border-b hover:bg-muted/50">
+                        <tr key={comm.id} className="border-b hover:bg-muted/50 cursor-pointer" onClick={() => setSelectedEmail(comm)}>
                           <td className="p-3 text-sm">{comm.candidate}</td>
                           <td className="p-3 text-sm text-muted-foreground">{comm.email}</td>
                           <td className="p-3 text-sm">{comm.type}</td>
                           <td className="p-3 text-sm">{getStatusBadge(comm.status)}</td>
                           <td className="p-3 text-sm">{comm.date}</td>
-                          <td className="p-3 text-right">
+                          <td className="p-3 text-right" onClick={(e) => e.stopPropagation()}>
                             <Button 
                               variant="ghost" 
                               size="icon" 
