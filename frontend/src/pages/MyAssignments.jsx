@@ -1005,6 +1005,7 @@ export default function MyAssignments() {
                     className="flex-1"
                     onClick={async () => {
                       try {
+                        await api.updateCandidateStage(selectedCandidate.id, 'INTERVIEW_SCHEDULED')
                         const result = await api.sendEmail(
                           selectedCandidate.id,
                           'interview_invitation',
@@ -1013,6 +1014,8 @@ export default function MyAssignments() {
                         )
                         if (result.success) {
                           alert(`Interview invitation sent to ${selectedCandidate.email}`)
+                          handleCloseModal()
+                          await fetchCandidates()
                         } else {
                           alert(`Failed to send email: ${result.message}`)
                         }
@@ -1028,6 +1031,7 @@ export default function MyAssignments() {
                     className="flex-1"
                     onClick={async () => {
                       try {
+                        await api.updateCandidateStage(selectedCandidate.id, 'REJECTED')
                         const result = await api.sendEmail(
                           selectedCandidate.id,
                           'rejection',
@@ -1036,6 +1040,8 @@ export default function MyAssignments() {
                         )
                         if (result.success) {
                           alert(`Rejection email sent to ${selectedCandidate.email}`)
+                          handleCloseModal()
+                          await fetchCandidates()
                         } else {
                           alert(`Failed to send email: ${result.message}`)
                         }
