@@ -837,7 +837,7 @@ export default function Resumes() {
                       {candidate.resume_score !== null && candidate.resume_score !== undefined ? (
                         <div className="flex items-center gap-2">
                           <span className={cn('font-semibold', 
-                            candidate.resume_score >= (jobScores[candidate.job_id] || 60) ? 'text-green-600' : 'text-red-600'
+                            candidate.resume_score >= (candidate.score_threshold || 60) ? 'text-green-600' : 'text-red-600'
                           )}>
                             {candidate.resume_score}
                           </span>
@@ -849,7 +849,9 @@ export default function Resumes() {
                     </td>
                     <td className="p-4">
                       {candidate.resume_score !== null && candidate.resume_score !== undefined ? (
-                        <span className="text-sm font-medium">
+                        <span className={cn('text-sm font-medium',
+                          candidate.resume_score >= (candidate.score_threshold || 60) ? 'text-green-600' : 'text-red-600'
+                        )}>
                           {candidate.resume_score >= (candidate.score_threshold || 60) ? 'Shortlisted' : 'Rejected'}
                         </span>
                       ) : (
