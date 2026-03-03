@@ -154,7 +154,7 @@ def upload_avatar(
             detail="Only image files are allowed (jpg, jpeg, png, gif)"
         )
     
-    upload_dir = Path("uploads/avatars")
+    upload_dir = Path(settings.UPLOAD_DIR) / "avatars"
     upload_dir.mkdir(parents=True, exist_ok=True)
     
     # Read and resize image
@@ -187,11 +187,24 @@ def upload_avatar(
     file_path = upload_dir / filename
     image.save(file_path, 'JPEG', quality=90, optimize=True)
     
-    current_user.avatar_url = f"/uploads/avatars/{filename}"
+    current_user.avatar_url = f"/avatars/{filename}"
     db.commit()
     db.refresh(current_user)
     
     return {"avatar_url": current_user.avatar_url}
+
+@router.get("/avatars/{filename}")
+async def get_avatar(filename: str):
+    from fastapi.responses import FileResponse
+    from pathlib import Path
+    import os
+    
+    file_path = Path(settings.UPLOAD_DIR) / "avatars" / filename
+    
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Avatar not found")
+    
+    return FileResponse(file_path, media_type="image/jpeg")
 
 # Admin endpoints
 @router.get("/users/public")
