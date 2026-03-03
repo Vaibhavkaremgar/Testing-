@@ -56,6 +56,8 @@ export default function Resumes() {
   const [users, setUsers] = useState([])
   const [selectedUser, setSelectedUser] = useState('')
   const [assigning, setAssigning] = useState(false)
+  const [emailModal, setEmailModal] = useState({ show: false, type: '', subject: '', message: '' })
+  const [sending, setSending] = useState(false)
 
   // Load job-specific minimum passing scores
   useEffect(() => {
@@ -334,6 +336,65 @@ export default function Resumes() {
   }
 
 
+
+  const handleOpenEmailModal = (type) => {
+    let subject = ''
+    let message = ''
+    
+    if (type === 'invitation') {
+      subject = 'Interview Invitation - You have been shortlisted!'
+      message = `Dear ${selectedCandidate.name},\n\nCongratulations! You have been shortlisted for the position${candidateJob ? ` of ${candidateJob.title}` : ''}.\n\nPlease select a convenient time slot for your interview by replying to this email.\n\nBest regards,\nRecruitment Team`
+    } else if (type === 'reschedule') {
+      subject = 'Interview Reschedule Request'
+      message = `Dear ${selectedCandidate.name},\n\nWe need to reschedule your interview for the position${candidateJob ? ` of ${candidateJob.title}` : ''}.\n\nPlease reply with your available time slots and we will confirm a new interview time.\n\nWe apologize for any inconvenience.\n\nBest regards,\nRecruitment Team`
+    } else if (type === 'rejection') {
+      subject = 'Application Status Update'
+      message = `Dear ${selectedCandidate.name},\n\nThank you for your interest in the position${candidateJob ? ` of ${candidateJob.title}` : ''}.\n\nAfter careful consideration, we regret to inform you that we will not be moving forward with your application at this time.\n\nWe appreciate the time you invested in the application process and wish you the best in your job search.\n\nBest regards,\nRecruitment Team`
+    }
+    
+    setEmailModal({ show: true, type, subject, message })
+  }
+
+  const handleSendEmail = async () => {
+    setSending(true)
+    try {
+      const stageMap = {
+        invitation: 'INTERVIEW_SCHEDULED',
+        reschedule: 'INTERVIEW_RESCHEDULED',
+        rejection: 'REJECTED'
+      }
+      
+      const emailTypeMap = {
+        invitation: 'interview_invitation',
+        reschedule: 'interview_reschedule',
+        rejection: 'rejection'
+      }
+      
+      await api.updateCandidateStage(selectedCandidate.id, stageMap[emailModal.type])
+      await fetchCandidates()
+      
+      const result = await api.sendEmail(
+        selectedCandidate.id,
+        emailTypeMap[emailModal.type],
+        emailModal.subject,
+        emailModal.message
+      )
+      
+      if (result.success) {
+        alert(`Email sent successfully to ${selectedCandidate.email}`)
+      } else {
+        alert('Email sent but status updated')
+      }
+      
+      setEmailModal({ show: false, type: '', subject: '', message: '' })
+      handleCloseModal()
+    } catch (error) {
+      console.error('Error:', error)
+      alert(`Failed: ${error.message}`)
+    } finally {
+      setSending(false)
+    }
+  }
 
   const handleViewCandidate = async (candidate) => {
     setSelectedCandidate(candidate)
@@ -1110,85 +1171,79 @@ export default function Resumes() {
                 <div className="flex gap-3">
                   <Button 
                     className="flex-1"
-                    onClick={async () => {
-                      try {
-                        await api.updateCandidateStage(selectedCandidate.id, 'INTERVIEW_SCHEDULED')
-                        await fetchCandidates()
-                        const result = await api.sendEmail(
-                          selectedCandidate.id,
-                          'interview_invitation',
-                          'Interview Invitation - You have been shortlisted!',
-                          `Dear ${selectedCandidate.name},\n\nCongratulations! You have been shortlisted for the position${candidateJob ? ` of ${candidateJob.title}` : ''}.\n\nPlease select a convenient time slot for your interview by replying to this email.\n\nBest regards,\nRecruitment Team`
-                        )
-                        if (result.success) {
-                          alert(`Interview invitation sent to ${selectedCandidate.email}`)
-                        } else {
-                          alert(`Email sent but status updated`)
-                        }
-                        handleCloseModal()
-                      } catch (error) {
-                        console.error('Error:', error)
-                        alert(`Failed: ${error.message}`)
-                      }
-                    }}
+                    onClick={() => handleOpenEmailModal('invitation')}
                   >
                     Send Interview Invitation
                   </Button>
                   <Button 
                     variant="outline"
                     className="flex-1"
-                    onClick={async () => {
-                      try {
-                        await api.updateCandidateStage(selectedCandidate.id, 'INTERVIEW_RESCHEDULED')
-                        await fetchCandidates()
-                        const result = await api.sendEmail(
-                          selectedCandidate.id,
-                          'interview_reschedule',
-                          'Interview Reschedule Request',
-                          `Dear ${selectedCandidate.name},\n\nWe need to reschedule your interview for the position${candidateJob ? ` of ${candidateJob.title}` : ''}.\n\nPlease reply with your available time slots and we will confirm a new interview time.\n\nWe apologize for any inconvenience.\n\nBest regards,\nRecruitment Team`
-                        )
-                        if (result.success) {
-                          alert(`Reschedule request sent to ${selectedCandidate.email}`)
-                        } else {
-                          alert(`Email sent but status updated`)
-                        }
-                        handleCloseModal()
-                      } catch (error) {
-                        console.error('Error:', error)
-                        alert(`Failed: ${error.message}`)
-                      }
-                    }}
+                    onClick={() => handleOpenEmailModal('reschedule')}
                   >
                     Interview Reschedule
                   </Button>
                   <Button 
                     variant="destructive"
                     className="flex-1"
-                    onClick={async () => {
-                      try {
-                        await api.updateCandidateStage(selectedCandidate.id, 'REJECTED')
-                        await fetchCandidates()
-                        const result = await api.sendEmail(
-                          selectedCandidate.id,
-                          'rejection',
-                          'Application Status Update',
-                          `Dear ${selectedCandidate.name},\n\nThank you for your interest in the position${candidateJob ? ` of ${candidateJob.title}` : ''}.\n\nAfter careful consideration, we regret to inform you that we will not be moving forward with your application at this time.\n\nWe appreciate the time you invested in the application process and wish you the best in your job search.\n\nBest regards,\nRecruitment Team`
-                        )
-                        if (result.success) {
-                          alert(`Rejection email sent to ${selectedCandidate.email}`)
-                        } else {
-                          alert(`Email sent but status updated`)
-                        }
-                        handleCloseModal()
-                      } catch (error) {
-                        console.error('Error:', error)
-                        alert(`Failed: ${error.message}`)
-                      }
-                    }}
+                    onClick={() => handleOpenEmailModal('rejection')}
                   >
                     Decline Invitation
                   </Button>
                 </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Email Customization Modal */}
+      {emailModal.show && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]" onClick={() => setEmailModal({ show: false, type: '', subject: '', message: '' })}>
+          <div className="bg-card rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-bold">Customize Email</h2>
+              <Button variant="ghost" size="icon" onClick={() => setEmailModal({ show: false, type: '', subject: '', message: '' })}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm font-medium mb-2 block">Subject</label>
+                <Input
+                  value={emailModal.subject}
+                  onChange={(e) => setEmailModal({ ...emailModal, subject: e.target.value })}
+                  placeholder="Email subject"
+                />
+              </div>
+              
+              <div>
+                <label className="text-sm font-medium mb-2 block">Message</label>
+                <textarea
+                  value={emailModal.message}
+                  onChange={(e) => setEmailModal({ ...emailModal, message: e.target.value })}
+                  placeholder="Email message"
+                  rows={12}
+                  className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm resize-none"
+                />
+              </div>
+              
+              <div className="flex gap-3 pt-4">
+                <Button 
+                  className="flex-1" 
+                  onClick={handleSendEmail}
+                  disabled={sending}
+                >
+                  {sending ? 'Sending...' : 'Send Email'}
+                </Button>
+                <Button 
+                  variant="outline" 
+                  className="flex-1" 
+                  onClick={() => setEmailModal({ show: false, type: '', subject: '', message: '' })}
+                  disabled={sending}
+                >
+                  Cancel
+                </Button>
               </div>
             </div>
           </div>
