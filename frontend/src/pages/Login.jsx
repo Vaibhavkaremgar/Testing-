@@ -67,10 +67,17 @@ export default function Login() {
           <div className="text-center mb-8">
             <div className="flex justify-center mb-4">
               <img 
-                src="/logo.png" 
+                src="/logo.svg" 
                 alt="PONTIS Logo" 
                 className="h-16 w-16 rounded-xl object-cover"
+                onError={(e) => {
+                  e.target.style.display = 'none'
+                  e.target.nextSibling.style.display = 'flex'
+                }}
               />
+              <div className="h-16 w-16 items-center justify-center rounded-xl bg-primary" style={{display: 'none'}}>
+                <Bot className="h-10 w-10 text-primary-foreground" />
+              </div>
             </div>
             <h1 className="text-4xl font-bold mb-2">Welcome to PONTIS</h1>
             <p className="text-muted-foreground">Select a user to login</p>
