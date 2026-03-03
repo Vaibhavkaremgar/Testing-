@@ -1700,8 +1700,17 @@ async def get_resume_file(
         if not candidate.resume_file_path:
             raise HTTPException(status_code=404, detail="No resume file uploaded for this candidate")
         
-        if not os.path.exists(candidate.resume_file_path):
-            raise HTTPException(status_code=404, detail=f"Resume file not found at path: {candidate.resume_file_path}")
+        # Convert relative path to absolute path
+        from app.config import settings
+        if not os.path.isabs(candidate.resume_file_path):
+            file_path = os.path.join(settings.UPLOAD_DIR, os.path.basename(candidate.resume_file_path))
+        else:
+            file_path = candidate.resume_file_path
+        
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail=f"Resume file not found at path: {file_path}")
+        
+        candidate.resume_file_path = file_path  # Update for subsequent use
         
         file_ext = os.path.splitext(candidate.resume_file_path)[1].lower()
         
