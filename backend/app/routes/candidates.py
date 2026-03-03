@@ -1702,15 +1702,30 @@ async def get_resume_file(
         
         # Convert relative path to absolute path
         from app.config import settings
-        if not os.path.isabs(candidate.resume_file_path):
-            file_path = os.path.join(settings.UPLOAD_DIR, os.path.basename(candidate.resume_file_path))
-        else:
+        
+        # Handle different path formats
+        if os.path.isabs(candidate.resume_file_path):
             file_path = candidate.resume_file_path
+        else:
+            # Try multiple possible locations
+            filename = os.path.basename(candidate.resume_file_path)
+            possible_paths = [
+                os.path.join(settings.UPLOAD_DIR, filename),  # uploads/file.pdf
+                os.path.join("/data/uploads", filename),      # /data/uploads/file.pdf
+                filename if os.path.exists(filename) else None # file.pdf in current dir
+            ]
+            
+            file_path = None
+            for path in possible_paths:
+                if path and os.path.exists(path):
+                    file_path = path
+                    break
+            
+            if not file_path:
+                raise HTTPException(status_code=404, detail=f"Resume file not found. Tried: {possible_paths}")
         
         if not os.path.exists(file_path):
             raise HTTPException(status_code=404, detail=f"Resume file not found at path: {file_path}")
-        
-        candidate.resume_file_path = file_path  # Update for subsequent use
         
         file_ext = os.path.splitext(candidate.resume_file_path)[1].lower()
         
