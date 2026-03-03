@@ -458,16 +458,37 @@ class ApiClient {
     })
   }
 
-  async getTimeToHire() {
-    return this.request('/analytics/time-to-hire')
+  async getTimeToHire(params = {}) {
+    const searchParams = new URLSearchParams()
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '' && value !== 'all') {
+        searchParams.append(key, value)
+      }
+    })
+    const query = searchParams.toString()
+    return this.request(`/analytics/time-to-hire${query ? `?${query}` : ''}`)
   }
 
-  async getSkillHeatmap() {
-    return this.request('/analytics/skill-heatmap')
+  async getSkillHeatmap(params = {}) {
+    const searchParams = new URLSearchParams()
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '' && value !== 'all') {
+        searchParams.append(key, value)
+      }
+    })
+    const query = searchParams.toString()
+    return this.request(`/analytics/skill-heatmap${query ? `?${query}` : ''}`)
   }
 
-  async getScoreDistribution() {
-    return this.request('/analytics/score-distribution')
+  async getScoreDistribution(params = {}) {
+    const searchParams = new URLSearchParams()
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '' && value !== 'all') {
+        searchParams.append(key, value)
+      }
+    })
+    const query = searchParams.toString()
+    return this.request(`/analytics/score-distribution${query ? `?${query}` : ''}`)
   }
 
   async getResumeScoresTrend() {
@@ -478,8 +499,15 @@ class ApiClient {
     return this.request('/analytics/interview-scores-trend')
   }
 
-  async getHiringByDepartment() {
-    return this.request('/analytics/hiring-by-department')
+  async getHiringByDepartment(params = {}) {
+    const searchParams = new URLSearchParams()
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '' && value !== 'all') {
+        searchParams.append(key, value)
+      }
+    })
+    const query = searchParams.toString()
+    return this.request(`/analytics/hiring-by-department${query ? `?${query}` : ''}`)
   }
 
   async getSourceBreakdown() {
