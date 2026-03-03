@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, case, extract
 from typing import List, Optional
 from app.database import get_db
-from app.models import Candidate, Interview, CandidateStage, User
+from app.models import Candidate, Interview, CandidateStage, User, UserRole, JobDescription
 from app.schemas import (
     DashboardStats, PipelineStats, HiringFunnelData, 
     TimeToHireData, SkillHeatmapData, ScoreDistribution
@@ -15,6 +15,63 @@ from datetime import datetime
 
 router = APIRouter(prefix="/analytics", tags=["Analytics"])
 
+
+def _role_name(current_user: User) -> str:
+    role = getattr(current_user, "role", None)
+    return role.value if hasattr(role, "value") else str(role or "")
+
+
+def _client_org_name(current_user: User) -> str:
+    # Analytics-only client scoping. If a client role exists, use department as org key.
+    return (getattr(current_user, "department", None) or "").strip()
+
+
+def _apply_candidate_visibility(query, current_user: User):
+    role_name = _role_name(current_user)
+
+    if role_name == UserRole.ADMIN.value:
+        return query
+
+    if role_name == UserRole.RECRUITER.value:
+        return query.filter(Candidate.assigned_to_user_id == current_user.id)
+
+    if role_name == "client":
+        org_name = _client_org_name(current_user)
+        if not org_name:
+            return query.filter(Candidate.id == -1)
+        return query.join(JobDescription, Candidate.job_id == JobDescription.id).filter(
+            JobDescription.company_name == org_name
+        )
+
+    # Fallback for non-admin roles in analytics: scoped to assigned candidates.
+    return query.filter(Candidate.assigned_to_user_id == current_user.id)
+
+
+def _apply_job_visibility(query, db: Session, current_user: User):
+    role_name = _role_name(current_user)
+
+    if role_name == UserRole.ADMIN.value:
+        return query
+
+    if role_name == UserRole.RECRUITER.value:
+        assigned_job_ids = db.query(Candidate.job_id).filter(
+            Candidate.assigned_to_user_id == current_user.id,
+            Candidate.job_id.isnot(None)
+        ).distinct()
+        return query.filter(JobDescription.id.in_(assigned_job_ids))
+
+    if role_name == "client":
+        org_name = _client_org_name(current_user)
+        if not org_name:
+            return query.filter(JobDescription.id == -1)
+        return query.filter(JobDescription.company_name == org_name)
+
+    assigned_job_ids = db.query(Candidate.job_id).filter(
+        Candidate.assigned_to_user_id == current_user.id,
+        Candidate.job_id.isnot(None)
+    ).distinct()
+    return query.filter(JobDescription.id.in_(assigned_job_ids))
+
 @router.get("/dashboard-stats", response_model=DashboardStats)
 def get_dashboard_stats(
     month: Optional[str] = Query(None),
@@ -24,17 +81,11 @@ def get_dashboard_stats(
     current_user: User = Depends(get_current_active_user)
 ):
     try:
-        from app.models import UserRole
-        
-        query = db.query(Candidate)
-        
-        # Filter by assigned candidates for non-admin users
-        if current_user.role != UserRole.ADMIN:
-            query = query.filter(Candidate.assigned_to_user_id == current_user.id)
+        query = _apply_candidate_visibility(db.query(Candidate), current_user)
+        role_name = _role_name(current_user)
         
         # Apply client filter if provided
-        if client:
-            from app.models import JobDescription
+        if client and role_name == UserRole.ADMIN.value:
             job_ids = db.query(JobDescription.id).filter(JobDescription.company_name == client).all()
             job_ids = [j[0] for j in job_ids]
             if job_ids:
@@ -135,8 +186,9 @@ def get_pipeline_stats(
     current_user: User = Depends(get_current_active_user)
 ):
     stats = []
+    base_query = _apply_candidate_visibility(db.query(Candidate), current_user)
     for stage in CandidateStage:
-        count = db.query(func.count(Candidate.id)).filter(
+        count = base_query.filter(
             Candidate.stage == stage
         ).scalar() or 0
         stats.append(PipelineStats(stage=stage.value, count=count))
@@ -150,15 +202,11 @@ def get_hiring_funnel(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    from app.models import UserRole
-    query = db.query(Candidate)
-    
-    if current_user.role != UserRole.ADMIN:
-        query = query.filter(Candidate.assigned_to_user_id == current_user.id)
+    query = _apply_candidate_visibility(db.query(Candidate), current_user)
+    role_name = _role_name(current_user)
     
     # Apply client filter if provided
-    if client:
-        from app.models import JobDescription
+    if client and role_name == UserRole.ADMIN.value:
         job_ids = db.query(JobDescription.id).filter(JobDescription.company_name == client).all()
         job_ids = [j[0] for j in job_ids]
         if job_ids:
@@ -205,16 +253,34 @@ def get_time_to_hire(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    # Custom time to hire data (more realistic for tech hiring)
-    time_data = [
-        {"month": "Aug", "avg_days": 28.5},
-        {"month": "Sep", "avg_days": 32.1},
-        {"month": "Oct", "avg_days": 25.8},
-        {"month": "Nov", "avg_days": 30.2},
-        {"month": "Dec", "avg_days": 35.7},
-        {"month": "Jan", "avg_days": 27.3}
+    candidates = _apply_candidate_visibility(
+        db.query(Candidate).filter(Candidate.stage == CandidateStage.SELECTED),
+        current_user
+    ).all()
+
+    month_buckets = {}
+    for candidate in candidates:
+        if not candidate.created_at:
+            continue
+        month_key = candidate.created_at.strftime("%b")
+        end_date = candidate.stage_updated_at or candidate.updated_at or candidate.created_at
+        days = max(1, (end_date - candidate.created_at).days) if end_date else 1
+        month_buckets.setdefault(month_key, []).append(days)
+
+    if not month_buckets:
+        return [
+            TimeToHireData(month="Aug", avg_days=28.5),
+            TimeToHireData(month="Sep", avg_days=32.1),
+            TimeToHireData(month="Oct", avg_days=25.8),
+            TimeToHireData(month="Nov", avg_days=30.2),
+            TimeToHireData(month="Dec", avg_days=35.7),
+            TimeToHireData(month="Jan", avg_days=27.3),
+        ]
+
+    return [
+        TimeToHireData(month=month, avg_days=round(sum(days) / len(days), 1))
+        for month, days in month_buckets.items()
     ]
-    return [TimeToHireData(**data) for data in time_data]
 
 @router.get("/skill-heatmap", response_model=List[SkillHeatmapData])
 def get_skill_heatmap(
@@ -308,7 +374,10 @@ def get_skill_heatmap(
     }
     
     # Get candidates with skills
-    candidates = db.query(Candidate).filter(Candidate.skills.isnot(None)).all()
+    candidates = _apply_candidate_visibility(
+        db.query(Candidate).filter(Candidate.skills.isnot(None)),
+        current_user
+    ).all()
     
     skill_data = {}
     for candidate in candidates:
@@ -388,8 +457,9 @@ def get_score_distribution(
     ]
     
     result = []
+    base_query = _apply_candidate_visibility(db.query(Candidate), current_user)
     for range_label, min_score, max_score in ranges:
-        count = db.query(func.count(Candidate.id)).filter(
+        count = base_query.filter(
             Candidate.resume_score >= min_score,
             Candidate.resume_score <= max_score
         ).scalar() or 0
@@ -402,11 +472,25 @@ def get_resume_scores_trend(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    # Generate sample trend data
-    months = ["Aug", "Sep", "Oct", "Nov", "Dec", "Jan"]
+    candidates = _apply_candidate_visibility(
+        db.query(Candidate).filter(Candidate.resume_score.isnot(None)),
+        current_user
+    ).all()
+
+    month_scores = {}
+    for candidate in candidates:
+        if not candidate.created_at:
+            continue
+        month_key = candidate.created_at.strftime("%b")
+        month_scores.setdefault(month_key, []).append(candidate.resume_score)
+
+    if not month_scores:
+        months = ["Aug", "Sep", "Oct", "Nov", "Dec", "Jan"]
+        return [{"month": month, "avg_score": round(random.uniform(70, 85), 1)} for month in months]
+
     return [
-        {"month": month, "avg_score": round(random.uniform(70, 85), 1)}
-        for month in months
+        {"month": month, "avg_score": round(sum(scores) / len(scores), 1)}
+        for month, scores in month_scores.items()
     ]
 
 @router.get("/interview-scores-trend")
@@ -414,26 +498,48 @@ def get_interview_scores_trend(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    # Generate sample trend data
-    months = ["Aug", "Sep", "Oct", "Nov", "Dec", "Jan"]
-    return [
-        {
+    interviews = db.query(Interview).join(Candidate, Interview.candidate_id == Candidate.id)
+    interviews = _apply_candidate_visibility(interviews, current_user).all()
+
+    month_scores = {}
+    for interview in interviews:
+        if not interview.created_at:
+            continue
+        month_key = interview.created_at.strftime("%b")
+        month_scores.setdefault(month_key, {"technical": [], "communication": []})
+        if interview.technical_score is not None:
+            month_scores[month_key]["technical"].append(interview.technical_score)
+        if interview.communication_score is not None:
+            month_scores[month_key]["communication"].append(interview.communication_score)
+
+    if not month_scores:
+        months = ["Aug", "Sep", "Oct", "Nov", "Dec", "Jan"]
+        return [
+            {
+                "month": month,
+                "technical": round(random.uniform(65, 85), 1),
+                "communication": round(random.uniform(70, 90), 1)
+            }
+            for month in months
+        ]
+
+    result = []
+    for month, scores in month_scores.items():
+        tech = scores["technical"]
+        comm = scores["communication"]
+        result.append({
             "month": month,
-            "technical": round(random.uniform(65, 85), 1),
-            "communication": round(random.uniform(70, 90), 1)
-        }
-        for month in months
-    ]
+            "technical": round(sum(tech) / len(tech), 1) if tech else 0,
+            "communication": round(sum(comm) / len(comm), 1) if comm else 0
+        })
+    return result
 
 @router.get("/hiring-by-department")
 def get_hiring_by_department(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    from app.models import JobDescription
-    
-    # Get all jobs with their department
-    jobs = db.query(JobDescription).all()
+    jobs = _apply_job_visibility(db.query(JobDescription), db, current_user).all()
     
     # Group by department
     dept_data = {}
@@ -446,7 +552,8 @@ def get_hiring_by_department(
         hired = db.query(func.count(Candidate.id)).filter(
             Candidate.job_id == job.id,
             Candidate.stage == CandidateStage.SELECTED
-        ).scalar() or 0
+        )
+        hired = _apply_candidate_visibility(hired, current_user).scalar() or 0
         
         # Count open positions (vacancies - hired)
         open_positions = max(0, (job.vacancies or 1) - hired)
@@ -467,13 +574,13 @@ def get_source_breakdown(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    from sqlalchemy import func
     results = db.query(
         Candidate.source,
         func.count(Candidate.id).label('count')
     ).filter(
         Candidate.source.isnot(None)
-    ).group_by(Candidate.source).all()
+    )
+    results = _apply_candidate_visibility(results, current_user).group_by(Candidate.source).all()
     
     return [{"source": r.source, "count": r.count} for r in results]
 
@@ -482,13 +589,13 @@ def get_decline_reasons(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    from sqlalchemy import func
     results = db.query(
         Candidate.decline_reason,
         func.count(Candidate.id).label('count')
     ).filter(
         Candidate.decline_reason.isnot(None)
-    ).group_by(Candidate.decline_reason).all()
+    )
+    results = _apply_candidate_visibility(results, current_user).group_by(Candidate.decline_reason).all()
     
     return [{"reason": r.decline_reason, "count": r.count} for r in results]
 
@@ -497,14 +604,15 @@ def get_offer_acceptance_rate(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    from sqlalchemy import func
-    offers_made = db.query(func.count(Candidate.id)).filter(
+    offers_made_query = db.query(func.count(Candidate.id)).filter(
         Candidate.offer_status.in_(['made', 'accepted'])
-    ).scalar() or 0
+    )
+    offers_made = _apply_candidate_visibility(offers_made_query, current_user).scalar() or 0
     
-    offers_accepted = db.query(func.count(Candidate.id)).filter(
+    offers_accepted_query = db.query(func.count(Candidate.id)).filter(
         Candidate.offer_status == 'accepted'
-    ).scalar() or 0
+    )
+    offers_accepted = _apply_candidate_visibility(offers_accepted_query, current_user).scalar() or 0
     
     rate = round((offers_accepted / offers_made * 100), 1) if offers_made > 0 else 0
     
@@ -519,10 +627,12 @@ def get_active_jobs(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    from app.models import JobDescription, UserRole
-    from sqlalchemy import func, case
-    
-    jobs = db.query(JobDescription).filter(JobDescription.is_active == True).all()
+    jobs = _apply_job_visibility(
+        db.query(JobDescription).filter(JobDescription.is_active == True),
+        db,
+        current_user
+    ).all()
+    role_name = _role_name(current_user)
     
     result = []
     for job in jobs:
@@ -531,21 +641,17 @@ def get_active_jobs(
             Candidate.job_id == job.id,
             Candidate.stage != CandidateStage.APPLIED
         )
-        if current_user.role != UserRole.ADMIN:
-            candidate_query = candidate_query.filter(Candidate.assigned_to_user_id == current_user.id)
-        total_candidates = candidate_query.scalar() or 0
+        total_candidates = _apply_candidate_visibility(candidate_query, current_user).scalar() or 0
         
         # Skip jobs with no assigned candidates for non-admin users
-        if current_user.role != UserRole.ADMIN and total_candidates == 0:
+        if role_name != UserRole.ADMIN.value and total_candidates == 0:
             continue
         
         selected_query = db.query(func.count(Candidate.id)).filter(
             Candidate.job_id == job.id,
             Candidate.stage == CandidateStage.SHORTLISTED
         )
-        if current_user.role != UserRole.ADMIN:
-            selected_query = selected_query.filter(Candidate.assigned_to_user_id == current_user.id)
-        selected = selected_query.scalar() or 0
+        selected = _apply_candidate_visibility(selected_query, current_user).scalar() or 0
         
         # Determine status
         status = 'open'
@@ -572,7 +678,6 @@ def get_upcoming_interviews(
     current_user: User = Depends(get_current_active_user)
 ):
     from datetime import datetime, timedelta
-    from app.models import UserRole
     
     # Get interviews scheduled for next 7 days
     today = datetime.now()
@@ -583,11 +688,10 @@ def get_upcoming_interviews(
         Interview.scheduled_at <= next_week,
         Interview.status == 'scheduled'
     )
-    
-    if current_user.role != UserRole.ADMIN:
-        interview_query = interview_query.join(Candidate).filter(
-            Candidate.assigned_to_user_id == current_user.id
-        )
+
+    if _role_name(current_user) != UserRole.ADMIN.value:
+        interview_query = interview_query.join(Candidate, Interview.candidate_id == Candidate.id)
+        interview_query = _apply_candidate_visibility(interview_query, current_user)
     
     interviews = interview_query.order_by(Interview.scheduled_at).limit(10).all()
     
@@ -609,16 +713,15 @@ def get_hiring_intelligence(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    from app.models import JobDescription
     from datetime import datetime, timedelta
     
     insights = []
     
     # 1. Detect candidates stuck in stages (>7 days)
-    stuck_candidates = db.query(Candidate).filter(
+    stuck_candidates = _apply_candidate_visibility(db.query(Candidate).filter(
         Candidate.stage.in_([CandidateStage.SHORTLISTED, CandidateStage.INTERVIEW_SCHEDULED]),
         Candidate.stage_entered_at.isnot(None)
-    ).all()
+    ), current_user).all()
     
     stuck_count = 0
     for c in stuck_candidates:
@@ -630,30 +733,37 @@ def get_hiring_intelligence(
         insights.append(f"{stuck_count} candidate{'s' if stuck_count > 1 else ''} waiting over 7 days in pipeline - action needed")
     
     # 2. High-scoring candidates ready for interview
-    ready_candidates = db.query(Candidate).filter(
+    ready_candidates_query = db.query(Candidate).filter(
         Candidate.stage == CandidateStage.SHORTLISTED,
         Candidate.resume_score >= 85
-    ).count()
+    )
+    ready_candidates = _apply_candidate_visibility(ready_candidates_query, current_user).count()
     
     if ready_candidates > 0:
         insights.append(f"{ready_candidates} high-scoring candidate{'s' if ready_candidates > 1 else ''} (85+) ready for interview scheduling")
     
     # 3. Interviews completed awaiting decision
-    interviewed = db.query(Candidate).filter(
+    interviewed_query = db.query(Candidate).filter(
         Candidate.stage == CandidateStage.INTERVIEWED
-    ).count()
+    )
+    interviewed = _apply_candidate_visibility(interviewed_query, current_user).count()
     
     if interviewed > 0:
         insights.append(f"{interviewed} interview{'s' if interviewed > 1 else ''} completed - pending hiring decision")
     
     # 4. Jobs with no recent activity
-    jobs = db.query(JobDescription).filter(JobDescription.is_active == True).all()
+    jobs = _apply_job_visibility(
+        db.query(JobDescription).filter(JobDescription.is_active == True),
+        db,
+        current_user
+    ).all()
     stale_jobs = []
     for job in jobs:
-        recent_candidates = db.query(Candidate).filter(
+        recent_candidates_query = db.query(Candidate).filter(
             Candidate.job_id == job.id,
             Candidate.created_at >= datetime.utcnow() - timedelta(days=14)
-        ).count()
+        )
+        recent_candidates = _apply_candidate_visibility(recent_candidates_query, current_user).count()
         if recent_candidates == 0:
             stale_jobs.append(job.title)
     
@@ -661,10 +771,11 @@ def get_hiring_intelligence(
         insights.append(f"{len(stale_jobs)} role{'s' if len(stale_jobs) > 1 else ''} with no applications in 14 days - review job posting")
     
     # 5. Offer-ready candidates
-    offer_ready = db.query(Candidate).filter(
+    offer_ready_query = db.query(Candidate).filter(
         Candidate.stage == CandidateStage.INTERVIEWED,
         Candidate.resume_score >= 80
-    ).count()
+    )
+    offer_ready = _apply_candidate_visibility(offer_ready_query, current_user).count()
     
     if offer_ready > 0:
         insights.append(f"{offer_ready} strong candidate{'s' if offer_ready > 1 else ''} ready for offer - don't lose them to competitors")
@@ -681,20 +792,29 @@ def get_hiring_metrics(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    from app.models import JobDescription
-    from datetime import datetime, timedelta
-    import random
-    
-    # Mock data for demonstration
+    base_candidates = _apply_candidate_visibility(db.query(Candidate), current_user)
+    total_candidates = base_candidates.count() or 0
+    selected_count = base_candidates.filter(Candidate.stage == CandidateStage.SELECTED).count() or 0
+    shortlisted_count = base_candidates.filter(Candidate.stage == CandidateStage.SHORTLISTED).count() or 0
+    offers_made = base_candidates.filter(Candidate.offer_status.in_(['made', 'accepted'])).count() or 0
+    offers_accepted = base_candidates.filter(Candidate.offer_status == 'accepted').count() or 0
+
+    acceptance_rate = round((offers_accepted / offers_made * 100), 1) if offers_made > 0 else 0
+    conversion_rate = round((selected_count / total_candidates * 100), 1) if total_candidates > 0 else 0
+
+    visible_jobs = _apply_job_visibility(db.query(JobDescription).filter(JobDescription.is_active == True), db, current_user).all()
+    total_vacancies = sum((j.vacancies or 1) for j in visible_jobs)
+    vacancy_fill_rate = round((selected_count / total_vacancies * 100), 1) if total_vacancies > 0 else 0
+
     return {
         "all": {
             "time_to_hire": 18,
             "time_to_fill": 25,
-            "offer_acceptance_rate": 75,
+            "offer_acceptance_rate": acceptance_rate,
             "withdrawal_rate": 12,
             "cost_per_hire": 3500,
-            "hire_conversion": 8.5,
-            "vacancy_fill_rate": 82,
+            "hire_conversion": conversion_rate,
+            "vacancy_fill_rate": vacancy_fill_rate,
             "weekly_change": {
                 "time_to_hire": -2.5,
                 "time_to_fill": -3.1,
@@ -750,13 +870,13 @@ def get_hiring_metrics(
             }
         ],
         "offer_stats": {
-            "offers_accepted": 45,
-            "offers_provided": 60,
-            "rejected_candidates": 320,
-            "total_candidates": 500,
-            "hired": 45,
-            "shortlisted": 120,
-            "vacancies": 55
+            "offers_accepted": offers_accepted,
+            "offers_provided": offers_made,
+            "rejected_candidates": max(0, total_candidates - shortlisted_count),
+            "total_candidates": total_candidates,
+            "hired": selected_count,
+            "shortlisted": shortlisted_count,
+            "vacancies": total_vacancies
         }
     }
 

@@ -229,3 +229,24 @@ class EmailCommunication(Base):
     status = Column(String(50), default="pending")  # pending, sent, failed
     sent_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class AnalyticsWidget(Base):
+    __tablename__ = "analytics_widgets"
+
+    id = Column(Integer, primary_key=True, index=True)
+    widget_name = Column(String(255), nullable=False)
+    metric_key = Column(String(100), nullable=False, index=True)
+    role_access = Column(String(255), nullable=True)
+    is_default = Column(Boolean, default=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class UserDashboardPreference(Base):
+    __tablename__ = "user_dashboard_preferences"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    widget_id = Column(Integer, ForeignKey("analytics_widgets.id"), nullable=False, index=True)
+    position = Column(Integer, nullable=True)
+    size = Column(String(50), nullable=True)
+    is_enabled = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
