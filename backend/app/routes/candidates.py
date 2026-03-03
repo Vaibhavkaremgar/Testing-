@@ -1677,6 +1677,7 @@ async def get_resume_file(
     token: Optional[str] = Query(None),
     db: Session = Depends(get_db)
 ):
+    """View resume file - supports PDF and Word documents"""
     from app.auth import verify_token
     from fastapi.responses import Response, HTMLResponse
     import base64
