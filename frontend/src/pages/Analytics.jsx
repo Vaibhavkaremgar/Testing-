@@ -1,17 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useAuth } from '@/context/AuthContext'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { api } from '@/lib/api'
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Cell, AreaChart, Area
-} from 'recharts'
 import { Settings2, X } from 'lucide-react'
-
-const COLORS = ['#3b82f6', '#8b5cf6', '#06b6d4', '#10b981', '#f59e0b', '#ef4444']
+import AnalyticsWidget from '@/components/analytics/AnalyticsWidget'
 
 const METRIC_CATEGORIES = [
   {
@@ -64,10 +59,6 @@ const DEFAULT_SELECTED_METRICS = [
 
 export default function Analytics() {
   const { user } = useAuth()
-  const [timeToHire, setTimeToHire] = useState([])
-  const [skillHeatmap, setSkillHeatmap] = useState([])
-  const [scoreDistribution, setScoreDistribution] = useState([])
-  const [departmentData, setDepartmentData] = useState([])
 
   const [dateRange, setDateRange] = useState('last_30_days')
   const [customStartDate, setCustomStartDate] = useState('')
@@ -76,10 +67,12 @@ export default function Analytics() {
   const [compareType, setCompareType] = useState('previous_period')
   const [selectedClient, setSelectedClient] = useState('all')
   const [selectedRecruiter, setSelectedRecruiter] = useState('all')
+  const [selectedDepartment, setSelectedDepartment] = useState('all')
 
   const [clients, setClients] = useState([])
   const [recruiters, setRecruiters] = useState([])
-  const [loading, setLoading] = useState(true)
+  const [departments, setDepartments] = useState([])
+  const [loadingFilters, setLoadingFilters] = useState(true)
 
   const [isCustomizeOpen, setIsCustomizeOpen] = useState(false)
   const [selectedMetrics, setSelectedMetrics] = useState(DEFAULT_SELECTED_METRICS)
@@ -88,43 +81,9 @@ export default function Analytics() {
   const isAdmin = user?.role === 'admin'
   const canFilterRecruiters = user?.role === 'admin' || user?.role === 'hiring_manager'
 
-  const metricLabelById = useMemo(() => {
-    const labelMap = {}
-    METRIC_CATEGORIES.forEach((category) => {
-      category.metrics.forEach((metric) => {
-        labelMap[metric.id] = metric.label
-      })
-    })
-    return labelMap
-  }, [])
-
-  const fetchAnalyticsData = useCallback(async () => {
-    setLoading(true)
-    try {
-      const [timeData, skillData, scoreData, deptData] = await Promise.all([
-        api.getTimeToHire(),
-        api.getSkillHeatmap(),
-        api.getScoreDistribution(),
-        api.getHiringByDepartment()
-      ])
-
-      setTimeToHire(timeData || [])
-      setSkillHeatmap(skillData || [])
-      setScoreDistribution(scoreData || [])
-      setDepartmentData(deptData || [])
-    } catch (error) {
-      console.error('Failed to fetch analytics:', error)
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    fetchAnalyticsData()
-  }, [fetchAnalyticsData])
-
   useEffect(() => {
     const fetchFilterOptions = async () => {
+      setLoadingFilters(true)
       try {
         const [jobsData, usersData] = await Promise.all([
           api.getJobs({ limit: 1000 }).catch(() => []),
@@ -135,9 +94,14 @@ export default function Analytics() {
           new Set((jobsData || []).map((job) => job.company_name).filter(Boolean))
         ).sort((a, b) => a.localeCompare(b))
 
+        const uniqueDepartments = Array.from(
+          new Set((jobsData || []).map((job) => job.department).filter(Boolean))
+        ).sort((a, b) => a.localeCompare(b))
+
         const recruiterUsers = (usersData || []).filter((u) => u?.role === 'recruiter')
 
         setClients(uniqueClients)
+        setDepartments(uniqueDepartments)
         setRecruiters(recruiterUsers)
 
         if (user?.role === 'recruiter' && user?.id) {
@@ -145,20 +109,35 @@ export default function Analytics() {
         }
       } catch (error) {
         console.error('Failed to fetch analytics filter options:', error)
+      } finally {
+        setLoadingFilters(false)
       }
     }
 
     fetchFilterOptions()
   }, [user?.id, user?.role])
 
-  const toggleMetricInDraft = (metricId) => {
-    setDraftSelectedMetrics((prev) => {
-      if (prev.includes(metricId)) {
-        return prev.filter((id) => id !== metricId)
-      }
-      return [...prev, metricId]
-    })
-  }
+  const analyticsFilters = useMemo(() => {
+    return {
+      dateRange,
+      customStartDate: dateRange === 'custom' ? customStartDate : '',
+      customEndDate: dateRange === 'custom' ? customEndDate : '',
+      compareMode,
+      compareType: compareMode ? compareType : '',
+      recruiter: selectedRecruiter,
+      client: selectedClient,
+      department: selectedDepartment
+    }
+  }, [
+    dateRange,
+    customStartDate,
+    customEndDate,
+    compareMode,
+    compareType,
+    selectedRecruiter,
+    selectedClient,
+    selectedDepartment
+  ])
 
   const openCustomizeDrawer = () => {
     setDraftSelectedMetrics(selectedMetrics)
@@ -169,188 +148,19 @@ export default function Analytics() {
     setIsCustomizeOpen(false)
   }
 
-  const applyDashboardCustomization = async () => {
+  const toggleMetricInDraft = (metricId) => {
+    setDraftSelectedMetrics((prev) => {
+      if (prev.includes(metricId)) return prev.filter((id) => id !== metricId)
+      return [...prev, metricId]
+    })
+  }
+
+  const applyDashboardCustomization = () => {
     setSelectedMetrics(draftSelectedMetrics)
     setIsCustomizeOpen(false)
-    await fetchAnalyticsData()
   }
 
-  const renderMetricCard = (metricId) => {
-    if (metricId === 'time_to_hire') {
-      return (
-        <Card key={metricId}>
-          <CardHeader>
-            <CardTitle className="text-base">Time to Hire (Days)</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[280px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={timeToHire}>
-                  <defs>
-                    <linearGradient id="colorDays" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                  <XAxis dataKey="month" className="text-xs" />
-                  <YAxis className="text-xs" />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: 'hsl(var(--card))',
-                      border: '1px solid hsl(var(--border))',
-                      borderRadius: '8px'
-                    }}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="avg_days"
-                    stroke="#3b82f6"
-                    fillOpacity={1}
-                    fill="url(#colorDays)"
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
-      )
-    }
-
-    if (metricId === 'resume_score_distribution') {
-      return (
-        <Card key={metricId}>
-          <CardHeader>
-            <CardTitle className="text-base">Resume Score Distribution</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[280px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={scoreDistribution}>
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                  <XAxis dataKey="range" className="text-xs" />
-                  <YAxis className="text-xs" />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: 'hsl(var(--card))',
-                      border: '1px solid hsl(var(--border))',
-                      borderRadius: '8px'
-                    }}
-                  />
-                  <Bar dataKey="count" radius={[4, 4, 0, 0]}>
-                    {scoreDistribution.map((entry, index) => (
-                      <Cell key={`score-cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
-      )
-    }
-
-    if (metricId === 'top_skills') {
-      return (
-        <Card key={metricId}>
-          <CardHeader>
-            <CardTitle className="text-base">Top Skills in Candidate Pool</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[280px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={skillHeatmap.slice(0, 10)} layout="vertical">
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                  <XAxis type="number" className="text-xs" />
-                  <YAxis dataKey="skill" type="category" className="text-xs" width={100} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: 'hsl(var(--card))',
-                      border: '1px solid hsl(var(--border))',
-                      borderRadius: '8px'
-                    }}
-                  />
-                  <Bar dataKey="count" fill="#8b5cf6" radius={[0, 4, 4, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
-      )
-    }
-
-    if (metricId === 'skill_gap_analysis') {
-      return (
-        <Card key={metricId} className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle className="text-base">Skill Gap Analysis</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
-              {skillHeatmap.map((skill) => {
-                const intensity = Math.min(skill.count * 15, 100)
-                return (
-                  <div
-                    key={skill.skill}
-                    className="rounded-lg border p-3 text-center"
-                    style={{ backgroundColor: `hsl(var(--primary) / ${intensity / 100 * 0.3})` }}
-                  >
-                    <p className="text-sm font-medium">{skill.skill}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">{skill.count} candidates</p>
-                    <p className="text-xs text-muted-foreground">Avg: {skill.avg_score?.toFixed(1)}</p>
-                  </div>
-                )
-              })}
-            </div>
-          </CardContent>
-        </Card>
-      )
-    }
-
-    if (metricId === 'source_of_candidates') {
-      return (
-        <Card key={metricId}>
-          <CardHeader>
-            <CardTitle className="text-base">Source of Candidates</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[280px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={departmentData}>
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                  <XAxis dataKey="department" className="text-xs" />
-                  <YAxis className="text-xs" />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: 'hsl(var(--card))',
-                      border: '1px solid hsl(var(--border))',
-                      borderRadius: '8px'
-                    }}
-                  />
-                  <Bar dataKey="hired" fill="#10b981" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
-      )
-    }
-
-    return (
-      <Card key={metricId}>
-        <CardHeader>
-          <CardTitle className="text-base">{metricLabelById[metricId] || metricId}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">
-            Metric enabled. Connect this card to backend data to visualize it.
-          </div>
-        </CardContent>
-      </Card>
-    )
-  }
-
-  if (loading) {
+  if (loadingFilters) {
     return (
       <div className="flex h-full items-center justify-center">
         <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-primary"></div>
@@ -431,6 +241,23 @@ export default function Analytics() {
               </div>
             )}
 
+            <div className="min-w-[200px] space-y-1">
+              <p className="text-xs font-medium text-muted-foreground">Department</p>
+              <Select value={selectedDepartment} onValueChange={setSelectedDepartment}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All Departments" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Departments</SelectItem>
+                  {departments.map((department) => (
+                    <SelectItem key={department} value={department}>
+                      {department}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
             {isAdmin && (
               <div className="min-w-[200px] space-y-1">
                 <p className="text-xs font-medium text-muted-foreground">Client</p>
@@ -493,7 +320,13 @@ export default function Analytics() {
         </Card>
       ) : (
         <div className="grid gap-6 lg:grid-cols-2">
-          {selectedMetrics.map((metricId) => renderMetricCard(metricId))}
+          {selectedMetrics.map((metricId) => (
+            <AnalyticsWidget
+              key={metricId}
+              type={metricId}
+              filters={analyticsFilters}
+            />
+          ))}
         </div>
       )}
 
