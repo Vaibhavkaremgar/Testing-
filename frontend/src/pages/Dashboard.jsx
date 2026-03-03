@@ -57,21 +57,7 @@ export default function Dashboard() {
   const [hiringMetrics, setHiringMetrics] = useState(null)
   const [departmentFilter, setDepartmentFilter] = useState('all')
   const [intelligence, setIntelligence] = useState(null)
-  const [savedViews, setSavedViews] = useState([])
-  const [selectedSavedView, setSelectedSavedView] = useState('')
-  const [viewName, setViewName] = useState('')
 
-  useEffect(() => {
-    try {
-      const stored = JSON.parse(localStorage.getItem(SAVED_DASHBOARD_VIEWS_KEY) || '[]')
-      if (Array.isArray(stored)) {
-        setSavedViews(stored)
-      }
-    } catch (error) {
-      console.error('Failed to parse saved dashboard views:', error)
-      setSavedViews([])
-    }
-  }, [])
 
   // Force close modal on mount and prevent any stuck state
   useEffect(() => {
@@ -219,86 +205,7 @@ export default function Dashboard() {
     setSelectedMonthNum(null)
   }
 
-  const getCurrentViewConfig = () => ({
-    selectedMonth,
-    selectedDate,
-    selectedYear,
-    selectedMonthNum
-  })
 
-  const applyViewConfig = (viewConfig) => {
-    const defaults = getDefaultView()
-    setSelectedMonth(viewConfig?.selectedMonth ?? defaults.selectedMonth)
-    setSelectedDate(viewConfig?.selectedDate ?? defaults.selectedDate)
-    setSelectedYear(viewConfig?.selectedYear ?? defaults.selectedYear)
-    setSelectedMonthNum(viewConfig?.selectedMonthNum ?? defaults.selectedMonthNum)
-  }
-
-  const handleSaveView = () => {
-    const trimmedName = viewName.trim()
-    if (!trimmedName) {
-      toast({
-        title: 'Name required',
-        description: 'Enter a view name before saving.'
-      })
-      return
-    }
-
-    const nextViews = [
-      ...savedViews.filter((view) => view.name !== trimmedName),
-      {
-        name: trimmedName,
-        config: getCurrentViewConfig(),
-        updatedAt: new Date().toISOString()
-      }
-    ].sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt))
-
-    localStorage.setItem(SAVED_DASHBOARD_VIEWS_KEY, JSON.stringify(nextViews))
-    setSavedViews(nextViews)
-    setSelectedSavedView(trimmedName)
-
-    toast({
-      title: 'View saved',
-      description: `"${trimmedName}" is now available in Saved Views.`
-    })
-  }
-
-  const handleLoadView = () => {
-    if (!selectedSavedView) {
-      toast({
-        title: 'No view selected',
-        description: 'Choose a saved view to load.'
-      })
-      return
-    }
-
-    const viewToLoad = savedViews.find((view) => view.name === selectedSavedView)
-    if (!viewToLoad) {
-      toast({
-        title: 'View not found',
-        description: 'The selected view is unavailable. Try saving it again.'
-      })
-      return
-    }
-
-    applyViewConfig(viewToLoad.config)
-    setViewName(viewToLoad.name)
-
-    toast({
-      title: 'View loaded',
-      description: `"${viewToLoad.name}" has been applied.`
-    })
-  }
-
-  const handleResetDefaultView = () => {
-    applyViewConfig(getDefaultView())
-    setSelectedSavedView('')
-    setViewName('')
-    toast({
-      title: 'Default restored',
-      description: 'Dashboard view has been reset to default.'
-    })
-  }
 
   const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
   
@@ -333,33 +240,6 @@ export default function Dashboard() {
           <p className="text-muted-foreground">Overview of your recruitment pipeline</p>
         </div>
         <div className="flex items-center gap-2">
-          <Input
-            value={viewName}
-            onChange={(e) => setViewName(e.target.value)}
-            placeholder="View name"
-            className="w-[160px]"
-          />
-          <Button variant="outline" onClick={handleSaveView}>
-            Save View
-          </Button>
-          <select
-            value={selectedSavedView}
-            onChange={(e) => setSelectedSavedView(e.target.value)}
-            className="h-10 rounded-md border bg-background px-3 text-sm"
-          >
-            <option value="">Saved Views</option>
-            {savedViews.map((view) => (
-              <option key={view.name} value={view.name}>
-                {view.name}
-              </option>
-            ))}
-          </select>
-          <Button variant="outline" onClick={handleLoadView}>
-            Load View
-          </Button>
-          <Button variant="ghost" onClick={handleResetDefaultView}>
-            Reset Default
-          </Button>
           <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
             <PopoverTrigger asChild>
               <Button variant="outline" className="w-[240px] justify-start text-left font-normal">
