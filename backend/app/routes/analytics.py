@@ -190,7 +190,7 @@ def get_pipeline_stats(
     for stage in CandidateStage:
         count = base_query.filter(
             Candidate.stage == stage
-        ).scalar() or 0
+        ).count() or 0
         stats.append(PipelineStats(stage=stage.value, count=count))
     return stats
 
@@ -462,7 +462,7 @@ def get_score_distribution(
         count = base_query.filter(
             Candidate.resume_score >= min_score,
             Candidate.resume_score <= max_score
-        ).scalar() or 0
+        ).count() or 0
         result.append(ScoreDistribution(range=range_label, count=count))
     
     return result
