@@ -3,7 +3,7 @@ import os
 import sqlite3
 
 # Connect to database
-db_path = "talentai.db"
+db_path = "/data/app.db"
 conn = sqlite3.connect(db_path)
 cursor = conn.cursor()
 
