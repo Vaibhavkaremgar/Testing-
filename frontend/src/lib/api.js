@@ -421,6 +421,17 @@ class ApiClient {
     return this.request(`/analytics/hiring-funnel${query ? `?${query}` : ''}`)
   }
 
+  async getRecruitmentFunnel(params = {}) {
+    const searchParams = new URLSearchParams()
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') {
+        searchParams.append(key, value)
+      }
+    })
+    const query = searchParams.toString()
+    return this.request(`/analytics/recruitment-funnel${query ? `?${query}` : ''}`)
+  }
+
   async getTimeToHire() {
     return this.request('/analytics/time-to-hire')
   }

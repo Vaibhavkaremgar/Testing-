@@ -16,12 +16,16 @@ import {
   Area,
   PieChart,
   Pie,
-  Cell
+  Cell,
+  FunnelChart,
+  Funnel,
+  LabelList
 } from 'recharts'
 
 const COLORS = ['#3b82f6', '#8b5cf6', '#06b6d4', '#10b981', '#f59e0b', '#ef4444']
 
 const METRIC_META = {
+  recruitment_funnel: { title: 'Recruitment Funnel', chartTypes: ['funnel'] },
   time_to_hire: { title: 'Time to Hire', chartTypes: ['area', 'line', 'bar'] },
   time_to_interview: { title: 'Time to Interview', chartTypes: ['line', 'bar', 'area'] },
   offer_acceptance_rate: { title: 'Offer Acceptance Rate', chartTypes: ['line', 'bar', 'pie'] },
@@ -51,6 +55,7 @@ const GROUPING_OPTIONS = [
 ]
 
 function getMetricDataKeys(type) {
+  if (type === 'recruitment_funnel') return { xKey: 'stage', yKey: 'count' }
   if (type === 'resume_score_distribution') return { xKey: 'range', yKey: 'count' }
   if (type === 'top_skills' || type === 'skill_gap_analysis' || type === 'skill_demand_vs_supply' || type === 'skill_vs_hire_success_rate') {
     return { xKey: 'skill', yKey: 'count' }
@@ -61,6 +66,17 @@ function getMetricDataKeys(type) {
 
 function normalizeSeries(type, rows) {
   if (!Array.isArray(rows)) return []
+
+  if (type === 'recruitment_funnel') {
+    return rows.map((r, index) => ({
+      id: `${r.stage || 'stage'}-${index}`,
+      stage: r.stage || `Stage ${index + 1}`,
+      count: Number(r.count || 0),
+      conversion_percentage: Number(r.conversion_percentage || 0),
+      dropoff_percentage: Number(r.dropoff_percentage || 0),
+      avg_time_days: Number(r.avg_time_days || 0)
+    }))
+  }
 
   if (type === 'time_to_hire') {
     return rows.map((r, index) => ({
@@ -148,12 +164,18 @@ export default function AnalyticsWidget({
       setError('')
       try {
         const requestFilters = {
-          ...filters,
+          date_range: filters?.dateRange,
+          start_date: filters?.customStartDate,
+          end_date: filters?.customEndDate,
+          recruiter: filters?.recruiter,
+          client: filters?.client,
+          department: filters?.department,
           grouping
         }
 
         let raw = []
-        if (type === 'time_to_hire') raw = await api.getTimeToHire(requestFilters)
+        if (type === 'recruitment_funnel') raw = await api.getRecruitmentFunnel(requestFilters)
+        else if (type === 'time_to_hire') raw = await api.getTimeToHire(requestFilters)
         else if (type === 'resume_score_distribution') raw = await api.getScoreDistribution(requestFilters)
         else if (type === 'top_skills' || type === 'skill_gap_analysis' || type === 'skill_demand_vs_supply' || type === 'skill_vs_hire_success_rate') raw = await api.getSkillHeatmap(requestFilters)
         else if (type === 'source_of_candidates') raw = await api.getHiringByDepartment(requestFilters)
@@ -201,16 +223,18 @@ export default function AnalyticsWidget({
                 ))}
               </SelectContent>
             </Select>
-            <Select value={grouping} onValueChange={setGrouping}>
-              <SelectTrigger className="h-8 w-[150px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {GROUPING_OPTIONS.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {type !== 'recruitment_funnel' && (
+              <Select value={grouping} onValueChange={setGrouping}>
+                <SelectTrigger className="h-8 w-[150px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {GROUPING_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </div>
         </div>
       </CardHeader>
@@ -297,7 +321,55 @@ export default function AnalyticsWidget({
                   </Pie>
                 </PieChart>
               )}
+              {chartType === 'funnel' && (
+                <FunnelChart>
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'hsl(var(--card))',
+                      border: '1px solid hsl(var(--border))',
+                      borderRadius: '8px'
+                    }}
+                    formatter={(value, name, payload) => {
+                      if (name === 'count') return [`${value}`, 'Candidates']
+                      return [value, name]
+                    }}
+                  />
+                  <Funnel dataKey="count" data={chartData} isAnimationActive>
+                    {chartData.map((_, index) => (
+                      <Cell key={`funnel-cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                    ))}
+                    <LabelList position="right" fill="#888" stroke="none" dataKey="stage" />
+                    <LabelList position="center" fill="#fff" stroke="none" dataKey="count" />
+                  </Funnel>
+                </FunnelChart>
+              )}
             </ResponsiveContainer>
+          </div>
+        )}
+        {type === 'recruitment_funnel' && chartData.length > 0 && (
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b">
+                  <th className="px-2 py-2 text-left font-medium">Stage</th>
+                  <th className="px-2 py-2 text-left font-medium">Count</th>
+                  <th className="px-2 py-2 text-left font-medium">Conversion %</th>
+                  <th className="px-2 py-2 text-left font-medium">Drop-off %</th>
+                  <th className="px-2 py-2 text-left font-medium">Avg Time (Days)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {chartData.map((row) => (
+                  <tr key={row.id} className="border-b">
+                    <td className="px-2 py-2">{row.stage}</td>
+                    <td className="px-2 py-2">{row.count}</td>
+                    <td className="px-2 py-2">{row.conversion_percentage}%</td>
+                    <td className="px-2 py-2">{row.dropoff_percentage}%</td>
+                    <td className="px-2 py-2">{row.avg_time_days}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </CardContent>

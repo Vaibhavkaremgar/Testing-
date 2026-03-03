@@ -12,6 +12,7 @@ const METRIC_CATEGORIES = [
   {
     title: 'Hiring Metrics',
     metrics: [
+      { id: 'recruitment_funnel', label: 'Recruitment Funnel' },
       { id: 'time_to_hire', label: 'Time to Hire' },
       { id: 'time_to_interview', label: 'Time to Interview' },
       { id: 'offer_acceptance_rate', label: 'Offer Acceptance Rate' },
@@ -51,6 +52,7 @@ const METRIC_CATEGORIES = [
 ]
 
 const DEFAULT_SELECTED_METRICS = [
+  'recruitment_funnel',
   'time_to_hire',
   'resume_score_distribution',
   'top_skills',

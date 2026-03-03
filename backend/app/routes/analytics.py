@@ -11,7 +11,7 @@ from app.schemas import (
 from app.auth import get_current_active_user
 from collections import Counter
 import random
-from datetime import datetime
+from datetime import datetime, timedelta
 
 router = APIRouter(prefix="/analytics", tags=["Analytics"])
 
@@ -71,6 +71,52 @@ def _apply_job_visibility(query, db: Session, current_user: User):
         Candidate.job_id.isnot(None)
     ).distinct()
     return query.filter(JobDescription.id.in_(assigned_job_ids))
+
+
+def _apply_analytics_filters(
+    query,
+    db: Session,
+    current_user: User,
+    date_range: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    recruiter: Optional[str] = None,
+    client: Optional[str] = None,
+    department: Optional[str] = None
+):
+    role_name = _role_name(current_user)
+
+    if date_range in {"last_7_days", "last_30_days", "last_3_months", "last_6_months"}:
+        now = datetime.utcnow()
+        delta_map = {
+            "last_7_days": timedelta(days=7),
+            "last_30_days": timedelta(days=30),
+            "last_3_months": timedelta(days=90),
+            "last_6_months": timedelta(days=180),
+        }
+        query = query.filter(Candidate.created_at >= (now - delta_map[date_range]))
+    elif date_range == "custom":
+        if start_date:
+            query = query.filter(func.date(Candidate.created_at) >= start_date)
+        if end_date:
+            query = query.filter(func.date(Candidate.created_at) <= end_date)
+
+    if role_name == UserRole.ADMIN.value and recruiter and recruiter != "all":
+        try:
+            recruiter_id = int(recruiter)
+            query = query.filter(Candidate.assigned_to_user_id == recruiter_id)
+        except (TypeError, ValueError):
+            pass
+
+    if role_name == UserRole.ADMIN.value and client and client != "all":
+        job_ids = db.query(JobDescription.id).filter(JobDescription.company_name == client)
+        query = query.filter(Candidate.job_id.in_(job_ids))
+
+    if department and department != "all":
+        dept_job_ids = db.query(JobDescription.id).filter(JobDescription.department == department)
+        query = query.filter(Candidate.job_id.in_(dept_job_ids))
+
+    return query
 
 @router.get("/dashboard-stats", response_model=DashboardStats)
 def get_dashboard_stats(
@@ -247,6 +293,103 @@ def get_hiring_funnel(
         )
         for stage, count in funnel_stages
     ]
+
+
+@router.get("/recruitment-funnel")
+def get_recruitment_funnel(
+    date_range: Optional[str] = Query("last_30_days"),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    recruiter: Optional[str] = Query(None),
+    client: Optional[str] = Query(None),
+    department: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    query = _apply_candidate_visibility(db.query(Candidate), current_user)
+    query = _apply_analytics_filters(
+        query,
+        db,
+        current_user,
+        date_range=date_range,
+        start_date=start_date,
+        end_date=end_date,
+        recruiter=recruiter,
+        client=client,
+        department=department,
+    )
+    candidates = query.all()
+    now = datetime.utcnow()
+
+    def _avg_days(rows):
+        if not rows:
+            return 0.0
+        durations = []
+        for c in rows:
+            start = c.stage_entered_at or c.stage_updated_at or c.created_at
+            if not start:
+                continue
+            durations.append(max(0, (now - start).days))
+        return round(sum(durations) / len(durations), 1) if durations else 0.0
+
+    applied_rows = list(candidates)
+    screened_rows = [c for c in candidates if c.stage != CandidateStage.APPLIED]
+    shortlisted_rows = [
+        c for c in candidates
+        if c.stage in {
+            CandidateStage.SHORTLISTED,
+            CandidateStage.INTERVIEW_SCHEDULED,
+            CandidateStage.INTERVIEW_RESCHEDULED,
+            CandidateStage.INTERVIEWED,
+            CandidateStage.SELECTED,
+            CandidateStage.REJECTED,
+        }
+    ]
+    interviewed_rows = [
+        c for c in candidates
+        if c.stage in {
+            CandidateStage.INTERVIEW_SCHEDULED,
+            CandidateStage.INTERVIEW_RESCHEDULED,
+            CandidateStage.INTERVIEWED,
+            CandidateStage.SELECTED,
+            CandidateStage.REJECTED,
+        }
+    ]
+    selected_rows = [c for c in candidates if c.stage == CandidateStage.SELECTED]
+    offered_rows = [c for c in candidates if (c.offer_status or "").lower() in {"made", "accepted"}]
+    hired_rows = [c for c in candidates if (c.offer_status or "").lower() == "accepted"]
+
+    stage_data = [
+        ("Applied", applied_rows),
+        ("Screened", screened_rows),
+        ("Shortlisted", shortlisted_rows),
+        ("Interviewed", interviewed_rows),
+        ("Selected", selected_rows),
+        ("Offered", offered_rows),
+        ("Hired", hired_rows),
+    ]
+
+    result = []
+    prev_count = None
+    for stage_name, rows in stage_data:
+        count = len(rows)
+        if prev_count in (None, 0):
+            conversion = 100.0 if count > 0 else 0.0
+            dropoff = 0.0
+        else:
+            conversion = round((count / prev_count) * 100, 1)
+            dropoff = round(100 - conversion, 1)
+
+        result.append({
+            "stage": stage_name,
+            "count": count,
+            "conversion_percentage": conversion,
+            "dropoff_percentage": max(0.0, dropoff),
+            "avg_time_days": _avg_days(rows),
+        })
+        prev_count = count
+
+    return result
 
 @router.get("/time-to-hire", response_model=List[TimeToHireData])
 def get_time_to_hire(
