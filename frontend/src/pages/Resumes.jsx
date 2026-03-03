@@ -58,6 +58,7 @@ export default function Resumes() {
   const [assigning, setAssigning] = useState(false)
   const [emailModal, setEmailModal] = useState({ show: false, type: '', subject: '', message: '' })
   const [sending, setSending] = useState(false)
+  const [isEditingEmail, setIsEditingEmail] = useState(false)
 
   // Load job-specific minimum passing scores
   useEffect(() => {
@@ -353,6 +354,7 @@ export default function Resumes() {
     }
     
     setEmailModal({ show: true, type, subject, message })
+    setIsEditingEmail(false)
   }
 
   const handleSendEmail = async () => {
@@ -1198,34 +1200,54 @@ export default function Resumes() {
 
       {/* Email Customization Modal */}
       {emailModal.show && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]" onClick={() => setEmailModal({ show: false, type: '', subject: '', message: '' })}>
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60]" onClick={() => { setEmailModal({ show: false, type: '', subject: '', message: '' }); setIsEditingEmail(false); }}>
           <div className="bg-card rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-bold">Customize Email</h2>
-              <Button variant="ghost" size="icon" onClick={() => setEmailModal({ show: false, type: '', subject: '', message: '' })}>
-                <X className="h-4 w-4" />
-              </Button>
+              <div className="flex items-center gap-2">
+                {!isEditingEmail && (
+                  <Button variant="outline" size="sm" onClick={() => setIsEditingEmail(true)}>
+                    <Edit className="h-4 w-4 mr-2" />
+                    Edit
+                  </Button>
+                )}
+                <Button variant="ghost" size="icon" onClick={() => { setEmailModal({ show: false, type: '', subject: '', message: '' }); setIsEditingEmail(false); }}>
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
             
             <div className="space-y-4">
               <div>
                 <label className="text-sm font-medium mb-2 block">Subject</label>
-                <Input
-                  value={emailModal.subject}
-                  onChange={(e) => setEmailModal({ ...emailModal, subject: e.target.value })}
-                  placeholder="Email subject"
-                />
+                {isEditingEmail ? (
+                  <Input
+                    value={emailModal.subject}
+                    onChange={(e) => setEmailModal({ ...emailModal, subject: e.target.value })}
+                    placeholder="Email subject"
+                  />
+                ) : (
+                  <div className="w-full rounded-lg border border-input bg-muted px-3 py-2 text-sm">
+                    {emailModal.subject}
+                  </div>
+                )}
               </div>
               
               <div>
                 <label className="text-sm font-medium mb-2 block">Message</label>
-                <textarea
-                  value={emailModal.message}
-                  onChange={(e) => setEmailModal({ ...emailModal, message: e.target.value })}
-                  placeholder="Email message"
-                  rows={12}
-                  className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm resize-none"
-                />
+                {isEditingEmail ? (
+                  <textarea
+                    value={emailModal.message}
+                    onChange={(e) => setEmailModal({ ...emailModal, message: e.target.value })}
+                    placeholder="Email message"
+                    rows={12}
+                    className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm resize-none"
+                  />
+                ) : (
+                  <div className="w-full rounded-lg border border-input bg-muted px-3 py-2 text-sm whitespace-pre-wrap max-h-[300px] overflow-y-auto">
+                    {emailModal.message}
+                  </div>
+                )}
               </div>
               
               <div className="flex gap-3 pt-4">
@@ -1239,7 +1261,7 @@ export default function Resumes() {
                 <Button 
                   variant="outline" 
                   className="flex-1" 
-                  onClick={() => setEmailModal({ show: false, type: '', subject: '', message: '' })}
+                  onClick={() => { setEmailModal({ show: false, type: '', subject: '', message: '' }); setIsEditingEmail(false); }}
                   disabled={sending}
                 >
                   Cancel
