@@ -1712,7 +1712,9 @@ async def get_resume_file(
             possible_paths = [
                 os.path.join(settings.UPLOAD_DIR, filename),  # uploads/file.pdf
                 os.path.join("/data/uploads", filename),      # /data/uploads/file.pdf
-                filename if os.path.exists(filename) else None # file.pdf in current dir
+                os.path.join("/app/uploads", filename),       # /app/uploads/file.pdf
+                os.path.join("/app/backend/uploads", filename), # /app/backend/uploads/file.pdf
+                filename if os.path.exists(filename) else None
             ]
             
             file_path = None
@@ -1730,7 +1732,7 @@ async def get_resume_file(
         file_ext = os.path.splitext(candidate.resume_file_path)[1].lower()
         
         # Read file content
-        with open(candidate.resume_file_path, 'rb') as f:
+        with open(file_path, 'rb') as f:
             file_content = f.read()
         
         # Convert Word to PDF for viewing, or return PDF directly
