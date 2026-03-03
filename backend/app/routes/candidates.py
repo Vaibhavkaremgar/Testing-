@@ -1704,27 +1704,43 @@ async def get_resume_file(
         from app.config import settings
         
         # Handle different path formats
+        print(f"🔍 Looking for resume file:")
+        print(f"   Database path: {candidate.resume_file_path}")
+        print(f"   UPLOAD_DIR setting: {settings.UPLOAD_DIR}")
+        print(f"   Current working dir: {os.getcwd()}")
+        
         if os.path.isabs(candidate.resume_file_path):
             file_path = candidate.resume_file_path
         else:
             # Try multiple possible locations
             filename = os.path.basename(candidate.resume_file_path)
             possible_paths = [
-                os.path.join(settings.UPLOAD_DIR, filename),  # uploads/file.pdf
-                os.path.join("/data/uploads", filename),      # /data/uploads/file.pdf
-                os.path.join("/app/uploads", filename),       # /app/uploads/file.pdf
-                os.path.join("/app/backend/uploads", filename), # /app/backend/uploads/file.pdf
-                filename if os.path.exists(filename) else None
+                candidate.resume_file_path,  # Try exact path first
+                os.path.join(settings.UPLOAD_DIR, filename),
+                os.path.join("/data", filename),
+                os.path.join("/data/uploads", filename),
+                os.path.join("/app/uploads", filename),
+                os.path.join("/app/backend/uploads", filename),
+                os.path.join(os.getcwd(), "uploads", filename)
             ]
             
             file_path = None
             for path in possible_paths:
+                print(f"   Checking: {path} - Exists: {os.path.exists(path) if path else False}")
                 if path and os.path.exists(path):
                     file_path = path
+                    print(f"   ✅ Found at: {file_path}")
                     break
             
             if not file_path:
-                raise HTTPException(status_code=404, detail=f"Resume file not found. Tried: {possible_paths}")
+                # List what's actually in the upload directory
+                try:
+                    if os.path.exists(settings.UPLOAD_DIR):
+                        files = os.listdir(settings.UPLOAD_DIR)
+                        print(f"   Files in {settings.UPLOAD_DIR}: {files[:10]}")
+                except:
+                    pass
+                raise HTTPException(status_code=404, detail=f"Resume file not found. Database path: {candidate.resume_file_path}. Upload dir: {settings.UPLOAD_DIR}. File doesn't exist on server - upload it after deployment.")
         
         if not os.path.exists(file_path):
             raise HTTPException(status_code=404, detail=f"Resume file not found at path: {file_path}")
