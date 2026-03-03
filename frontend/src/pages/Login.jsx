@@ -67,7 +67,7 @@ export default function Login() {
           <div className="text-center mb-8">
             <div className="flex justify-center mb-4">
               <img 
-                src="/logo.svg" 
+                src="/logo.png" 
                 alt="PONTIS Logo" 
                 className="h-16 w-16 rounded-xl object-cover"
                 onError={(e) => {
