@@ -32,7 +32,8 @@ export default function Profile() {
         bio: user.bio || ''
       })
       if (user.avatar_url) {
-        setAvatarPreview(`http://localhost:8000${user.avatar_url}?t=${Date.now()}`)
+        const baseUrl = import.meta.env.VITE_API_URL || 'https://ai-recruitment-dashboard-production.up.railway.app'
+        setAvatarPreview(`${baseUrl}${user.avatar_url}?t=${Date.now()}`)
       }
     }
   }, [user])
@@ -60,7 +61,8 @@ export default function Profile() {
       if (refreshUser) {
         await refreshUser()
       }
-      setAvatarPreview(`http://localhost:8000${result.avatar_url}?t=${Date.now()}`)
+      const baseUrl = import.meta.env.VITE_API_URL || 'https://ai-recruitment-dashboard-production.up.railway.app'
+      setAvatarPreview(`${baseUrl}${result.avatar_url}?t=${Date.now()}`)
     } catch (error) {
       alert(error.message || 'Failed to upload avatar')
     } finally {
