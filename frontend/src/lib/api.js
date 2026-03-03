@@ -432,6 +432,32 @@ class ApiClient {
     return this.request(`/analytics/recruitment-funnel${query ? `?${query}` : ''}`)
   }
 
+  async getKpiSummary(params = {}) {
+    const searchParams = new URLSearchParams()
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') {
+        searchParams.append(key, value)
+      }
+    })
+    const query = searchParams.toString()
+    return this.request(`/analytics/kpi-summary${query ? `?${query}` : ''}`)
+  }
+
+  async getAnalyticsWidgetCatalog() {
+    return this.request('/analytics/widgets/catalog')
+  }
+
+  async getAnalyticsWidgetLayout() {
+    return this.request('/analytics/widgets/layout')
+  }
+
+  async saveAnalyticsWidgetLayout(items = []) {
+    return this.request('/analytics/widgets/layout', {
+      method: 'POST',
+      body: JSON.stringify({ items }),
+    })
+  }
+
   async getTimeToHire() {
     return this.request('/analytics/time-to-hire')
   }

@@ -3,7 +3,16 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, case, extract
 from typing import List, Optional
 from app.database import get_db
-from app.models import Candidate, Interview, CandidateStage, User, UserRole, JobDescription
+from app.models import (
+    Candidate,
+    Interview,
+    CandidateStage,
+    User,
+    UserRole,
+    JobDescription,
+    AnalyticsWidget,
+    UserDashboardPreference,
+)
 from app.schemas import (
     DashboardStats, PipelineStats, HiringFunnelData, 
     TimeToHireData, SkillHeatmapData, ScoreDistribution
@@ -12,8 +21,44 @@ from app.auth import get_current_active_user
 from collections import Counter
 import random
 from datetime import datetime, timedelta
+from pydantic import BaseModel
 
 router = APIRouter(prefix="/analytics", tags=["Analytics"])
+
+
+ANALYTICS_WIDGET_CATALOG = [
+    {"metric_key": "recruitment_funnel", "widget_name": "Recruitment Funnel", "is_default": True},
+    {"metric_key": "time_to_hire", "widget_name": "Time to Hire", "is_default": True},
+    {"metric_key": "time_to_interview", "widget_name": "Time to Interview", "is_default": False},
+    {"metric_key": "offer_acceptance_rate", "widget_name": "Offer Acceptance Rate", "is_default": False},
+    {"metric_key": "interview_to_hire_ratio", "widget_name": "Interview to Hire Ratio", "is_default": False},
+    {"metric_key": "drop_off_rate", "widget_name": "Drop-off Rate", "is_default": False},
+    {"metric_key": "total_hires", "widget_name": "Total Hires", "is_default": False},
+    {"metric_key": "applications_per_job", "widget_name": "Applications per Job", "is_default": False},
+    {"metric_key": "resume_score_distribution", "widget_name": "Resume Score Distribution", "is_default": True},
+    {"metric_key": "ai_interview_average_score", "widget_name": "AI Interview Average Score", "is_default": False},
+    {"metric_key": "application_volume_trend", "widget_name": "Application Volume Trend", "is_default": False},
+    {"metric_key": "source_of_candidates", "widget_name": "Source of Candidates", "is_default": False},
+    {"metric_key": "hires_per_recruiter", "widget_name": "Hires per Recruiter", "is_default": False},
+    {"metric_key": "avg_resume_review_time", "widget_name": "Avg Resume Review Time", "is_default": False},
+    {"metric_key": "interview_scheduling_delay", "widget_name": "Interview Scheduling Delay", "is_default": False},
+    {"metric_key": "recruiter_performance_score", "widget_name": "Recruiter Performance Score", "is_default": False},
+    {"metric_key": "top_skills", "widget_name": "Top Skills", "is_default": True},
+    {"metric_key": "skill_gap_analysis", "widget_name": "Skill Gap Analysis", "is_default": True},
+    {"metric_key": "skill_demand_vs_supply", "widget_name": "Skill Demand vs Supply", "is_default": False},
+    {"metric_key": "skill_vs_hire_success_rate", "widget_name": "Skill vs Hire Success Rate", "is_default": False},
+]
+
+
+class DashboardLayoutItem(BaseModel):
+    metric_key: str
+    position: int = 0
+    size: str = "medium"
+    is_enabled: bool = True
+
+
+class DashboardLayoutPayload(BaseModel):
+    items: List[DashboardLayoutItem]
 
 
 def _role_name(current_user: User) -> str:
@@ -117,6 +162,199 @@ def _apply_analytics_filters(
         query = query.filter(Candidate.job_id.in_(dept_job_ids))
 
     return query
+
+
+def _resolve_period_windows(
+    date_range: Optional[str],
+    start_date: Optional[str],
+    end_date: Optional[str],
+):
+    now = datetime.utcnow()
+
+    if date_range == "last_7_days":
+        current_start = now - timedelta(days=7)
+        current_end = now
+    elif date_range == "last_30_days" or not date_range:
+        current_start = now - timedelta(days=30)
+        current_end = now
+    elif date_range == "last_3_months":
+        current_start = now - timedelta(days=90)
+        current_end = now
+    elif date_range == "last_6_months":
+        current_start = now - timedelta(days=180)
+        current_end = now
+    elif date_range == "custom" and start_date and end_date:
+        try:
+            current_start = datetime.fromisoformat(start_date + "T00:00:00")
+            current_end = datetime.fromisoformat(end_date + "T23:59:59")
+        except ValueError:
+            current_start = now - timedelta(days=30)
+            current_end = now
+    else:
+        current_start = now - timedelta(days=30)
+        current_end = now
+
+    window_duration = current_end - current_start
+    previous_end = current_start
+    previous_start = previous_end - window_duration
+
+    return current_start, current_end, previous_start, previous_end
+
+
+def _apply_scope_filters_only(
+    query,
+    db: Session,
+    current_user: User,
+    recruiter: Optional[str] = None,
+    client: Optional[str] = None,
+    department: Optional[str] = None
+):
+    role_name = _role_name(current_user)
+
+    if role_name == UserRole.ADMIN.value and recruiter and recruiter != "all":
+        try:
+            recruiter_id = int(recruiter)
+            query = query.filter(Candidate.assigned_to_user_id == recruiter_id)
+        except (TypeError, ValueError):
+            pass
+
+    if role_name == UserRole.ADMIN.value and client and client != "all":
+        job_ids = db.query(JobDescription.id).filter(JobDescription.company_name == client)
+        query = query.filter(Candidate.job_id.in_(job_ids))
+
+    if department and department != "all":
+        dept_job_ids = db.query(JobDescription.id).filter(JobDescription.department == department)
+        query = query.filter(Candidate.job_id.in_(dept_job_ids))
+
+    return query
+
+
+def _ensure_analytics_widgets(db: Session):
+    existing = {
+        row.metric_key: row
+        for row in db.query(AnalyticsWidget).all()
+    }
+
+    created = False
+    for widget in ANALYTICS_WIDGET_CATALOG:
+        if widget["metric_key"] not in existing:
+            db.add(
+                AnalyticsWidget(
+                    widget_name=widget["widget_name"],
+                    metric_key=widget["metric_key"],
+                    role_access="all",
+                    is_default=widget["is_default"],
+                )
+            )
+            created = True
+
+    if created:
+        db.commit()
+
+
+@router.get("/widgets/catalog")
+def get_widget_catalog(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    _ensure_analytics_widgets(db)
+    widgets = db.query(AnalyticsWidget).order_by(AnalyticsWidget.id.asc()).all()
+    return [
+        {
+            "id": widget.id,
+            "widget_name": widget.widget_name,
+            "metric_key": widget.metric_key,
+            "role_access": widget.role_access,
+            "is_default": widget.is_default,
+        }
+        for widget in widgets
+    ]
+
+
+@router.get("/widgets/layout")
+def get_widget_layout(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    _ensure_analytics_widgets(db)
+
+    prefs = (
+        db.query(UserDashboardPreference, AnalyticsWidget)
+        .join(AnalyticsWidget, UserDashboardPreference.widget_id == AnalyticsWidget.id)
+        .filter(UserDashboardPreference.user_id == current_user.id)
+        .order_by(UserDashboardPreference.position.asc())
+        .all()
+    )
+
+    if not prefs:
+        defaults = (
+            db.query(AnalyticsWidget)
+            .filter(AnalyticsWidget.is_default == True)
+            .order_by(AnalyticsWidget.id.asc())
+            .all()
+        )
+        return {
+            "items": [
+                {
+                    "widget_id": widget.id,
+                    "metric_key": widget.metric_key,
+                    "widget_name": widget.widget_name,
+                    "position": idx,
+                    "size": "medium",
+                    "is_enabled": True,
+                }
+                for idx, widget in enumerate(defaults)
+            ]
+        }
+
+    return {
+        "items": [
+            {
+                "widget_id": widget.id,
+                "metric_key": widget.metric_key,
+                "widget_name": widget.widget_name,
+                "position": pref.position or 0,
+                "size": pref.size or "medium",
+                "is_enabled": bool(pref.is_enabled),
+            }
+            for pref, widget in prefs
+        ]
+    }
+
+
+@router.post("/widgets/layout")
+def save_widget_layout(
+    payload: DashboardLayoutPayload,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    _ensure_analytics_widgets(db)
+
+    widget_map = {
+        w.metric_key: w.id
+        for w in db.query(AnalyticsWidget).all()
+    }
+
+    db.query(UserDashboardPreference).filter(
+        UserDashboardPreference.user_id == current_user.id
+    ).delete()
+
+    for item in payload.items:
+        widget_id = widget_map.get(item.metric_key)
+        if not widget_id:
+            continue
+        db.add(
+            UserDashboardPreference(
+                user_id=current_user.id,
+                widget_id=widget_id,
+                position=item.position,
+                size=item.size,
+                is_enabled=item.is_enabled,
+            )
+        )
+
+    db.commit()
+    return {"status": "success", "saved_items": len(payload.items)}
 
 @router.get("/dashboard-stats", response_model=DashboardStats)
 def get_dashboard_stats(
@@ -390,6 +628,151 @@ def get_recruitment_funnel(
         prev_count = count
 
     return result
+
+
+@router.get("/kpi-summary")
+def get_kpi_summary(
+    date_range: Optional[str] = Query("last_30_days"),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    recruiter: Optional[str] = Query(None),
+    client: Optional[str] = Query(None),
+    department: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    current_start, current_end, previous_start, previous_end = _resolve_period_windows(
+        date_range, start_date, end_date
+    )
+
+    def _build_candidate_query(period_start, period_end):
+        q = _apply_candidate_visibility(db.query(Candidate), current_user)
+        q = _apply_scope_filters_only(
+            q,
+            db,
+            current_user,
+            recruiter=recruiter,
+            client=client,
+            department=department,
+        )
+        return q.filter(Candidate.created_at >= period_start, Candidate.created_at <= period_end)
+
+    def _compute_metrics(period_start, period_end):
+        cq = _build_candidate_query(period_start, period_end)
+        candidates = cq.all()
+        candidate_ids = [c.id for c in candidates]
+
+        total_candidates = len(candidates)
+        selected_candidates = [c for c in candidates if c.stage == CandidateStage.SELECTED]
+        interviewed_candidates = [
+            c for c in candidates
+            if c.stage in {
+                CandidateStage.INTERVIEW_SCHEDULED,
+                CandidateStage.INTERVIEW_RESCHEDULED,
+                CandidateStage.INTERVIEWED,
+                CandidateStage.SELECTED,
+                CandidateStage.REJECTED,
+            }
+        ]
+        offers_released = [c for c in candidates if (c.offer_status or "").lower() in {"made", "accepted"}]
+        offers_accepted = [c for c in candidates if (c.offer_status or "").lower() == "accepted"]
+
+        # If accepted offers are not tracked consistently, fallback to selected.
+        total_hires = len(offers_accepted) if offers_accepted else len(selected_candidates)
+
+        avg_time_to_hire = 0.0
+        if selected_candidates:
+            days = []
+            for c in selected_candidates:
+                start = c.created_at
+                end = c.stage_updated_at or c.updated_at or c.created_at
+                if start and end:
+                    days.append(max(0, (end - start).days))
+            avg_time_to_hire = round(sum(days) / len(days), 1) if days else 0.0
+
+        offer_acceptance_rate = round(
+            (len(offers_accepted) / len(offers_released) * 100), 1
+        ) if offers_released else 0.0
+
+        interview_to_hire_ratio = round(
+            (len(interviewed_candidates) / total_hires), 2
+        ) if total_hires > 0 else 0.0
+
+        open_jobs_query = _apply_job_visibility(
+            db.query(JobDescription).filter(JobDescription.is_active == True),
+            db,
+            current_user
+        )
+        if _role_name(current_user) == UserRole.ADMIN.value and client and client != "all":
+            open_jobs_query = open_jobs_query.filter(JobDescription.company_name == client)
+        if department and department != "all":
+            open_jobs_query = open_jobs_query.filter(JobDescription.department == department)
+        total_open_jobs = open_jobs_query.count()
+
+        active_interviews = 0
+        if candidate_ids:
+            active_interviews = db.query(Interview).filter(
+                Interview.candidate_id.in_(candidate_ids),
+                Interview.status.in_(["scheduled", "in_progress"])
+            ).count()
+
+        return {
+            "total_open_jobs": total_open_jobs,
+            "total_candidates": total_candidates,
+            "active_interviews": active_interviews,
+            "offers_released": len(offers_released),
+            "offers_accepted": len(offers_accepted),
+            "total_hires": total_hires,
+            "avg_time_to_hire": avg_time_to_hire,
+            "offer_acceptance_rate": offer_acceptance_rate,
+            "interview_to_hire_ratio": interview_to_hire_ratio,
+        }
+
+    current_metrics = _compute_metrics(current_start, current_end)
+    previous_metrics = _compute_metrics(previous_start, previous_end)
+
+    def _delta(current, previous):
+        if previous == 0:
+            if current == 0:
+                return 0.0
+            return 100.0
+        return round(((current - previous) / abs(previous)) * 100, 1)
+
+    labels = {
+        "total_open_jobs": "Total Open Jobs",
+        "total_candidates": "Total Candidates",
+        "active_interviews": "Active Interviews",
+        "offers_released": "Offers Released",
+        "offers_accepted": "Offers Accepted",
+        "total_hires": "Total Hires",
+        "avg_time_to_hire": "Avg Time to Hire",
+        "offer_acceptance_rate": "Offer Acceptance Rate",
+        "interview_to_hire_ratio": "Interview-to-Hire Ratio",
+    }
+
+    kpis = []
+    for key, label in labels.items():
+        current_val = current_metrics[key]
+        prev_val = previous_metrics.get(key, 0)
+        change_pct = _delta(current_val, prev_val)
+        trend = "up" if change_pct > 0 else "down" if change_pct < 0 else "flat"
+        kpis.append({
+            "key": key,
+            "label": label,
+            "value": current_val,
+            "change_pct": change_pct,
+            "trend": trend
+        })
+
+    return {
+        "period": {
+            "current_start": current_start.isoformat(),
+            "current_end": current_end.isoformat(),
+            "previous_start": previous_start.isoformat(),
+            "previous_end": previous_end.isoformat(),
+        },
+        "kpis": kpis
+    }
 
 @router.get("/time-to-hire", response_model=List[TimeToHireData])
 def get_time_to_hire(
