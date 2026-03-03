@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '@/context/AuthContext'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -6,12 +6,61 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch'
 import { api } from '@/lib/api'
 import {
-  BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, Cell, AreaChart, Area
 } from 'recharts'
-import { Settings2 } from 'lucide-react'
+import { Settings2, X } from 'lucide-react'
 
 const COLORS = ['#3b82f6', '#8b5cf6', '#06b6d4', '#10b981', '#f59e0b', '#ef4444']
+
+const METRIC_CATEGORIES = [
+  {
+    title: 'Hiring Metrics',
+    metrics: [
+      { id: 'time_to_hire', label: 'Time to Hire' },
+      { id: 'time_to_interview', label: 'Time to Interview' },
+      { id: 'offer_acceptance_rate', label: 'Offer Acceptance Rate' },
+      { id: 'interview_to_hire_ratio', label: 'Interview to Hire Ratio' },
+      { id: 'drop_off_rate', label: 'Drop-off Rate' },
+      { id: 'total_hires', label: 'Total Hires' },
+      { id: 'applications_per_job', label: 'Applications per Job' }
+    ]
+  },
+  {
+    title: 'Candidate Metrics',
+    metrics: [
+      { id: 'resume_score_distribution', label: 'Resume Score Distribution' },
+      { id: 'ai_interview_average_score', label: 'AI Interview Average Score' },
+      { id: 'application_volume_trend', label: 'Application Volume Trend' },
+      { id: 'source_of_candidates', label: 'Source of Candidates' }
+    ]
+  },
+  {
+    title: 'Recruiter Metrics',
+    metrics: [
+      { id: 'hires_per_recruiter', label: 'Hires per Recruiter' },
+      { id: 'avg_resume_review_time', label: 'Avg Resume Review Time' },
+      { id: 'interview_scheduling_delay', label: 'Interview Scheduling Delay' },
+      { id: 'recruiter_performance_score', label: 'Recruiter Performance Score' }
+    ]
+  },
+  {
+    title: 'Skill Metrics',
+    metrics: [
+      { id: 'top_skills', label: 'Top Skills' },
+      { id: 'skill_gap_analysis', label: 'Skill Gap Analysis' },
+      { id: 'skill_demand_vs_supply', label: 'Skill Demand vs Supply' },
+      { id: 'skill_vs_hire_success_rate', label: 'Skill vs Hire Success Rate' }
+    ]
+  }
+]
+
+const DEFAULT_SELECTED_METRICS = [
+  'time_to_hire',
+  'resume_score_distribution',
+  'top_skills',
+  'skill_gap_analysis'
+]
 
 export default function Analytics() {
   const { user } = useAuth()
@@ -19,6 +68,7 @@ export default function Analytics() {
   const [skillHeatmap, setSkillHeatmap] = useState([])
   const [scoreDistribution, setScoreDistribution] = useState([])
   const [departmentData, setDepartmentData] = useState([])
+
   const [dateRange, setDateRange] = useState('last_30_days')
   const [customStartDate, setCustomStartDate] = useState('')
   const [customEndDate, setCustomEndDate] = useState('')
@@ -26,33 +76,52 @@ export default function Analytics() {
   const [compareType, setCompareType] = useState('previous_period')
   const [selectedClient, setSelectedClient] = useState('all')
   const [selectedRecruiter, setSelectedRecruiter] = useState('all')
+
   const [clients, setClients] = useState([])
   const [recruiters, setRecruiters] = useState([])
   const [loading, setLoading] = useState(true)
+
+  const [isCustomizeOpen, setIsCustomizeOpen] = useState(false)
+  const [selectedMetrics, setSelectedMetrics] = useState(DEFAULT_SELECTED_METRICS)
+  const [draftSelectedMetrics, setDraftSelectedMetrics] = useState(DEFAULT_SELECTED_METRICS)
+
   const isAdmin = user?.role === 'admin'
   const canFilterRecruiters = user?.role === 'admin' || user?.role === 'hiring_manager'
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [timeData, skillData, scoreData, deptData] = await Promise.all([
-          api.getTimeToHire(),
-          api.getSkillHeatmap(),
-          api.getScoreDistribution(),
-          api.getHiringByDepartment()
-        ])
-        setTimeToHire(timeData)
-        setSkillHeatmap(skillData)
-        setScoreDistribution(scoreData)
-        setDepartmentData(deptData)
-      } catch (error) {
-        console.error('Failed to fetch analytics:', error)
-      } finally {
-        setLoading(false)
-      }
-    }
-    fetchData()
+  const metricLabelById = useMemo(() => {
+    const labelMap = {}
+    METRIC_CATEGORIES.forEach((category) => {
+      category.metrics.forEach((metric) => {
+        labelMap[metric.id] = metric.label
+      })
+    })
+    return labelMap
   }, [])
+
+  const fetchAnalyticsData = useCallback(async () => {
+    setLoading(true)
+    try {
+      const [timeData, skillData, scoreData, deptData] = await Promise.all([
+        api.getTimeToHire(),
+        api.getSkillHeatmap(),
+        api.getScoreDistribution(),
+        api.getHiringByDepartment()
+      ])
+
+      setTimeToHire(timeData || [])
+      setSkillHeatmap(skillData || [])
+      setScoreDistribution(scoreData || [])
+      setDepartmentData(deptData || [])
+    } catch (error) {
+      console.error('Failed to fetch analytics:', error)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchAnalyticsData()
+  }, [fetchAnalyticsData])
 
   useEffect(() => {
     const fetchFilterOptions = async () => {
@@ -82,10 +151,209 @@ export default function Analytics() {
     fetchFilterOptions()
   }, [user?.id, user?.role])
 
+  const toggleMetricInDraft = (metricId) => {
+    setDraftSelectedMetrics((prev) => {
+      if (prev.includes(metricId)) {
+        return prev.filter((id) => id !== metricId)
+      }
+      return [...prev, metricId]
+    })
+  }
+
+  const openCustomizeDrawer = () => {
+    setDraftSelectedMetrics(selectedMetrics)
+    setIsCustomizeOpen(true)
+  }
+
+  const closeCustomizeDrawer = () => {
+    setIsCustomizeOpen(false)
+  }
+
+  const applyDashboardCustomization = async () => {
+    setSelectedMetrics(draftSelectedMetrics)
+    setIsCustomizeOpen(false)
+    await fetchAnalyticsData()
+  }
+
+  const renderMetricCard = (metricId) => {
+    if (metricId === 'time_to_hire') {
+      return (
+        <Card key={metricId}>
+          <CardHeader>
+            <CardTitle className="text-base">Time to Hire (Days)</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="h-[280px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={timeToHire}>
+                  <defs>
+                    <linearGradient id="colorDays" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                  <XAxis dataKey="month" className="text-xs" />
+                  <YAxis className="text-xs" />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'hsl(var(--card))',
+                      border: '1px solid hsl(var(--border))',
+                      borderRadius: '8px'
+                    }}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="avg_days"
+                    stroke="#3b82f6"
+                    fillOpacity={1}
+                    fill="url(#colorDays)"
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+      )
+    }
+
+    if (metricId === 'resume_score_distribution') {
+      return (
+        <Card key={metricId}>
+          <CardHeader>
+            <CardTitle className="text-base">Resume Score Distribution</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="h-[280px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={scoreDistribution}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                  <XAxis dataKey="range" className="text-xs" />
+                  <YAxis className="text-xs" />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'hsl(var(--card))',
+                      border: '1px solid hsl(var(--border))',
+                      borderRadius: '8px'
+                    }}
+                  />
+                  <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                    {scoreDistribution.map((entry, index) => (
+                      <Cell key={`score-cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+      )
+    }
+
+    if (metricId === 'top_skills') {
+      return (
+        <Card key={metricId}>
+          <CardHeader>
+            <CardTitle className="text-base">Top Skills in Candidate Pool</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="h-[280px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={skillHeatmap.slice(0, 10)} layout="vertical">
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                  <XAxis type="number" className="text-xs" />
+                  <YAxis dataKey="skill" type="category" className="text-xs" width={100} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'hsl(var(--card))',
+                      border: '1px solid hsl(var(--border))',
+                      borderRadius: '8px'
+                    }}
+                  />
+                  <Bar dataKey="count" fill="#8b5cf6" radius={[0, 4, 4, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+      )
+    }
+
+    if (metricId === 'skill_gap_analysis') {
+      return (
+        <Card key={metricId} className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle className="text-base">Skill Gap Analysis</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
+              {skillHeatmap.map((skill) => {
+                const intensity = Math.min(skill.count * 15, 100)
+                return (
+                  <div
+                    key={skill.skill}
+                    className="rounded-lg border p-3 text-center"
+                    style={{ backgroundColor: `hsl(var(--primary) / ${intensity / 100 * 0.3})` }}
+                  >
+                    <p className="text-sm font-medium">{skill.skill}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{skill.count} candidates</p>
+                    <p className="text-xs text-muted-foreground">Avg: {skill.avg_score?.toFixed(1)}</p>
+                  </div>
+                )
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )
+    }
+
+    if (metricId === 'source_of_candidates') {
+      return (
+        <Card key={metricId}>
+          <CardHeader>
+            <CardTitle className="text-base">Source of Candidates</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="h-[280px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={departmentData}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                  <XAxis dataKey="department" className="text-xs" />
+                  <YAxis className="text-xs" />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'hsl(var(--card))',
+                      border: '1px solid hsl(var(--border))',
+                      borderRadius: '8px'
+                    }}
+                  />
+                  <Bar dataKey="hired" fill="#10b981" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+      )
+    }
+
+    return (
+      <Card key={metricId}>
+        <CardHeader>
+          <CardTitle className="text-base">{metricLabelById[metricId] || metricId}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">
+            Metric enabled. Connect this card to backend data to visualize it.
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      <div className="flex h-full items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-primary"></div>
       </div>
     )
   }
@@ -208,7 +476,7 @@ export default function Analytics() {
             )}
 
             <div className="ml-auto">
-              <Button variant="outline" className="gap-2">
+              <Button variant="outline" className="gap-2" onClick={openCustomizeDrawer}>
                 <Settings2 className="h-4 w-4" />
                 Customize Dashboard
               </Button>
@@ -217,160 +485,66 @@ export default function Analytics() {
         </CardContent>
       </Card>
 
-      {/* Charts Grid */}
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Time to Hire */}
+      {selectedMetrics.length === 0 ? (
         <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Time to Hire (Days)</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[280px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={timeToHire}>
-                  <defs>
-                    <linearGradient id="colorDays" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
-                      <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                  <XAxis dataKey="month" className="text-xs" />
-                  <YAxis className="text-xs" />
-                  <Tooltip 
-                    contentStyle={{ 
-                      backgroundColor: 'hsl(var(--card))', 
-                      border: '1px solid hsl(var(--border))',
-                      borderRadius: '8px'
-                    }} 
-                  />
-                  <Area 
-                    type="monotone" 
-                    dataKey="avg_days" 
-                    stroke="#3b82f6" 
-                    fillOpacity={1}
-                    fill="url(#colorDays)" 
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
+          <CardContent className="p-8 text-center text-sm text-muted-foreground">
+            No metrics selected. Click "Customize Dashboard" to choose metrics.
           </CardContent>
         </Card>
+      ) : (
+        <div className="grid gap-6 lg:grid-cols-2">
+          {selectedMetrics.map((metricId) => renderMetricCard(metricId))}
+        </div>
+      )}
 
-        {/* Score Distribution */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Resume Score Distribution</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[280px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={scoreDistribution}>
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                  <XAxis dataKey="range" className="text-xs" />
-                  <YAxis className="text-xs" />
-                  <Tooltip 
-                    contentStyle={{ 
-                      backgroundColor: 'hsl(var(--card))', 
-                      border: '1px solid hsl(var(--border))',
-                      borderRadius: '8px'
-                    }} 
-                  />
-                  <Bar dataKey="count" radius={[4, 4, 0, 0]}>
-                    {scoreDistribution.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Hiring by Department */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Hiring by Department</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[280px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={departmentData} layout="vertical">
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                  <XAxis type="number" className="text-xs" />
-                  <YAxis dataKey="department" type="category" className="text-xs" width={80} />
-                  <Tooltip 
-                    contentStyle={{ 
-                      backgroundColor: 'hsl(var(--card))', 
-                      border: '1px solid hsl(var(--border))',
-                      borderRadius: '8px'
-                    }} 
-                  />
-                  <Bar dataKey="hired" fill="#10b981" name="Hired" radius={[0, 4, 4, 0]} />
-                  <Bar dataKey="open" fill="#f59e0b" name="Open" radius={[0, 4, 4, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Skill Heatmap (as horizontal bar chart) */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Top Skills in Candidate Pool</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[280px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={skillHeatmap.slice(0, 10)} layout="vertical">
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                  <XAxis type="number" className="text-xs" />
-                  <YAxis dataKey="skill" type="category" className="text-xs" width={100} />
-                  <Tooltip 
-                    contentStyle={{ 
-                      backgroundColor: 'hsl(var(--card))', 
-                      border: '1px solid hsl(var(--border))',
-                      borderRadius: '8px'
-                    }} 
-                  />
-                  <Bar dataKey="count" fill="#8b5cf6" radius={[0, 4, 4, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Skill Heatmap Table */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Skills Analysis</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
-            {skillHeatmap.map((skill) => {
-              const intensity = Math.min(skill.count * 15, 100)
-              return (
-                <div
-                  key={skill.skill}
-                  className="p-3 rounded-lg border text-center"
-                  style={{
-                    backgroundColor: `hsl(var(--primary) / ${intensity / 100 * 0.3})`,
-                  }}
-                >
-                  <p className="font-medium text-sm">{skill.skill}</p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {skill.count} candidates
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Avg: {skill.avg_score?.toFixed(1)}
-                  </p>
+      {isCustomizeOpen && (
+        <div className="fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/40" onClick={closeCustomizeDrawer} />
+          <div className="absolute right-0 top-0 h-full w-full max-w-xl overflow-y-auto border-l bg-background shadow-xl">
+            <div className="sticky top-0 z-10 border-b bg-background p-5">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold">Customize Dashboard</h2>
+                  <p className="text-sm text-muted-foreground">Choose metrics to display on Analytics</p>
                 </div>
-              )
-            })}
+                <Button variant="ghost" size="icon" onClick={closeCustomizeDrawer}>
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+
+            <div className="space-y-6 p-5 pb-28">
+              {METRIC_CATEGORIES.map((category) => (
+                <Card key={category.title}>
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">{category.title}</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {category.metrics.map((metric) => (
+                      <label key={metric.id} className="flex cursor-pointer items-center gap-3 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={draftSelectedMetrics.includes(metric.id)}
+                          onChange={() => toggleMetricInDraft(metric.id)}
+                          className="h-4 w-4 rounded border-input"
+                        />
+                        <span>{metric.label}</span>
+                      </label>
+                    ))}
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+
+            <div className="fixed bottom-0 right-0 w-full max-w-xl border-t bg-background p-5">
+              <div className="flex items-center justify-end gap-2">
+                <Button variant="outline" onClick={closeCustomizeDrawer}>Cancel</Button>
+                <Button onClick={applyDashboardCustomization}>Apply</Button>
+              </div>
+            </div>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      )}
     </div>
   )
 }
