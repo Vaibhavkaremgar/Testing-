@@ -24,6 +24,11 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     LLM_PROVIDER: str = "groq"
     
+    # SendGrid Email Configuration
+    SENDGRID_API_KEY: str = os.getenv("SENDGRID_API_KEY", "")
+    FROM_EMAIL: str = os.getenv("FROM_EMAIL", "noreply@yourcompany.com")
+    FROM_NAME: str = os.getenv("FROM_NAME", "TalentAI Recruitment")
+    
     # CORS
     ALLOWED_ORIGINS: str = "https://glistening-youth-production.up.railway.app,http://localhost:5173,http://localhost:3000,http://localhost:4173,http://localhost:5174"
     

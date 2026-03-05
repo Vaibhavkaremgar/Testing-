@@ -1364,9 +1364,6 @@ def update_candidate(
     for field, value in update_data.items():
         setattr(db_candidate, field, value)
     
-    # Mark as needing sync when updated
-    db.execute(text("UPDATE candidates SET synced_to_sheets = 0 WHERE id = :id"), {"id": candidate_id})
-    
     db.commit()
     db.refresh(db_candidate)
     return db_candidate
@@ -1740,10 +1737,10 @@ def send_email(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """Send email to candidate"""
-    import smtplib
-    from email.mime.text import MIMEText
-    from email.mime.multipart import MIMEMultipart
+    """Send email to candidate using SendGrid"""
+    from sendgrid import SendGridAPIClient
+    from sendgrid.helpers.mail import Mail
+    from app.config import settings
     
     try:
         to_email = email_data.get('to')
@@ -1753,16 +1750,33 @@ def send_email(
         if not all([to_email, subject, body]):
             raise HTTPException(status_code=400, detail="Missing required fields: to, subject, body")
         
-        # TODO: Configure SMTP settings in environment variables
-        # For now, return success (email functionality needs SMTP configuration)
-        print(f"📧 Email would be sent to: {to_email}")
-        print(f"   Subject: {subject}")
-        print(f"   Body: {body[:100]}...")
+        # Check if SendGrid is configured
+        if not settings.SENDGRID_API_KEY:
+            print(f"📧 Email would be sent to: {to_email}")
+            print(f"   Subject: {subject}")
+            print(f"   Body: {body[:100]}...")
+            return {
+                "success": True,
+                "message": f"Email logged (SendGrid not configured)",
+                "note": "Set SENDGRID_API_KEY environment variable to enable email sending"
+            }
+        
+        # Send email via SendGrid
+        message = Mail(
+            from_email=(settings.FROM_EMAIL, settings.FROM_NAME),
+            to_emails=to_email,
+            subject=subject,
+            html_content=body.replace('\n', '<br>')
+        )
+        
+        sg = SendGridAPIClient(settings.SENDGRID_API_KEY)
+        response = sg.send(message)
+        
+        print(f"✅ Email sent to {to_email} - Status: {response.status_code}")
         
         return {
             "success": True,
-            "message": f"Email sent to {to_email}",
-            "note": "SMTP not configured. Email logged to console."
+            "message": f"Email sent to {to_email}"
         }
         
     except HTTPException:
