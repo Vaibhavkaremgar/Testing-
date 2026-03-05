@@ -6,22 +6,13 @@ Total: 100 points (Experience:35, Skills:30, Projects:20, Education:10, Soft Ski
 import re
 from typing import Dict, List, Tuple
 
-# Import spaCy NLP helpers (OPTIONAL - fallback to simple scoring)
-try:
-    from app.spacy_nlp import get_nlp_signals, SPACY_AVAILABLE
-    if not SPACY_AVAILABLE:
-        raise ImportError()
-    print("[OK] spaCy NLP scoring system loaded successfully")
-except ImportError:
-    print("[WARNING] spaCy not available, using simple scoring")
-    SPACY_AVAILABLE = False
-    def get_nlp_signals(text: str) -> Dict:
-        return {
-            'action_verbs': [], 'action_verb_count': 0, 'verb_density': 0.0,
-            'impact_metrics': [], 'impact_count': 0, 'has_percentages': False,
-            'has_money': False, 'leadership_verbs': [], 'leadership_count': 0,
-            'collaboration_count': 0, 'action_sentences': 0, 'total_sentences': 0
-        }
+# Import spaCy NLP helpers (REQUIRED - no fallback)
+from app.spacy_nlp import get_nlp_signals, SPACY_AVAILABLE
+
+if not SPACY_AVAILABLE:
+    raise ImportError("spaCy is required for resume scoring. Please install: pip install spacy && python -m spacy download en_core_web_sm")
+
+print("[OK] spaCy NLP scoring system loaded successfully")
 
 
 # FIX 1 & 2: DECLARED + EVIDENCE-BASED SKILLS (30 points)
