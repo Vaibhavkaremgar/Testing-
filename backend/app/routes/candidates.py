@@ -420,130 +420,61 @@ def evaluate_candidate_contextually(resume_text: str, job_title: str, job_descri
     from app.config import settings
     import json
     
-    print(f"\n🔍 LLM Configuration Check:")
-    print(f"   GROQ_API_KEY: {'✅ SET' if settings.GROQ_API_KEY else '❌ NOT SET'}")
-    print(f"   LLM_PROVIDER: {settings.LLM_PROVIDER}")
+    print(f"\n🔍 Using Rule-Based Evaluation (LLM disabled)")
     
-    # Enhanced prompt with weighted evaluation criteria
-    prompt = f"""You are a senior technical recruiter with 15+ years of experience. Evaluate this candidate for the {job_title} position using weighted scoring.
-
-JOB TITLE: {job_title}
-
-JOB DESCRIPTION:
-{job_description}
-
-JOB REQUIREMENTS:
-{job_requirements}
-
-CANDIDATE RESUME:
-{resume_text[:3000]}
-
-EVALUATE BASED ON THESE WEIGHTED CRITERIA:
-
-1. SKILLS MATCH (0-45 points) - MOST IMPORTANT
-   - Must-have skills from JD (semantic match, not just keywords)
-   - Good-to-have skills
-   - Skills inferred from experience/projects (e.g., "Built Flask APIs" → Python, REST)
-   - Skill relevance and depth
-
-2. EXPERIENCE RELEVANCE & YEARS (0-25 points)
-   - Total years of experience
-   - Relevant experience (role/domain match)
-   - Recent experience (last 3-5 years weighted higher)
-   - Penalize irrelevant domains
-
-3. PROJECT RELEVANCE (0-15 points)
-   - Real-world projects with tech stack alignment
-   - Project complexity and responsibility
-   - Backend role → APIs, DBs, scalability
-   - ML role → models, datasets, metrics
-   - Internship/academic projects get less weight
-
-4. EDUCATION & CERTIFICATIONS (0-10 points)
-   - Degree relevance (not institution prestige)
-   - Role-aligned certifications
-   - Irrelevant degrees are neutral
-
-5. SOFT SKILLS (0-5 points)
-   - Communication, leadership, team collaboration
-   - Only if backed by experience (not generic fluff)
-   - "Led 5-member team" ✅ vs "Hardworking team player" ❌
-
-Provide your analysis in this EXACT JSON format:
-{{
-  "skills_score": <0-45>,
-  "experience_score": <0-25>,
-  "projects_score": <0-15>,
-  "education_score": <0-10>,
-  "soft_skills_score": <0-5>,
-  "match_score": <sum of above, 0-100>,
-  "match_label": "<Strong Fit|Potential Fit|Borderline Fit|Weak Fit>",
-  "candidate_summary": "<3-4 sentence professional summary highlighting experience, key skills, alignment with job, and suitability>",
-  "key_strengths": ["<specific strength with evidence>", "<specific strength with evidence>", "<specific strength with evidence>"],
-  "skill_gaps": ["<specific gap>", "<specific gap>"],
-  "ai_analysis": "<Detailed 4-5 sentence analysis explaining scores, what makes them strong/weak, evidence found, and hire recommendation>",
-  "status": "<shortlisted|review|rejected>",
-  "evidence_found": {{
-    "must_have_skills_matched": <count>,
-    "good_to_have_skills_matched": <count>,
-    "years_of_experience": <number>,
-    "relevant_projects_count": <count>
-  }}
-}}
-
-SCORING RULES:
-- Skills carry 45% weight (most important for shortlisting)
-- Use semantic matching (meaning, not just keywords)
-- Penalize skill stuffing and buzzwords
-- Ignore large unexplained gaps
-- 75-100: Strong Fit (immediate interview)
-- 60-74: Potential Fit (phone screen)
-- 45-59: Borderline Fit (review with team)
-- 0-44: Weak Fit (reject)
-
-Provide ONLY the JSON response, no additional text."""
+    # GROQ/OpenAI LLM code commented out - using only enhanced_fallback_evaluation
+    # 
+    # print(f"\n🔍 LLM Configuration Check:")
+    # print(f"   GROQ_API_KEY: {'✅ SET' if settings.GROQ_API_KEY else '❌ NOT SET'}")
+    # print(f"   LLM_PROVIDER: {settings.LLM_PROVIDER}")
+    # 
+    # # Enhanced prompt with weighted evaluation criteria
+    # prompt = f"""You are a senior technical recruiter with 15+ years of experience..."""
+    # 
+    # try:
+    #     # Try LLM analysis
+    #     if settings.GROQ_API_KEY and settings.LLM_PROVIDER == "groq":
+    #         print(f"   🤖 Using Groq LLM with enhanced evaluation...")
+    #         response = call_groq_llm(prompt, settings.GROQ_API_KEY)
+    #         print(f"   ✅ Groq LLM response received!")
+    #     elif settings.OPENAI_API_KEY and settings.LLM_PROVIDER == "openai":
+    #         print(f"   🤖 Using OpenAI LLM with enhanced evaluation...")
+    #         response = call_openai_llm(prompt, settings.OPENAI_API_KEY)
+    #         print(f"   ✅ OpenAI LLM response received!")
+    #     else:
+    #         print(f"   ⚠️  No LLM configured, using enhanced fallback...")
+    #         return enhanced_fallback_evaluation(resume_text, job_title, job_description, job_requirements, candidate_skills, experience_text, projects, job_skills)
+    #     
+    #     # Parse LLM response
+    #     result = json.loads(response)
+    #     print(f"   ✅ LLM Score Breakdown:")
+    #     
+    #     # Support both old and new field names for backward compatibility
+    #     if 'skills_score' in result:
+    #         # New weighted scoring format
+    #         print(f"      Skills Match: {result.get('skills_score', 0)}/45")
+    #         print(f"      Experience: {result.get('experience_score', 0)}/25")
+    #         print(f"      Projects: {result.get('projects_score', 0)}/15")
+    #         print(f"      Education: {result.get('education_score', 0)}/10")
+    #         print(f"      Soft Skills: {result.get('soft_skills_score', 0)}/5")
+    #     else:
+    #         # Old format (fallback)
+    #         print(f"      Technical Depth: {result.get('technical_depth_score', 0)}/30")
+    #         print(f"      Project Complexity: {result.get('project_complexity_score', 0)}/20")
+    #         print(f"      Relevance: {result.get('relevance_score', 0)}/20")
+    #         print(f"      Impact: {result.get('impact_score', 0)}/15")
+    #         print(f"      Seniority: {result.get('seniority_score', 0)}/15")
+    #     
+    #     print(f"      TOTAL: {result.get('match_score', 0)}/100")
+    #     return result
+    #     
+    # except Exception as e:
+    #     print(f"   ❌ LLM evaluation failed: {e}")
+    #     print(f"   ⚠️  Falling back to enhanced rule-based evaluation...")
+    #     return enhanced_fallback_evaluation(resume_text, job_title, job_description, job_requirements, candidate_skills, experience_text, projects, job_skills)
     
-    try:
-        # Try LLM analysis
-        if settings.GROQ_API_KEY and settings.LLM_PROVIDER == "groq":
-            print(f"   🤖 Using Groq LLM with enhanced evaluation...")
-            response = call_groq_llm(prompt, settings.GROQ_API_KEY)
-            print(f"   ✅ Groq LLM response received!")
-        elif settings.OPENAI_API_KEY and settings.LLM_PROVIDER == "openai":
-            print(f"   🤖 Using OpenAI LLM with enhanced evaluation...")
-            response = call_openai_llm(prompt, settings.OPENAI_API_KEY)
-            print(f"   ✅ OpenAI LLM response received!")
-        else:
-            print(f"   ⚠️  No LLM configured, using enhanced fallback...")
-            return enhanced_fallback_evaluation(resume_text, job_title, job_description, job_requirements, candidate_skills, experience_text, projects, job_skills)
-        
-        # Parse LLM response
-        result = json.loads(response)
-        print(f"   ✅ LLM Score Breakdown:")
-        
-        # Support both old and new field names for backward compatibility
-        if 'skills_score' in result:
-            # New weighted scoring format
-            print(f"      Skills Match: {result.get('skills_score', 0)}/45")
-            print(f"      Experience: {result.get('experience_score', 0)}/25")
-            print(f"      Projects: {result.get('projects_score', 0)}/15")
-            print(f"      Education: {result.get('education_score', 0)}/10")
-            print(f"      Soft Skills: {result.get('soft_skills_score', 0)}/5")
-        else:
-            # Old format (fallback)
-            print(f"      Technical Depth: {result.get('technical_depth_score', 0)}/30")
-            print(f"      Project Complexity: {result.get('project_complexity_score', 0)}/20")
-            print(f"      Relevance: {result.get('relevance_score', 0)}/20")
-            print(f"      Impact: {result.get('impact_score', 0)}/15")
-            print(f"      Seniority: {result.get('seniority_score', 0)}/15")
-        
-        print(f"      TOTAL: {result.get('match_score', 0)}/100")
-        return result
-        
-    except Exception as e:
-        print(f"   ❌ LLM evaluation failed: {e}")
-        print(f"   ⚠️  Falling back to enhanced rule-based evaluation...")
-        return enhanced_fallback_evaluation(resume_text, job_title, job_description, job_requirements, candidate_skills, experience_text, projects, job_skills)
+    # Always use enhanced fallback evaluation
+    return enhanced_fallback_evaluation(resume_text, job_title, job_description, job_requirements, candidate_skills, experience_text, projects, job_skills)
 
 def call_groq_llm(prompt: str, api_key: str) -> str:
     """Call Groq LLM API"""
