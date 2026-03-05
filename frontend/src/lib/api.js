@@ -669,12 +669,11 @@ class ApiClient {
   }
 
   // Send Email
-  async sendEmail(candidateId, emailType, subject, body) {
-    return this.request('/email/send', {
+  async sendEmail(to, subject, body) {
+    return this.request('/candidates/send-email', {
       method: 'POST',
       body: JSON.stringify({
-        candidate_id: candidateId,
-        email_type: emailType,
+        to: to,
         subject: subject,
         body: body
       }),
