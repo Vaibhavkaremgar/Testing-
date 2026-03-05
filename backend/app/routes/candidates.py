@@ -16,7 +16,6 @@ from app.schemas import (
 )
 from app.auth import get_current_active_user
 from app.config import settings
-from app.google_sheets import sheets_service
 
 router = APIRouter(prefix="/candidates", tags=["Candidates"])
 
@@ -1460,168 +1459,12 @@ def update_candidate_stage(
     db.refresh(db_candidate)
     return db_candidate
 
-@router.post("/sync-to-sheets")
-def sync_candidates_to_sheets(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
-):
-    """Sync candidates to Google Sheets via webhook"""
-    import requests
-    
-    webhook_url = "https://script.google.com/macros/s/AKfycby23M_BBZw4VBE1p6Y8MrcBF_66mfOzGvuEckR2RHLs98mE9TEb9AMixQMLZ2IqsgLwPA/exec"
-    
-    # If webhook URL is set, use simple webhook method
-    if webhook_url and webhook_url != "PASTE_YOUR_WEBHOOK_URL_HERE":
-        try:
-            from app.models import JobDescription
-            
-            candidates = db.query(Candidate).filter(Candidate.stage != CandidateStage.APPLIED).all()
-            
-            if not candidates:
-                return {"success": True, "synced_count": 0, "message": "No candidates to sync"}
-            
-            candidates_data = []
-            for c in candidates:
-                if not c.candidate_id:
-                    c.candidate_id = f"{c.name[:3].upper() if c.name else 'UNK'}{c.job_id or '000'}"
-                    db.commit()
-                
-                job_id_str, job_title, job_description = '', '', ''
-                if c.job_id:
-                    job = db.query(JobDescription).filter(JobDescription.id == c.job_id).first()
-                    if job:
-                        job_id_str = job.job_id or str(c.job_id)
-                        job_title = job.title or ''
-                        job_description = (job.description[:1000] + '...') if job.description and len(job.description) > 1000 else (job.description or '')
-                
-                resume_text = (c.resume_text[:2000] + '...') if c.resume_text and len(c.resume_text) > 2000 else (c.resume_text or '')
-                skills_str = ', '.join(c.skills) if c.skills else ''
-                
-                candidates_data.append({
-                    'candidate_id': c.candidate_id,
-                    'name': c.name or '',
-                    'email': c.email or '',
-                    'phone': c.phone or '',
-                    'job_id': job_id_str,
-                    'job_title': job_title,
-                    'resume_text': resume_text,
-                    'job_description': job_description,
-                    'score': str(c.resume_score) if c.resume_score is not None else '',
-                    'skills': skills_str,
-                    'resume_evaluated': '',  # Leave blank for N8N workflow
-                    'summary': c.summary or '',
-                    'predefined_questions': c.predefined_questions or ''
-                })
-            
-            print(f"Sending {len(candidates_data)} candidates to webhook...")
-            response = requests.post(webhook_url, json={'candidates': candidates_data}, timeout=30)
-            
-            if response.status_code == 200:
-                result = response.json()
-                synced = result.get('synced_count', 0)
-                print(f"✅ Successfully synced {synced} candidates")
-                return {
-                    'success': True,
-                    'synced_count': synced,
-                    'sheets_synced': synced,
-                    'message': f'Successfully synced {synced} new candidates to Google Sheets'
-                }
-            else:
-                raise HTTPException(status_code=500, detail=f'Webhook failed: {response.text}')
-        except Exception as e:
-            print(f"❌ Webhook sync failed: {str(e)}")
-            raise HTTPException(status_code=500, detail=f'Sync failed: {str(e)}')
-    
-    # If no webhook URL, show error
-    raise HTTPException(
-        status_code=400, 
-        detail="Google Sheets webhook not configured. Please update webhook_url in candidates.py (line 1850)"
-    )
 
-@router.post("/sync-from-sheets")
-def sync_scores_from_sheets(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
-):
-    """Pull scores from Google Sheets and update candidates"""
-    try:
-        from app.google_sheets import sheets_service
-        
-        result = sheets_service.sync_scores_from_sheet(db)
-        
-        if not result.get('success', False):
-            raise HTTPException(status_code=500, detail=result.get('error', 'Sync failed'))
-        
-        return result
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Sync from sheets error: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/clear-sheets")
-def clear_sheets_data(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
-):
-    """Clear all data from Google Sheets"""
-    import requests
-    
-    webhook_url = "https://script.google.com/macros/s/AKfycby23M_BBZw4VBE1p6Y8MrcBF_66mfOzGvuEckR2RHLs98mE9TEb9AMixQMLZ2IqsgLwPA/exec"
-    
-    try:
-        response = requests.post(webhook_url, json={'action': 'clear'}, timeout=30)
-        
-        if response.status_code == 200:
-            return {'success': True, 'message': 'Google Sheets cleared successfully'}
-        else:
-            raise HTTPException(status_code=500, detail=f'Clear failed: {response.text}')
-    except Exception as e:
-        print(f"❌ Clear sheets failed: {str(e)}")
-        raise HTTPException(status_code=500, detail=f'Clear failed: {str(e)}')
-@router.get("/export-csv")
-def export_candidates_csv(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
-):
-    """Export candidates as CSV file"""
-    from fastapi.responses import StreamingResponse
-    import csv
-    import io
-    
-    candidates = db.query(Candidate).all()
-    
-    output = io.StringIO()
-    writer = csv.writer(output)
-    
-    # Write header
-    writer.writerow(['Candidate ID', 'Name', 'Email', 'Phone', 'Job Title', 'Resume Score', 'Stage', 'Skills'])
-    
-    # Write data
-    for candidate in candidates:
-        job_title = candidate.job.title if candidate.job else 'N/A'
-        skills = ', '.join(candidate.skills) if candidate.skills else 'N/A'
-        writer.writerow([
-            candidate.candidate_id or 'N/A',
-            candidate.name or 'N/A',
-            candidate.email or 'N/A',
-            candidate.phone or 'N/A', 
-            job_title,
-            candidate.resume_score or 0,
-            candidate.stage.value if candidate.stage else 'N/A',
-            skills
-        ])
-    
-    output.seek(0)
-    
-    return StreamingResponse(
-        io.BytesIO(output.getvalue().encode('utf-8')),
-        media_type='text/csv',
-        headers={'Content-Disposition': 'attachment; filename=candidates.csv'}
-    )
+
+
+
+
 @router.delete("/{candidate_id}")
 def delete_candidate(
     candidate_id: int,
@@ -1652,16 +1495,7 @@ def delete_candidate(
         db.delete(db_candidate)
         db.commit()
         
-        # Delete from Google Sheets via webhook
-        if sheets_candidate_id:
-            try:
-                import requests
-                webhook_url = "https://script.google.com/macros/s/AKfycby23M_BBZw4VBE1p6Y8MrcBF_66mfOzGvuEckR2RHLs98mE9TEb9AMixQMLZ2IqsgLwPA/exec"
-                response = requests.post(webhook_url, json={'action': 'delete', 'candidate_id': sheets_candidate_id}, timeout=10)
-                if response.status_code == 200:
-                    print(f"✅ Deleted {sheets_candidate_id} from Google Sheets")
-            except Exception as e:
-                print(f"⚠️ Sheets deletion failed: {e}")
+
         
         return {"message": "Candidate deleted successfully"}
     except HTTPException:
