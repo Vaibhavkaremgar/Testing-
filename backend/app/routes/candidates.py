@@ -1752,14 +1752,9 @@ def send_email(
         
         # Check if SendGrid is configured
         if not settings.SENDGRID_API_KEY:
-            print(f"📧 Email would be sent to: {to_email}")
-            print(f"   Subject: {subject}")
-            print(f"   Body: {body[:100]}...")
-            return {
-                "success": True,
-                "message": f"Email logged (SendGrid not configured)",
-                "note": "Set SENDGRID_API_KEY environment variable to enable email sending"
-            }
+            error_msg = "SendGrid not configured. Set SENDGRID_API_KEY, FROM_EMAIL, and FROM_NAME in Railway environment variables."
+            print(f"❌ {error_msg}")
+            raise HTTPException(status_code=500, detail=error_msg)
         
         # Send email via SendGrid
         message = Mail(
