@@ -299,16 +299,12 @@ export default function Resumes() {
       await api.updateCandidate(editingCandidate.id, editForm)
       setEditingCandidate(null)
       await fetchCandidates()
-      
-      // Auto-sync to sheets after update
-      try {
-        await api.syncCandidatesToSheets()
-      } catch (syncError) {
-        console.error('Auto-sync to sheets failed:', syncError)
-      }
+      alert('✓ Candidate updated successfully')
     } catch (error) {
       console.error('Update failed:', error)
-      setError(`Update failed: ${error.message}`)
+      const errorMsg = error.response?.data?.detail || error.message || 'Unknown error'
+      setError(`Update failed: ${errorMsg}`)
+      alert(`✗ Update failed: ${errorMsg}`)
     }
   }
 
