@@ -360,44 +360,21 @@ export default function Resumes() {
   const handleSendEmail = async () => {
     setSending(true)
     try {
-      // Prepare payload for external email service
-      const payload = {
-        candidate_name: selectedCandidate.name || '',
-        job_id: selectedCandidate.job_id?.toString() || '',
-        job_description: candidateJob?.description || '',
-        resume_text: selectedCandidate.resume_text || selectedCandidate.summary || '',
-        predefined_questions: [], // Add questions if available in your modal state
-        interview_link: `${window.location.origin}/interviews/${selectedCandidate.id}` // Dynamic interview link
+      await api.sendEmail(selectedCandidate.email, emailModal.subject, emailModal.message)
+      
+      // Update candidate stage
+      const stageMap = {
+        invitation: 'INTERVIEW_SCHEDULED',
+        reschedule: 'INTERVIEW_RESCHEDULED',
+        rejection: 'REJECTED'
       }
-
-      // Send to external email service
-      const response = await fetch('http://127.0.0.1:5000/send-email', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload)
-      })
-
-      const result = await response.json()
-
-      if (result.status === 'success') {
-        // Update candidate stage in main system
-        const stageMap = {
-          invitation: 'INTERVIEW_SCHEDULED',
-          reschedule: 'INTERVIEW_RESCHEDULED',
-          rejection: 'REJECTED'
-        }
-        
-        await api.updateCandidateStage(selectedCandidate.id, stageMap[emailModal.type])
-        await fetchCandidates()
-        
-        alert(`✓ ${result.message || 'Email sent successfully to ' + selectedCandidate.email}`)
-        setEmailModal({ show: false, type: '', subject: '', message: '' })
-        handleCloseModal()
-      } else {
-        throw new Error(result.message || 'Failed to send email')
-      }
+      
+      await api.updateCandidateStage(selectedCandidate.id, stageMap[emailModal.type])
+      await fetchCandidates()
+      
+      alert(`✓ Email sent successfully to ${selectedCandidate.email}`)
+      setEmailModal({ show: false, type: '', subject: '', message: '' })
+      handleCloseModal()
     } catch (error) {
       console.error('Error sending email:', error)
       alert(`✗ Failed to send email: ${error.message}`)
