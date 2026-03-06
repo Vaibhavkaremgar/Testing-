@@ -4,6 +4,7 @@ from typing import Optional
 from datetime import datetime
 from app.database import get_db
 from app.models import Candidate, EmailCommunication, CandidateStage
+from app.auth import get_current_user
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/webhook", tags=["N8N Webhooks"])
@@ -109,12 +110,22 @@ async def log_email_communication(
 
 @router.get("/communications")
 async def get_communications(
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
 ):
     """
     Get all email communications for Communications tab
+    Admin sees all, non-admin users see only their assigned candidates
     """
-    communications = db.query(EmailCommunication).order_by(
+    from app.models import UserRole
+    
+    query = db.query(EmailCommunication)
+    
+    # Filter by assigned candidates for non-admin users
+    if current_user.role != UserRole.ADMIN:
+        query = query.join(Candidate).filter(Candidate.assigned_to_user_id == current_user.id)
+    
+    communications = query.order_by(
         EmailCommunication.created_at.desc()
     ).all()
     
