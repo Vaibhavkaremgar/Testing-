@@ -50,6 +50,7 @@ async def update_candidate_score(
             else:
                 candidate.stage = CandidateStage.REJECTED
     
+    
     db.commit()
     db.refresh(candidate)
     
