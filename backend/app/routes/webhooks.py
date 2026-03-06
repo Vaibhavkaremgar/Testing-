@@ -120,15 +120,22 @@ async def get_communications(
     """
     from app.models import UserRole
     
+    # Debug: Check user role and assigned candidates
+    print(f"🔍 User: {current_user.email}, Role: {current_user.role}")
+    
     query = db.query(EmailCommunication)
     
     # Filter by assigned candidates for non-admin users
     if current_user.role != UserRole.ADMIN:
+        assigned_count = db.query(Candidate).filter(Candidate.assigned_to_user_id == current_user.id).count()
+        print(f"📊 User has {assigned_count} assigned candidates")
         query = query.join(Candidate).filter(Candidate.assigned_to_user_id == current_user.id)
     
     communications = query.order_by(
         EmailCommunication.created_at.desc()
     ).all()
+    
+    print(f"📧 Returning {len(communications)} communications")
     
     return [
         {
