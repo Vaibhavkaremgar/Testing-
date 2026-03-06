@@ -356,7 +356,7 @@ export default function Resumes() {
   const handleSendEmail = async () => {
     setSending(true)
     try {
-      await api.sendEmail(selectedCandidate.email, emailModal.subject, emailModal.message)
+      await api.sendEmail(selectedCandidate.id, emailModal.subject, emailModal.message)
       
       // Update candidate stage
       const stageMap = {

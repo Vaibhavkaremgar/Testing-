@@ -1737,18 +1737,30 @@ def send_email(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """Send email to candidate using SendGrid"""
+    """Send email to candidate with interview details link and slot booking button"""
     from sendgrid import SendGridAPIClient
     from sendgrid.helpers.mail import Mail
     from app.config import settings
+    from urllib.parse import urlencode
     
     try:
-        to_email = email_data.get('to')
+        candidate_id = email_data.get('candidate_id')
         subject = email_data.get('subject')
-        body = email_data.get('body')
+        message = email_data.get('message')
         
-        if not all([to_email, subject, body]):
-            raise HTTPException(status_code=400, detail="Missing required fields: to, subject, body")
+        if not all([candidate_id, subject, message]):
+            raise HTTPException(status_code=400, detail="Missing required fields: candidate_id, subject, message")
+        
+        # Get candidate details
+        candidate = db.query(Candidate).filter(Candidate.id == candidate_id).first()
+        if not candidate:
+            raise HTTPException(status_code=404, detail="Candidate not found")
+        
+        # Get job details
+        job = None
+        if candidate.job_id:
+            from app.models import JobDescription
+            job = db.query(JobDescription).filter(JobDescription.id == candidate.job_id).first()
         
         # Check if SendGrid is configured
         if not settings.SENDGRID_API_KEY:
@@ -1756,22 +1768,58 @@ def send_email(
             print(f"❌ {error_msg}")
             raise HTTPException(status_code=500, detail=error_msg)
         
+        # Build interview details URL with query parameters
+        params = {
+            'candidateId': candidate.id,
+            'name': candidate.name,
+            'email': candidate.email
+        }
+        if job:
+            params['jobId'] = job.id
+        
+        interview_url = f"{settings.FRONTEND_URL}/interview?{urlencode(params)}"
+        
+        # Build HTML email with slot booking button
+        html_body = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+            <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+                <p>{message.replace(chr(10), '<br>')}</p>
+                
+                <div style="margin: 30px 0; text-align: center;">
+                    <a href="{settings.SLOT_BOOKING_URL}" 
+                       style="display: inline-block; padding: 15px 30px; background-color: #2563eb; color: white; text-decoration: none; border-radius: 5px; font-weight: bold;">
+                        Book Your Slot
+                    </a>
+                </div>
+                
+                <p style="font-size: 12px; color: #666; margin-top: 30px;">
+                    View your interview details: <a href="{interview_url}">{interview_url}</a>
+                </p>
+            </div>
+        </body>
+        </html>
+        """
+        
         # Send email via SendGrid
-        message = Mail(
+        mail_message = Mail(
             from_email=(settings.FROM_EMAIL, settings.FROM_NAME),
-            to_emails=to_email,
+            to_emails=candidate.email,
             subject=subject,
-            html_content=body.replace('\n', '<br>')
+            html_content=html_body
         )
         
         sg = SendGridAPIClient(settings.SENDGRID_API_KEY)
-        response = sg.send(message)
+        response = sg.send(mail_message)
         
-        print(f"✅ Email sent to {to_email} - Status: {response.status_code}")
+        print(f"✅ Email sent to {candidate.email} - Status: {response.status_code}")
+        print(f"   Interview URL: {interview_url}")
+        print(f"   Slot Booking: {settings.SLOT_BOOKING_URL}")
         
         return {
             "success": True,
-            "message": f"Email sent to {to_email}"
+            "message": f"Email sent to {candidate.email}",
+            "interview_url": interview_url
         }
         
     except HTTPException:
