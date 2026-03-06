@@ -1771,14 +1771,17 @@ def send_email(
             print(f"❌ {error_msg}")
             raise HTTPException(status_code=500, detail=error_msg)
         
-        # Build interview details URL with query parameters
+        # Build interview details URL with query parameters (including job description and resume text)
         params = {
             'candidateId': candidate.id,
             'name': candidate.name,
-            'email': candidate.email
+            'email': candidate.email,
+            'resumeText': candidate.resume_text or ''
         }
         if job:
             params['jobId'] = job.id
+            params['jobTitle'] = job.title
+            params['jobDescription'] = job.description or ''
         
         interview_url = f"{settings.FRONTEND_URL}/interview?{urlencode(params)}"
         
