@@ -105,37 +105,42 @@ def extract_resume_data(file_path: str, original_filename: str = None) -> dict:
             # Extract name from document content
             lines = [line.strip() for line in text.split('\n') if line.strip()]
             
-            # Look for name in first few lines - simplified approach
-            for line in lines[:15]:  # Check more lines
+            # Look for name in first few lines
+            for line in lines[:20]:  # Check first 20 lines
                 # Skip if line is too short or too long
-                if len(line) < 4 or len(line) > 50:
+                if len(line) < 3 or len(line) > 60:
                     continue
                     
                 words = line.split()
                 
-                # Name should be 2-4 words
-                if not (2 <= len(words) <= 4):
+                # Name should be 2-5 words
+                if not (2 <= len(words) <= 5):
                     continue
                 
-                # All words should be alphabetic and start with capital
-                if not all(word.isalpha() and word[0].isupper() for word in words):
-                    continue
-                
-                # Skip common headers/keywords (case insensitive check)
+                # Skip common headers/keywords
                 skip_keywords = [
                     'resume', 'curriculum', 'vitae', 'profile', 'summary', 'objective',
                     'experience', 'education', 'skills', 'projects', 'work', 'professional',
                     'personal', 'contact', 'information', 'details', 'about', 'career',
                     'employment', 'history', 'background', 'qualifications', 'certifications',
-                    'achievements', 'awards', 'references', 'languages', 'interests', 'hobbies'
+                    'achievements', 'awards', 'references', 'languages', 'interests', 'hobbies',
+                    'technical', 'declaration', 'address', 'phone', 'email', 'mobile'
                 ]
                 
                 if any(keyword in line.lower() for keyword in skip_keywords):
                     continue
                 
-                # If we get here, it's likely a name
-                name = line
-                break
+                # Check if line contains email or phone (skip these lines)
+                if '@' in line or any(char.isdigit() for char in line if len([c for c in line if c.isdigit()]) > 5):
+                    continue
+                
+                # All words should start with capital letter (proper name format)
+                if all(word[0].isupper() for word in words if word.isalpha()):
+                    # At least 2 words should be purely alphabetic
+                    alpha_words = [w for w in words if w.isalpha()]
+                    if len(alpha_words) >= 2:
+                        name = ' '.join(alpha_words)
+                        break
             
             # Extract skills (normalized to lowercase)
             skills = extract_skills_from_text(text)
