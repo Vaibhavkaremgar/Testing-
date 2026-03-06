@@ -1082,6 +1082,7 @@ async def upload_resume(
             candidate_id=candidate_id,  # Store generated ID
             job_id=job_id,
             created_by=current_user.id,
+            assigned_to_user_id=current_user.id,  # Auto-assign to uploader
             parsing_status=ParsingStatus.PROCESSING,
             score_threshold=threshold
         )
@@ -1170,6 +1171,7 @@ async def bulk_upload_resumes(
                 candidate_id=candidate_id,  # Store generated ID
                 job_id=job_id,
                 created_by=current_user.id,
+                assigned_to_user_id=current_user.id,  # Auto-assign to uploader
                 parsing_status=ParsingStatus.PROCESSING,
                 score_threshold=threshold
             )
@@ -1291,6 +1293,7 @@ async def zip_upload_resumes(
                             candidate_id=candidate_id,  # Store generated ID
                             job_id=job_id,
                             created_by=current_user.id,
+                            assigned_to_user_id=current_user.id,  # Auto-assign to uploader
                             parsing_status=ParsingStatus.PROCESSING,
                             score_threshold=threshold
                         )
