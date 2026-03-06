@@ -84,7 +84,7 @@ export default function Resumes() {
   const fetchCandidates = useCallback(async () => {
     try {
       const data = await api.getCandidates({ search, client: selectedClient })
-      let filteredData = (data || []).filter(c => c.stage !== 'APPLIED')
+      let filteredData = (data || [])
       
       if (jobFilter.length > 0) {
         filteredData = filteredData.filter(c => jobFilter.includes(c.job_id?.toString()))
