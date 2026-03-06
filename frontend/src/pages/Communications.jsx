@@ -31,10 +31,17 @@ export default function Communications() {
     let filtered = []
     switch(statType) {
       case 'shortlisted':
-        filtered = communications.filter(c => c.type === 'Shortlisted' || c.type === 'Slot Selection Email')
+        filtered = communications.filter(c => 
+          c.type === 'Shortlisted' || 
+          c.type === 'Slot Selection Email' || 
+          c.type === 'Interview Invitation'
+        )
         break
       case 'rejected':
-        filtered = communications.filter(c => c.type === 'Rejection Email')
+        filtered = communications.filter(c => 
+          c.type === 'Rejection Email' || 
+          c.type === 'Interview Rejected'
+        )
         break
       case 'total':
         filtered = communications
@@ -99,14 +106,21 @@ export default function Communications() {
     },
     { 
       label: 'Shortlisted Emails', 
-      value: communications.filter(c => c.type === 'Shortlisted' || c.type === 'Slot Selection Email').length, 
+      value: communications.filter(c => 
+        c.type === 'Shortlisted' || 
+        c.type === 'Slot Selection Email' || 
+        c.type === 'Interview Invitation'
+      ).length, 
       icon: Mail, 
       color: 'text-blue-600',
       type: 'shortlisted'
     },
     { 
       label: 'Rejected Emails', 
-      value: communications.filter(c => c.type === 'Rejection Email').length, 
+      value: communications.filter(c => 
+        c.type === 'Rejection Email' || 
+        c.type === 'Interview Rejected'
+      ).length, 
       icon: Mail, 
       color: 'text-red-600',
       type: 'rejected'
