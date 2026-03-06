@@ -106,41 +106,41 @@ def extract_resume_data(file_path: str, original_filename: str = None) -> dict:
             lines = [line.strip() for line in text.split('\n') if line.strip()]
             
             # Look for name in first few lines
-            for line in lines[:20]:  # Check first 20 lines
+            for line in lines[:20]:
                 # Skip if line is too short or too long
                 if len(line) < 3 or len(line) > 60:
                     continue
                     
                 words = line.split()
                 
-                # Name should be 2-5 words
-                if not (2 <= len(words) <= 5):
+                # Name should be 2-4 words only
+                if not (2 <= len(words) <= 4):
                     continue
                 
-                # Skip common headers/keywords
+                # Skip common headers/keywords and job titles
                 skip_keywords = [
                     'resume', 'curriculum', 'vitae', 'profile', 'summary', 'objective',
                     'experience', 'education', 'skills', 'projects', 'work', 'professional',
                     'personal', 'contact', 'information', 'details', 'about', 'career',
                     'employment', 'history', 'background', 'qualifications', 'certifications',
                     'achievements', 'awards', 'references', 'languages', 'interests', 'hobbies',
-                    'technical', 'declaration', 'address', 'phone', 'email', 'mobile'
+                    'technical', 'declaration', 'address', 'phone', 'email', 'mobile',
+                    'engineer', 'developer', 'manager', 'analyst', 'designer', 'consultant',
+                    'specialist', 'executive', 'director', 'lead', 'senior', 'junior',
+                    'software', 'web', 'data', 'full', 'stack', 'front', 'back', 'end'
                 ]
                 
                 if any(keyword in line.lower() for keyword in skip_keywords):
                     continue
                 
-                # Check if line contains email or phone (skip these lines)
+                # Check if line contains email or phone
                 if '@' in line or any(char.isdigit() for char in line if len([c for c in line if c.isdigit()]) > 5):
                     continue
                 
-                # All words should start with capital letter (proper name format)
-                if all(word[0].isupper() for word in words if word.isalpha()):
-                    # At least 2 words should be purely alphabetic
-                    alpha_words = [w for w in words if w.isalpha()]
-                    if len(alpha_words) >= 2:
-                        name = ' '.join(alpha_words)
-                        break
+                # All words must be purely alphabetic and start with capital
+                if all(word.isalpha() and word[0].isupper() for word in words):
+                    name = line
+                    break
             
             # Extract skills (normalized to lowercase)
             skills = extract_skills_from_text(text)
