@@ -14,8 +14,8 @@ const CREDIT_PACKAGES = [
 
 const PAYMENT_METHODS = [
   { id: 'razorpay', name: 'Razorpay', icon: CreditCard, color: 'text-blue-600' },
-  { id: 'stripe', name: 'Stripe', icon: CreditCard, color: 'text-purple-600' },
-  { id: 'upi', name: 'UPI', icon: Smartphone, color: 'text-green-600' },
+  {/*{ id: 'stripe', name: 'Stripe', icon: CreditCard, color: 'text-purple-600' },
+  { id: 'upi', name: 'UPI', icon: Smartphone, color: 'text-green-600' },*/}
 ];
 
 export default function WalletPage() {
