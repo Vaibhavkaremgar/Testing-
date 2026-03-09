@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Wallet, ArrowUpCircle, ArrowDownCircle, CreditCard, Smartphone } from 'lucide-react';
+import { Wallet, ArrowUpCircle, ArrowDownCircle, CreditCard, Smartphone, TrendingUp, Minus } from 'lucide-react';
 import api from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 
@@ -25,6 +25,20 @@ export default function WalletPage() {
   const [selectedPackage, setSelectedPackage] = useState(null);
   const [selectedPayment, setSelectedPayment] = useState(null);
   const [loading, setLoading] = useState(false);
+
+  const getStats = () => {
+    const totalCredits = transactions
+      .filter(t => t.transaction_type === 'credit')
+      .reduce((sum, t) => sum + t.amount, 0);
+
+    const usedCredits = transactions
+      .filter(t => t.transaction_type === 'debit')
+      .reduce((sum, t) => sum + t.amount, 0);
+
+    return { totalCredits, usedCredits, remainingCredits: balance };
+  };
+
+  const { totalCredits, usedCredits, remainingCredits } = getStats();
 
   useEffect(() => {
     fetchBalance();
@@ -90,22 +104,43 @@ export default function WalletPage() {
         <h1 className="text-3xl font-bold">Wallet</h1>
       </div>
 
-      {/* Balance Card */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Wallet className="h-5 w-5" />
-            Current Balance
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="text-4xl font-bold text-blue-600">
-            {balance} Credits
-          </div>
-        </CardContent>
-      </Card>
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total Credits</CardTitle>
+            <Wallet className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{totalCredits}</div>
+            <p className="text-xs text-muted-foreground mt-1">All time purchased</p>
+          </CardContent>
+        </Card>
 
-      {/* Credit Packages */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Credits Used</CardTitle>
+            <Minus className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-red-600">{usedCredits}</div>
+            <p className="text-xs text-muted-foreground mt-1">Total consumed</p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Remaining Credits</CardTitle>
+            <TrendingUp className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-blue-600">{remainingCredits}</div>
+            <p className="text-xs text-muted-foreground mt-1">Available now</p>
+          </CardContent>
+        </Card>
+      </div>
+
+
       <Card>
         <CardHeader>
           <CardTitle>Buy Credits</CardTitle>
