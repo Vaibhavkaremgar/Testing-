@@ -19,8 +19,13 @@ def get_communications(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    from app.models import JobDescription
+    from app.models import JobDescription, UserRole
     query = db.query(EmailCommunication)
+    
+    # Filter by assigned candidates for non-admin users
+    if current_user.role != UserRole.ADMIN:
+        query = query.join(Candidate).filter(Candidate.assigned_to_user_id == current_user.id)
+    
     if candidate_id:
         query = query.filter(EmailCommunication.candidate_id == candidate_id)
     if status:
@@ -28,7 +33,11 @@ def get_communications(
     if email_type:
         query = query.filter(EmailCommunication.email_type == email_type)
     if client:
-        query = query.join(Candidate).join(JobDescription).filter(JobDescription.company_name == client)
+        if current_user.role == UserRole.ADMIN:
+            query = query.join(Candidate).join(JobDescription).filter(JobDescription.company_name == client)
+        else:
+            query = query.join(JobDescription).filter(JobDescription.company_name == client)
+    
     return query.order_by(desc(EmailCommunication.created_at)).all()
 
 @router.post("", response_model=EmailCommunicationResponse)

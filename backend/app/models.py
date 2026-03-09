@@ -47,6 +47,7 @@ class User(Base):
     avatar_url = Column(String(500))
     is_active = Column(Boolean, default=True)
     last_login_at = Column(DateTime(timezone=True), nullable=True)
+    wallet_balance = Column(Float, default=0.0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
@@ -249,4 +250,19 @@ class UserDashboardPreference(Base):
     position = Column(Integer, nullable=True)
     size = Column(String(50), nullable=True)
     is_enabled = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class TransactionType(str, enum.Enum):
+    CREDIT = "credit"
+    DEBIT = "debit"
+
+class WalletTransaction(Base):
+    __tablename__ = "wallet_transactions"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    amount = Column(Float, nullable=False)
+    transaction_type = Column(Enum(TransactionType), nullable=False)
+    description = Column(String(500))
+    balance_after = Column(Float, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

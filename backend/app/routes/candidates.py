@@ -1750,6 +1750,7 @@ def send_email(
     from sendgrid.helpers.mail import Mail
     from app.config import settings
     from urllib.parse import urlencode
+    from app.models import EmailCommunication
     
     try:
         candidate_id = email_data.get('candidate_id')
@@ -1823,7 +1824,27 @@ def send_email(
         sg = SendGridAPIClient(settings.SENDGRID_API_KEY)
         response = sg.send(mail_message)
         
+        # Determine email type based on subject
+        email_type = "Slot Selection Email"
+        if "reject" in subject.lower() or "decline" in subject.lower():
+            email_type = "Rejection Email"
+        elif "reschedule" in subject.lower():
+            email_type = "Interview Rescheduled"
+        
+        # Create EmailCommunication record
+        email_comm = EmailCommunication(
+            candidate_id=candidate.id,
+            candidate_name=candidate.name,
+            candidate_email=candidate.email,
+            email_type=email_type,
+            status="sent",
+            sent_at=datetime.utcnow()
+        )
+        db.add(email_comm)
+        db.commit()
+        
         print(f"✅ Email sent to {candidate.email} - Status: {response.status_code}")
+        print(f"   Email type: {email_type}")
         print(f"   Interview URL: {interview_url}")
         print(f"   Slot Booking: {settings.SLOT_BOOKING_URL}")
         

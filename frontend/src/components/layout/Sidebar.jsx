@@ -17,7 +17,8 @@ import {
   MessageSquare,
   UserCog,
   User as UserIcon,
-  ClipboardList
+  ClipboardList,
+  Wallet
 } from 'lucide-react'
 
 export function Sidebar() {
@@ -41,6 +42,7 @@ export function Sidebar() {
         { name: 'Clients', href: '/clients', icon: Building2 },
         { name: 'Analytics', href: '/analytics', icon: BarChart3 },
         { name: 'Communications', href: '/communications', icon: MessageSquare },
+        { name: 'Wallet', href: '/wallet', icon: Wallet },
         { name: 'Settings', href: '/settings', icon: Settings },
         { name: 'Users', href: '/admin/users', icon: UserCog },
       ]
@@ -55,6 +57,7 @@ export function Sidebar() {
       { name: 'Interviews', href: '/interviews', icon: Video },
       { name: 'Communications', href: '/communications', icon: MessageSquare },
       { name: 'Analytics', href: '/analytics', icon: BarChart3 },
+      { name: 'Wallet', href: '/wallet', icon: Wallet },
       { name: 'Profile', href: '/profile', icon: UserIcon },
     ]
   }

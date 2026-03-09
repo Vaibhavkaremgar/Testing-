@@ -15,6 +15,7 @@ import Communications from '@/pages/Communications'
 import Settings from '@/pages/Settings'
 import Profile from '@/pages/Profile'
 import AdminUsers from '@/pages/AdminUsers'
+import Wallet from '@/pages/Wallet'
 
 function ProtectedRoute({ children }) {
   const { isAuthenticated, loading } = useAuth()
@@ -145,6 +146,14 @@ function App() {
           element={
             <ProtectedRoute>
               <AdminUsers />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/wallet"
+          element={
+            <ProtectedRoute>
+              <Wallet />
             </ProtectedRoute>
           }
         />
