@@ -47,18 +47,20 @@ export default function WalletPage() {
   const fetchBalance = async () => {
     try {
       const response = await api.get('/wallet/balance');
-      setBalance(response.data.balance);
+      setBalance(response.balance || 0);
     } catch (error) {
       console.error('Failed to fetch balance:', error);
+      setBalance(0);
     }
   };
 
   const fetchTransactions = async () => {
     try {
       const response = await api.get('/wallet/transactions');
-      setTransactions(response.data);
+      setTransactions(Array.isArray(response) ? response : []);
     } catch (error) {
       console.error('Failed to fetch transactions:', error);
+      setTransactions([]);
     }
   };
 
