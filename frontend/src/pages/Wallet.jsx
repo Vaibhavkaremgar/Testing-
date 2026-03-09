@@ -22,7 +22,6 @@ export default function WalletPage() {
   const { user } = useAuth();
   const [balance, setBalance] = useState(0);
   const [transactions, setTransactions] = useState([]);
-  const [selectedPackage, setSelectedPackage] = useState(null);
   const [selectedPayment, setSelectedPayment] = useState(null);
   const [loading, setLoading] = useState(false);
 
@@ -64,8 +63,8 @@ export default function WalletPage() {
   };
 
   const handleBuyCredits = async () => {
-    if (!selectedPackage || !selectedPayment) {
-      alert('Please select a package and payment method');
+    if (!selectedPayment) {
+      alert('Please select a payment method');
       return;
     }
 
@@ -73,7 +72,7 @@ export default function WalletPage() {
     try {
       // Create order
       const orderResponse = await api.post('/wallet/create-order', {
-        credits: selectedPackage.credits,
+        credits: 10,
         payment_method: selectedPayment
       });
 
@@ -81,13 +80,12 @@ export default function WalletPage() {
       const paymentResponse = await api.post('/wallet/payment-success', {
         order_id: orderResponse.data.order_id,
         transaction_id: `TXN_${Date.now()}`,
-        credits: selectedPackage.credits,
+        credits: 10,
         payment_method: selectedPayment,
-        amount_paid: selectedPackage.price
+        amount_paid: 100
       });
 
-      alert(`Successfully purchased ${selectedPackage.credits} credits!`);
-      setSelectedPackage(null);
+      alert(`Successfully purchased 10 credits!`);
       setSelectedPayment(null);
       fetchBalance();
       fetchTransactions();
