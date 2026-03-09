@@ -14,8 +14,6 @@ const CREDIT_PACKAGES = [
 
 const PAYMENT_METHODS = [
   { id: 'razorpay', name: 'Razorpay', icon: CreditCard, color: 'text-blue-600' },
-  {/*{ id: 'stripe', name: 'Stripe', icon: CreditCard, color: 'text-purple-600' },
-  { id: 'upi', name: 'UPI', icon: Smartphone, color: 'text-green-600' },*/}
 ];
 
 export default function WalletPage() {
@@ -80,7 +78,7 @@ export default function WalletPage() {
 
       // Simulate payment success (in production, integrate with actual payment gateway)
       const paymentResponse = await api.post('/wallet/payment-success', {
-        order_id: orderResponse.data.order_id,
+        order_id: orderResponse.order_id,
         transaction_id: `TXN_${Date.now()}`,
         credits: 10,
         payment_method: selectedPayment,
