@@ -219,6 +219,47 @@ Status: ${txn.status || 'completed'}
         </CardContent>
       </Card>
 
+      {/* Usage Summary */}
+      <div className="bg-gray-900 rounded-xl shadow-lg p-6">
+        <div className="flex items-center justify-between mb-6">
+          <h3 className="text-white text-lg font-medium">
+            {new Date(new Date().setMonth(new Date().getMonth() - 1)).toLocaleDateString('en-US', { month: 'short', day: '2-digit' })} to {new Date().toLocaleDateString('en-US', { month: 'short', day: '2-digit' })} Usage
+          </h3>
+          <Button variant="outline" className="text-white border-gray-700 hover:bg-gray-800">
+            Show Breakdown
+          </Button>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Left Side - Usage Details */}
+          <div className="space-y-4">
+            <div className="flex justify-between items-center text-gray-300">
+              <span>Current Usage</span>
+              <span className="text-white font-semibold">₹{usedCredits * 10}</span>
+            </div>
+            <div className="flex justify-between items-center text-gray-300">
+              <span>Included Usage</span>
+              <span className="text-white font-semibold">₹{totalCredits * 10}</span>
+            </div>
+          </div>
+
+          {/* Right Side - Stat Cards */}
+          <div className="space-y-4">
+            <div className="bg-gray-800 rounded-lg p-4">
+              <p className="text-gray-400 text-sm mb-1">Current Usage</p>
+              <p className="text-white text-2xl font-bold">₹{usedCredits * 10}</p>
+            </div>
+            <div className="bg-gray-800 rounded-lg p-4">
+              <p className="text-gray-400 text-sm mb-1">Estimated Bill</p>
+              <p className="text-white text-2xl font-bold">₹{totalCredits * 10}</p>
+            </div>
+            <Button className="w-full bg-gray-800 hover:bg-gray-700 text-white border-gray-700">
+              Set usage limits
+            </Button>
+          </div>
+        </div>
+      </div>
+
       {/* Transaction History */}
       <Card>
         <CardHeader>
