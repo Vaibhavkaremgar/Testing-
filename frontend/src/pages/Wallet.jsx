@@ -148,25 +148,25 @@ export default function WalletPage() {
         <CardContent className="space-y-6">
           {/* Payment Methods */}
           <div>
-            <h3 className="text-sm font-medium mb-3">Payment Method</h3>
-            {/*<div className="grid grid-cols-1 md:grid-cols-3 gap-4">*/}
-            <div className="grid grid-cols-1 gap-4">
+            <h3 className="text-sm font-medium mb-3">Select Payment Method</h3>
+            <div className="space-y-3">
               {PAYMENT_METHODS.map((method) => {
                 const Icon = method.icon;
                 return (
                   <div
                     key={method.id}
                     onClick={() => setSelectedPayment(method.id)}
-                    className={`p-4 border-2 rounded-lg cursor-pointer transition-all ${
+                    className={`p-4 border-2 rounded-lg cursor-pointer transition-all flex items-center justify-between ${
                       selectedPayment === method.id
                         ? 'border-blue-600 bg-blue-50'
-                        : 'border-gray-200 hover:border-blue-300'
+                        : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50'
                     }`}
                   >
                     <div className="flex items-center gap-3">
                       <Icon className="h-6 w-6" />
                       <span className="font-medium">{method.name}</span>
                     </div>
+                    <span className="text-sm text-gray-600">Select</span>
                   </div>
                 );
               })}
@@ -176,7 +176,7 @@ export default function WalletPage() {
           {/* Buy Button */}
           <Button
             onClick={handleBuyCredits}
-            disabled={!selectedPackage || !selectedPayment || loading}
+            disabled={!selectedPayment || loading}
             className="w-full"
             size="lg"
           >
