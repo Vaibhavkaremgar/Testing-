@@ -1152,26 +1152,40 @@ export default function Resumes() {
               {/* Action Buttons */}
               <div className="pt-4 border-t">
                 <div className="flex gap-3">
-                  <Button 
-                    className="flex-1"
-                    onClick={() => handleOpenEmailModal('invitation')}
-                  >
-                    Send Interview Invitation
-                  </Button>
-                  <Button 
-                    variant="outline"
-                    className="flex-1"
-                    onClick={() => handleOpenEmailModal('reschedule')}
-                  >
-                    Interview Reschedule
-                  </Button>
-                  <Button 
-                    variant="destructive"
-                    className="flex-1"
-                    onClick={() => handleOpenEmailModal('rejection')}
-                  >
-                    Decline Invitation
-                  </Button>
+                  {selectedCandidate.stage === 'SHORTLISTED' ? (
+                    // SHORTLISTED: Only show Reschedule button
+                    <Button 
+                      variant="outline"
+                      className="flex-1"
+                      onClick={() => handleOpenEmailModal('reschedule')}
+                    >
+                      Interview Reschedule
+                    </Button>
+                  ) : (
+                    // Other stages: Show all 3 buttons
+                    <>
+                      <Button 
+                        className="flex-1"
+                        onClick={() => handleOpenEmailModal('invitation')}
+                      >
+                        Send Interview Invitation
+                      </Button>
+                      <Button 
+                        variant="outline"
+                        className="flex-1"
+                        onClick={() => handleOpenEmailModal('reschedule')}
+                      >
+                        Interview Reschedule
+                      </Button>
+                      <Button 
+                        variant="destructive"
+                        className="flex-1"
+                        onClick={() => handleOpenEmailModal('rejection')}
+                      >
+                        Decline Invitation
+                      </Button>
+                    </>
+                  )}
                 </div>
               </div>
             </div>

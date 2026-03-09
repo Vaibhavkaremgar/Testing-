@@ -738,7 +738,7 @@ def extract_skills_from_job_text(job_text: str) -> list:
     return list(skills)
 
 def simulate_resume_parsing(candidate: Candidate, db: Session, ai_analysis: dict = None):
-    """Resume parsing with AI scoring and stage assignment"""
+    """Resume parsing with AI scoring, stage assignment, and auto-email for shortlisted"""
     
     candidate.parsing_status = ParsingStatus.COMPLETED
     
@@ -767,12 +767,96 @@ def simulate_resume_parsing(candidate: Candidate, db: Session, ai_analysis: dict
             except Exception as e:
                 print(f"⚠️ Question generation failed: {e}")
         
-        # Set stage based on score thresholds
+        # NEW LOGIC: Set stage based on score thresholds with 10-point range
         threshold = candidate.score_threshold or 60
+        
         if score >= threshold:
+            # SHORTLISTED: Auto-send email
             candidate.stage = CandidateStage.SHORTLISTED
+            
+            # Auto-send email to shortlisted candidates
+            try:
+                from app.config import settings
+                from sendgrid import SendGridAPIClient
+                from sendgrid.helpers.mail import Mail
+                from app.models import EmailCommunication, JobDescription
+                from urllib.parse import urlencode
+                
+                if settings.SENDGRID_API_KEY and candidate.email:
+                    # Get job details
+                    job = None
+                    if candidate.job_id:
+                        job = db.query(JobDescription).filter(JobDescription.id == candidate.job_id).first()
+                    
+                    # Build interview URL
+                    params = {
+                        'candidateId': candidate.id,
+                        'name': candidate.name,
+                        'email': candidate.email,
+                        'resumeText': candidate.resume_text or ''
+                    }
+                    if job:
+                        params['jobId'] = job.id
+                        params['jobTitle'] = job.title
+                        params['jobDescription'] = job.description or ''
+                    
+                    interview_url = f"{settings.FRONTEND_URL}/interview?{urlencode(params)}"
+                    
+                    # Email content
+                    subject = f"Interview Invitation - {job.title if job else 'Position'}"
+                    message = f"Dear {candidate.name},\n\nCongratulations! Your resume has been shortlisted for the {job.title if job else 'position'}. Please book your interview slot using the button below."
+                    
+                    html_body = f"""
+                    <html>
+                    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+                        <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+                            <p>{message.replace(chr(10), '<br>')}</p>
+                            <div style="margin: 30px 0; text-align: center;">
+                                <a href="{settings.SLOT_BOOKING_URL}" 
+                                   style="display: inline-block; padding: 15px 30px; background-color: #2563eb; color: white; text-decoration: none; border-radius: 5px; font-weight: bold;">
+                                    Book Your Slot
+                                </a>
+                            </div>
+                            <p style="font-size: 12px; color: #666; margin-top: 30px;">
+                                View your interview details: <a href="{interview_url}">{interview_url}</a>
+                            </p>
+                        </div>
+                    </body>
+                    </html>
+                    """
+                    
+                    # Send email
+                    mail_message = Mail(
+                        from_email=(settings.FROM_EMAIL, settings.FROM_NAME),
+                        to_emails=candidate.email,
+                        subject=subject,
+                        html_content=html_body
+                    )
+                    
+                    sg = SendGridAPIClient(settings.SENDGRID_API_KEY)
+                    response = sg.send(mail_message)
+                    
+                    # Create EmailCommunication record
+                    email_comm = EmailCommunication(
+                        candidate_id=candidate.id,
+                        candidate_name=candidate.name,
+                        candidate_email=candidate.email,
+                        email_type="Slot Selection Email",
+                        status="sent",
+                        sent_at=datetime.utcnow()
+                    )
+                    db.add(email_comm)
+                    
+                    print(f"✅ Auto-email sent to {candidate.email} (SHORTLISTED)")
+            except Exception as e:
+                print(f"⚠️ Auto-email failed: {e}")
+        
+        elif score >= (threshold - 10):
+            # REVIEW: Score within 10 points below threshold
+            candidate.stage = CandidateStage.REVIEW
         else:
-            candidate.stage = CandidateStage.RESUME_REJECTED
+            # REJECTED: Score more than 10 points below threshold
+            candidate.stage = CandidateStage.REJECTED
         
         print(f"✓ Candidate {candidate.name}: Score={candidate.resume_score}, Threshold={threshold}, Stage={candidate.stage.value}")
     else:
