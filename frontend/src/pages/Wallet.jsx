@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Wallet, Plus, ArrowUpCircle, ArrowDownCircle } from 'lucide-react';
+import { Wallet, Plus, ArrowUpCircle, ArrowDownCircle, TrendingUp, ShoppingCart, Minus } from 'lucide-react';
 import api from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 
@@ -16,6 +16,31 @@ export default function WalletPage() {
   const [amount, setAmount] = useState('');
   const [description, setDescription] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Calculate stats from transactions
+  const getMonthlyStats = () => {
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+
+    const monthlyTransactions = transactions.filter(txn => {
+      const txnDate = new Date(txn.created_at);
+      return txnDate.getMonth() === currentMonth && txnDate.getFullYear() === currentYear;
+    });
+
+    const creditsUsed = monthlyTransactions
+      .filter(t => t.transaction_type === 'debit')
+      .reduce((sum, t) => sum + t.amount, 0);
+
+    const creditsPurchased = monthlyTransactions
+      .filter(t => t.transaction_type === 'credit')
+      .reduce((sum, t) => sum + t.amount, 0);
+
+    return { creditsUsed, creditsPurchased };
+  };
+
+  const { creditsUsed, creditsPurchased } = getMonthlyStats();
+  const remainingCredits = balance;
 
   useEffect(() => {
     fetchBalance();
@@ -83,24 +108,62 @@ export default function WalletPage() {
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold">Wallet</h1>
+        <div>
+          <h1 className="text-3xl font-bold">Wallet Dashboard</h1>
+          <p className="text-muted-foreground mt-1">Manage your credits and billing</p>
+        </div>
       </div>
 
-      {/* Balance Card */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Wallet className="h-5 w-5" />
-            Current Balance
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="text-4xl font-bold text-blue-600">
-            {balance} Credits
-          </div>
-          {/*<p className="text-sm text-gray-500 mt-2">1 Interview = 1 Credit</p>*/}
-        </CardContent>
-      </Card>
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        {/* Current Balance */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Current Balance</CardTitle>
+            <Wallet className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{balance}</div>
+            <p className="text-xs text-muted-foreground mt-1">Available credits</p>
+          </CardContent>
+        </Card>
+
+        {/* Credits Used This Month */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Credits Used</CardTitle>
+            <Minus className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-red-600">{creditsUsed}</div>
+            <p className="text-xs text-muted-foreground mt-1">This month</p>
+          </CardContent>
+        </Card>
+
+        {/* Credits Purchased */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Credits Purchased</CardTitle>
+            <ShoppingCart className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-green-600">{creditsPurchased}</div>
+            <p className="text-xs text-muted-foreground mt-1">This month</p>
+          </CardContent>
+        </Card>
+
+        {/* Remaining Credits */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Remaining Credits</CardTitle>
+            <TrendingUp className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-blue-600">{remainingCredits}</div>
+            <p className="text-xs text-muted-foreground mt-1">Available now</p>
+          </CardContent>
+        </Card>
+      </div>
 
       {/* Admin: Add Credits */}
       {user?.role === 'admin' && (
