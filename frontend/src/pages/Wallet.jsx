@@ -149,7 +149,8 @@ export default function WalletPage() {
           {/* Payment Methods */}
           <div>
             <h3 className="text-sm font-medium mb-3">Payment Method</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/*<div className="grid grid-cols-1 md:grid-cols-3 gap-4">*/}
+            <div className="grid grid-cols-1 gap-4">
               {PAYMENT_METHODS.map((method) => {
                 const Icon = method.icon;
                 return (
