@@ -1,38 +1,30 @@
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Wallet, ArrowUpCircle, ArrowDownCircle, TrendingUp, ShoppingCart, Minus } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Wallet, ArrowUpCircle, ArrowDownCircle, CreditCard, Smartphone } from 'lucide-react';
 import api from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
+
+const CREDIT_PACKAGES = [
+  { credits: 10, price: 100, popular: false },
+  { credits: 50, price: 450, popular: true },
+  { credits: 100, price: 800, popular: false },
+  { credits: 200, price: 1500, popular: false },
+];
+
+const PAYMENT_METHODS = [
+  { id: 'razorpay', name: 'Razorpay', icon: CreditCard },
+  { id: 'stripe', name: 'Stripe', icon: CreditCard },
+  { id: 'upi', name: 'UPI', icon: Smartphone },
+];
 
 export default function WalletPage() {
   const { user } = useAuth();
   const [balance, setBalance] = useState(0);
   const [transactions, setTransactions] = useState([]);
-
-  // Calculate stats from transactions
-  const getMonthlyStats = () => {
-    const now = new Date();
-    const currentMonth = now.getMonth();
-    const currentYear = now.getFullYear();
-
-    const monthlyTransactions = transactions.filter(txn => {
-      const txnDate = new Date(txn.created_at);
-      return txnDate.getMonth() === currentMonth && txnDate.getFullYear() === currentYear;
-    });
-
-    const creditsUsed = monthlyTransactions
-      .filter(t => t.transaction_type === 'debit')
-      .reduce((sum, t) => sum + t.amount, 0);
-
-    const creditsPurchased = monthlyTransactions
-      .filter(t => t.transaction_type === 'credit')
-      .reduce((sum, t) => sum + t.amount, 0);
-
-    return { creditsUsed, creditsPurchased };
-  };
-
-  const { creditsUsed, creditsPurchased } = getMonthlyStats();
-  const remainingCredits = balance;
+  const [selectedPackage, setSelectedPackage] = useState(null);
+  const [selectedPayment, setSelectedPayment] = useState(null);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     fetchBalance();
@@ -57,67 +49,139 @@ export default function WalletPage() {
     }
   };
 
+  const handleBuyCredits = async () => {
+    if (!selectedPackage || !selectedPayment) {
+      alert('Please select a package and payment method');
+      return;
+    }
 
+    setLoading(true);
+    try {
+      // Create order
+      const orderResponse = await api.post('/wallet/create-order', {
+        credits: selectedPackage.credits,
+        payment_method: selectedPayment
+      });
+
+      // Simulate payment success (in production, integrate with actual payment gateway)
+      const paymentResponse = await api.post('/wallet/payment-success', {
+        order_id: orderResponse.data.order_id,
+        transaction_id: `TXN_${Date.now()}`,
+        credits: selectedPackage.credits,
+        payment_method: selectedPayment,
+        amount_paid: selectedPackage.price
+      });
+
+      alert(`Successfully purchased ${selectedPackage.credits} credits!`);
+      setSelectedPackage(null);
+      setSelectedPayment(null);
+      fetchBalance();
+      fetchTransactions();
+    } catch (error) {
+      alert('Payment failed: ' + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold">Wallet Dashboard</h1>
-          <p className="text-muted-foreground mt-1">Manage your credits and billing</p>
-        </div>
+        <h1 className="text-3xl font-bold">Wallet</h1>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {/* Current Balance */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Current Balance</CardTitle>
-            <Wallet className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{balance}</div>
-            <p className="text-xs text-muted-foreground mt-1">Available credits</p>
-          </CardContent>
-        </Card>
+      {/* Balance Card */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Wallet className="h-5 w-5" />
+            Current Balance
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-4xl font-bold text-blue-600">
+            {balance} Credits
+          </div>
+        </CardContent>
+      </Card>
 
-        {/* Credits Used This Month */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Credits Used</CardTitle>
-            <Minus className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-red-600">{creditsUsed}</div>
-            <p className="text-xs text-muted-foreground mt-1">This month</p>
-          </CardContent>
-        </Card>
+      {/* Credit Packages */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Buy Credits</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {/* Packages */}
+          <div>
+            <h3 className="text-sm font-medium mb-3">Select Package</h3>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              {CREDIT_PACKAGES.map((pkg) => (
+                <div
+                  key={pkg.credits}
+                  onClick={() => setSelectedPackage(pkg)}
+                  className={`relative p-4 border-2 rounded-lg cursor-pointer transition-all ${
+                    selectedPackage?.credits === pkg.credits
+                      ? 'border-blue-600 bg-blue-50'
+                      : 'border-gray-200 hover:border-blue-300'
+                  }`}
+                >
+                  {pkg.popular && (
+                    <span className="absolute -top-2 right-2 bg-blue-600 text-white text-xs px-2 py-1 rounded">
+                      Popular
+                    </span>
+                  )}
+                  <div className="text-center">
+                    <div className="text-2xl font-bold">{pkg.credits}</div>
+                    <div className="text-sm text-gray-500">Credits</div>
+                    <div className="mt-2 text-lg font-semibold text-blue-600">
+                      ₹{pkg.price}
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      ₹{(pkg.price / pkg.credits).toFixed(1)}/credit
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
 
-        {/* Credits Purchased */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Credits Purchased</CardTitle>
-            <ShoppingCart className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">{creditsPurchased}</div>
-            <p className="text-xs text-muted-foreground mt-1">This month</p>
-          </CardContent>
-        </Card>
+          {/* Payment Methods */}
+          <div>
+            <h3 className="text-sm font-medium mb-3">Payment Method</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {PAYMENT_METHODS.map((method) => {
+                const Icon = method.icon;
+                return (
+                  <div
+                    key={method.id}
+                    onClick={() => setSelectedPayment(method.id)}
+                    className={`p-4 border-2 rounded-lg cursor-pointer transition-all ${
+                      selectedPayment === method.id
+                        ? 'border-blue-600 bg-blue-50'
+                        : 'border-gray-200 hover:border-blue-300'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <Icon className="h-6 w-6" />
+                      <span className="font-medium">{method.name}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
 
-        {/* Remaining Credits */}
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Remaining Credits</CardTitle>
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-blue-600">{remainingCredits}</div>
-            <p className="text-xs text-muted-foreground mt-1">Available now</p>
-          </CardContent>
-        </Card>
-      </div>
+          {/* Buy Button */}
+          <Button
+            onClick={handleBuyCredits}
+            disabled={!selectedPackage || !selectedPayment || loading}
+            className="w-full"
+            size="lg"
+          >
+            {loading ? 'Processing...' : 'Buy Credits'}
+          </Button>
+        </CardContent>
+      </Card>
 
       {/* Transaction History */}
       <Card>
@@ -128,42 +192,61 @@ export default function WalletPage() {
           {transactions.length === 0 ? (
             <p className="text-gray-500">No transactions yet</p>
           ) : (
-            <div className="space-y-3">
-              {transactions.map((txn) => (
-                <div
-                  key={txn.id}
-                  className="flex items-center justify-between p-3 border rounded-lg"
-                >
-                  <div className="flex items-center gap-3">
-                    {txn.transaction_type === 'credit' ? (
-                      <ArrowUpCircle className="h-5 w-5 text-green-600" />
-                    ) : (
-                      <ArrowDownCircle className="h-5 w-5 text-red-600" />
-                    )}
-                    <div>
-                      <p className="font-medium">{txn.description}</p>
-                      <p className="text-sm text-gray-500">
-                        {new Date(txn.created_at).toLocaleString()}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p
-                      className={`font-bold ${
-                        txn.transaction_type === 'credit'
-                          ? 'text-green-600'
-                          : 'text-red-600'
-                      }`}
-                    >
-                      {txn.transaction_type === 'credit' ? '+' : '-'}
-                      {txn.amount} Credits
-                    </p>
-                    <p className="text-sm text-gray-500">
-                      Balance: {txn.balance_after} Credits
-                    </p>
-                  </div>
-                </div>
-              ))}
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left py-3 px-4">Date</th>
+                    <th className="text-left py-3 px-4">Description</th>
+                    <th className="text-left py-3 px-4">Credits</th>
+                    <th className="text-left py-3 px-4">Amount</th>
+                    <th className="text-left py-3 px-4">Payment Method</th>
+                    <th className="text-left py-3 px-4">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {transactions.map((txn) => (
+                    <tr key={txn.id} className="border-b hover:bg-gray-50">
+                      <td className="py-3 px-4 text-sm">
+                        {new Date(txn.created_at).toLocaleDateString()}
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-2">
+                          {txn.transaction_type === 'credit' ? (
+                            <ArrowUpCircle className="h-4 w-4 text-green-600" />
+                          ) : (
+                            <ArrowDownCircle className="h-4 w-4 text-red-600" />
+                          )}
+                          <span className="text-sm">{txn.description}</span>
+                        </div>
+                      </td>
+                      <td className="py-3 px-4">
+                        <span
+                          className={`font-semibold ${
+                            txn.transaction_type === 'credit'
+                              ? 'text-green-600'
+                              : 'text-red-600'
+                          }`}
+                        >
+                          {txn.transaction_type === 'credit' ? '+' : '-'}
+                          {txn.amount}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-sm">
+                        {txn.price_paid ? `₹${txn.price_paid}` : '-'}
+                      </td>
+                      <td className="py-3 px-4 text-sm capitalize">
+                        {txn.payment_method || '-'}
+                      </td>
+                      <td className="py-3 px-4">
+                        <span className="text-xs px-2 py-1 bg-green-100 text-green-800 rounded">
+                          {txn.status || 'completed'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </CardContent>
