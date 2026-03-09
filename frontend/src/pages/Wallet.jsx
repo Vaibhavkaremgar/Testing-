@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Wallet, ArrowUpCircle, ArrowDownCircle, CreditCard, Smartphone, TrendingUp, Minus } from 'lucide-react';
+import { Wallet, ArrowUpCircle, ArrowDownCircle, CreditCard, TrendingUp, Minus, Download } from 'lucide-react';
 import api from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 
@@ -62,6 +62,28 @@ export default function WalletPage() {
     }
   };
 
+  const handleDownloadInvoice = (txn) => {
+    const invoiceContent = `
+INVOICE
+========================================
+Transaction ID: ${txn.id}
+Date: ${new Date(txn.created_at).toLocaleDateString()}
+Description: ${txn.description}
+Credits: ${txn.amount}
+Amount Paid: ₹${txn.price_paid || 0}
+Payment Method: ${txn.payment_method || 'N/A'}
+Status: ${txn.status || 'completed'}
+========================================
+    `;
+    const blob = new Blob([invoiceContent], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `invoice_${txn.id}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const handleBuyCredits = async () => {
     if (!selectedPayment) {
       alert('Please select a payment method');
@@ -101,6 +123,20 @@ export default function WalletPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold">Wallet</h1>
       </div>
+
+      {/* Wallet Balance Card */}
+      <Card className="bg-gradient-to-r from-blue-500 to-blue-600 text-white">
+        <CardContent className="pt-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm opacity-90">Wallet Balance</p>
+              <h2 className="text-4xl font-bold mt-2">₹{totalCredits * 10}</h2>
+              <p className="text-sm mt-2 opacity-90">Available Credits: {remainingCredits}</p>
+            </div>
+            <Wallet className="h-16 w-16 opacity-20" />
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -202,6 +238,7 @@ export default function WalletPage() {
                     <th className="text-left py-3 px-4">Amount</th>
                     <th className="text-left py-3 px-4">Payment Method</th>
                     <th className="text-left py-3 px-4">Status</th>
+                    <th className="text-left py-3 px-4">Invoice</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -242,6 +279,18 @@ export default function WalletPage() {
                         <span className="text-xs px-2 py-1 bg-green-100 text-green-800 rounded">
                           {txn.status || 'completed'}
                         </span>
+                      </td>
+                      <td className="py-3 px-4">
+                        {txn.transaction_type === 'credit' && txn.price_paid && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDownloadInvoice(txn)}
+                            className="text-blue-600 hover:text-blue-700"
+                          >
+                            <Download className="h-4 w-4" />
+                          </Button>
+                        )}
                       </td>
                     </tr>
                   ))}
