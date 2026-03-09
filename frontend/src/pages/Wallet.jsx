@@ -1,9 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Wallet, Plus, ArrowUpCircle, ArrowDownCircle, TrendingUp, ShoppingCart, Minus } from 'lucide-react';
+import { Wallet, ArrowUpCircle, ArrowDownCircle, TrendingUp, ShoppingCart, Minus } from 'lucide-react';
 import api from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 
@@ -11,11 +8,6 @@ export default function WalletPage() {
   const { user } = useAuth();
   const [balance, setBalance] = useState(0);
   const [transactions, setTransactions] = useState([]);
-  const [allUsers, setAllUsers] = useState([]);
-  const [selectedUserId, setSelectedUserId] = useState('');
-  const [amount, setAmount] = useState('');
-  const [description, setDescription] = useState('');
-  const [loading, setLoading] = useState(false);
 
   // Calculate stats from transactions
   const getMonthlyStats = () => {
@@ -45,9 +37,6 @@ export default function WalletPage() {
   useEffect(() => {
     fetchBalance();
     fetchTransactions();
-    if (user?.role === 'admin') {
-      fetchAllUsers();
-    }
   }, [user]);
 
   const fetchBalance = async () => {
@@ -68,42 +57,7 @@ export default function WalletPage() {
     }
   };
 
-  const fetchAllUsers = async () => {
-    try {
-      const response = await api.get('/wallet/all-users');
-      setAllUsers(response.data);
-    } catch (error) {
-      console.error('Failed to fetch users:', error);
-    }
-  };
 
-  const handleAddCredits = async (e) => {
-    e.preventDefault();
-    if (!selectedUserId || !amount) return;
-
-    setLoading(true);
-    try {
-      await api.post('/wallet/add-credits', {
-        user_id: parseInt(selectedUserId),
-        amount: parseInt(amount),
-        description: description || 'Admin credit addition'
-      });
-      
-      setAmount('');
-      setDescription('');
-      setSelectedUserId('');
-      fetchAllUsers();
-      if (parseInt(selectedUserId) === user.id) {
-        fetchBalance();
-        fetchTransactions();
-      }
-      alert('Credits added successfully!');
-    } catch (error) {
-      alert('Failed to add credits: ' + error.message);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   return (
     <div className="p-6 space-y-6">
@@ -164,59 +118,6 @@ export default function WalletPage() {
           </CardContent>
         </Card>
       </div>
-
-      {/* Admin: Add Credits */}
-      {user?.role === 'admin' && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Plus className="h-5 w-5" />
-              Add Credits (Admin)
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleAddCredits} className="space-y-4">
-              <div>
-                <Label>Select User</Label>
-                <select
-                  value={selectedUserId}
-                  onChange={(e) => setSelectedUserId(e.target.value)}
-                  className="w-full border rounded-md p-2"
-                  required
-                >
-                  <option value="">Choose user...</option>
-                  {allUsers.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.full_name} ({u.email}) - Balance: {u.wallet_balance} Credits
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <Label>Credits</Label>
-                <Input
-                  type="number"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                  placeholder="Enter credits"
-                  required
-                />
-              </div>
-              <div>
-                <Label>Description</Label>
-                <Input
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="Reason for credit"
-                />
-              </div>
-              <Button type="submit" disabled={loading}>
-                {loading ? 'Adding...' : 'Add Credits'}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-      )}
 
       {/* Transaction History */}
       <Card>
