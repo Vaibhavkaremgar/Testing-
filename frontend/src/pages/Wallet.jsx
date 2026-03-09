@@ -13,9 +13,9 @@ const CREDIT_PACKAGES = [
 ];
 
 const PAYMENT_METHODS = [
-  { id: 'razorpay', name: 'Razorpay', icon: CreditCard },
-  { id: 'stripe', name: 'Stripe', icon: CreditCard },
-  { id: 'upi', name: 'UPI', icon: Smartphone },
+  { id: 'razorpay', name: 'Razorpay', icon: CreditCard, color: 'text-blue-600' },
+  { id: 'stripe', name: 'Stripe', icon: CreditCard, color: 'text-purple-600' },
+  { id: 'upi', name: 'UPI', icon: Smartphone, color: 'text-green-600' },
 ];
 
 export default function WalletPage() {
@@ -163,7 +163,7 @@ export default function WalletPage() {
                     }`}
                   >
                     <div className="flex items-center gap-3">
-                      <Icon className="h-6 w-6" />
+                      <Icon className={`h-6 w-6 ${method.color}`} />
                       <span className="font-medium">{method.name}</span>
                     </div>
                     <span className="text-sm text-gray-600">Select</span>
