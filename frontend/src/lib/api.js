@@ -58,6 +58,28 @@ class ApiClient {
     return {}
   }
 
+  async get(endpoint) {
+    return this.request(endpoint, { method: 'GET' })
+  }
+
+  async post(endpoint, data) {
+    return this.request(endpoint, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  }
+
+  async put(endpoint, data) {
+    return this.request(endpoint, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    })
+  }
+
+  async delete(endpoint) {
+    return this.request(endpoint, { method: 'DELETE' })
+  }
+
   // Auth
   async login(email, password) {
     const formData = new URLSearchParams()
