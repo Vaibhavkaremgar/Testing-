@@ -57,7 +57,6 @@ export function Sidebar() {
       { name: 'Interviews', href: '/interviews', icon: Video },
       { name: 'Communications', href: '/communications', icon: MessageSquare },
       { name: 'Analytics', href: '/analytics', icon: BarChart3 },
-      { name: 'Wallet', href: '/wallet', icon: Wallet },
       { name: 'Profile', href: '/profile', icon: UserIcon },
     ]
   }
