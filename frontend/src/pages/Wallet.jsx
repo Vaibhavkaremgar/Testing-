@@ -146,40 +146,6 @@ export default function WalletPage() {
           <CardTitle>Buy Credits</CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
-          {/* Packages */}
-          <div>
-            <h3 className="text-sm font-medium mb-3">Select Package</h3>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-              {CREDIT_PACKAGES.map((pkg) => (
-                <div
-                  key={pkg.credits}
-                  onClick={() => setSelectedPackage(pkg)}
-                  className={`relative p-4 border-2 rounded-lg cursor-pointer transition-all ${
-                    selectedPackage?.credits === pkg.credits
-                      ? 'border-blue-600 bg-blue-50'
-                      : 'border-gray-200 hover:border-blue-300'
-                  }`}
-                >
-                  {pkg.popular && (
-                    <span className="absolute -top-2 right-2 bg-blue-600 text-white text-xs px-2 py-1 rounded">
-                      Popular
-                    </span>
-                  )}
-                  <div className="text-center">
-                    <div className="text-2xl font-bold">{pkg.credits}</div>
-                    <div className="text-sm text-gray-500">Credits</div>
-                    <div className="mt-2 text-lg font-semibold text-blue-600">
-                      ₹{pkg.price}
-                    </div>
-                    <div className="text-xs text-gray-500">
-                      ₹{(pkg.price / pkg.credits).toFixed(1)}/credit
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
           {/* Payment Methods */}
           <div>
             <h3 className="text-sm font-medium mb-3">Payment Method</h3>
