@@ -98,7 +98,7 @@ export default function WalletPage() {
           <div className="text-4xl font-bold text-blue-600">
             {balance} Credits
           </div>
-          <p className="text-sm text-gray-500 mt-2">1 Interview = 1 Credit</p>
+          {/*<p className="text-sm text-gray-500 mt-2">1 Interview = 1 Credit</p>*/}
         </CardContent>
       </Card>
 
