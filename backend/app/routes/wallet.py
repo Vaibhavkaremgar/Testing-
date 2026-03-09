@@ -11,7 +11,7 @@ router = APIRouter(prefix="/wallet", tags=["Wallet"])
 
 class AddCreditsRequest(BaseModel):
     user_id: int
-    amount: float
+    amount: int  # Credits
     description: str
 
 class TransactionResponse(BaseModel):
@@ -27,8 +27,8 @@ def get_wallet_balance(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """Get current user's wallet balance"""
-    return {"balance": current_user.wallet_balance or 0.0}
+    """Get current user's wallet balance in credits"""
+    return {"balance": current_user.wallet_balance or 0}
 
 @router.get("/transactions")
 def get_transactions(
@@ -67,7 +67,7 @@ def add_credits(
         raise HTTPException(status_code=404, detail="User not found")
     
     # Update balance
-    user.wallet_balance = (user.wallet_balance or 0.0) + request.amount
+    user.wallet_balance = (user.wallet_balance or 0) + request.amount
     
     # Create transaction record
     transaction = WalletTransaction(
@@ -102,7 +102,7 @@ def get_all_users_wallets(
             "full_name": u.full_name,
             "email": u.email,
             "role": u.role.value,
-            "wallet_balance": u.wallet_balance or 0.0
+            "wallet_balance": u.wallet_balance or 0
         }
         for u in users
     ]

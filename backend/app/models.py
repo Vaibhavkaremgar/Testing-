@@ -47,7 +47,7 @@ class User(Base):
     avatar_url = Column(String(500))
     is_active = Column(Boolean, default=True)
     last_login_at = Column(DateTime(timezone=True), nullable=True)
-    wallet_balance = Column(Float, default=0.0)
+    wallet_balance = Column(Integer, default=0)  # Credits (1 interview = 1 credit)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
@@ -261,8 +261,8 @@ class WalletTransaction(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    amount = Column(Float, nullable=False)
+    amount = Column(Integer, nullable=False)  # Credits
     transaction_type = Column(Enum(TransactionType), nullable=False)
     description = Column(String(500))
-    balance_after = Column(Float, nullable=False)
+    balance_after = Column(Integer, nullable=False)  # Credits
     created_at = Column(DateTime(timezone=True), server_default=func.now())

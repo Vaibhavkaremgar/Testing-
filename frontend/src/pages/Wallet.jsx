@@ -60,7 +60,7 @@ export default function WalletPage() {
     try {
       await api.post('/wallet/add-credits', {
         user_id: parseInt(selectedUserId),
-        amount: parseFloat(amount),
+        amount: parseInt(amount),
         description: description || 'Admin credit addition'
       });
       
@@ -96,8 +96,9 @@ export default function WalletPage() {
         </CardHeader>
         <CardContent>
           <div className="text-4xl font-bold text-blue-600">
-            ${balance.toFixed(2)}
+            {balance} Credits
           </div>
+          <p className="text-sm text-gray-500 mt-2">1 Interview = 1 Credit</p>
         </CardContent>
       </Card>
 
@@ -123,19 +124,18 @@ export default function WalletPage() {
                   <option value="">Choose user...</option>
                   {allUsers.map((u) => (
                     <option key={u.id} value={u.id}>
-                      {u.full_name} ({u.email}) - Balance: ${u.wallet_balance.toFixed(2)}
+                      {u.full_name} ({u.email}) - Balance: {u.wallet_balance} Credits
                     </option>
                   ))}
                 </select>
               </div>
               <div>
-                <Label>Amount</Label>
+                <Label>Credits</Label>
                 <Input
                   type="number"
-                  step="0.01"
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
-                  placeholder="Enter amount"
+                  placeholder="Enter credits"
                   required
                 />
               </div>
@@ -191,11 +191,11 @@ export default function WalletPage() {
                           : 'text-red-600'
                       }`}
                     >
-                      {txn.transaction_type === 'credit' ? '+' : '-'}$
-                      {txn.amount.toFixed(2)}
+                      {txn.transaction_type === 'credit' ? '+' : '-'}
+                      {txn.amount} Credits
                     </p>
                     <p className="text-sm text-gray-500">
-                      Balance: ${txn.balance_after.toFixed(2)}
+                      Balance: {txn.balance_after} Credits
                     </p>
                   </div>
                 </div>
