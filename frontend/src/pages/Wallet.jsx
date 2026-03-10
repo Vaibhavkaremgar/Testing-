@@ -192,11 +192,11 @@ Status: ${txn.status || 'completed'}
         <CardContent className="space-y-6">
           {/* Enter Amount */}
           <div>
-            <Label htmlFor="creditAmount">Enter Amount (₹)</Label>
+            <Label htmlFor="creditAmount">Enter Amount ($)</Label>
             <Input
               id="creditAmount"
               type="number"
-              placeholder="Enter amount in rupees"
+              placeholder="Enter amount"
               value={creditAmount}
               onChange={(e) => setCreditAmount(e.target.value)}
               min="1"
@@ -204,7 +204,7 @@ Status: ${txn.status || 'completed'}
             />
             {creditAmount && (
               <p className="text-sm text-gray-500 mt-2">
-                You will get {Math.floor(creditAmount / 10)} credits (₹10 per credit)
+              You will get {creditAmount} credits ($1 per credit)
               </p>
             )}
           </div>
