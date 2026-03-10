@@ -21,6 +21,7 @@ export default function WalletPage() {
   const [balance, setBalance] = useState(0);
   const [transactions, setTransactions] = useState([]);
   const [selectedPayment, setSelectedPayment] = useState(null);
+  const [creditAmount, setCreditAmount] = useState('');
   const [loading, setLoading] = useState(false);
 
   const getStats = () => {
@@ -90,25 +91,32 @@ Status: ${txn.status || 'completed'}
       return;
     }
 
+    if (!creditAmount || creditAmount <= 0) {
+      alert('Please enter a valid amount');
+      return;
+    }
+
+    const credits = Math.floor(creditAmount / 10);
+    const price = parseInt(creditAmount);
+
     setLoading(true);
     try {
-      // Create order
       const orderResponse = await api.post('/wallet/create-order', {
-        credits: 10,
+        credits: credits,
         payment_method: selectedPayment
       });
 
-      // Simulate payment success (in production, integrate with actual payment gateway)
       const paymentResponse = await api.post('/wallet/payment-success', {
         order_id: orderResponse.order_id,
         transaction_id: `TXN_${Date.now()}`,
-        credits: 10,
+        credits: credits,
         payment_method: selectedPayment,
-        amount_paid: 100
+        amount_paid: price
       });
 
-      alert(`Successfully purchased 10 credits!`);
+      alert(`Successfully purchased ${credits} credits!`);
       setSelectedPayment(null);
+      setCreditAmount('');
       fetchBalance();
       fetchTransactions();
     } catch (error) {
@@ -180,6 +188,25 @@ Status: ${txn.status || 'completed'}
           <CardTitle>Buy Credits</CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
+          {/* Enter Amount */}
+          <div>
+            <Label htmlFor="creditAmount">Enter Amount (₹)</Label>
+            <Input
+              id="creditAmount"
+              type="number"
+              placeholder="Enter amount in rupees"
+              value={creditAmount}
+              onChange={(e) => setCreditAmount(e.target.value)}
+              min="1"
+              className="mt-2"
+            />
+            {creditAmount && (
+              <p className="text-sm text-gray-500 mt-2">
+                You will get {Math.floor(creditAmount / 10)} credits (₹10 per credit)
+              </p>
+            )}
+          </div>
+
           {/* Payment Methods */}
           <div>
             <h3 className="text-sm font-medium mb-3">Select Payment Method</h3>
@@ -210,7 +237,7 @@ Status: ${txn.status || 'completed'}
           {/* Buy Button */}
           <Button
             onClick={handleBuyCredits}
-            disabled={!selectedPayment || loading}
+            disabled={!selectedPayment || !creditAmount || loading}
             className="w-full"
             size="lg"
           >
