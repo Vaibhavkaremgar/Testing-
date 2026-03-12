@@ -474,15 +474,10 @@ export default function Dashboard() {
                     </div>
                     <div className="flex items-center gap-3">
                       <div className="text-right">
-                        <p className="text-sm font-medium">{job.candidates || 0} candidates</p>
-                        <p className="text-xs text-muted-foreground">{job.vacancies || 1} positions</p>
+                        <p className="text-sm font-medium">{job.candidates || 0} {job.candidates === 1 ? 'candidate' : 'candidates'}</p>
+                        <p className="text-xs text-muted-foreground">{job.vacancies || 1} {(job.vacancies || 1) === 1 ? 'position' : 'positions'}</p>
                       </div>
-                      <Badge 
-                        variant={job.status === 'open' ? 'default' : job.status === 'filled' ? 'secondary' : 'outline'}
-                        className="capitalize"
-                      >
-                        {job.status || 'open'}
-                      </Badge>
+                      
                     </div>
                   </div>
                 ))
@@ -609,3 +604,5 @@ export default function Dashboard() {
     </div>
   )
 }
+
+
