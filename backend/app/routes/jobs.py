@@ -13,6 +13,25 @@ from app.auth import get_current_active_user, get_current_admin_user
 
 router = APIRouter(prefix="/jobs", tags=["Job Descriptions"])
 
+@router.get("/count")
+def get_jobs_count(
+    is_active: Optional[bool] = None,
+    client: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Get total count of jobs matching filters"""
+    query = db.query(JobDescription)
+    
+    if is_active is not None:
+        query = query.filter(JobDescription.is_active == is_active)
+    
+    if client:
+        query = query.filter(JobDescription.company_name == client)
+    
+    total = query.count()
+    return {"total": total}
+
 @router.get("/debug/count")
 def debug_job_count(db: Session = Depends(get_db)):
     """Debug endpoint to check job count without auth"""
@@ -27,8 +46,8 @@ def debug_job_count(db: Session = Depends(get_db)):
 
 @router.get("", response_model=List[JobDescriptionResponse])
 def get_jobs(
-    skip: int = 0,
-    limit: int = 100,
+    page: int = 1,
+    limit: int = 10,
     is_active: Optional[bool] = None,
     client: Optional[str] = None,
     db: Session = Depends(get_db),
@@ -43,6 +62,8 @@ def get_jobs(
     if client:
         query = query.filter(JobDescription.company_name == client)
     
+    # Calculate skip from page number
+    skip = (page - 1) * limit
     jobs = query.order_by(JobDescription.created_at.desc()).offset(skip).limit(limit).all()
     
     print(f"DEBUG: Found {len(jobs)} jobs in database")
