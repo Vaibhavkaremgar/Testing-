@@ -8,7 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Progress } from '@/components/ui/progress'
 import { api } from '@/lib/api'
 import { useAuth } from '@/context/AuthContext'
-import { Plus, Building2, TrendingUp, TrendingDown, AlertCircle, Users, Clock, CheckCircle2, Edit, Trash2, X } from 'lucide-react'
+import { Plus, Building2, TrendingUp, TrendingDown, Users, Edit, Trash2, X } from 'lucide-react'
 
 export default function Clients() {
   const [searchParams] = useSearchParams()
@@ -22,7 +22,7 @@ export default function Clients() {
   const [selectedStat, setSelectedStat] = useState(null)
   const [filteredClients, setFilteredClients] = useState([])
   const [formData, setFormData] = useState({
-    name: '', industry: '', contact_person: '', contact_email: '', contact_phone: '',
+    company_name: '', industry: '', contact_person: '', contact_email: '', contact_phone: '',
     total_positions: 0, positions_filled: 0, positions_open: 0
   })
 
@@ -144,7 +144,7 @@ export default function Clients() {
       setDialogOpen(false)
       setEditingClient(null)
       setFormData({
-        name: '', industry: '', contact_person: '', contact_email: '', contact_phone: '',
+        company_name: '', industry: '', contact_person: '', contact_email: '', contact_phone: '',
         total_positions: 0, positions_filled: 0, positions_open: 0
       })
       await fetchData()
@@ -156,7 +156,7 @@ export default function Clients() {
   const handleEdit = (client) => {
     setEditingClient(client)
     setFormData({
-      name: client.name,
+      company_name: client.company_name || client.name,
       industry: client.industry || '',
       contact_person: client.contact_person || '',
       contact_email: client.contact_email || '',
@@ -169,15 +169,19 @@ export default function Clients() {
   }
 
   const handleDelete = async (id) => {
-    alert('Cannot delete clients. Clients are derived from Jobs. Delete the jobs instead.')
+    if (!window.confirm('Are you sure you want to delete this client?')) {
+      return
+    }
+    try {
+      await api.deleteClient(id)
+      await fetchData()
+    } catch (error) {
+      console.error('Failed to delete client:', error)
+      alert('Failed to delete client: ' + error.message)
+    }
   }
 
-  const getHiringStatus = (client) => {
-    const fillRate = client.total_positions > 0 ? (client.positions_filled / client.total_positions) * 100 : 0
-    if (fillRate >= 70) return { label: 'On Track', variant: 'success', icon: CheckCircle2 }
-    if (fillRate >= 40) return { label: 'Slow', variant: 'warning', icon: Clock }
-    return { label: 'At Risk', variant: 'destructive', icon: AlertCircle }
-  }
+
 
   const topPerformers = clients
     .filter(c => c.acceptance_rate > 0)
@@ -205,7 +209,7 @@ export default function Clients() {
               <Button onClick={() => {
                 setEditingClient(null)
                 setFormData({
-                  name: '', industry: '', contact_person: '', contact_email: '', contact_phone: '',
+                  company_name: '', industry: '', contact_person: '', contact_email: '', contact_phone: '',
                   total_positions: 0, positions_filled: 0, positions_open: 0
                 })
               }}>
@@ -222,8 +226,8 @@ export default function Clients() {
                   <div className="space-y-2">
                     <label className="text-sm font-medium">Company Name *</label>
                     <Input
-                      value={formData.name}
-                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                      value={formData.company_name}
+                      onChange={(e) => setFormData({ ...formData, company_name: e.target.value })}
                       required
                     />
                   </div>
@@ -262,7 +266,13 @@ export default function Clients() {
                   </div>
                 </div>
                 <div className="flex justify-end gap-2">
-                  <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
+                  <Button type="button" variant="outline" onClick={() => {
+                    setDialogOpen(false)
+                    setFormData({
+                      company_name: '', industry: '', contact_person: '', contact_email: '', contact_phone: '',
+                      total_positions: 0, positions_filled: 0, positions_open: 0
+                    })
+                  }}>
                     Cancel
                   </Button>
                   <Button type="submit">
@@ -355,17 +365,15 @@ export default function Clients() {
                   <th className="text-center py-3 px-4 font-medium">Open</th>
                   <th className="text-left py-3 px-4 font-medium">Progress</th>
                   <th className="text-center py-3 px-4 font-medium">Avg Time</th>
-                  <th className="text-center py-3 px-4 font-medium">Status</th>
                   <th className="text-center py-3 px-4 font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {clients.map((client) => {
-                  const status = getHiringStatus(client)
                   const fillRate = client.total_positions > 0 ? (client.positions_filled / client.total_positions) * 100 : 0
                   return (
                     <tr key={client.id} className="border-b hover:bg-muted/50">
-                      <td className="py-3 px-4 font-medium">{client.name}</td>
+                      <td className="py-3 px-4 font-medium">{client.company_name || client.name}</td>
                       <td className="py-3 px-4 text-sm text-muted-foreground">{client.industry || '-'}</td>
                       <td className="py-3 px-4 text-center">{client.total_positions}</td>
                       <td className="py-3 px-4 text-center text-red-600">{client.positions_filled}</td>
@@ -377,12 +385,6 @@ export default function Clients() {
                         </div>
                       </td>
                       <td className="py-3 px-4 text-center text-sm">{client.avg_time_to_hire || 0}d</td>
-                      <td className="py-3 px-4 text-center">
-                        <Badge variant={status.variant} className="gap-1">
-                          <status.icon className="h-3 w-3" />
-                          {status.label}
-                        </Badge>
-                      </td>
                       <td className="py-3 px-4">
                         <div className="flex justify-center gap-1">
                           <Button variant="ghost" size="icon" onClick={() => handleDelete(client.id)}>
@@ -433,7 +435,7 @@ export default function Clients() {
                     <tbody>
                       {filteredClients.map((client) => (
                         <tr key={client.id} className="border-b hover:bg-muted/50">
-                          <td className="p-3 font-medium">{client.name}</td>
+                          <td className="p-3 font-medium">{client.company_name || client.name}</td>
                           <td className="p-3 text-sm text-muted-foreground">{client.industry || '-'}</td>
                           <td className="p-3 text-center">{client.total_positions}</td>
                           <td className="p-3 text-center text-red-600">{client.positions_filled}</td>
