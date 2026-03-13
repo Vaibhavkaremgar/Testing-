@@ -1776,6 +1776,7 @@ def get_pipeline_stages(
                 "current_company": c.current_company,
                 "resume_score": c.resume_score,
                 "job_title": c.job.title if c.job else None,
+                "company_name": c.job.company_name if c.job else None,
                 "stage": c.stage.value if c.stage else None,
                 "stage_entered_at": c.stage_entered_at.isoformat() if c.stage_entered_at else None,
                 "applied_at": c.applied_at.isoformat() if c.applied_at else None

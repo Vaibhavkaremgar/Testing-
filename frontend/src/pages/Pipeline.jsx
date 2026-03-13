@@ -55,6 +55,9 @@ function CandidateCard({ candidate, onCardClick, isShortlisted, isDragging }) {
         <div className="flex items-start gap-2">
           <div className="flex-1 min-w-0">
             <p className="font-medium text-sm truncate">{candidate.name}</p>
+            {candidate.company_name && (
+              <p className="text-xs text-primary font-medium truncate mt-1">{candidate.company_name}</p>
+            )}
             {candidate.current_role && (
               <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
                 <Briefcase className="h-3 w-3" />
