@@ -254,7 +254,7 @@ class ScoreDistribution(BaseModel):
 
 # Client Schemas
 class ClientBase(BaseModel):
-    name: str
+    company_name: str
     industry: Optional[str] = None
     contact_person: Optional[str] = None
     contact_email: Optional[str] = None
@@ -270,7 +270,7 @@ class ClientCreate(ClientBase):
     pass
 
 class ClientUpdate(ClientBase):
-    name: Optional[str] = None
+    company_name: Optional[str] = None
     is_active: Optional[bool] = None
 
 class ClientResponse(ClientBase):

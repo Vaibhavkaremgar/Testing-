@@ -205,7 +205,7 @@ class Client(Base):
     __tablename__ = "clients"
     
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(255), nullable=False)
+    company_name = Column(String(255), nullable=False)
     industry = Column(String(255))
     contact_person = Column(String(255))
     contact_email = Column(String(255))

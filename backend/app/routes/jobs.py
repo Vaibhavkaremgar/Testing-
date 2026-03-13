@@ -135,51 +135,59 @@ def create_job(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    # Auto-create client if company_name is provided and doesn't exist
-    if job.company_name:
-        from app.models import Client
-        existing_client = db.query(Client).filter(
-            Client.name == job.company_name
-        ).first()
+    try:
+        print(f"Creating job with data: {job.model_dump()}")
         
-        if not existing_client:
-            # Create new client
-            new_client = Client(
-                name=job.company_name,
-                total_positions=1,
-                positions_open=1,
-                is_active=True
-            )
-            db.add(new_client)
-            db.commit()
-    
-    db_job = JobDescription(**job.model_dump())
-    db.add(db_job)
-    db.commit()
-    db.refresh(db_job)
-    
-    job_dict = {
-        "id": db_job.id,
-        "job_id": getattr(db_job, 'job_id', None),
-        "company_name": getattr(db_job, 'company_name', None),
-        "title": db_job.title,
-        "department": db_job.department,
-        "location": db_job.location,
-        "employment_type": db_job.employment_type,
-        "experience_required": db_job.experience_required,
-        "salary_range": db_job.salary_range,
-        "vacancies": db_job.vacancies,
-        "min_passing_score": getattr(db_job, 'min_passing_score', 60),
-        "description": db_job.description,
-        "requirements": db_job.requirements,
-        "responsibilities": db_job.responsibilities,
-        "skills": db_job.skills,
-        "interview_questions": db_job.interview_questions,
-        "is_active": db_job.is_active,
-        "created_at": db_job.created_at,
-        "candidate_count": 0
-    }
-    return JobDescriptionResponse(**job_dict)
+        # Auto-create client if company_name is provided and doesn't exist
+        if job.company_name:
+            from app.models import Client
+            existing_client = db.query(Client).filter(
+                Client.company_name == job.company_name
+            ).first()
+            
+            if not existing_client:
+                # Create new client
+                new_client = Client(
+                    company_name=job.company_name,
+                    total_positions=1,
+                    positions_open=1,
+                    is_active=True
+                )
+                db.add(new_client)
+                db.commit()
+        
+        db_job = JobDescription(**job.model_dump())
+        db.add(db_job)
+        db.commit()
+        db.refresh(db_job)
+        
+        job_dict = {
+            "id": db_job.id,
+            "job_id": getattr(db_job, 'job_id', None),
+            "company_name": getattr(db_job, 'company_name', None),
+            "title": db_job.title,
+            "department": db_job.department,
+            "location": db_job.location,
+            "employment_type": db_job.employment_type,
+            "experience_required": db_job.experience_required,
+            "salary_range": db_job.salary_range,
+            "vacancies": db_job.vacancies,
+            "min_passing_score": getattr(db_job, 'min_passing_score', 60),
+            "description": db_job.description,
+            "requirements": db_job.requirements,
+            "responsibilities": db_job.responsibilities,
+            "skills": db_job.skills,
+            "interview_questions": db_job.interview_questions,
+            "is_active": db_job.is_active,
+            "created_at": db_job.created_at,
+            "candidate_count": 0
+        }
+        return JobDescriptionResponse(**job_dict)
+    except Exception as e:
+        print(f"Error creating job: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.put("/{job_id}", response_model=JobDescriptionResponse)
 def update_job(
