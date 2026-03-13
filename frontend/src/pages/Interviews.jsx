@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Progress } from '@/components/ui/progress'
-import { Pagination } from '@/components/ui/pagination'
+import { Pagination } from '@/components/ui/pagination.jsx'
 import { api } from '@/lib/api'
 import { cn, formatDateTime, getScoreColor } from '@/lib/utils'
 import {
