@@ -5,7 +5,7 @@ from typing import List
 from app.database import get_db
 from app.models import Client, JobDescription, Candidate, User, CandidateStage, UserRole
 from app.schemas import ClientCreate, ClientUpdate, ClientResponse, ClientStats
-from app.auth import get_current_active_user
+from app.auth import get_current_active_user, get_current_admin_user
 from datetime import datetime, timedelta
 
 router = APIRouter(prefix="/clients", tags=["Clients"])
@@ -70,7 +70,7 @@ def get_clients(
 def create_client(
     client: ClientCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_admin_user)
 ):
     db_client = Client(**client.model_dump())
     db.add(db_client)
@@ -83,7 +83,7 @@ def update_client(
     client_id: int,
     client_update: ClientUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_admin_user)
 ):
     db_client = db.query(Client).filter(Client.id == client_id).first()
     if not db_client:
@@ -101,7 +101,7 @@ def update_client(
 def delete_client(
     client_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_admin_user)
 ):
     db_client = db.query(Client).filter(Client.id == client_id).first()
     if not db_client:

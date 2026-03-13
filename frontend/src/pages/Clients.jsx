@@ -7,11 +7,13 @@ import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Progress } from '@/components/ui/progress'
 import { api } from '@/lib/api'
+import { useAuth } from '@/context/AuthContext'
 import { Plus, Building2, TrendingUp, TrendingDown, AlertCircle, Users, Clock, CheckCircle2, Edit, Trash2, X } from 'lucide-react'
 
 export default function Clients() {
   const [searchParams] = useSearchParams()
   const selectedClient = searchParams.get('client')
+  const { user } = useAuth()
   const [clients, setClients] = useState([])
   const [stats, setStats] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -197,14 +199,80 @@ export default function Clients() {
           <h1 className="text-2xl font-bold">Clients</h1>
           <p className="text-muted-foreground">Manage client relationships and hiring progress</p>
         </div>
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger asChild>
-            <Button onClick={() => alert('To add a client, create a job with a company name in the Jobs tab')}>
-              <Plus className="h-4 w-4 mr-2" />
-              Add Client
-            </Button>
-          </DialogTrigger>
-        </Dialog>
+        {user?.role === 'admin' && (
+          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+            <DialogTrigger asChild>
+              <Button onClick={() => {
+                setEditingClient(null)
+                setFormData({
+                  name: '', industry: '', contact_person: '', contact_email: '', contact_phone: '',
+                  total_positions: 0, positions_filled: 0, positions_open: 0
+                })
+              }}>
+                <Plus className="h-4 w-4 mr-2" />
+                Add Client
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-2xl">
+              <DialogHeader>
+                <DialogTitle>{editingClient ? 'Edit Client' : 'Add New Client'}</DialogTitle>
+              </DialogHeader>
+              <form onSubmit={handleSubmit} className="space-y-4 mt-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Company Name *</label>
+                    <Input
+                      value={formData.name}
+                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Industry</label>
+                    <Input
+                      value={formData.industry}
+                      onChange={(e) => setFormData({ ...formData, industry: e.target.value })}
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Contact Person</label>
+                    <Input
+                      value={formData.contact_person}
+                      onChange={(e) => setFormData({ ...formData, contact_person: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Contact Email</label>
+                    <Input
+                      type="email"
+                      value={formData.contact_email}
+                      onChange={(e) => setFormData({ ...formData, contact_email: e.target.value })}
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Contact Phone</label>
+                    <Input
+                      value={formData.contact_phone}
+                      onChange={(e) => setFormData({ ...formData, contact_phone: e.target.value })}
+                    />
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button type="submit">
+                    {editingClient ? 'Update' : 'Create'} Client
+                  </Button>
+                </div>
+              </form>
+            </DialogContent>
+          </Dialog>
+        )}
       </div>
 
       {stats && (

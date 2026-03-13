@@ -9,7 +9,7 @@ from app.models import JobDescription, Candidate, User
 from app.schemas import (
     JobDescriptionCreate, JobDescriptionUpdate, JobDescriptionResponse
 )
-from app.auth import get_current_active_user
+from app.auth import get_current_active_user, get_current_admin_user
 
 router = APIRouter(prefix="/jobs", tags=["Job Descriptions"])
 
@@ -474,7 +474,7 @@ def extract_skills(text):
 def delete_job(
     job_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_admin_user)
 ):
     db_job = db.query(JobDescription).filter(JobDescription.id == job_id).first()
     if not db_job:
