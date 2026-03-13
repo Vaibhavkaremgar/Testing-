@@ -72,6 +72,11 @@ export function Sidebar() {
     >
       {/* Logo */}
       <div className="flex h-16 items-center gap-3 px-6 border-b" style={{ backgroundColor: isDark ? 'rgb(30, 41, 59)' : 'rgb(255, 255, 255)' }}>
+        <img 
+          src="/PONTIS LOGO .png" 
+          alt="PONTIS Logo" 
+          className="h-8 w-auto object-contain"
+        />
         <div>
           <span className="text-lg font-bold">PONTIS</span>
           <p className="text-xs text-muted-foreground">Recruitment System</p>
