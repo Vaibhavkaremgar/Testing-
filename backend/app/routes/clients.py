@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import List
 from app.database import get_db
-from app.models import Client, JobDescription, Candidate, User, CandidateStage
+from app.models import Client, JobDescription, Candidate, User, CandidateStage, UserRole
 from app.schemas import ClientCreate, ClientUpdate, ClientResponse, ClientStats
 from app.auth import get_current_active_user
 from datetime import datetime, timedelta
@@ -43,6 +43,18 @@ def get_client_stats(
         "open_positions": open_positions,
         "filled_positions": filled_positions
     }
+
+@router.get("/names")
+def get_client_names(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    # Get unique company names from jobs
+    company_names = db.query(JobDescription.company_name).filter(
+        JobDescription.company_name.isnot(None),
+        JobDescription.company_name != ''
+    ).distinct().all()
+    return [name[0] for name in company_names]
 
 @router.get("", response_model=List[ClientResponse])
 def get_clients(

@@ -17,6 +17,8 @@ export default function Jobs() {
   const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingJob, setEditingJob] = useState(null)
+  const [clientNames, setClientNames] = useState([])
+  const [showOtherCompany, setShowOtherCompany] = useState(false)
   const [formData, setFormData] = useState({
     title: '',
     job_id: '',
@@ -51,8 +53,18 @@ export default function Jobs() {
     }
   }
 
+  const fetchClientNames = async () => {
+    try {
+      const names = await api.getClientNames()
+      setClientNames(names)
+    } catch (error) {
+      console.error('Failed to fetch client names:', error)
+    }
+  }
+
   useEffect(() => {
     fetchJobs()
+    fetchClientNames()
   }, [selectedClient])
 
   const handleSubmit = async (e) => {
@@ -75,6 +87,7 @@ export default function Jobs() {
       console.log('Job created successfully')
       setDialogOpen(false)
       setEditingJob(null)
+      setShowOtherCompany(false)
       setFormData({
         title: '', job_id: '', company_name: '', department: '', location: '', employment_type: 'Full-time',
         experience_required: '', salary_range: '', vacancies: 1, min_passing_score: 60, description: '', requirements: '', skills: '',
@@ -89,10 +102,12 @@ export default function Jobs() {
 
   const handleEdit = (job) => {
     setEditingJob(job)
+    const isOther = job.company_name && !clientNames.includes(job.company_name)
+    setShowOtherCompany(isOther)
     setFormData({
       title: job.title,
       job_id: job.job_id || '',
-      company_name: job.company_name || '',
+      company_name: isOther ? job.company_name : (job.company_name || ''),
       department: job.department || '',
       location: job.location || '',
       employment_type: job.employment_type || 'Full-time',
@@ -165,6 +180,7 @@ export default function Jobs() {
     setInputMethod('manual')
     setUploadedFile(null)
     setCurrentQuestion('')
+    setShowOtherCompany(false)
   }
 
   const addQuestion = () => {
@@ -235,12 +251,36 @@ export default function Jobs() {
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium">Company Name</label>
-                <Input
-                  value={formData.company_name}
-                  onChange={(e) => setFormData({ ...formData, company_name: e.target.value })}
-                  placeholder="e.g., Acme Corp"
-                />
+                <select
+                  className="flex h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                  value={showOtherCompany ? 'other' : formData.company_name}
+                  onChange={(e) => {
+                    if (e.target.value === 'other') {
+                      setShowOtherCompany(true)
+                      setFormData({ ...formData, company_name: '' })
+                    } else {
+                      setShowOtherCompany(false)
+                      setFormData({ ...formData, company_name: e.target.value })
+                    }
+                  }}
+                >
+                  <option value="">Select a company</option>
+                  {clientNames.map((name) => (
+                    <option key={name} value={name}>{name}</option>
+                  ))}
+                  <option value="other">Other</option>
+                </select>
               </div>
+              {showOtherCompany && (
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Enter Company Name</label>
+                  <Input
+                    value={formData.company_name}
+                    onChange={(e) => setFormData({ ...formData, company_name: e.target.value })}
+                    placeholder="e.g., Acme Corp"
+                  />
+                </div>
+              )}
 
               {/* Input Method Selection */}
               <div className="space-y-2">

@@ -648,6 +648,10 @@ class ApiClient {
     return this.request(`/clients${query ? `?${query}` : ''}`)
   }
 
+  async getClientNames() {
+    return this.request('/clients/names')
+  }
+
   async getClientStats() {
     return this.request('/clients/stats')
   }
