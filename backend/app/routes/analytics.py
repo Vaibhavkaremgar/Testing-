@@ -1189,6 +1189,7 @@ def get_active_jobs(
         result.append({
             "id": job.id,
             "title": job.title,
+            "company_name": job.company_name,
             "department": job.department,
             "vacancies": job.vacancies or 1,
             "candidates": total_candidates,
