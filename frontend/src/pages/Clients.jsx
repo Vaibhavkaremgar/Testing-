@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Progress } from '@/components/ui/progress'
+import { Pagination } from '@/components/ui/pagination'
 import { api } from '@/lib/api'
 import { useAuth } from '@/context/AuthContext'
 import { Plus, Building2, TrendingUp, TrendingDown, Users, Edit, Trash2, X } from 'lucide-react'
@@ -25,10 +26,13 @@ export default function Clients() {
     company_name: '', industry: '', contact_person: '', contact_email: '', contact_phone: '',
     total_positions: 0, positions_filled: 0, positions_open: 0
   })
+  const [currentPage, setCurrentPage] = useState(1)
+  const [totalClients, setTotalClients] = useState(0)
+  const ITEMS_PER_PAGE = 10
 
   useEffect(() => {
     fetchData()
-  }, [selectedClient])
+  }, [selectedClient, currentPage])
 
   const handleStatClick = (statType) => {
     let filtered = []
@@ -62,6 +66,8 @@ export default function Clients() {
 
   const fetchData = async () => {
     try {
+      const skip = (currentPage - 1) * ITEMS_PER_PAGE
+      
       // Get stats from backend (filtered by client if selected)
       const statsData = await api.getClientStats()
       
@@ -115,7 +121,11 @@ export default function Clients() {
       })
       
       const clientsList = Array.from(clientMap.values())
-      setClients(clientsList)
+      
+      // Paginate clients list
+      const paginatedClients = clientsList.slice(skip, skip + ITEMS_PER_PAGE)
+      setClients(paginatedClients)
+      setTotalClients(clientsList.length)
       
       // Calculate filtered stats
       const filteredStats = {
@@ -403,6 +413,13 @@ export default function Clients() {
               </div>
             )}
           </div>
+          <Pagination
+            currentPage={currentPage}
+            totalPages={Math.ceil(totalClients / ITEMS_PER_PAGE)}
+            totalItems={totalClients}
+            itemsPerPage={ITEMS_PER_PAGE}
+            onPageChange={setCurrentPage}
+          />
         </CardContent>
       </Card>
 

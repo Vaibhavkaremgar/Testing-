@@ -25,10 +25,32 @@ def debug_job_count(db: Session = Depends(get_db)):
         "jobs": [{"id": j.id, "title": j.title, "is_active": j.is_active, "has_interview_questions": j.interview_questions is not None} for j in jobs]
     }
 
+@router.get("/count")
+def get_jobs_count(
+    is_active: Optional[bool] = None,
+    client: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    from app.models import UserRole
+    query = db.query(JobDescription)
+    
+    if is_active is not None:
+        query = query.filter(JobDescription.is_active == is_active)
+    
+    if client:
+        query = query.filter(JobDescription.company_name == client)
+    
+    # For non-admin users, only count jobs with assigned candidates
+    if current_user.role != UserRole.ADMIN:
+        query = query.join(Candidate).filter(Candidate.assigned_to_user_id == current_user.id).distinct()
+    
+    return {"count": query.count()}
+
 @router.get("", response_model=List[JobDescriptionResponse])
 def get_jobs(
     skip: int = 0,
-    limit: int = 100,
+    limit: int = 10,
     is_active: Optional[bool] = None,
     client: Optional[str] = None,
     db: Session = Depends(get_db),

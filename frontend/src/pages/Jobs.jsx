@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import { Pagination } from '@/components/ui/pagination'
 import { api } from '@/lib/api'
 import { formatDate } from '@/lib/utils'
 import { Plus, Briefcase, MapPin, Clock, Users, Edit, Trash2, Upload, FileText } from 'lucide-react'
@@ -40,15 +41,25 @@ export default function Jobs() {
   const [uploadedFile, setUploadedFile] = useState(null)
   const [extracting, setExtracting] = useState(false)
   const [currentQuestion, setCurrentQuestion] = useState('')
+  const [currentPage, setCurrentPage] = useState(1)
+  const [totalJobs, setTotalJobs] = useState(0)
+  const ITEMS_PER_PAGE = 10
 
   const fetchJobs = async () => {
     try {
-      const params = {}
+      const skip = (currentPage - 1) * ITEMS_PER_PAGE
+      const params = { skip, limit: ITEMS_PER_PAGE }
       if (selectedClient) params.client = selectedClient
+      
       const data = await api.getJobs(params)
+      const countData = await api.getJobsCount(selectedClient ? { client: selectedClient } : {})
+      
       setJobs(data)
+      setTotalJobs(countData.count)
     } catch (error) {
       console.error('Failed to fetch jobs:', error)
+      setJobs([])
+      setTotalJobs(0)
     } finally {
       setLoading(false)
     }
@@ -66,7 +77,7 @@ export default function Jobs() {
   useEffect(() => {
     fetchJobs()
     fetchClientNames()
-  }, [selectedClient])
+  }, [selectedClient, currentPage])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -563,6 +574,18 @@ export default function Jobs() {
           </Card>
         ))}
       </div>
+
+      {jobs.length > 0 && (
+        <div className="flex justify-center mt-6">
+          <Pagination
+            currentPage={currentPage}
+            totalPages={Math.ceil(totalJobs / ITEMS_PER_PAGE)}
+            totalItems={totalJobs}
+            itemsPerPage={ITEMS_PER_PAGE}
+            onPageChange={setCurrentPage}
+          />
+        </div>
+      )}
     </div>
   )
 }

@@ -189,10 +189,6 @@ class ApiClient {
   // Candidates
   async getCandidates(params = {}) {
     const searchParams = new URLSearchParams()
-    // Always request all candidates (up to 10000)
-    if (!params.limit) {
-      params.limit = 10000
-    }
     Object.entries(params).forEach(([key, value]) => {
       if (value !== undefined && value !== null && value !== '') {
         searchParams.append(key, value)
@@ -200,6 +196,17 @@ class ApiClient {
     })
     const query = searchParams.toString()
     return this.request(`/candidates${query ? `?${query}` : ''}`)
+  }
+
+  async getCandidatesCount(params = {}) {
+    const searchParams = new URLSearchParams()
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') {
+        searchParams.append(key, value)
+      }
+    })
+    const query = searchParams.toString()
+    return this.request(`/candidates/count${query ? `?${query}` : ''}`)
   }
 
   async getCandidate(id) {
@@ -356,6 +363,17 @@ class ApiClient {
     return this.request(`/jobs${query ? `?${query}` : ''}`)
   }
 
+  async getJobsCount(params = {}) {
+    const searchParams = new URLSearchParams()
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null) {
+        searchParams.append(key, value)
+      }
+    })
+    const query = searchParams.toString()
+    return this.request(`/jobs/count${query ? `?${query}` : ''}`)
+  }
+
   async getJob(id) {
     return this.request(`/jobs/${id}`)
   }
@@ -388,6 +406,17 @@ class ApiClient {
     })
     const query = searchParams.toString()
     return this.request(`/interviews${query ? `?${query}` : ''}`)
+  }
+
+  async getInterviewsCount(params = {}) {
+    const searchParams = new URLSearchParams()
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null) {
+        searchParams.append(key, value)
+      }
+    })
+    const query = searchParams.toString()
+    return this.request(`/interviews/count${query ? `?${query}` : ''}`)
   }
 
   async getInterview(id) {
@@ -646,6 +675,17 @@ class ApiClient {
     })
     const query = searchParams.toString()
     return this.request(`/clients${query ? `?${query}` : ''}`)
+  }
+
+  async getClientsCount(params = {}) {
+    const searchParams = new URLSearchParams()
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null) {
+        searchParams.append(key, value)
+      }
+    })
+    const query = searchParams.toString()
+    return this.request(`/clients/count${query ? `?${query}` : ''}`)
   }
 
   async getClientNames() {
