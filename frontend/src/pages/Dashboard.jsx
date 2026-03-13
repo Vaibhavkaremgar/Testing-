@@ -467,10 +467,10 @@ export default function Dashboard() {
             <div className="space-y-3 max-h-[300px] overflow-y-auto">
               {activeJobs && activeJobs.length > 0 ? (
                 activeJobs.map((job) => (
-                  <div key={job.id} className="flex items-center justify-between p-3 border rounded-lg">
+                  <div key={job.id} className="flex items-start justify-between p-3 border rounded-lg">
                     <div className="flex-1">
-                      <p className="font-medium">{job.title}</p>
-                      <p className="text-xs text-muted-foreground">{job.department || 'N/A'}</p>
+                      <p className="font-medium">{job.title} - {job.company_name || 'N/A'}</p>
+                      <p className="text-xs text-muted-foreground mt-1">{job.department || 'N/A'}</p>
                     </div>
                     <div className="flex items-center gap-3">
                       <div className="text-right">
