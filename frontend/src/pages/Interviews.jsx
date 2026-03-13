@@ -5,7 +5,6 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Progress } from '@/components/ui/progress'
-import { Pagination } from '@/components/ui/pagination'
 import { api } from '@/lib/api'
 import { cn, formatDateTime, getScoreColor } from '@/lib/utils'
 import {
@@ -32,22 +31,17 @@ export default function Interviews() {
     meetingLink: '',
     predefinedQuestions: ''
   })
-  const [currentPage, setCurrentPage] = useState(1)
-  const [totalInterviews, setTotalInterviews] = useState(0)
-  const ITEMS_PER_PAGE = 10
 
   useEffect(() => {
     const fetchInterviews = async () => {
       try {
-        const skip = (currentPage - 1) * ITEMS_PER_PAGE
-        const params = { skip, limit: ITEMS_PER_PAGE }
+        const params = {}
         if (selectedClient) params.client = selectedClient
         
         // Get only SELECTED and REJECTED candidates
-        const [selected, rejected, countData] = await Promise.all([
+        const [selected, rejected] = await Promise.all([
           api.getCandidates({ ...params, stage: 'SELECTED' }),
-          api.getCandidates({ ...params, stage: 'REJECTED' }),
-          api.getCandidatesCount(selectedClient ? { client: selectedClient } : {})
+          api.getCandidates({ ...params, stage: 'REJECTED' })
         ])
         
         const allCandidates = [...selected, ...rejected]
@@ -72,14 +66,11 @@ export default function Interviews() {
         }))
         
         setInterviews(interviewsData)
-        setTotalInterviews(countData.count)
-        if (interviewsData.length > 0 && !selectedInterview) {
+        if (interviewsData.length > 0) {
           setSelectedInterview(interviewsData[0])
         }
       } catch (error) {
         console.error('Failed to fetch interviews:', error)
-        setInterviews([])
-        setTotalInterviews(0)
       } finally {
         setLoading(false)
       }
@@ -106,7 +97,7 @@ export default function Interviews() {
     fetchInterviews()
     fetchCandidates()
     fetchJobs()
-  }, [selectedClient, currentPage])
+  }, [selectedClient])
 
   const handleScheduleInterview = async () => {
     try {
@@ -217,33 +208,22 @@ export default function Interviews() {
                 <p className="text-sm">No completed interviews</p>
               </div>
             ) : (
-              <>
-                <div className="flex flex-col">
-                  {interviews.map((interview) => (
-                    <button
-                      key={interview.id}
-                      onClick={() => setSelectedInterview(interview)}
-                      className={cn(
-                        "px-4 py-3 text-left hover:bg-muted transition-colors border-l-2",
-                        selectedInterview?.id === interview.id
-                          ? "bg-muted border-primary font-medium"
-                          : "border-transparent"
-                      )}
-                    >
-                      {interview.candidate_name}
-                    </button>
-                  ))}
-                </div>
-                <div className="p-2">
-                  <Pagination
-                    currentPage={currentPage}
-                    totalPages={Math.ceil(totalInterviews / ITEMS_PER_PAGE)}
-                    totalItems={totalInterviews}
-                    itemsPerPage={ITEMS_PER_PAGE}
-                    onPageChange={setCurrentPage}
-                  />
-                </div>
-              </>
+              <div className="flex flex-col">
+                {interviews.map((interview) => (
+                  <button
+                    key={interview.id}
+                    onClick={() => setSelectedInterview(interview)}
+                    className={cn(
+                      "px-4 py-3 text-left hover:bg-muted transition-colors border-l-2",
+                      selectedInterview?.id === interview.id
+                        ? "bg-muted border-primary font-medium"
+                        : "border-transparent"
+                    )}
+                  >
+                    {interview.candidate_name}
+                  </button>
+                ))}
+              </div>
             )}
           </CardContent>
         </Card>

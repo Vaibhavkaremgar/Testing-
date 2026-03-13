@@ -5,7 +5,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
-import { Pagination } from '@/components/ui/pagination'
 import { api } from '@/lib/api'
 import { useAuth } from '@/context/AuthContext'
 import { cn, formatDate, getScoreColor, getStageColor, formatStage } from '@/lib/utils'
@@ -60,9 +59,6 @@ export default function Resumes() {
   const [emailModal, setEmailModal] = useState({ show: false, type: '', subject: '', message: '' })
   const [sending, setSending] = useState(false)
   const [isEditingEmail, setIsEditingEmail] = useState(false)
-  const [currentPage, setCurrentPage] = useState(1)
-  const [totalCandidates, setTotalCandidates] = useState(0)
-  const ITEMS_PER_PAGE = 10
 
   // Load job-specific minimum passing scores
   useEffect(() => {
@@ -87,19 +83,7 @@ export default function Resumes() {
 
   const fetchCandidates = useCallback(async () => {
     try {
-      const skip = (currentPage - 1) * ITEMS_PER_PAGE
-      const data = await api.getCandidates({ 
-        skip, 
-        limit: ITEMS_PER_PAGE,
-        search, 
-        client: selectedClient 
-      })
-      
-      const countData = await api.getCandidatesCount({ 
-        search, 
-        client: selectedClient 
-      })
-      
+      const data = await api.getCandidates({ search, client: selectedClient })
       let filteredData = (data || [])
       
       if (jobFilter.length > 0) {
@@ -125,13 +109,11 @@ export default function Resumes() {
       }
       
       setCandidates(filteredData)
-      setTotalCandidates(countData.count)
     } catch (error) {
       console.error('Failed to fetch candidates:', error)
       setCandidates([])
-      setTotalCandidates(0)
     }
-  }, [currentPage, search, selectedClient, jobFilter, scoreFilter, statusFilter])
+  }, [search, selectedClient, jobFilter, scoreFilter, statusFilter])
 
   useEffect(() => {
     const fetchData = async () => {
@@ -167,11 +149,7 @@ export default function Resumes() {
   useEffect(() => {
     const debounce = setTimeout(fetchCandidates, 300)
     return () => clearTimeout(debounce)
-  }, [fetchCandidates])
-
-  useEffect(() => {
-    setCurrentPage(1)
-  }, [search, jobFilter, scoreFilter, statusFilter])
+  }, [search, fetchCandidates])
 
   const handleDrag = (e) => {
     e.preventDefault()
@@ -989,13 +967,6 @@ export default function Resumes() {
               </div>
             )}
           </div>
-          <Pagination
-            currentPage={currentPage}
-            totalPages={Math.ceil(totalCandidates / ITEMS_PER_PAGE)}
-            totalItems={totalCandidates}
-            itemsPerPage={ITEMS_PER_PAGE}
-            onPageChange={setCurrentPage}
-          />
         </CardContent>
       </Card>
 
