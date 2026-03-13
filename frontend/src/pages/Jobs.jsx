@@ -32,6 +32,7 @@ export default function Jobs() {
     min_passing_score: 60,
     description: '',
     requirements: '',
+    responsibilities: '',
     skills: '',
     interview_questions: []
   })
@@ -73,6 +74,7 @@ export default function Jobs() {
     try {
       const jobData = {
         ...formData,
+        company_name: formData.company_name || null,
         skills: formData.skills.split(',').map(s => s.trim()).filter(Boolean),
         interview_questions: formData.interview_questions
       }
@@ -90,7 +92,7 @@ export default function Jobs() {
       setShowOtherCompany(false)
       setFormData({
         title: '', job_id: '', company_name: '', department: '', location: '', employment_type: 'Full-time',
-        experience_required: '', salary_range: '', vacancies: 1, min_passing_score: 60, description: '', requirements: '', skills: '',
+        experience_required: '', salary_range: '', vacancies: 1, min_passing_score: 60, description: '', requirements: '', responsibilities: '', skills: '',
         interview_questions: []
       })
       await fetchJobs()
@@ -117,6 +119,7 @@ export default function Jobs() {
       min_passing_score: job.min_passing_score || 60,
       description: job.description || '',
       requirements: job.requirements || '',
+      responsibilities: job.responsibilities || '',
       skills: job.skills?.join(', ') || '',
       interview_questions: job.interview_questions || []
     })
@@ -174,7 +177,7 @@ export default function Jobs() {
   const resetForm = () => {
     setFormData({
       title: '', job_id: '', company_name: '', department: '', location: '', employment_type: 'Full-time',
-      experience_required: '', salary_range: '', vacancies: 1, min_passing_score: 60, description: '', requirements: '', skills: '',
+      experience_required: '', salary_range: '', vacancies: 1, min_passing_score: 60, description: '', requirements: '', responsibilities: '', skills: '',
       interview_questions: []
     })
     setInputMethod('manual')
@@ -251,36 +254,46 @@ export default function Jobs() {
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium">Company Name</label>
-                <select
-                  className="flex h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
-                  value={showOtherCompany ? 'other' : formData.company_name}
-                  onChange={(e) => {
-                    if (e.target.value === 'other') {
-                      setShowOtherCompany(true)
-                      setFormData({ ...formData, company_name: '' })
-                    } else {
-                      setShowOtherCompany(false)
-                      setFormData({ ...formData, company_name: e.target.value })
-                    }
-                  }}
-                >
-                  <option value="">Select a company</option>
-                  {clientNames.map((name) => (
-                    <option key={name} value={name}>{name}</option>
-                  ))}
-                  <option value="other">Other</option>
-                </select>
-              </div>
-              {showOtherCompany && (
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Enter Company Name</label>
-                  <Input
+                {!showOtherCompany ? (
+                  <select
+                    className="flex h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
                     value={formData.company_name}
-                    onChange={(e) => setFormData({ ...formData, company_name: e.target.value })}
-                    placeholder="e.g., Acme Corp"
-                  />
-                </div>
-              )}
+                    onChange={(e) => {
+                      if (e.target.value === 'other') {
+                        setShowOtherCompany(true)
+                        setFormData({ ...formData, company_name: '' })
+                      } else {
+                        setFormData({ ...formData, company_name: e.target.value })
+                      }
+                    }}
+                  >
+                    <option value="">Select a company</option>
+                    {clientNames.map((name) => (
+                      <option key={name} value={name}>{name}</option>
+                    ))}
+                    <option value="other">Other</option>
+                  </select>
+                ) : (
+                  <div className="flex gap-2">
+                    <Input
+                      value={formData.company_name}
+                      onChange={(e) => setFormData({ ...formData, company_name: e.target.value })}
+                      placeholder="Enter company name"
+                      autoFocus
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        setShowOtherCompany(false)
+                        setFormData({ ...formData, company_name: '' })
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                )}
+              </div>
 
               {/* Input Method Selection */}
               <div className="space-y-2">
