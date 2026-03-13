@@ -67,7 +67,7 @@ export default function Login() {
           <div className="text-center mb-8">
             <div className="flex justify-center mb-4">
               <img 
-                src="/PONTIS_LOGO.png" 
+                src="/Pontis_Logo.png" 
                 alt="PONTIS Logo" 
                 className="h-24 w-auto object-contain"
               />
