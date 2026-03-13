@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.auth import get_current_active_user
+from app.auth import get_current_active_user, get_current_admin_user
 from app.models import User
 from pydantic import BaseModel
 
@@ -22,7 +22,7 @@ def get_resume_score_settings(
 @router.post("/resume-score")
 def save_resume_score_settings(
     settings: ResumeScoreSettings,
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_admin_user)
 ):
     _settings_store["minPassingScore"] = settings.minPassingScore
     return {"message": "Settings saved successfully"}

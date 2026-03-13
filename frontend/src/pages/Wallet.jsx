@@ -128,6 +128,17 @@ Status: ${txn.status || 'completed'}
     }
   };
 
+  const getUsageDateRange = () => {
+    const today = new Date();
+    const nextMonth = new Date(today);
+    nextMonth.setMonth(nextMonth.getMonth() + 1);
+    
+    const startDate = today.toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
+    const endDate = nextMonth.toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
+    
+    return `${startDate} to ${endDate} Usage`;
+  };
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
@@ -253,7 +264,7 @@ Status: ${txn.status || 'completed'}
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle>
-              {new Date(new Date().setMonth(new Date().getMonth() - 1)).toLocaleDateString('en-US', { month: 'short', day: '2-digit' })} to {new Date().toLocaleDateString('en-US', { month: 'short', day: '2-digit' })} Usage
+              {getUsageDateRange()}
             </CardTitle>
             <Button variant="outline" size="sm">
               Show Breakdown

@@ -4,7 +4,7 @@ from typing import List, Optional
 from app.database import get_db
 from app.models import EmailTemplate, User
 from app.schemas import EmailTemplateCreate, EmailTemplateUpdate, EmailTemplateResponse
-from app.auth import get_current_active_user
+from app.auth import get_current_active_user, get_current_admin_user
 
 router = APIRouter(prefix="/email-templates", tags=["Email Templates"])
 
@@ -39,7 +39,7 @@ def get_email_template(
 def create_email_template(
     template: EmailTemplateCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_admin_user)
 ):
     db_template = EmailTemplate(**template.model_dump())
     db.add(db_template)
@@ -52,7 +52,7 @@ def update_email_template(
     template_id: int,
     template_update: EmailTemplateUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_admin_user)
 ):
     db_template = db.query(EmailTemplate).filter(EmailTemplate.id == template_id).first()
     if not db_template:
@@ -70,7 +70,7 @@ def update_email_template(
 def delete_email_template(
     template_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_admin_user)
 ):
     db_template = db.query(EmailTemplate).filter(EmailTemplate.id == template_id).first()
     if not db_template:
