@@ -211,7 +211,7 @@ async def get_avatar(filename: str):
 def get_public_users(db: Session = Depends(get_db)):
     """Get all users for selection screen (no auth required)"""
     users = db.query(User).filter(User.is_active == True).all()
-    return [{"id": u.id, "full_name": u.full_name, "email": u.email, "role": u.role.value} for u in users]
+    return [{"id": u.id, "full_name": u.full_name, "email": u.email, "role": u.role} for u in users]
 
 @router.get("/users", response_model=List[UserResponse])
 def get_all_users(
