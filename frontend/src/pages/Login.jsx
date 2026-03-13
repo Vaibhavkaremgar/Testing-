@@ -65,13 +65,7 @@ export default function Login() {
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 p-4">
         <div className="w-full max-w-4xl">
           <div className="text-center mb-8">
-            <div className="flex justify-center mb-4">
-              <img 
-                src="/Pontis_Logo.png" 
-                alt="PONTIS Logo" 
-                className="h-24 w-auto object-contain"
-              />
-            </div>
+
             <h1 className="text-4xl font-bold mb-2">Welcome to PONTIS</h1>
             <p className="text-muted-foreground">Select a user to login</p>
           </div>
