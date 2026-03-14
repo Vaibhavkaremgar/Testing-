@@ -7,13 +7,6 @@ import { Wallet, ArrowUpCircle, ArrowDownCircle, CreditCard, TrendingUp, Minus, 
 import api from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 
-const CREDIT_PACKAGES = [
-  { credits: 10, price: 100, popular: false },
-  { credits: 50, price: 450, popular: true },
-  { credits: 100, price: 800, popular: false },
-  { credits: 200, price: 1500, popular: false },
-];
-
 const PAYMENT_METHODS = [
   { id: 'razorpay', name: 'Razorpay', icon: CreditCard, color: 'text-blue-600' },
 ];
@@ -75,28 +68,6 @@ export default function WalletPage() {
     }
   };
 
-  const handleDownloadInvoice = (txn) => {
-    const invoiceContent = `
-INVOICE
-========================================
-Transaction ID: ${txn.id}
-Date: ${new Date(txn.created_at).toLocaleDateString()}
-Description: ${txn.description}
-Credits: ${txn.amount}
-Amount Paid: ₹${txn.price_paid || 0}
-Payment Method: ${txn.payment_method || 'N/A'}
-Status: ${txn.status || 'completed'}
-========================================
-    `;
-    const blob = new Blob([invoiceContent], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `invoice_${txn.id}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
   const fetchAllUsers = async () => {
     try {
       const response = await api.get('/wallet/all-users');
@@ -128,6 +99,28 @@ Status: ${txn.status || 'completed'}
     }
   };
 
+  const handleDownloadInvoice = (txn) => {
+    const invoiceContent = `
+INVOICE
+========================================
+Transaction ID: ${txn.id}
+Date: ${new Date(txn.created_at).toLocaleDateString()}
+Description: ${txn.description}
+Credits: ${txn.amount}
+Amount Paid: $${txn.price_paid || 0}
+Payment Method: ${txn.payment_method || 'N/A'}
+Status: ${txn.status || 'completed'}
+========================================
+    `;
+    const blob = new Blob([invoiceContent], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `invoice_${txn.id}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const handleBuyCredits = async () => {
     if (!selectedPayment) {
       alert('Please select a payment method');
@@ -139,7 +132,7 @@ Status: ${txn.status || 'completed'}
       return;
     }
 
-    const credits = Math.floor(creditAmount / 10);
+    const credits = parseInt(creditAmount);
     const price = parseInt(creditAmount);
 
     setLoading(true);
@@ -149,7 +142,7 @@ Status: ${txn.status || 'completed'}
         payment_method: selectedPayment
       });
 
-      const paymentResponse = await api.post('/wallet/payment-success', {
+      await api.post('/wallet/payment-success', {
         order_id: orderResponse.order_id,
         transaction_id: `TXN_${Date.now()}`,
         credits: credits,
@@ -167,17 +160,6 @@ Status: ${txn.status || 'completed'}
     } finally {
       setLoading(false);
     }
-  };
-
-  const getUsageDateRange = () => {
-    const today = new Date();
-    const nextMonth = new Date(today);
-    nextMonth.setMonth(nextMonth.getMonth() + 1);
-    
-    const startDate = today.toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
-    const endDate = nextMonth.toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
-    
-    return `${startDate} to ${endDate} Usage`;
   };
 
   return (
@@ -242,7 +224,7 @@ Status: ${txn.status || 'completed'}
             <CardTitle>Add Credits Manually</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div>
+            {/*<div>
               <Label>Select User</Label>
               <select
                 value={selectedUser}
@@ -256,7 +238,7 @@ Status: ${txn.status || 'completed'}
                   </option>
                 ))}
               </select>
-            </div>
+            </div>*/}
             <div>
               <Label>Credits to Add</Label>
               <Input
@@ -275,12 +257,12 @@ Status: ${txn.status || 'completed'}
         </Card>
       )}
 
+      {/* Buy Credits */}
       <Card>
         <CardHeader>
           <CardTitle>Buy Credits</CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
-          {/* Enter Amount */}
           <div>
             <Label htmlFor="creditAmount">Enter Amount ($)</Label>
             <Input
@@ -294,12 +276,11 @@ Status: ${txn.status || 'completed'}
             />
             {creditAmount && (
               <p className="text-sm text-gray-500 mt-2">
-              You will get {creditAmount} credits ($1 per credit)
+                You will get {creditAmount} credits ($1 per credit)
               </p>
             )}
           </div>
 
-          {/* Payment Methods */}
           <div>
             <h3 className="text-sm font-medium mb-3">Select Payment Method</h3>
             <div className="space-y-3">
@@ -326,7 +307,6 @@ Status: ${txn.status || 'completed'}
             </div>
           </div>
 
-          {/* Buy Button */}
           <Button
             onClick={handleBuyCredits}
             disabled={!selectedPayment || !creditAmount || loading}
@@ -335,50 +315,6 @@ Status: ${txn.status || 'completed'}
           >
             {loading ? 'Processing...' : 'Buy Credits'}
           </Button>
-        </CardContent>
-      </Card>
-
-      {/* Usage Summary */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle>
-              {getUsageDateRange()}
-            </CardTitle>
-            <Button variant="outline" size="sm">
-              Show Breakdown
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Left Side - Usage Details */}
-            <div className="space-y-4">
-              <div className="flex justify-between items-center">
-                <span className="text-gray-600">Current Usage</span>
-                <span className="font-semibold">₹{usedCredits * 10}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-gray-600">Included Usage</span>
-                <span className="font-semibold">₹{totalCredits * 10}</span>
-              </div>
-            </div>
-
-            {/* Right Side - Stat Cards */}
-            <div className="space-y-4">
-              <div className="bg-gray-50 rounded-lg p-4 border">
-                <p className="text-gray-600 text-sm mb-1">Current Usage</p>
-                <p className="text-2xl font-bold">₹{usedCredits * 10}</p>
-              </div>
-              <div className="bg-gray-50 rounded-lg p-4 border">
-                <p className="text-gray-600 text-sm mb-1">Estimated Bill</p>
-                <p className="text-2xl font-bold">₹{totalCredits * 10}</p>
-              </div>
-              <Button variant="outline" className="w-full">
-                Set usage limits
-              </Button>
-            </div>
-          </div>
         </CardContent>
       </Card>
 
@@ -421,19 +357,12 @@ Status: ${txn.status || 'completed'}
                         </div>
                       </td>
                       <td className="py-3 px-4">
-                        <span
-                          className={`font-semibold ${
-                            txn.transaction_type === 'credit'
-                              ? 'text-green-600'
-                              : 'text-red-600'
-                          }`}
-                        >
-                          {txn.transaction_type === 'credit' ? '+' : '-'}
-                          {txn.amount}
+                        <span className={`font-semibold ${txn.transaction_type === 'credit' ? 'text-green-600' : 'text-red-600'}`}>
+                          {txn.transaction_type === 'credit' ? '+' : '-'}{txn.amount}
                         </span>
                       </td>
                       <td className="py-3 px-4 text-sm">
-                        {txn.price_paid ? `₹${txn.price_paid}` : '-'}
+                        {txn.price_paid ? `$${txn.price_paid}` : '-'}
                       </td>
                       <td className="py-3 px-4 text-sm capitalize">
                         {txn.payment_method || '-'}
