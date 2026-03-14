@@ -855,8 +855,8 @@ def simulate_resume_parsing(candidate: Candidate, db: Session, ai_analysis: dict
             # REVIEW: Score within 10 points below threshold
             candidate.stage = CandidateStage.REVIEW
         else:
-            # REJECTED: Score more than 10 points below threshold
-            candidate.stage = CandidateStage.REJECTED
+            # RESUME_REJECTED: Score more than 10 points below threshold
+            candidate.stage = CandidateStage.RESUME_REJECTED
         
         print(f"✓ Candidate {candidate.name}: Score={candidate.resume_score}, Threshold={threshold}, Stage={candidate.stage.value}")
     else:

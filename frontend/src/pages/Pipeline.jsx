@@ -20,28 +20,7 @@ const STAGES = [
   { id: 'REJECTED', label: 'Rejected', color: 'bg-red-600' },
 ]
 
-function CandidateCard({ candidate, onCardClick, isShortlisted, isDragging }) {
-  const calculateDaysInStage = (stageEnteredAt) => {
-    if (!stageEnteredAt) return null
-    const entered = new Date(stageEnteredAt)
-    const now = new Date()
-    const diffMs = now - entered
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
-    return diffDays
-  }
-
-  const calculateTotalDays = (stageEnteredAt, appliedAt) => {
-    if (!stageEnteredAt || !appliedAt) return null
-    const applied = new Date(appliedAt)
-    const entered = new Date(stageEnteredAt)
-    const diffMs = entered - applied
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
-    return diffDays >= 0 ? diffDays : 0
-  }
-
-  const daysInStage = calculateDaysInStage(candidate.stage_entered_at || candidate.applied_at)
-  const totalDays = isShortlisted ? calculateTotalDays(candidate.stage_entered_at, candidate.applied_at) : null
-  const isRejected = candidate.stage === 'REJECTED'
+function CandidateCard({ candidate, onCardClick, isDragging }) {
 
   return (
     <Card 
@@ -82,18 +61,7 @@ function CandidateCard({ candidate, onCardClick, isShortlisted, isDragging }) {
                 </div>
               )}
             </div>
-            {!isRejected && daysInStage !== null && (
-              <div className="mt-2 space-y-1">
-                <Badge variant="secondary" className="text-xs">
-                  Waiting: {daysInStage === 0 ? 'few hours' : `${daysInStage} day${daysInStage !== 1 ? 's' : ''}`}
-                </Badge>
-                {isShortlisted && totalDays !== null && totalDays > 0 && (
-                  <p className="text-xs text-muted-foreground">
-                    Total: {totalDays} day{totalDays !== 1 ? 's' : ''} (Applied → Shortlisted)
-                  </p>
-                )}
-              </div>
-            )}
+
           </div>
         </div>
       </CardContent>
@@ -101,9 +69,13 @@ function CandidateCard({ candidate, onCardClick, isShortlisted, isDragging }) {
   )
 }
 
+const STAGE_SHOW_MORE_STEP = 20
+
 function StageColumn({ stage, candidates, onCardClick, isOver }) {
   const isShortlisted = stage.id === 'SHORTLISTED'
-  
+  const [visibleCount, setVisibleCount] = useState(10)
+  const visible = candidates.slice(0, visibleCount)
+
   return (
     <div className="flex flex-col w-72 flex-shrink-0">
       <div className="flex items-center gap-2 mb-3">
@@ -120,7 +92,7 @@ function StageColumn({ stage, candidates, onCardClick, isOver }) {
         )}
       >
         <div className="space-y-2">
-          {candidates.map((candidate) => (
+          {visible.map((candidate) => (
             <div
               key={candidate.id}
               draggable
@@ -133,7 +105,6 @@ function StageColumn({ stage, candidates, onCardClick, isOver }) {
               <CandidateCard 
                 candidate={candidate} 
                 onCardClick={onCardClick} 
-                isShortlisted={isShortlisted}
               />
             </div>
           ))}
@@ -142,6 +113,14 @@ function StageColumn({ stage, candidates, onCardClick, isOver }) {
           <div className="flex items-center justify-center h-24 text-muted-foreground text-sm">
             No candidates
           </div>
+        )}
+        {visibleCount < candidates.length && (
+          <button
+            className="w-full mt-2 py-1.5 text-xs text-primary hover:underline"
+            onClick={() => setVisibleCount(v => v + STAGE_SHOW_MORE_STEP)}
+          >
+            Show More ({candidates.length - visibleCount} remaining)
+          </button>
         )}
       </div>
     </div>
