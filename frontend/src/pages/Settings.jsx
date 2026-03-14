@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Label } from '@/components/ui/label'
-import { User, Bell, Shield, Palette, Save, Target } from 'lucide-react'
+import { User, Bell, Shield, Palette, Key, Save, Target } from 'lucide-react'
 
 export default function Settings() {
   const { user, logout } = useAuth()
@@ -168,9 +168,9 @@ export default function Settings() {
       <Card>
         <CardHeader>
           <div className="flex items-center gap-3">
-            {/*<div className="p-2 rounded-lg bg-primary/10">
+            <div className="p-2 rounded-lg bg-primary/10">
               <Palette className="h-5 w-5 text-primary" />
-            </div>*/}
+            </div>
             <div>
               <CardTitle className="text-base">Appearance</CardTitle>
               <CardDescription>Customize how HireFlow looks</CardDescription>
@@ -236,9 +236,9 @@ export default function Settings() {
       <Card>
         <CardHeader>
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-primary/10">
+            {/*<div className="p-2 rounded-lg bg-primary/10">
               <Shield className="h-5 w-5 text-primary" />
-            </div>
+            </div>*/}
             <div>
               <CardTitle className="text-base">Security</CardTitle>
               <CardDescription>Manage your security settings</CardDescription>
@@ -264,6 +264,7 @@ export default function Settings() {
             </div>
           </div>
           <Button variant="outline" onClick={handlePasswordUpdate}>
+            <Key className="h-4 w-4 mr-2" />
             Update Password
           </Button>
         </CardContent>
