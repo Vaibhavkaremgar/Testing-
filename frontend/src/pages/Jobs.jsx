@@ -16,8 +16,8 @@ export default function Jobs() {
   const [jobs, setJobs] = useState([])
   const [allJobs, setAllJobs] = useState([])
   const [loading, setLoading] = useState(true)
-  const [visibleCount, setVisibleCount] = useState(20)
-  const SHOW_MORE_STEP = 20
+  const [visibleCount, setVisibleCount] = useState(10)
+  const SHOW_MORE_STEP = 10
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingJob, setEditingJob] = useState(null)
   const [clientNames, setClientNames] = useState([])
@@ -72,7 +72,7 @@ export default function Jobs() {
     fetchClientNames()
   }, [selectedClient])
 
-  useEffect(() => { setVisibleCount(20) }, [selectedClient])
+  useEffect(() => { setVisibleCount(10) }, [selectedClient])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
