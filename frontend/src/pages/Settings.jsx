@@ -263,8 +263,11 @@ export default function Settings() {
               />
             </div>
           </div>
-          <Button variant="outline" onClick={handlePasswordUpdate}>
+          {/*<Button variant="outline" onClick={handlePasswordUpdate}>
             <Key className="h-4 w-4 mr-2" />
+            Update Password
+          </Button>*/}
+          <Button variant="outline" onClick={handlePasswordUpdate}>
             Update Password
           </Button>
         </CardContent>
