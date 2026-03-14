@@ -264,7 +264,7 @@ Status: ${txn.status || 'completed'}
         </CardHeader>
         <CardContent className="space-y-6">
           <div>
-            <Label htmlFor="creditAmount">Enter Amount ($)</Label>
+            <Label htmlFor="creditAmount">Enter Amount</Label>
             <Input
               id="creditAmount"
               type="number"
