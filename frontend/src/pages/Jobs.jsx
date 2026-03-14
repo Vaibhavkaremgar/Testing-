@@ -46,7 +46,7 @@ export default function Jobs() {
 
   const fetchJobs = async () => {
     try {
-      const params = { limit: 1000 }
+      const params = {}
       if (selectedClient) params.client = selectedClient
       const data = await api.getJobs(params)
       setAllJobs(data)
