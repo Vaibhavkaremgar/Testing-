@@ -8,6 +8,7 @@ import { Switch } from '@/components/ui/switch'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { api } from '@/lib/api'
 import { formatDate } from '@/lib/utils'
+import { Pagination } from '@/components/ui/pagination.jsx'
 import { Plus, Briefcase, MapPin, Clock, Users, Edit, Trash2, Upload, FileText } from 'lucide-react'
 
 export default function Jobs() {
@@ -15,6 +16,9 @@ export default function Jobs() {
   const selectedClient = searchParams.get('client')
   const [jobs, setJobs] = useState([])
   const [loading, setLoading] = useState(true)
+  const [currentPage, setCurrentPage] = useState(1)
+  const [totalJobs, setTotalJobs] = useState(0)
+  const ITEMS_PER_PAGE = 10
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingJob, setEditingJob] = useState(null)
   const [clientNames, setClientNames] = useState([])
@@ -43,10 +47,14 @@ export default function Jobs() {
 
   const fetchJobs = async () => {
     try {
-      const params = {}
+      const params = { page: currentPage, limit: ITEMS_PER_PAGE }
       if (selectedClient) params.client = selectedClient
-      const data = await api.getJobs(params)
+      const [data, countData] = await Promise.all([
+        api.getJobs(params),
+        api.getJobsCount(selectedClient ? { client: selectedClient } : {})
+      ])
       setJobs(data)
+      setTotalJobs(countData.count)
     } catch (error) {
       console.error('Failed to fetch jobs:', error)
     } finally {
@@ -66,6 +74,10 @@ export default function Jobs() {
   useEffect(() => {
     fetchJobs()
     fetchClientNames()
+  }, [selectedClient, currentPage])
+
+  useEffect(() => {
+    setCurrentPage(1)
   }, [selectedClient])
 
   const handleSubmit = async (e) => {
@@ -563,6 +575,14 @@ export default function Jobs() {
           </Card>
         ))}
       </div>
+
+      <Pagination
+        currentPage={currentPage}
+        totalPages={Math.ceil(totalJobs / ITEMS_PER_PAGE)}
+        totalItems={totalJobs}
+        itemsPerPage={ITEMS_PER_PAGE}
+        onPageChange={setCurrentPage}
+      />
     </div>
   )
 }

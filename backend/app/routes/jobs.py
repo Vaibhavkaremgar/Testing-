@@ -25,9 +25,27 @@ def debug_job_count(db: Session = Depends(get_db)):
         "jobs": [{"id": j.id, "title": j.title, "is_active": j.is_active, "has_interview_questions": j.interview_questions is not None} for j in jobs]
     }
 
+@router.get("/count")
+def get_jobs_count(
+    is_active: Optional[bool] = None,
+    client: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    from app.models import UserRole
+    query = db.query(JobDescription)
+    if is_active is not None:
+        query = query.filter(JobDescription.is_active == is_active)
+    if client:
+        query = query.filter(JobDescription.company_name == client)
+    if current_user.role != UserRole.ADMIN:
+        subquery = db.query(Candidate.job_id).filter(Candidate.assigned_to_user_id == current_user.id).subquery()
+        query = query.filter(JobDescription.id.in_(subquery))
+    return {"count": query.count()}
+
 @router.get("", response_model=List[JobDescriptionResponse])
 def get_jobs(
-    skip: int = 0,
+    page: int = 1,
     limit: int = 100,
     is_active: Optional[bool] = None,
     client: Optional[str] = None,
@@ -43,7 +61,7 @@ def get_jobs(
     if client:
         query = query.filter(JobDescription.company_name == client)
     
-    jobs = query.order_by(JobDescription.created_at.desc()).offset(skip).limit(limit).all()
+    jobs = query.order_by(JobDescription.created_at.desc()).offset((page - 1) * limit).limit(limit).all()
     
     print(f"DEBUG: Found {len(jobs)} jobs in database")
     for job in jobs:

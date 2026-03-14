@@ -10,6 +10,7 @@ import { cn, formatDateTime, getScoreColor } from '@/lib/utils'
 import {
   Video, Calendar, Clock, User, FileText, Brain, Star, Send, X, Play, CheckCircle, RotateCcw, Plus, ExternalLink
 } from 'lucide-react'
+import { Pagination } from '@/components/ui/pagination.jsx'
 
 export default function Interviews() {
   const [searchParams] = useSearchParams()
@@ -18,6 +19,8 @@ export default function Interviews() {
   const [selectedInterview, setSelectedInterview] = useState(null)
   const [loading, setLoading] = useState(true)
   const [showScheduleModal, setShowScheduleModal] = useState(false)
+  const [currentPage, setCurrentPage] = useState(1)
+  const ITEMS_PER_PAGE = 10
   const [candidates, setCandidates] = useState([])
   const [jobs, setJobs] = useState([])
   const [scheduleForm, setScheduleForm] = useState({
@@ -40,8 +43,8 @@ export default function Interviews() {
         
         // Get only SELECTED and REJECTED candidates
         const [selected, rejected] = await Promise.all([
-          api.getCandidates({ ...params, stage: 'SELECTED' }),
-          api.getCandidates({ ...params, stage: 'REJECTED' })
+          api.getCandidates({ ...params, stage: 'SELECTED', limit: 1000 }),
+          api.getCandidates({ ...params, stage: 'REJECTED', limit: 1000 })
         ])
         
         const allCandidates = [...selected, ...rejected]
@@ -78,7 +81,7 @@ export default function Interviews() {
     
     const fetchCandidates = async () => {
       try {
-        const data = await api.getCandidates()
+        const data = await api.getCandidates({ limit: 1000 })
         setCandidates(data)
       } catch (error) {
         console.error('Failed to fetch candidates:', error)
@@ -87,7 +90,7 @@ export default function Interviews() {
     
     const fetchJobs = async () => {
       try {
-        const data = await api.getJobs()
+        const data = await api.getJobs({ limit: 1000 })
         setJobs(data)
       } catch (error) {
         console.error('Failed to fetch jobs:', error)
@@ -209,7 +212,7 @@ export default function Interviews() {
               </div>
             ) : (
               <div className="flex flex-col">
-                {interviews.map((interview) => (
+                {interviews.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE).map((interview) => (
                   <button
                     key={interview.id}
                     onClick={() => setSelectedInterview(interview)}
@@ -223,6 +226,13 @@ export default function Interviews() {
                     {interview.candidate_name}
                   </button>
                 ))}
+                <Pagination
+                  currentPage={currentPage}
+                  totalPages={Math.ceil(interviews.length / ITEMS_PER_PAGE)}
+                  totalItems={interviews.length}
+                  itemsPerPage={ITEMS_PER_PAGE}
+                  onPageChange={(page) => { setCurrentPage(page); setSelectedInterview(null) }}
+                />
               </div>
             )}
           </CardContent>

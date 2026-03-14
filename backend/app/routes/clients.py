@@ -56,14 +56,21 @@ def get_client_names(
     ).distinct().all()
     return [name[0] for name in company_names]
 
+@router.get("/count")
+def get_clients_count(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    return {"count": db.query(Client).count()}
+
 @router.get("", response_model=List[ClientResponse])
 def get_clients(
-    skip: int = 0,
+    page: int = 1,
     limit: int = 100,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    clients = db.query(Client).offset(skip).limit(limit).all()
+    clients = db.query(Client).offset((page - 1) * limit).limit(limit).all()
     return clients
 
 @router.post("", response_model=ClientResponse)

@@ -75,7 +75,7 @@ export default function Clients() {
       const statsData = await api.getClientStats()
       
       // Get unique clients from jobs (filtered by client if selected) with pagination
-      const jobsParams = selectedClient ? { client: selectedClient } : {}
+      const jobsParams = selectedClient ? { client: selectedClient, limit: 1000 } : { limit: 1000 }
       const jobs = await api.getJobs(jobsParams)
       const clientMap = new Map()
       
@@ -104,7 +104,7 @@ export default function Clients() {
       })
       
       // Get candidates to calculate filled positions (filtered by client if selected)
-      const candidatesParams = selectedClient ? { client: selectedClient } : {}
+      const candidatesParams = selectedClient ? { client: selectedClient, limit: 1000 } : { limit: 1000 }
       const candidates = await api.getCandidates(candidatesParams)
       candidates.forEach(candidate => {
         if (candidate.stage === 'SELECTED' && candidate.job_id) {

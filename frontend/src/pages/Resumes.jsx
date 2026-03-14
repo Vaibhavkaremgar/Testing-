@@ -11,6 +11,7 @@ import { cn, formatDate, getScoreColor, getStageColor, formatStage } from '@/lib
 import {
   Upload, FileText, Search, Filter, MoreHorizontal, Edit, CheckCircle, Clock, AlertCircle, Trash2, Sheet, Eye, X
 } from 'lucide-react'
+import { Pagination } from '@/components/ui/pagination.jsx'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -59,12 +60,14 @@ export default function Resumes() {
   const [emailModal, setEmailModal] = useState({ show: false, type: '', subject: '', message: '' })
   const [sending, setSending] = useState(false)
   const [isEditingEmail, setIsEditingEmail] = useState(false)
+  const [currentPage, setCurrentPage] = useState(1)
+  const ITEMS_PER_PAGE = 10
 
   // Load job-specific minimum passing scores
   useEffect(() => {
     const fetchJobScores = async () => {
       try {
-        const jobsData = await api.getJobs()
+        const jobsData = await api.getJobs({ limit: 1000 })
         const scores = {}
         jobsData.forEach(job => {
           scores[job.id] = job.min_passing_score || 60
@@ -80,7 +83,7 @@ export default function Resumes() {
 
   const fetchCandidates = useCallback(async () => {
     try {
-      const data = await api.getCandidates({ search, client: selectedClient })
+      const data = await api.getCandidates({ search, client: selectedClient, limit: 1000 })
       let filteredData = (data || [])
       
       if (jobFilter.length > 0) {
@@ -117,8 +120,8 @@ export default function Resumes() {
       try {
         console.log('Fetching candidates and jobs...')
         const [candidatesData, jobsData, usersData] = await Promise.all([
-          api.getCandidates(),
-          api.getJobs(),
+          api.getCandidates({ limit: 1000 }),
+          api.getJobs({ limit: 1000 }),
           api.getPublicUsers()
         ])
         console.log('Jobs data received:', jobsData)
@@ -147,6 +150,8 @@ export default function Resumes() {
     const debounce = setTimeout(fetchCandidates, 300)
     return () => clearTimeout(debounce)
   }, [search, fetchCandidates])
+
+  useEffect(() => { setCurrentPage(1) }, [candidates.length])
 
   const handleDrag = (e) => {
     e.preventDefault()
@@ -819,7 +824,7 @@ export default function Resumes() {
                 </tr>
               </thead>
               <tbody>
-                {candidates.map((candidate) => (
+                {candidates.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE).map((candidate) => (
                   <tr key={candidate.id} className="border-b hover:bg-muted/50 transition-colors cursor-pointer" onClick={() => handleViewCandidate(candidate)}>
                     {currentUser?.role === 'admin' && (
                       <td className="p-4" onClick={(e) => e.stopPropagation()}>
@@ -964,6 +969,13 @@ export default function Resumes() {
               </div>
             )}
           </div>
+          <Pagination
+            currentPage={currentPage}
+            totalPages={Math.ceil(candidates.length / ITEMS_PER_PAGE)}
+            totalItems={candidates.length}
+            itemsPerPage={ITEMS_PER_PAGE}
+            onPageChange={setCurrentPage}
+          />
         </CardContent>
       </Card>
 
