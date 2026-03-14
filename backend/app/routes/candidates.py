@@ -19,43 +19,6 @@ from app.config import settings
 
 router = APIRouter(prefix="/candidates", tags=["Candidates"])
 
-@router.get("/count")
-def get_candidates_count(
-    search: Optional[str] = None,
-    stage: Optional[CandidateStage] = None,
-    job_id: Optional[int] = None,
-    min_score: Optional[float] = None,
-    client: Optional[str] = None,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
-):
-    """Get total count of candidates matching filters"""
-    from app.models import JobDescription, UserRole
-    query = db.query(Candidate)
-    
-    # Filter by assigned candidates for non-admin users
-    if current_user.role != UserRole.ADMIN:
-        query = query.filter(Candidate.assigned_to_user_id == current_user.id)
-    
-    if client:
-        query = query.join(JobDescription).filter(JobDescription.company_name == client)
-    if search:
-        query = query.filter(
-            or_(
-                Candidate.name.ilike(f"%{search}%"),
-                Candidate.email.ilike(f"%{search}%")
-            )
-        )
-    if stage:
-        query = query.filter(Candidate.stage == stage)
-    if job_id:
-        query = query.filter(Candidate.job_id == job_id)
-    if min_score is not None:
-        query = query.filter(Candidate.resume_score >= min_score)
-    
-    total = query.count()
-    return {"total": total}
-
 def generate_candidate_id(name: str, job_id: int = None) -> str:
     """Generate unique candidate ID: FirstName + JobID"""
     if not name:
@@ -960,8 +923,8 @@ def generate_interview_questions(resume_text: str, job_title: str, skills: list)
 
 @router.get("", response_model=List[CandidateResponse])
 def get_candidates(
-    page: int = 1,
-    limit: int = 10,
+    skip: int = 0,
+    limit: int = 10000,
     search: Optional[str] = None,
     stage: Optional[CandidateStage] = None,
     job_id: Optional[int] = None,
@@ -992,9 +955,6 @@ def get_candidates(
         query = query.filter(Candidate.job_id == job_id)
     if min_score is not None:
         query = query.filter(Candidate.resume_score >= min_score)
-    
-    # Calculate skip from page number
-    skip = (page - 1) * limit
     candidates = query.order_by(Candidate.created_at.desc()).offset(skip).limit(limit).all()
     
     # Add job title to response

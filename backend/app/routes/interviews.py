@@ -10,29 +10,6 @@ from app.auth import get_current_active_user
 
 router = APIRouter(prefix="/interviews", tags=["Interviews"])
 
-@router.get("/count")
-def get_interviews_count(
-    candidate_id: Optional[int] = None,
-    status: Optional[str] = None,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
-):
-    """Get total count of interviews matching filters"""
-    from app.models import UserRole
-    query = db.query(Interview)
-    
-    if candidate_id:
-        query = query.filter(Interview.candidate_id == candidate_id)
-    
-    if status:
-        query = query.filter(Interview.status == status)
-    
-    if current_user.role != UserRole.ADMIN:
-        query = query.join(Candidate).filter(Candidate.assigned_to_user_id == current_user.id)
-    
-    total = query.count()
-    return {"total": total}
-
 # Sample AI summaries for demo
 SAMPLE_SUMMARIES = [
     "The candidate demonstrated strong technical skills and problem-solving abilities. They showed excellent communication and would be a good cultural fit for the team.",
@@ -65,8 +42,8 @@ SAMPLE_TRANSCRIPTS = """
 
 @router.get("", response_model=List[InterviewResponse])
 def get_interviews(
-    page: int = 1,
-    limit: int = 10,
+    skip: int = 0,
+    limit: int = 100,
     candidate_id: Optional[int] = None,
     status: Optional[str] = None,
     db: Session = Depends(get_db),
@@ -84,8 +61,6 @@ def get_interviews(
     if current_user.role != UserRole.ADMIN:
         query = query.join(Candidate).filter(Candidate.assigned_to_user_id == current_user.id)
     
-    # Calculate skip from page number
-    skip = (page - 1) * limit
     interviews = query.order_by(Interview.scheduled_at.desc()).offset(skip).limit(limit).all()
     
     result = []

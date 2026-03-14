@@ -10,15 +10,6 @@ from datetime import datetime, timedelta
 
 router = APIRouter(prefix="/clients", tags=["Clients"])
 
-@router.get("/count")
-def get_clients_count(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
-):
-    """Get total count of clients"""
-    total = db.query(Client).count()
-    return {"total": total}
-
 @router.get("/stats")
 def get_client_stats(
     db: Session = Depends(get_db),
@@ -67,13 +58,11 @@ def get_client_names(
 
 @router.get("", response_model=List[ClientResponse])
 def get_clients(
-    page: int = 1,
-    limit: int = 10,
+    skip: int = 0,
+    limit: int = 100,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    # Calculate skip from page number
-    skip = (page - 1) * limit
     clients = db.query(Client).offset(skip).limit(limit).all()
     return clients
 

@@ -5,7 +5,6 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Progress } from '@/components/ui/progress'
-import { Pagination } from '@/components/ui/pagination'
 import { api } from '@/lib/api'
 import { cn, formatDateTime, getScoreColor } from '@/lib/utils'
 import {
@@ -21,9 +20,6 @@ export default function Interviews() {
   const [showScheduleModal, setShowScheduleModal] = useState(false)
   const [candidates, setCandidates] = useState([])
   const [jobs, setJobs] = useState([])
-  const [currentPage, setCurrentPage] = useState(1)
-  const [totalInterviews, setTotalInterviews] = useState(0)
-  const ITEMS_PER_PAGE = 10
   const [scheduleForm, setScheduleForm] = useState({
     name: '',
     email: '',
@@ -39,22 +35,16 @@ export default function Interviews() {
   useEffect(() => {
     const fetchInterviews = async () => {
       try {
-        const params = {
-          page: currentPage,
-          limit: ITEMS_PER_PAGE
-        }
+        const params = {}
         if (selectedClient) params.client = selectedClient
         
-        // Get only SELECTED and REJECTED candidates with pagination
-        const [selected, rejected, selectedCount, rejectedCount] = await Promise.all([
+        // Get only SELECTED and REJECTED candidates
+        const [selected, rejected] = await Promise.all([
           api.getCandidates({ ...params, stage: 'SELECTED' }),
-          api.getCandidates({ ...params, stage: 'REJECTED' }),
-          api.getCandidatesCount({ ...params, stage: 'SELECTED' }),
-          api.getCandidatesCount({ ...params, stage: 'REJECTED' })
+          api.getCandidates({ ...params, stage: 'REJECTED' })
         ])
         
         const allCandidates = [...selected, ...rejected]
-        const totalCount = selectedCount.total + rejectedCount.total
         
         // Transform to interview format
         const interviewsData = allCandidates.map(candidate => ({
@@ -76,8 +66,7 @@ export default function Interviews() {
         }))
         
         setInterviews(interviewsData)
-        setTotalInterviews(totalCount)
-        if (interviewsData.length > 0 && !selectedInterview) {
+        if (interviewsData.length > 0) {
           setSelectedInterview(interviewsData[0])
         }
       } catch (error) {
@@ -108,7 +97,7 @@ export default function Interviews() {
     fetchInterviews()
     fetchCandidates()
     fetchJobs()
-  }, [selectedClient, currentPage])
+  }, [selectedClient])
 
   const handleScheduleInterview = async () => {
     try {
@@ -234,17 +223,6 @@ export default function Interviews() {
                     {interview.candidate_name}
                   </button>
                 ))}
-                
-                {/* Pagination in Sidebar */}
-                <div className="px-2 py-3 border-t">
-                  <Pagination
-                    currentPage={currentPage}
-                    totalPages={Math.ceil(totalInterviews / ITEMS_PER_PAGE)}
-                    totalItems={totalInterviews}
-                    itemsPerPage={ITEMS_PER_PAGE}
-                    onPageChange={setCurrentPage}
-                  />
-                </div>
               </div>
             )}
           </CardContent>

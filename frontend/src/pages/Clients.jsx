@@ -422,15 +422,6 @@ export default function Clients() {
         </CardContent>
       </Card>
 
-      {/* Pagination */}
-      <Pagination
-        currentPage={currentPage}
-        totalPages={Math.ceil(totalClients / ITEMS_PER_PAGE)}
-        totalItems={totalClients}
-        itemsPerPage={ITEMS_PER_PAGE}
-        onPageChange={setCurrentPage}
-      />
-
       {/* Modal for Stat Details */}
       {selectedStat && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={closeStatModal}>
