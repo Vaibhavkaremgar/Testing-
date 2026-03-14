@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Mail, Send, Search, Filter, X, Trash2 } from 'lucide-react'
 import { api } from '@/lib/api'
-import { Pagination } from '@/components/ui/pagination.jsx'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -27,10 +26,10 @@ export default function Communications() {
   const [selectedStat, setSelectedStat] = useState(null)
   const [filteredEmails, setFilteredEmails] = useState([])
   const [selectedEmail, setSelectedEmail] = useState(null)
-  const [currentPage, setCurrentPage] = useState(1)
-  const ITEMS_PER_PAGE = 10
+  const [visibleCount, setVisibleCount] = useState(20)
+  const SHOW_MORE_STEP = 20
 
-  useEffect(() => { setCurrentPage(1) }, [searchTerm, typeFilter, statusFilter])
+  useEffect(() => { setVisibleCount(20) }, [searchTerm, typeFilter, statusFilter])
 
   const handleStatClick = (statType) => {
     let filtered = []
@@ -283,7 +282,7 @@ export default function Communications() {
                 </tr>
               </thead>
               <tbody>
-                {filteredCommunications.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE).map((comm) => (
+                {filteredCommunications.slice(0, visibleCount).map((comm) => (
                   <tr key={comm.id} className="border-b hover:bg-muted/50 cursor-pointer" onClick={() => setSelectedEmail(comm)}>
                     <td className="p-3 text-sm">{comm.candidate}</td>
                     <td className="p-3 text-sm text-muted-foreground">{comm.email}</td>
@@ -310,13 +309,13 @@ export default function Communications() {
               </div>
             )}
           </div>
-          <Pagination
-            currentPage={currentPage}
-            totalPages={Math.ceil(filteredCommunications.length / ITEMS_PER_PAGE)}
-            totalItems={filteredCommunications.length}
-            itemsPerPage={ITEMS_PER_PAGE}
-            onPageChange={setCurrentPage}
-          />
+          {visibleCount < filteredCommunications.length && (
+            <div className="flex justify-center p-4 border-t">
+              <Button variant="outline" onClick={() => setVisibleCount(v => v + SHOW_MORE_STEP)}>
+                Show More ({filteredCommunications.length - visibleCount} remaining)
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
 

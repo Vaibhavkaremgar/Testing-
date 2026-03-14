@@ -11,7 +11,6 @@ import { cn, formatDate, getScoreColor, getStageColor, formatStage } from '@/lib
 import {
   Upload, FileText, Search, Filter, MoreHorizontal, Edit, CheckCircle, Clock, AlertCircle, Trash2, Sheet, Eye, X
 } from 'lucide-react'
-import { Pagination } from '@/components/ui/pagination.jsx'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -60,8 +59,8 @@ export default function Resumes() {
   const [emailModal, setEmailModal] = useState({ show: false, type: '', subject: '', message: '' })
   const [sending, setSending] = useState(false)
   const [isEditingEmail, setIsEditingEmail] = useState(false)
-  const [currentPage, setCurrentPage] = useState(1)
-  const ITEMS_PER_PAGE = 10
+  const [visibleCount, setVisibleCount] = useState(20)
+  const SHOW_MORE_STEP = 20
 
   // Load job-specific minimum passing scores
   useEffect(() => {
@@ -151,7 +150,7 @@ export default function Resumes() {
     return () => clearTimeout(debounce)
   }, [search, fetchCandidates])
 
-  useEffect(() => { setCurrentPage(1) }, [candidates.length])
+  useEffect(() => { setVisibleCount(20) }, [candidates.length])
 
   const handleDrag = (e) => {
     e.preventDefault()
@@ -824,7 +823,7 @@ export default function Resumes() {
                 </tr>
               </thead>
               <tbody>
-                {candidates.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE).map((candidate) => (
+                {candidates.slice(0, visibleCount).map((candidate) => (
                   <tr key={candidate.id} className="border-b hover:bg-muted/50 transition-colors cursor-pointer" onClick={() => handleViewCandidate(candidate)}>
                     {currentUser?.role === 'admin' && (
                       <td className="p-4" onClick={(e) => e.stopPropagation()}>
@@ -969,13 +968,13 @@ export default function Resumes() {
               </div>
             )}
           </div>
-          <Pagination
-            currentPage={currentPage}
-            totalPages={Math.ceil(candidates.length / ITEMS_PER_PAGE)}
-            totalItems={candidates.length}
-            itemsPerPage={ITEMS_PER_PAGE}
-            onPageChange={setCurrentPage}
-          />
+          {visibleCount < candidates.length && (
+            <div className="flex justify-center p-4 border-t">
+              <Button variant="outline" onClick={() => setVisibleCount(v => v + SHOW_MORE_STEP)}>
+                Show More ({candidates.length - visibleCount} remaining)
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
 

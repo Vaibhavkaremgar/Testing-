@@ -8,17 +8,16 @@ import { Switch } from '@/components/ui/switch'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { api } from '@/lib/api'
 import { formatDate } from '@/lib/utils'
-import { Pagination } from '@/components/ui/pagination.jsx'
 import { Plus, Briefcase, MapPin, Clock, Users, Edit, Trash2, Upload, FileText } from 'lucide-react'
 
 export default function Jobs() {
   const [searchParams] = useSearchParams()
   const selectedClient = searchParams.get('client')
   const [jobs, setJobs] = useState([])
+  const [allJobs, setAllJobs] = useState([])
   const [loading, setLoading] = useState(true)
-  const [currentPage, setCurrentPage] = useState(1)
-  const [totalJobs, setTotalJobs] = useState(0)
-  const ITEMS_PER_PAGE = 10
+  const [visibleCount, setVisibleCount] = useState(20)
+  const SHOW_MORE_STEP = 20
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingJob, setEditingJob] = useState(null)
   const [clientNames, setClientNames] = useState([])
@@ -47,14 +46,11 @@ export default function Jobs() {
 
   const fetchJobs = async () => {
     try {
-      const params = { page: currentPage, limit: ITEMS_PER_PAGE }
+      const params = { limit: 1000 }
       if (selectedClient) params.client = selectedClient
-      const [data, countData] = await Promise.all([
-        api.getJobs(params),
-        api.getJobsCount(selectedClient ? { client: selectedClient } : {})
-      ])
+      const data = await api.getJobs(params)
+      setAllJobs(data)
       setJobs(data)
-      setTotalJobs(countData.count)
     } catch (error) {
       console.error('Failed to fetch jobs:', error)
     } finally {
@@ -74,11 +70,9 @@ export default function Jobs() {
   useEffect(() => {
     fetchJobs()
     fetchClientNames()
-  }, [selectedClient, currentPage])
-
-  useEffect(() => {
-    setCurrentPage(1)
   }, [selectedClient])
+
+  useEffect(() => { setVisibleCount(20) }, [selectedClient])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -493,7 +487,7 @@ export default function Jobs() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {jobs.map((job) => (
+        {jobs.slice(0, visibleCount).map((job) => (
           <Card key={job.id} className="hover:shadow-md transition-shadow">
             <CardHeader className="pb-3">
               <div className="flex items-start justify-between">
@@ -576,13 +570,13 @@ export default function Jobs() {
         ))}
       </div>
 
-      <Pagination
-        currentPage={currentPage}
-        totalPages={Math.ceil(totalJobs / ITEMS_PER_PAGE)}
-        totalItems={totalJobs}
-        itemsPerPage={ITEMS_PER_PAGE}
-        onPageChange={setCurrentPage}
-      />
+      {visibleCount < jobs.length && (
+        <div className="flex justify-center pt-2">
+          <Button variant="outline" onClick={() => setVisibleCount(v => v + SHOW_MORE_STEP)}>
+            Show More ({jobs.length - visibleCount} remaining)
+          </Button>
+        </div>
+      )}
     </div>
   )
 }

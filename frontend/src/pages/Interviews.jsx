@@ -10,7 +10,6 @@ import { cn, formatDateTime, getScoreColor } from '@/lib/utils'
 import {
   Video, Calendar, Clock, User, FileText, Brain, Star, Send, X, Play, CheckCircle, RotateCcw, Plus, ExternalLink
 } from 'lucide-react'
-import { Pagination } from '@/components/ui/pagination.jsx'
 
 export default function Interviews() {
   const [searchParams] = useSearchParams()
@@ -19,8 +18,8 @@ export default function Interviews() {
   const [selectedInterview, setSelectedInterview] = useState(null)
   const [loading, setLoading] = useState(true)
   const [showScheduleModal, setShowScheduleModal] = useState(false)
-  const [currentPage, setCurrentPage] = useState(1)
-  const ITEMS_PER_PAGE = 10
+  const [visibleCount, setVisibleCount] = useState(20)
+  const SHOW_MORE_STEP = 20
   const [candidates, setCandidates] = useState([])
   const [jobs, setJobs] = useState([])
   const [scheduleForm, setScheduleForm] = useState({
@@ -212,7 +211,7 @@ export default function Interviews() {
               </div>
             ) : (
               <div className="flex flex-col">
-                {interviews.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE).map((interview) => (
+                {interviews.slice(0, visibleCount).map((interview) => (
                   <button
                     key={interview.id}
                     onClick={() => setSelectedInterview(interview)}
@@ -226,13 +225,14 @@ export default function Interviews() {
                     {interview.candidate_name}
                   </button>
                 ))}
-                <Pagination
-                  currentPage={currentPage}
-                  totalPages={Math.ceil(interviews.length / ITEMS_PER_PAGE)}
-                  totalItems={interviews.length}
-                  itemsPerPage={ITEMS_PER_PAGE}
-                  onPageChange={(page) => { setCurrentPage(page); setSelectedInterview(null) }}
-                />
+                {visibleCount < interviews.length && (
+                  <button
+                    className="px-4 py-3 text-sm text-primary hover:bg-muted transition-colors text-center border-t"
+                    onClick={() => setVisibleCount(v => v + SHOW_MORE_STEP)}
+                  >
+                    Show More ({interviews.length - visibleCount} remaining)
+                  </button>
+                )}
               </div>
             )}
           </CardContent>
