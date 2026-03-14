@@ -128,7 +128,18 @@ Status: ${txn.status || 'completed'}
     }
   };
 
+  const getUsageDateRange = () => {
+    const today = new Date();
+    const nextMonth = new Date(today);
+    nextMonth.setMonth(nextMonth.getMonth() + 1);
+    
+    const startDate = today.toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
+    const endDate = nextMonth.toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
+    
+    return `${startDate} to ${endDate} Usage`;
+  };
 
+  return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold">Wallet</h1>
@@ -245,6 +256,50 @@ Status: ${txn.status || 'completed'}
           >
             {loading ? 'Processing...' : 'Buy Credits'}
           </Button>
+        </CardContent>
+      </Card>
+
+      {/* Usage Summary */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle>
+              {getUsageDateRange()}
+            </CardTitle>
+            <Button variant="outline" size="sm">
+              Show Breakdown
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Left Side - Usage Details */}
+            <div className="space-y-4">
+              <div className="flex justify-between items-center">
+                <span className="text-gray-600">Current Usage</span>
+                <span className="font-semibold">₹{usedCredits * 10}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-gray-600">Included Usage</span>
+                <span className="font-semibold">₹{totalCredits * 10}</span>
+              </div>
+            </div>
+
+            {/* Right Side - Stat Cards */}
+            <div className="space-y-4">
+              <div className="bg-gray-50 rounded-lg p-4 border">
+                <p className="text-gray-600 text-sm mb-1">Current Usage</p>
+                <p className="text-2xl font-bold">₹{usedCredits * 10}</p>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-4 border">
+                <p className="text-gray-600 text-sm mb-1">Estimated Bill</p>
+                <p className="text-2xl font-bold">₹{totalCredits * 10}</p>
+              </div>
+              <Button variant="outline" className="w-full">
+                Set usage limits
+              </Button>
+            </div>
+          </div>
         </CardContent>
       </Card>
 
