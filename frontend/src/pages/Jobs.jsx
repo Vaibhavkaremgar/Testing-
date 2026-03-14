@@ -525,7 +525,7 @@ export default function Jobs() {
               <div className="flex items-center gap-1 text-sm">
                 <Users className="h-4 w-4 text-muted-foreground" />
                 <span>{job.candidate_count || 0} candidates</span>
-                {job.vacancies && job.vacancies > 1 && (
+                {job.vacancies && (
                   <span className="text-muted-foreground">• {job.vacancies} positions</span>
                 )}
               </div>
