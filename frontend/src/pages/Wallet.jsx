@@ -25,6 +25,10 @@ export default function WalletPage() {
   const [selectedPayment, setSelectedPayment] = useState(null);
   const [creditAmount, setCreditAmount] = useState('');
   const [loading, setLoading] = useState(false);
+  const [allUsers, setAllUsers] = useState([]);
+  const [selectedUser, setSelectedUser] = useState('');
+  const [manualCredits, setManualCredits] = useState('');
+  const [manualLoading, setManualLoading] = useState(false);
 
   const getStats = () => {
     const totalCredits = transactions
@@ -43,12 +47,18 @@ export default function WalletPage() {
   useEffect(() => {
     fetchBalance();
     fetchTransactions();
+    if (user?.role === 'admin') fetchAllUsers();
   }, [user]);
 
   const fetchBalance = async () => {
     try {
       const response = await api.get('/wallet/balance');
-      setBalance(response.balance || 0);
+      const bal = response.balance || 0;
+      setBalance(bal);
+      if (user?.role === 'admin' && bal <= 20 && !sessionStorage.getItem('lowCreditAlertShown')) {
+        sessionStorage.setItem('lowCreditAlertShown', 'true');
+        alert(`⚠️ Low Credits Warning!\n\nYour wallet balance is only ${bal} credits.\nPlease recharge to continue using the services.`);
+      }
     } catch (error) {
       console.error('Failed to fetch balance:', error);
       setBalance(0);
@@ -85,6 +95,37 @@ Status: ${txn.status || 'completed'}
     a.download = `invoice_${txn.id}.txt`;
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const fetchAllUsers = async () => {
+    try {
+      const response = await api.get('/wallet/all-users');
+      setAllUsers(Array.isArray(response) ? response : []);
+    } catch (error) {
+      console.error('Failed to fetch users:', error);
+    }
+  };
+
+  const handleAddCreditsManually = async () => {
+    if (!selectedUser) return alert('Please select a user');
+    if (!manualCredits || manualCredits <= 0) return alert('Please enter a valid credit amount');
+    setManualLoading(true);
+    try {
+      await api.post('/wallet/add-credits', {
+        user_id: parseInt(selectedUser),
+        amount: parseInt(manualCredits),
+        description: 'Manual credit by admin'
+      });
+      alert(`Successfully added ${manualCredits} credits!`);
+      setSelectedUser('');
+      setManualCredits('');
+      fetchBalance();
+      fetchTransactions();
+    } catch (error) {
+      alert('Failed to add credits: ' + error.message);
+    } finally {
+      setManualLoading(false);
+    }
   };
 
   const handleBuyCredits = async () => {
@@ -151,8 +192,7 @@ Status: ${txn.status || 'completed'}
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm opacity-90">Wallet Balance</p>
-              <h2 className="text-4xl font-bold mt-2">₹{totalCredits * 10}</h2>
-              <p className="text-sm mt-2 opacity-90">Available Credits: {remainingCredits}</p>
+              <h2 className="text-4xl font-bold mt-2">{remainingCredits} Credits</h2>
             </div>
             <Wallet className="h-16 w-16 opacity-20" />
           </div>
@@ -195,6 +235,45 @@ Status: ${txn.status || 'completed'}
         </Card>
       </div>
 
+      {/* Admin: Add Credits Manually */}
+      {user?.role === 'admin' && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Add Credits Manually</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div>
+              <Label>Select User</Label>
+              <select
+                value={selectedUser}
+                onChange={(e) => setSelectedUser(e.target.value)}
+                className="mt-2 w-full border rounded-md px-3 py-2 text-sm bg-background"
+              >
+                <option value="">-- Select a user --</option>
+                {allUsers.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.full_name} ({u.email})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <Label>Credits to Add</Label>
+              <Input
+                type="number"
+                placeholder="Enter credits"
+                value={manualCredits}
+                onChange={(e) => setManualCredits(e.target.value)}
+                min="1"
+                className="mt-2"
+              />
+            </div>
+            <Button onClick={handleAddCreditsManually} disabled={manualLoading} className="w-full">
+              {manualLoading ? 'Adding...' : 'Add Credits'}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>
