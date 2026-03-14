@@ -526,7 +526,7 @@ export default function Jobs() {
                 <Users className="h-4 w-4 text-muted-foreground" />
                 <span>{job.candidate_count || 0} candidates</span>
                 {job.vacancies && (
-                  <span className="text-muted-foreground">• {job.vacancies} positions</span>
+                  <span className="text-muted-foreground">• {job.vacancies} {job.vacancies === 1 ? 'position' : 'positions'}</span>
                 )}
               </div>
 
