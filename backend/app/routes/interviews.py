@@ -252,6 +252,20 @@ def complete_interview(
         candidate.stage = CandidateStage.INTERVIEWED
         candidate.stage_updated_at = datetime.utcnow()
     
+    # Deduct 1 credit from admin wallet
+    from app.models import UserRole, WalletTransaction, TransactionType
+    admin = db.query(User).filter(User.role == UserRole.ADMIN).first()
+    if admin:
+        admin.wallet_balance = max(0, (admin.wallet_balance or 0) - 1)
+        debit_txn = WalletTransaction(
+            user_id=admin.id,
+            amount=1,
+            transaction_type=TransactionType.DEBIT,
+            description=f"Interview completed - Candidate ID {db_interview.candidate_id}",
+            balance_after=admin.wallet_balance
+        )
+        db.add(debit_txn)
+    
     db.commit()
     
     return {"message": "Interview completed and analyzed", "interview_id": interview_id}

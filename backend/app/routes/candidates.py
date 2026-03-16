@@ -779,8 +779,14 @@ def simulate_resume_parsing(candidate: Candidate, db: Session, ai_analysis: dict
                 from app.config import settings
                 from sendgrid import SendGridAPIClient
                 from sendgrid.helpers.mail import Mail
-                from app.models import EmailCommunication, JobDescription
+                from app.models import EmailCommunication, JobDescription, UserRole
                 from urllib.parse import urlencode
+
+                # Check admin wallet balance before sending email
+                admin = db.query(User).filter(User.role == UserRole.ADMIN).first()
+                if not admin or (admin.wallet_balance or 0) <= 0:
+                    print(f"⚠️ Email blocked: Admin wallet has 0 credits")
+                    raise Exception("Insufficient credits to send email")
                 
                 if settings.SENDGRID_API_KEY and candidate.email:
                     # Get job details

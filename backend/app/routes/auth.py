@@ -26,17 +26,31 @@ def register(user: UserCreate, db: Session = Depends(get_db)):
             detail="Email already registered"
         )
     
-    # Create new user
+    # Create new user with 15 trial credits
     hashed_password = get_password_hash(user.password)
     db_user = User(
         email=user.email,
         hashed_password=hashed_password,
         full_name=user.full_name,
-        role=user.role
+        role=user.role,
+        wallet_balance=15
     )
     db.add(db_user)
     db.commit()
     db.refresh(db_user)
+
+    # Log trial credit transaction
+    from app.models import WalletTransaction, TransactionType
+    trial_txn = WalletTransaction(
+        user_id=db_user.id,
+        amount=15,
+        transaction_type=TransactionType.CREDIT,
+        description="Trial credits",
+        balance_after=15
+    )
+    db.add(trial_txn)
+    db.commit()
+
     return db_user
 
 @router.post("/login", response_model=Token)
