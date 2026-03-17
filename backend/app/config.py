@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     DEBUG: bool = True
     
     # Database
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./app.db")  # Keep old path for now
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql://postgres:AKwoGijyptKJZVJiPBWUjeGDuqfnXwXD@postgres.railway.internal:5432/railway")
     
     # JWT
     SECRET_KEY: str = "your-secret-key-min-32-characters-long-change-this-in-production"

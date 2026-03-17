@@ -2,7 +2,6 @@
 Auto-migration script - runs on startup
 """
 from sqlalchemy import inspect, text
-
 from app.database import engine
 from app.models import AnalyticsWidget, UserDashboardPreference
 
@@ -13,17 +12,17 @@ def run_migrations():
         inspector = inspect(engine)
 
         with engine.connect() as conn:
-            # Existing migration: users.last_login_at
+            # Migration: users.last_login_at
             columns = [col["name"] for col in inspector.get_columns("users")]
             if "last_login_at" not in columns:
                 print("Running migration: adding users.last_login_at...")
-                conn.execute(text("ALTER TABLE users ADD COLUMN last_login_at TIMESTAMP"))
+                conn.execute(text("ALTER TABLE users ADD COLUMN last_login_at TIMESTAMP WITH TIME ZONE"))
                 conn.commit()
                 print("Migration completed: users.last_login_at added")
             else:
                 print("users.last_login_at already present")
 
-            # Analytics-only tables
+            # Analytics tables
             table_names = set(inspector.get_table_names())
             if "analytics_widgets" not in table_names:
                 print("Running migration: creating analytics_widgets...")
@@ -37,7 +36,6 @@ def run_migrations():
 
     except Exception as e:
         print(f"Migration warning: {e}")
-        # Don't fail startup if migration fails
 
 
 if __name__ == "__main__":
