@@ -5,7 +5,7 @@ import { api } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Bot, Loader2, User, Shield } from 'lucide-react'
+import { Bot, Loader2, User, Shield, ShieldCheck } from 'lucide-react'
 
 export default function Login() {
   const [users, setUsers] = useState([])
@@ -55,11 +55,13 @@ export default function Login() {
   }
 
   const getRoleIcon = (role) => {
+    if (role === 'super_admin') return <ShieldCheck className="h-8 w-8" />
     if (role === 'admin') return <Shield className="h-8 w-8" />
     return <User className="h-8 w-8" />
   }
 
   const getRoleColor = (role) => {
+    if (role === 'super_admin') return 'bg-purple-600'
     if (role === 'admin') return 'bg-red-500'
     return 'bg-blue-500'
   }
