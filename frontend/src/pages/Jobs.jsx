@@ -22,6 +22,8 @@ export default function Jobs() {
   const [editingJob, setEditingJob] = useState(null)
   const [clientNames, setClientNames] = useState([])
   const [showOtherCompany, setShowOtherCompany] = useState(false)
+  const [companySearch, setCompanySearch] = useState('')
+  const [showCompanyDropdown, setShowCompanyDropdown] = useState(false)
   const [formData, setFormData] = useState({
     title: '',
     job_id: '',
@@ -189,6 +191,7 @@ export default function Jobs() {
     setInputMethod('manual')
     setUploadedFile(null)
     setCurrentQuestion('')
+    setCompanySearch('')
     setShowOtherCompany(false)
   }
 
@@ -261,24 +264,50 @@ export default function Jobs() {
               <div className="space-y-2">
                 <label className="text-sm font-medium">Company Name</label>
                 {!showOtherCompany ? (
-                  <select
-                    className="flex h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
-                    value={formData.company_name}
-                    onChange={(e) => {
-                      if (e.target.value === 'other') {
-                        setShowOtherCompany(true)
-                        setFormData({ ...formData, company_name: '' })
-                      } else {
-                        setFormData({ ...formData, company_name: e.target.value })
-                      }
-                    }}
-                  >
-                    <option value="">Select a company</option>
-                    {clientNames.map((name) => (
-                      <option key={name} value={name}>{name}</option>
-                    ))}
-                    <option value="other">Other</option>
-                  </select>
+                  <div className="relative">
+                    <Input
+                      placeholder={formData.company_name || 'Search company...'}
+                      value={companySearch}
+                      onChange={(e) => {
+                        setCompanySearch(e.target.value)
+                        setShowCompanyDropdown(true)
+                      }}
+                      onFocus={() => setShowCompanyDropdown(true)}
+                      onBlur={() => setTimeout(() => setShowCompanyDropdown(false), 150)}
+                    />
+                    {showCompanyDropdown && (
+                      <div className="absolute z-50 w-full mt-1 bg-background border border-input rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                        {[...clientNames]
+                          .sort((a, b) => a.localeCompare(b))
+                          .filter((name) => name.toLowerCase().includes(companySearch.toLowerCase()))
+                          .map((name) => (
+                            <div
+                              key={name}
+                              className="px-3 py-2 text-sm cursor-pointer hover:bg-muted"
+                              onMouseDown={() => {
+                                setFormData({ ...formData, company_name: name })
+                                setCompanySearch('')
+                                setShowCompanyDropdown(false)
+                              }}
+                            >
+                              {name}
+                            </div>
+                          ))
+                        }
+                        <div
+                          className="px-3 py-2 text-sm cursor-pointer hover:bg-muted border-t text-muted-foreground"
+                          onMouseDown={() => {
+                            setShowOtherCompany(true)
+                            setCompanySearch('')
+                            setShowCompanyDropdown(false)
+                            setFormData({ ...formData, company_name: '' })
+                          }}
+                        >
+                          + Other
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 ) : (
                   <div className="flex gap-2">
                     <Input
@@ -292,6 +321,7 @@ export default function Jobs() {
                       variant="outline"
                       onClick={() => {
                         setShowOtherCompany(false)
+                        setCompanySearch('')
                         setFormData({ ...formData, company_name: '' })
                       }}
                     >
