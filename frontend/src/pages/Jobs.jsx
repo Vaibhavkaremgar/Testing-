@@ -266,13 +266,17 @@ export default function Jobs() {
                 {!showOtherCompany ? (
                   <div className="relative">
                     <Input
-                      placeholder={formData.company_name || 'Search company...'}
-                      value={companySearch}
+                      placeholder="Search company..."
+                      value={companySearch || formData.company_name}
                       onChange={(e) => {
                         setCompanySearch(e.target.value)
+                        setFormData({ ...formData, company_name: '' })
                         setShowCompanyDropdown(true)
                       }}
-                      onFocus={() => setShowCompanyDropdown(true)}
+                      onFocus={() => {
+                        setCompanySearch('')
+                        setShowCompanyDropdown(true)
+                      }}
                       onBlur={() => setTimeout(() => setShowCompanyDropdown(false), 150)}
                     />
                     {showCompanyDropdown && (
