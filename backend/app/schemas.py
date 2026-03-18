@@ -3,6 +3,27 @@ from typing import Optional, List, Any
 from datetime import datetime
 from app.models import UserRole, CandidateStage, ParsingStatus, ReviewStatus
 
+# Agency Schemas
+class AgencyCreate(BaseModel):
+    name: str
+    slug: str
+    is_active: bool = True
+
+class AgencyUpdate(BaseModel):
+    name: Optional[str] = None
+    slug: Optional[str] = None
+    is_active: Optional[bool] = None
+
+class AgencyResponse(BaseModel):
+    id: int
+    name: str
+    slug: str
+    is_active: bool
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
 # Auth Schemas
 class Token(BaseModel):
     access_token: str
@@ -10,6 +31,7 @@ class Token(BaseModel):
 
 class TokenData(BaseModel):
     email: Optional[str] = None
+    agency_id: Optional[int] = None
 
 class UserBase(BaseModel):
     email: EmailStr
@@ -18,9 +40,11 @@ class UserBase(BaseModel):
     phone: Optional[str] = None
     department: Optional[str] = None
     bio: Optional[str] = None
+    agency_id: Optional[int] = None
 
 class UserCreate(UserBase):
     password: str
+    agency_id: Optional[int] = None
 
 class UserResponse(UserBase):
     id: int
@@ -173,6 +197,16 @@ class InterviewUpdate(BaseModel):
     technical_score: Optional[float] = None
     communication_score: Optional[float] = None
     culture_fit_score: Optional[float] = None
+
+class InterviewResultsUpdate(BaseModel):
+    video_url: Optional[str] = None
+    transcript: Optional[str] = None
+    ai_summary: Optional[str] = None
+    interview_score: Optional[float] = None
+    technical_score: Optional[float] = None
+    communication_score: Optional[float] = None
+    culture_fit_score: Optional[float] = None
+    feedback: Optional[str] = None
 
 class InterviewResponse(InterviewBase):
     id: int

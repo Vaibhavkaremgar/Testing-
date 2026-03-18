@@ -34,11 +34,13 @@ def get_jobs_count(
 ):
     from app.models import UserRole
     query = db.query(JobDescription)
+    if current_user.agency_id:
+        query = query.filter(JobDescription.agency_id == current_user.agency_id)
     if is_active is not None:
         query = query.filter(JobDescription.is_active == is_active)
     if client:
         query = query.filter(JobDescription.company_name == client)
-    if current_user.role != UserRole.ADMIN:
+    if current_user.role not in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
         subquery = db.query(Candidate.job_id).filter(Candidate.assigned_to_user_id == current_user.id).subquery()
         query = query.filter(JobDescription.id.in_(subquery))
     return {"count": query.count()}
@@ -54,13 +56,16 @@ def get_jobs(
 ):
     from app.models import UserRole
     query = db.query(JobDescription)
-    
+
+    if current_user.agency_id:
+        query = query.filter(JobDescription.agency_id == current_user.agency_id)
+
     if is_active is not None:
         query = query.filter(JobDescription.is_active == is_active)
-    
+
     if client:
         query = query.filter(JobDescription.company_name == client)
-    
+
     jobs = query.order_by(JobDescription.created_at.desc()).offset((page - 1) * limit).limit(limit).all()
     
     print(f"DEBUG: Found {len(jobs)} jobs in database")
@@ -73,12 +78,11 @@ def get_jobs(
         candidate_query = db.query(func.count(Candidate.id)).filter(
             Candidate.job_id == job.id
         )
-        if current_user.role != UserRole.ADMIN:
+        if current_user.role not in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
             candidate_query = candidate_query.filter(Candidate.assigned_to_user_id == current_user.id)
         candidate_count = candidate_query.scalar()
-        
-        # Skip jobs with no assigned candidates for non-admin users
-        if current_user.role != UserRole.ADMIN and candidate_count == 0:
+
+        if current_user.role not in [UserRole.ADMIN, UserRole.SUPER_ADMIN] and candidate_count == 0:
             continue
         
         job_dict = {
@@ -120,7 +124,7 @@ def get_job(
     candidate_query = db.query(func.count(Candidate.id)).filter(
         Candidate.job_id == job.id
     )
-    if current_user.role != UserRole.ADMIN:
+    if current_user.role not in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
         candidate_query = candidate_query.filter(Candidate.assigned_to_user_id == current_user.id)
     candidate_count = candidate_query.scalar()
     
@@ -175,6 +179,7 @@ def create_job(
                 db.commit()
         
         db_job = JobDescription(**job.model_dump())
+        db_job.agency_id = current_user.agency_id
         db.add(db_job)
         db.commit()
         db.refresh(db_job)

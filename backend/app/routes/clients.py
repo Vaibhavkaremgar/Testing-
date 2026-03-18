@@ -49,11 +49,13 @@ def get_client_names(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    # Get unique company names from jobs
-    company_names = db.query(JobDescription.company_name).filter(
+    query = db.query(JobDescription.company_name).filter(
         JobDescription.company_name.isnot(None),
         JobDescription.company_name != ''
-    ).distinct().all()
+    )
+    if current_user.agency_id:
+        query = query.filter(JobDescription.agency_id == current_user.agency_id)
+    company_names = query.distinct().all()
     return [name[0] for name in company_names]
 
 @router.get("/count")
@@ -70,8 +72,10 @@ def get_clients(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    clients = db.query(Client).offset((page - 1) * limit).limit(limit).all()
-    return clients
+    query = db.query(Client)
+    if current_user.agency_id:
+        query = query.filter(Client.agency_id == current_user.agency_id)
+    return query.offset((page - 1) * limit).limit(limit).all()
 
 @router.post("", response_model=ClientResponse)
 def create_client(
@@ -80,6 +84,7 @@ def create_client(
     current_user: User = Depends(get_current_admin_user)
 ):
     db_client = Client(**client.model_dump())
+    db_client.agency_id = current_user.agency_id
     db.add(db_client)
     db.commit()
     db.refresh(db_client)

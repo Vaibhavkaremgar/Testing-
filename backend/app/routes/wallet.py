@@ -92,10 +92,13 @@ def get_all_users_wallets(
     current_user: User = Depends(get_current_active_user)
 ):
     """Get all users with wallet balances (Admin only)"""
-    if current_user.role != UserRole.ADMIN:
+    if current_user.role not in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
         raise HTTPException(status_code=403, detail="Only admins can view all wallets")
-    
-    users = db.query(User).all()
+
+    query = db.query(User)
+    if current_user.agency_id:
+        query = query.filter(User.agency_id == current_user.agency_id)
+    users = query.all()
     return [
         {
             "id": u.id,

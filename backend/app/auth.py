@@ -34,7 +34,8 @@ def verify_token(token: str) -> Optional[TokenData]:
         email: str = payload.get("sub")
         if email is None:
             return None
-        return TokenData(email=email)
+        agency_id = payload.get("agency_id")
+        return TokenData(email=email, agency_id=agency_id)
     except JWTError:
         return None
 
@@ -68,10 +69,19 @@ async def get_current_active_user(current_user: User = Depends(get_current_user)
 
 async def get_current_admin_user(current_user: User = Depends(get_current_active_user)) -> User:
     from app.models import UserRole
-    if current_user.role != UserRole.ADMIN:
+    if current_user.role not in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin access required"
+        )
+    return current_user
+
+async def get_current_super_admin(current_user: User = Depends(get_current_active_user)) -> User:
+    from app.models import UserRole
+    if current_user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Super Admin access required"
         )
     return current_user
 
