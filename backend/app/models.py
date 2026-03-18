@@ -64,7 +64,7 @@ class User(Base):
     email = Column(String(255), unique=True, index=True, nullable=False)
     hashed_password = Column(String(255), nullable=False)
     full_name = Column(String(255), nullable=False)
-    role = Column(Enum(UserRole), default=UserRole.RECRUITER)
+    role = Column(Enum(UserRole, values_callable=lambda x: [e.value for e in x]), default=UserRole.RECRUITER)
     phone = Column(String(50))
     department = Column(String(255))
     bio = Column(Text)
