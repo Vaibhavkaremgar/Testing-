@@ -18,7 +18,8 @@ import {
   UserCog,
   User as UserIcon,
   ClipboardList,
-  Wallet
+  Wallet,
+  ShieldCheck
 } from 'lucide-react'
 
 export function Sidebar() {
@@ -30,7 +31,21 @@ export function Sidebar() {
   // Role-based navigation
   const getNavigation = () => {
     const isAdmin = user?.role === 'admin'
-    
+    const isSuperAdmin = user?.role === 'super_admin'
+
+    if (isSuperAdmin) {
+      return [
+        { name: 'Dashboard', href: '/super-admin', icon: LayoutDashboard },
+        { name: 'Agencies', href: '/super-admin/agencies', icon: ShieldCheck },
+        { name: 'Jobs', href: '/super-admin/jobs', icon: Briefcase },
+        { name: 'Candidates', href: '/super-admin/candidates', icon: Users },
+        { name: 'Interviews', href: '/super-admin/interviews', icon: Video },
+        { name: 'Clients', href: '/super-admin/clients', icon: Building2 },
+        { name: 'Wallet', href: '/super-admin/wallet', icon: Wallet },
+        { name: 'Users', href: '/super-admin/users', icon: UserCog },
+      ]
+    }
+
     // Admin sees everything
     if (isAdmin) {
       return [

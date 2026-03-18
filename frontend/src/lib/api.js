@@ -738,6 +738,22 @@ class ApiClient {
       }),
     })
   }
+  // Agencies (Super Admin)
+  async getAgencies() {
+    return this.request('/agencies')
+  }
+
+  async createAgency(data) {
+    return this.request('/agencies', { method: 'POST', body: JSON.stringify(data) })
+  }
+
+  async updateAgency(id, data) {
+    return this.request(`/agencies/${id}`, { method: 'PUT', body: JSON.stringify(data) })
+  }
+
+  async deleteAgency(id) {
+    return this.request(`/agencies/${id}`, { method: 'DELETE' })
+  }
 }
 
 export const api = new ApiClient()

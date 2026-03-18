@@ -16,9 +16,12 @@ import Settings from '@/pages/Settings'
 import Profile from '@/pages/Profile'
 import AdminUsers from '@/pages/AdminUsers'
 import Wallet from '@/pages/Wallet'
+import SuperAdminDashboard from '@/pages/SuperAdminDashboard'
+import Agencies from '@/pages/Agencies'
+import SuperAdminDataPage from '@/pages/SuperAdminDataPage'
 
-function ProtectedRoute({ children }) {
-  const { isAuthenticated, loading } = useAuth()
+function ProtectedRoute({ children, superAdminOnly = false }) {
+  const { isAuthenticated, loading, user } = useAuth()
 
   if (loading) {
     return (
@@ -28,9 +31,8 @@ function ProtectedRoute({ children }) {
     )
   }
 
-  if (!isAuthenticated) {
-    return <Navigate to="/login" replace />
-  }
+  if (!isAuthenticated) return <Navigate to="/login" replace />
+  if (superAdminOnly && user?.role !== 'super_admin') return <Navigate to="/" replace />
 
   return <DashboardLayout>{children}</DashboardLayout>
 }
@@ -49,114 +51,33 @@ function App() {
   return (
     <ErrorBoundary>
       <Routes>
-        <Route
-          path="/login"
-          element={isAuthenticated ? <Navigate to="/" replace /> : <Login />}
-        />
-        <Route
-          path="/"
-          element={
-            <ProtectedRoute>
-              <Dashboard />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/resumes"
-          element={
-            <ProtectedRoute>
-              <Resumes />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/pipeline"
-          element={
-            <ProtectedRoute>
-              <Pipeline />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/interviews"
-          element={
-            <ProtectedRoute>
-              <Interviews />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/analytics"
-          element={
-            <ProtectedRoute>
-              <Analytics />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/jobs"
-          element={
-            <ProtectedRoute>
-              <Jobs />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/clients"
-          element={
-            <ProtectedRoute>
-              <Clients />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/communications"
-          element={
-            <ProtectedRoute>
-              <Communications />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/settings"
-          element={
-            <ProtectedRoute>
-              <Settings />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/profile"
-          element={
-            <ProtectedRoute>
-              <Profile />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/my-assignments"
-          element={
-            <ProtectedRoute>
-              <Resumes />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/admin/users"
-          element={
-            <ProtectedRoute>
-              <AdminUsers />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/wallet"
-          element={
-            <ProtectedRoute>
-              <Wallet />
-            </ProtectedRoute>
-          }
-        />
+        <Route path="/login" element={isAuthenticated ? <Navigate to="/" replace /> : <Login />} />
+
+        {/* Regular routes */}
+        <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+        <Route path="/resumes" element={<ProtectedRoute><Resumes /></ProtectedRoute>} />
+        <Route path="/my-assignments" element={<ProtectedRoute><Resumes /></ProtectedRoute>} />
+        <Route path="/pipeline" element={<ProtectedRoute><Pipeline /></ProtectedRoute>} />
+        <Route path="/interviews" element={<ProtectedRoute><Interviews /></ProtectedRoute>} />
+        <Route path="/analytics" element={<ProtectedRoute><Analytics /></ProtectedRoute>} />
+        <Route path="/jobs" element={<ProtectedRoute><Jobs /></ProtectedRoute>} />
+        <Route path="/clients" element={<ProtectedRoute><Clients /></ProtectedRoute>} />
+        <Route path="/communications" element={<ProtectedRoute><Communications /></ProtectedRoute>} />
+        <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+        <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
+        <Route path="/admin/users" element={<ProtectedRoute><AdminUsers /></ProtectedRoute>} />
+        <Route path="/wallet" element={<ProtectedRoute><Wallet /></ProtectedRoute>} />
+
+        {/* Super Admin routes */}
+        <Route path="/super-admin" element={<ProtectedRoute superAdminOnly><SuperAdminDashboard /></ProtectedRoute>} />
+        <Route path="/super-admin/agencies" element={<ProtectedRoute superAdminOnly><Agencies /></ProtectedRoute>} />
+        <Route path="/super-admin/jobs" element={<ProtectedRoute superAdminOnly><SuperAdminDataPage PageComponent={Jobs} /></ProtectedRoute>} />
+        <Route path="/super-admin/candidates" element={<ProtectedRoute superAdminOnly><SuperAdminDataPage PageComponent={Pipeline} /></ProtectedRoute>} />
+        <Route path="/super-admin/interviews" element={<ProtectedRoute superAdminOnly><SuperAdminDataPage PageComponent={Interviews} /></ProtectedRoute>} />
+        <Route path="/super-admin/clients" element={<ProtectedRoute superAdminOnly><SuperAdminDataPage PageComponent={Clients} /></ProtectedRoute>} />
+        <Route path="/super-admin/wallet" element={<ProtectedRoute superAdminOnly><SuperAdminDataPage PageComponent={Wallet} /></ProtectedRoute>} />
+        <Route path="/super-admin/users" element={<ProtectedRoute superAdminOnly><SuperAdminDataPage PageComponent={AdminUsers} /></ProtectedRoute>} />
+
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
       <Toaster />

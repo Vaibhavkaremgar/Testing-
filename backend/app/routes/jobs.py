@@ -29,12 +29,15 @@ def debug_job_count(db: Session = Depends(get_db)):
 def get_jobs_count(
     is_active: Optional[bool] = None,
     client: Optional[str] = None,
+    agency_id: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
     from app.models import UserRole
     query = db.query(JobDescription)
-    if current_user.agency_id:
+    if agency_id and current_user.role == UserRole.SUPER_ADMIN:
+        query = query.filter(JobDescription.agency_id == agency_id)
+    elif current_user.agency_id:
         query = query.filter(JobDescription.agency_id == current_user.agency_id)
     if is_active is not None:
         query = query.filter(JobDescription.is_active == is_active)
@@ -51,13 +54,16 @@ def get_jobs(
     limit: int = 100,
     is_active: Optional[bool] = None,
     client: Optional[str] = None,
+    agency_id: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
     from app.models import UserRole
     query = db.query(JobDescription)
 
-    if current_user.agency_id:
+    if agency_id and current_user.role == UserRole.SUPER_ADMIN:
+        query = query.filter(JobDescription.agency_id == agency_id)
+    elif current_user.agency_id:
         query = query.filter(JobDescription.agency_id == current_user.agency_id)
 
     if is_active is not None:

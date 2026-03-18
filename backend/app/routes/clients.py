@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from typing import List
+from typing import List, Optional
 from app.database import get_db
 from app.models import Client, JobDescription, Candidate, User, CandidateStage, UserRole
 from app.schemas import ClientCreate, ClientUpdate, ClientResponse, ClientStats
@@ -69,11 +69,14 @@ def get_clients_count(
 def get_clients(
     page: int = 1,
     limit: int = 100,
+    agency_id: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
     query = db.query(Client)
-    if current_user.agency_id:
+    if agency_id and current_user.role == UserRole.SUPER_ADMIN:
+        query = query.filter(Client.agency_id == agency_id)
+    elif current_user.agency_id:
         query = query.filter(Client.agency_id == current_user.agency_id)
     return query.offset((page - 1) * limit).limit(limit).all()
 

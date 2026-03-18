@@ -934,12 +934,15 @@ def get_candidates_count(
     job_id: Optional[int] = None,
     min_score: Optional[float] = None,
     client: Optional[str] = None,
+    agency_id: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
     from app.models import JobDescription, UserRole
     query = db.query(Candidate)
-    if current_user.role != UserRole.ADMIN:
+    if agency_id and current_user.role == UserRole.SUPER_ADMIN:
+        query = query.join(JobDescription).filter(JobDescription.agency_id == agency_id)
+    elif current_user.role != UserRole.ADMIN:
         query = query.filter(Candidate.assigned_to_user_id == current_user.id)
     if client:
         query = query.join(JobDescription).filter(JobDescription.company_name == client)
@@ -962,14 +965,16 @@ def get_candidates(
     job_id: Optional[int] = None,
     min_score: Optional[float] = None,
     client: Optional[str] = None,
+    agency_id: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
     from app.models import JobDescription, UserRole
     query = db.query(Candidate)
-    
-    # Filter by assigned candidates for non-admin users
-    if current_user.role != UserRole.ADMIN:
+
+    if agency_id and current_user.role == UserRole.SUPER_ADMIN:
+        query = query.join(JobDescription, Candidate.job_id == JobDescription.id).filter(JobDescription.agency_id == agency_id)
+    elif current_user.role != UserRole.ADMIN:
         query = query.filter(Candidate.assigned_to_user_id == current_user.id)
     
     if client:

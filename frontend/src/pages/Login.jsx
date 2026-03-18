@@ -41,8 +41,12 @@ export default function Login() {
     setLoading(true)
 
     try {
-      await login(selectedUser.email, password)
-      navigate('/')
+      const userData = await login(selectedUser.email, password)
+      if (userData.role === 'super_admin') {
+        navigate('/super-admin')
+      } else {
+        navigate('/')
+      }
     } catch (err) {
       setError(err.message || 'Login failed')
     } finally {

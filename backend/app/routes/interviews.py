@@ -5,7 +5,7 @@ from datetime import datetime
 import random
 from app.database import get_db
 from app.models import Interview, Candidate, CandidateStage, User
-from app.schemas import InterviewCreate, InterviewUpdate, InterviewResponse
+from app.schemas import InterviewCreate, InterviewUpdate, InterviewResponse, InterviewResultsUpdate
 from app.auth import get_current_active_user
 
 router = APIRouter(prefix="/interviews", tags=["Interviews"])
@@ -44,16 +44,19 @@ SAMPLE_TRANSCRIPTS = """
 def get_interviews_count(
     candidate_id: Optional[int] = None,
     status: Optional[str] = None,
+    agency_id: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    from app.models import UserRole
+    from app.models import UserRole, JobDescription
     query = db.query(Interview)
     if candidate_id:
         query = query.filter(Interview.candidate_id == candidate_id)
     if status:
         query = query.filter(Interview.status == status)
-    if current_user.role != UserRole.ADMIN:
+    if agency_id and current_user.role == UserRole.SUPER_ADMIN:
+        query = query.join(Candidate).join(JobDescription, Candidate.job_id == JobDescription.id).filter(JobDescription.agency_id == agency_id)
+    elif current_user.role != UserRole.ADMIN:
         query = query.join(Candidate).filter(Candidate.assigned_to_user_id == current_user.id)
     return {"count": query.count()}
 
@@ -63,19 +66,20 @@ def get_interviews(
     limit: int = 10,
     candidate_id: Optional[int] = None,
     status: Optional[str] = None,
+    agency_id: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    from app.models import UserRole
+    from app.models import UserRole, JobDescription
     query = db.query(Interview)
-    
+
     if candidate_id:
         query = query.filter(Interview.candidate_id == candidate_id)
-    
     if status:
         query = query.filter(Interview.status == status)
-    
-    if current_user.role != UserRole.ADMIN:
+    if agency_id and current_user.role == UserRole.SUPER_ADMIN:
+        query = query.join(Candidate).join(JobDescription, Candidate.job_id == JobDescription.id).filter(JobDescription.agency_id == agency_id)
+    elif current_user.role != UserRole.ADMIN:
         query = query.join(Candidate).filter(Candidate.assigned_to_user_id == current_user.id)
     
     interviews = query.order_by(Interview.scheduled_at.desc()).offset((page - 1) * limit).limit(limit).all()
@@ -269,6 +273,51 @@ def complete_interview(
     db.commit()
     
     return {"message": "Interview completed and analyzed", "interview_id": interview_id}
+
+@router.post("/{interview_id}/results", response_model=InterviewResponse)
+def receive_interview_results(
+    interview_id: int,
+    results: InterviewResultsUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Receive video recording, transcript and AI analysis from external interview server"""
+    db_interview = db.query(Interview).filter(Interview.id == interview_id).first()
+    if not db_interview:
+        raise HTTPException(status_code=404, detail="Interview not found")
+
+    for field, value in results.model_dump(exclude_unset=True).items():
+        setattr(db_interview, field, value)
+
+    db_interview.status = "completed"
+
+    candidate = db.query(Candidate).filter(Candidate.id == db_interview.candidate_id).first()
+    if candidate:
+        candidate.stage = CandidateStage.INTERVIEWED
+        candidate.stage_updated_at = datetime.utcnow()
+
+    db.commit()
+    db.refresh(db_interview)
+
+    return InterviewResponse(
+        id=db_interview.id,
+        candidate_id=db_interview.candidate_id,
+        candidate_name=candidate.name if candidate else None,
+        interview_type=db_interview.interview_type,
+        scheduled_at=db_interview.scheduled_at,
+        duration_minutes=db_interview.duration_minutes,
+        meeting_link=db_interview.meeting_link,
+        status=db_interview.status,
+        video_url=db_interview.video_url,
+        transcript=db_interview.transcript,
+        ai_summary=db_interview.ai_summary,
+        interview_score=db_interview.interview_score,
+        feedback=db_interview.feedback,
+        technical_score=db_interview.technical_score,
+        communication_score=db_interview.communication_score,
+        culture_fit_score=db_interview.culture_fit_score,
+        created_at=db_interview.created_at
+    )
 
 @router.delete("/{interview_id}")
 def delete_interview(
