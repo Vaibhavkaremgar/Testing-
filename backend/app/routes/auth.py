@@ -225,7 +225,7 @@ async def get_avatar(filename: str):
 def get_public_users(db: Session = Depends(get_db)):
     """Get all users for selection screen (no auth required)"""
     from sqlalchemy import text
-    rows = db.execute(text("SELECT id, full_name, email, role::text FROM \"user\" WHERE is_active = true")).fetchall()
+    rows = db.execute(text("SELECT id, full_name, email, role::text FROM users WHERE is_active = true")).fetchall()
     return [{"id": r[0], "full_name": r[1], "email": r[2], "role": r[3]} for r in rows]
 
 @router.get("/users", response_model=List[UserResponse])
