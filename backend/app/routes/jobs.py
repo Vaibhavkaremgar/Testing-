@@ -174,7 +174,6 @@ def create_job(
             ).first()
             
             if not existing_client:
-                # Create new client
                 new_client = Client(
                     company_name=job.company_name,
                     total_positions=1,
@@ -184,7 +183,14 @@ def create_job(
                 db.add(new_client)
                 db.commit()
         
-        db_job = JobDescription(**job.model_dump())
+        job_data = job.model_dump()
+        
+        # Auto-generate job_id if not provided to avoid unique constraint violation
+        if not job_data.get('job_id'):
+            import uuid
+            job_data['job_id'] = f"JOB-{uuid.uuid4().hex[:8].upper()}"
+        
+        db_job = JobDescription(**job_data)
         db_job.agency_id = current_user.agency_id
         db.add(db_job)
         db.commit()
