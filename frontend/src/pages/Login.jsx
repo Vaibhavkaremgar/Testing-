@@ -87,9 +87,20 @@ export default function Login() {
     }
   }
 
+  const ROLE_DOMAINS = {
+    super_admin: '@superadmin.com',
+    admin: '@admin.com',
+  }
+  const getExpectedDomain = (role) => ROLE_DOMAINS[role] ?? '@user.com'
+
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
+    const expectedDomain = getExpectedDomain(selectedUser.role)
+    if (!selectedUser.email.endsWith(expectedDomain)) {
+      setError(`This account's email must end with ${expectedDomain}`)
+      return
+    }
     setLoading(true)
     try {
       const userData = await login(selectedUser.email, password)

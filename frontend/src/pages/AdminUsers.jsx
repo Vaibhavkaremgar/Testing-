@@ -326,12 +326,20 @@ export default function AdminUsers() {
             </div>
             <div className="space-y-2">
               <Label>Email *</Label>
-              <Input
-                type="email"
-                value={newUserData.email}
-                onChange={(e) => setNewUserData({ ...newUserData, email: e.target.value })}
-                placeholder="john@example.com"
-              />
+              <div className="flex">
+                <Input
+                  value={newUserData.email.split('@')[0]}
+                  onChange={(e) => {
+                    const domain = newUserData.role === 'admin' ? '@admin.com' : '@user.com'
+                    setNewUserData({ ...newUserData, email: e.target.value + domain })
+                  }}
+                  placeholder="username"
+                  className="rounded-r-none"
+                />
+                <span className="flex items-center px-3 border border-l-0 rounded-r-md bg-muted text-sm text-muted-foreground">
+                  {newUserData.role === 'admin' ? '@admin.com' : '@user.com'}
+                </span>
+              </div>
             </div>
             <div className="space-y-2">
               <Label>Password *</Label>
@@ -344,7 +352,11 @@ export default function AdminUsers() {
             </div>
             <div className="space-y-2">
               <Label>Role</Label>
-              <Select value={newUserData.role} onValueChange={(value) => setNewUserData({ ...newUserData, role: value })}>
+              <Select value={newUserData.role} onValueChange={(value) => {
+                const domain = value === 'admin' ? '@admin.com' : '@user.com'
+                const username = newUserData.email.split('@')[0]
+                setNewUserData({ ...newUserData, role: value, email: username + domain })
+              }}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
