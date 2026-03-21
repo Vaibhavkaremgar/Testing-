@@ -21,9 +21,11 @@ def run_migrations():
 run_migrations()
 
 # Create database tables
-Base.metadata.create_all(bind=engine)
-
-print("✅ Database initialization complete\n")
+try:
+    Base.metadata.create_all(bind=engine)
+    print("✅ Database initialization complete\n")
+except Exception as e:
+    print(f"⚠️ create_all warning (non-fatal): {e}\n")
 
 app = FastAPI(
     title=settings.APP_NAME,
