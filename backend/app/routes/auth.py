@@ -262,13 +262,16 @@ def get_all_users(
     from app.models import UserRole
     from datetime import datetime, timedelta
     
-    if current_user.role != UserRole.ADMIN:
+    if current_user.role not in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only admins can access this endpoint"
         )
     
-    users = db.query(User).all()
+    if current_user.role == UserRole.SUPER_ADMIN:
+        users = db.query(User).all()
+    else:
+        users = db.query(User).filter(User.agency_id == current_user.agency_id).all()
     
     # Add online status based on last_login_at (online if logged in within last 15 minutes)
     result = []

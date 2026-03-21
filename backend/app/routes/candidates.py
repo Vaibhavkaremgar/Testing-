@@ -1805,9 +1805,11 @@ def get_pipeline_stages(
     stages = {}
     for stage in CandidateStage:
         query = db.query(Candidate).filter(Candidate.stage == stage)
-        if current_user.role == UserRole.ADMIN and current_user.agency_id:
+        if current_user.role == UserRole.SUPER_ADMIN:
+            pass  # sees all candidates
+        elif current_user.role == UserRole.ADMIN and current_user.agency_id:
             query = query.join(JobDescription, Candidate.job_id == JobDescription.id).filter(JobDescription.agency_id == current_user.agency_id)
-        elif current_user.role != UserRole.ADMIN:
+        else:
             query = query.filter(Candidate.assigned_to_user_id == current_user.id)
         if client:
             query = query.join(JobDescription).filter(JobDescription.company_name == client)
