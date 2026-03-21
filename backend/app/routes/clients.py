@@ -15,27 +15,28 @@ def get_client_stats(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    # Total Clients = Unique company names in jobs
-    total_clients = db.query(func.count(func.distinct(JobDescription.company_name))).scalar() or 0
-    
-    # Active Clients = Unique company names in active jobs
-    active_clients = db.query(func.count(func.distinct(JobDescription.company_name))).filter(
-        JobDescription.is_active == True
+    base_job_query = db.query(JobDescription)
+    if current_user.role != UserRole.SUPER_ADMIN and current_user.agency_id:
+        base_job_query = base_job_query.filter(JobDescription.agency_id == current_user.agency_id)
+
+    total_clients = db.query(func.count(func.distinct(JobDescription.company_name))).select_from(
+        base_job_query.subquery()
     ).scalar() or 0
-    
-    # Total Positions = Sum of vacancies from ACTIVE jobs only
-    total_positions = db.query(func.sum(JobDescription.vacancies)).filter(
-        JobDescription.is_active == True
+
+    active_clients = db.query(func.count(func.distinct(JobDescription.company_name))).select_from(
+        base_job_query.filter(JobDescription.is_active == True).subquery()
     ).scalar() or 0
-    
-    # Filled Positions = Count of candidates in SELECTED stage
+
+    total_positions = db.query(func.sum(JobDescription.vacancies)).select_from(
+        base_job_query.filter(JobDescription.is_active == True).subquery()
+    ).scalar() or 0
+
     filled_positions = db.query(func.count(Candidate.id)).filter(
         Candidate.stage == CandidateStage.SELECTED
     ).scalar() or 0
-    
-    # Open Positions = Total Positions - Filled Positions
+
     open_positions = max(0, total_positions - filled_positions)
-    
+
     return {
         "total_clients": total_clients,
         "active_clients": active_clients,
@@ -63,7 +64,10 @@ def get_clients_count(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    return {"count": db.query(Client).count()}
+    query = db.query(Client)
+    if current_user.role != UserRole.SUPER_ADMIN and current_user.agency_id:
+        query = query.filter(Client.agency_id == current_user.agency_id)
+    return {"count": query.count()}
 
 @router.get("", response_model=List[ClientResponse])
 def get_clients(

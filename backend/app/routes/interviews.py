@@ -56,6 +56,8 @@ def get_interviews_count(
         query = query.filter(Interview.status == status)
     if agency_id and current_user.role == UserRole.SUPER_ADMIN:
         query = query.join(Candidate).join(JobDescription, Candidate.job_id == JobDescription.id).filter(JobDescription.agency_id == agency_id)
+    elif current_user.role == UserRole.ADMIN and current_user.agency_id:
+        query = query.join(Candidate).join(JobDescription, Candidate.job_id == JobDescription.id).filter(JobDescription.agency_id == current_user.agency_id)
     elif current_user.role != UserRole.ADMIN:
         query = query.join(Candidate).filter(Candidate.assigned_to_user_id == current_user.id)
     return {"count": query.count()}
@@ -79,6 +81,8 @@ def get_interviews(
         query = query.filter(Interview.status == status)
     if agency_id and current_user.role == UserRole.SUPER_ADMIN:
         query = query.join(Candidate).join(JobDescription, Candidate.job_id == JobDescription.id).filter(JobDescription.agency_id == agency_id)
+    elif current_user.role == UserRole.ADMIN and current_user.agency_id:
+        query = query.join(Candidate).join(JobDescription, Candidate.job_id == JobDescription.id).filter(JobDescription.agency_id == current_user.agency_id)
     elif current_user.role != UserRole.ADMIN:
         query = query.join(Candidate).filter(Candidate.assigned_to_user_id == current_user.id)
     

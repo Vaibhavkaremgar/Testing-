@@ -942,6 +942,8 @@ def get_candidates_count(
     query = db.query(Candidate)
     if agency_id and current_user.role == UserRole.SUPER_ADMIN:
         query = query.join(JobDescription).filter(JobDescription.agency_id == agency_id)
+    elif current_user.role == UserRole.ADMIN and current_user.agency_id:
+        query = query.join(JobDescription, Candidate.job_id == JobDescription.id).filter(JobDescription.agency_id == current_user.agency_id)
     elif current_user.role != UserRole.ADMIN:
         query = query.filter(Candidate.assigned_to_user_id == current_user.id)
     if client:
@@ -974,6 +976,8 @@ def get_candidates(
 
     if agency_id and current_user.role == UserRole.SUPER_ADMIN:
         query = query.join(JobDescription, Candidate.job_id == JobDescription.id).filter(JobDescription.agency_id == agency_id)
+    elif current_user.role == UserRole.ADMIN and current_user.agency_id:
+        query = query.join(JobDescription, Candidate.job_id == JobDescription.id).filter(JobDescription.agency_id == current_user.agency_id)
     elif current_user.role != UserRole.ADMIN:
         query = query.filter(Candidate.assigned_to_user_id == current_user.id)
     
@@ -1207,6 +1211,7 @@ async def upload_resume(
             resume_text=full_text,  # Store full text
             candidate_id=candidate_id,  # Store generated ID
             job_id=job_id,
+            agency_id=current_user.agency_id,
             created_by=current_user.id,
             assigned_to_user_id=current_user.id,  # Auto-assign to uploader
             parsing_status=ParsingStatus.PROCESSING,
@@ -1800,7 +1805,9 @@ def get_pipeline_stages(
     stages = {}
     for stage in CandidateStage:
         query = db.query(Candidate).filter(Candidate.stage == stage)
-        if current_user.role != UserRole.ADMIN:
+        if current_user.role == UserRole.ADMIN and current_user.agency_id:
+            query = query.join(JobDescription, Candidate.job_id == JobDescription.id).filter(JobDescription.agency_id == current_user.agency_id)
+        elif current_user.role != UserRole.ADMIN:
             query = query.filter(Candidate.assigned_to_user_id == current_user.id)
         if client:
             query = query.join(JobDescription).filter(JobDescription.company_name == client)

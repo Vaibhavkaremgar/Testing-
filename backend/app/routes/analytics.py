@@ -75,6 +75,10 @@ def _apply_candidate_visibility(query, current_user: User):
     role_name = _role_name(current_user)
 
     if role_name == UserRole.ADMIN.value:
+        if current_user.agency_id:
+            return query.join(JobDescription, Candidate.job_id == JobDescription.id).filter(
+                JobDescription.agency_id == current_user.agency_id
+            )
         return query
 
     if role_name == UserRole.RECRUITER.value:
@@ -96,6 +100,8 @@ def _apply_job_visibility(query, db: Session, current_user: User):
     role_name = _role_name(current_user)
 
     if role_name == UserRole.ADMIN.value:
+        if current_user.agency_id:
+            return query.filter(JobDescription.agency_id == current_user.agency_id)
         return query
 
     if role_name == UserRole.RECRUITER.value:
