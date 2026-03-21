@@ -3,33 +3,61 @@ Auto-migration script - runs on startup
 """
 from sqlalchemy import inspect, text
 from app.database import engine
-from app.models import AnalyticsWidget, UserDashboardPreference
+from app.models import AnalyticsWidget, UserDashboardPreference, Agency, WalletTransaction
 
 
 def run_migrations():
     """Run all pending migrations"""
     try:
-        inspector = inspect(engine)
-
         with engine.connect() as conn:
+            def get_tables():
+                return set(inspect(engine).get_table_names())
+
+            def get_columns(table):
+                return [col["name"] for col in inspect(engine).get_columns(table)]
+
+            # Ensure agencies table exists first (other tables depend on it)
+            if "agencies" not in get_tables():
+                print("Running migration: creating agencies table...")
+                Agency.__table__.create(bind=engine, checkfirst=True)
+                conn.commit()
+                print("Migration completed: agencies table created")
+
             # Migration: users.last_login_at
-            columns = [col["name"] for col in inspector.get_columns("users")]
-            if "last_login_at" not in columns:
+            if "last_login_at" not in get_columns("users"):
                 print("Running migration: adding users.last_login_at...")
                 conn.execute(text("ALTER TABLE users ADD COLUMN last_login_at TIMESTAMP WITH TIME ZONE"))
                 conn.commit()
                 print("Migration completed: users.last_login_at added")
-            else:
-                print("users.last_login_at already present")
+
+            # Migration: users.agency_id
+            if "agency_id" not in get_columns("users"):
+                print("Running migration: adding users.agency_id...")
+                conn.execute(text("ALTER TABLE users ADD COLUMN agency_id INTEGER REFERENCES agencies(id)"))
+                conn.commit()
+                print("Migration completed: users.agency_id added")
+
+            # Migration: users.wallet_balance
+            if "wallet_balance" not in get_columns("users"):
+                print("Running migration: adding users.wallet_balance...")
+                conn.execute(text("ALTER TABLE users ADD COLUMN wallet_balance INTEGER DEFAULT 0"))
+                conn.commit()
+                print("Migration completed: users.wallet_balance added")
+
+            # wallet_transactions table
+            if "wallet_transactions" not in get_tables():
+                print("Running migration: creating wallet_transactions table...")
+                WalletTransaction.__table__.create(bind=engine, checkfirst=True)
+                conn.commit()
+                print("Migration completed: wallet_transactions created")
 
             # Analytics tables
-            table_names = set(inspector.get_table_names())
-            if "analytics_widgets" not in table_names:
+            if "analytics_widgets" not in get_tables():
                 print("Running migration: creating analytics_widgets...")
                 AnalyticsWidget.__table__.create(bind=engine, checkfirst=True)
                 print("Migration completed: analytics_widgets created")
 
-            if "user_dashboard_preferences" not in table_names:
+            if "user_dashboard_preferences" not in get_tables():
                 print("Running migration: creating user_dashboard_preferences...")
                 UserDashboardPreference.__table__.create(bind=engine, checkfirst=True)
                 print("Migration completed: user_dashboard_preferences created")
