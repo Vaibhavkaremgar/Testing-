@@ -1,4 +1,4 @@
-import { NavLink, useSearchParams } from 'react-router-dom'
+import { NavLink } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { useTheme } from '@/context/ThemeContext'
 import { useAuth } from '@/context/AuthContext'
@@ -25,7 +25,6 @@ import {
 export function Sidebar() {
   const { theme } = useTheme()
   const { user } = useAuth()
-  const [searchParams] = useSearchParams()
   const isDark = theme === 'dark'
   
   // Role-based navigation
@@ -94,12 +93,11 @@ export function Sidebar() {
 
       {/* Navigation */}
       <nav className="flex-1 space-y-1 px-3 py-4">
-        {navigation.map((item) => {
-          const href = searchParams.toString() ? `${item.href}?${searchParams.toString()}` : item.href
-          return (
+        {navigation.map((item) => (
           <NavLink
             key={item.name}
-            to={href}
+            to={item.href}
+            end={item.href === '/' || item.href === '/super-admin'}
             className={({ isActive }) =>
               cn(
                 'flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors',
@@ -112,7 +110,7 @@ export function Sidebar() {
             <item.icon className="h-5 w-5" />
             {item.name}
           </NavLink>
-        )})}
+        ))}
       </nav>
 
       {/* Footer */}

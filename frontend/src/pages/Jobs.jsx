@@ -10,9 +10,10 @@ import { api } from '@/lib/api'
 import { formatDate } from '@/lib/utils'
 import { Plus, Briefcase, MapPin, Clock, Users, Edit, Trash2, Upload, FileText } from 'lucide-react'
 
-export default function Jobs() {
+export default function Jobs({ superAdminAgencyId = null }) {
   const [searchParams] = useSearchParams()
   const selectedClient = searchParams.get('client')
+  const isSuperAdminView = superAdminAgencyId !== null
   const [jobs, setJobs] = useState([])
   const [allJobs, setAllJobs] = useState([])
   const [loading, setLoading] = useState(true)
@@ -50,6 +51,7 @@ export default function Jobs() {
     try {
       const params = {}
       if (selectedClient) params.client = selectedClient
+      if (superAdminAgencyId) params.agency_id = superAdminAgencyId
       const data = await api.getJobs(params)
       setAllJobs(data)
       setJobs(data)
@@ -72,9 +74,9 @@ export default function Jobs() {
   useEffect(() => {
     fetchJobs()
     fetchClientNames()
-  }, [selectedClient])
+  }, [selectedClient, superAdminAgencyId])
 
-  useEffect(() => { setVisibleCount(10) }, [selectedClient])
+  useEffect(() => { setVisibleCount(10) }, [selectedClient, superAdminAgencyId])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -227,6 +229,7 @@ export default function Jobs() {
           <p className="text-muted-foreground">Manage open positions</p>
         </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          {!isSuperAdminView && (
           <DialogTrigger asChild>
             <Button onClick={() => {
               setEditingJob(null)
@@ -236,6 +239,7 @@ export default function Jobs() {
               Add Job
             </Button>
           </DialogTrigger>
+          )}
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>{editingJob ? 'Edit Job' : 'Create New Job'}</DialogTitle>
@@ -579,26 +583,28 @@ export default function Jobs() {
                 </div>
               )}
 
-              <div className="flex items-center justify-between pt-2 border-t">
-                <div className="flex items-center gap-2">
-                  <Switch 
-                    checked={job.is_active} 
-                    onCheckedChange={() => handleToggleActive(job)}
-                    className="scale-75"
-                  />
-                  <span className="text-xs text-muted-foreground">
-                    {job.is_active ? 'Active' : 'Closed'}
-                  </span>
+              {!isSuperAdminView && (
+                <div className="flex items-center justify-between pt-2 border-t">
+                  <div className="flex items-center gap-2">
+                    <Switch 
+                      checked={job.is_active} 
+                      onCheckedChange={() => handleToggleActive(job)}
+                      className="scale-75"
+                    />
+                    <span className="text-xs text-muted-foreground">
+                      {job.is_active ? 'Active' : 'Closed'}
+                    </span>
+                  </div>
+                  <div className="flex gap-1">
+                    <Button variant="ghost" size="icon" onClick={() => handleEdit(job)}>
+                      <Edit className="h-4 w-4" />
+                    </Button>
+                    <Button variant="ghost" size="icon" onClick={() => handleDelete(job.id)}>
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </div>
                 </div>
-                <div className="flex gap-1">
-                  <Button variant="ghost" size="icon" onClick={() => handleEdit(job)}>
-                    <Edit className="h-4 w-4" />
-                  </Button>
-                  <Button variant="ghost" size="icon" onClick={() => handleDelete(job.id)}>
-                    <Trash2 className="h-4 w-4 text-destructive" />
-                  </Button>
-                </div>
-              </div>
+              )}
             </CardContent>
           </Card>
         ))}
