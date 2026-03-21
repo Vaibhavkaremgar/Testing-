@@ -161,8 +161,8 @@ class ApiClient {
     })
   }
 
-  async getPublicUsers() {
-    return this.request('/auth/users/public')
+  async getLoginScreen() {
+    return this.request('/auth/login-screen')
   }
 
   async getUsersByAgency(agencyId) {

@@ -5,14 +5,9 @@ import { api } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
-import { Loader2, User, Shield, ShieldCheck, ArrowLeft, Users } from 'lucide-react'
+import { Loader2, User, Shield, ShieldCheck, ArrowLeft, Building2 } from 'lucide-react'
 
-// STEP 1: tenant selection (super_admin + admins)
-// STEP 2a: super_admin → password directly
-// STEP 2b: agency admin → choose "Login as Admin" or pick a team member
-// STEP 3: team member selected → password entry
-
-const STEPS = { TENANT: 'tenant', ADMIN_CHOICE: 'admin_choice', PASSWORD: 'password' }
+const STEPS = { SELECT: 'select', AGENCY_USERS: 'agency_users', PASSWORD: 'password' }
 
 const getRoleIcon = (role) => {
   if (role === 'super_admin') return <ShieldCheck className="h-7 w-7" />
@@ -31,10 +26,11 @@ const getRoleColor = (role) => {
 const getRoleLabel = (role) => role.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
 
 export default function Login() {
-  const [step, setStep] = useState(STEPS.TENANT)
-  const [tenants, setTenants] = useState([])
+  const [step, setStep] = useState(STEPS.SELECT)
+  const [superAdmin, setSuperAdmin] = useState(null)
+  const [agencies, setAgencies] = useState([])
+  const [selectedAgency, setSelectedAgency] = useState(null)
   const [agencyUsers, setAgencyUsers] = useState([])
-  const [selectedAdmin, setSelectedAdmin] = useState(null)
   const [selectedUser, setSelectedUser] = useState(null)
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -44,38 +40,35 @@ export default function Login() {
   const navigate = useNavigate()
 
   useEffect(() => {
-    api.getPublicUsers().then(setTenants).catch(console.error)
+    api.getLoginScreen().then(data => {
+      setSuperAdmin(data.super_admin)
+      setAgencies(data.agencies)
+    }).catch(console.error)
   }, [])
 
-  const handleTenantSelect = async (tenant) => {
-    setSelectedAdmin(tenant)
-    setError('')
-    if (tenant.role === 'super_admin') {
-      setSelectedUser(tenant)
-      setStep(STEPS.PASSWORD)
-    } else {
-      // agency admin — fetch their team
-      setFetchingUsers(true)
-      try {
-        const users = await api.getUsersByAgency(tenant.agency_id)
-        setAgencyUsers(users)
-      } catch {
-        setAgencyUsers([])
-      } finally {
-        setFetchingUsers(false)
-      }
-      setStep(STEPS.ADMIN_CHOICE)
-    }
-  }
-
-  const handleLoginAsAdmin = () => {
-    setSelectedUser(selectedAdmin)
+  const handleSuperAdminSelect = () => {
+    setSelectedUser(superAdmin)
     setPassword('')
     setError('')
     setStep(STEPS.PASSWORD)
   }
 
-  const handleTeamMemberSelect = (user) => {
+  const handleAgencySelect = async (agency) => {
+    setSelectedAgency(agency)
+    setError('')
+    setFetchingUsers(true)
+    try {
+      const users = await api.getUsersByAgency(agency.id)
+      setAgencyUsers(users)
+    } catch {
+      setAgencyUsers([])
+    } finally {
+      setFetchingUsers(false)
+    }
+    setStep(STEPS.AGENCY_USERS)
+  }
+
+  const handleUserSelect = (user) => {
     setSelectedUser(user)
     setPassword('')
     setError('')
@@ -85,11 +78,11 @@ export default function Login() {
   const handleBack = () => {
     setError('')
     setPassword('')
-    if (step === STEPS.PASSWORD && selectedAdmin?.role !== 'super_admin') {
-      setStep(STEPS.ADMIN_CHOICE)
+    if (step === STEPS.PASSWORD && selectedUser?.role !== 'super_admin') {
+      setStep(STEPS.AGENCY_USERS)
     } else {
-      setStep(STEPS.TENANT)
-      setSelectedAdmin(null)
+      setStep(STEPS.SELECT)
+      setSelectedAgency(null)
       setSelectedUser(null)
     }
   }
@@ -108,8 +101,8 @@ export default function Login() {
     }
   }
 
-  // ── Step 1: Tenant Selection ──────────────────────────────────────────────
-  if (step === STEPS.TENANT) {
+  // ── Step 1: Select super admin or agency ─────────────────────────────────
+  if (step === STEPS.SELECT) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 p-4">
         <div className="w-full max-w-3xl">
@@ -118,22 +111,44 @@ export default function Login() {
             <p className="text-muted-foreground">Select your organization to continue</p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {tenants.map((tenant) => (
+            {/* Super Admin card */}
+            {superAdmin && (
               <Card
-                key={tenant.id}
-                className="cursor-pointer hover:shadow-lg transition-all hover:scale-105"
-                onClick={() => handleTenantSelect(tenant)}
+                className="cursor-pointer hover:shadow-lg transition-all hover:scale-105 border-2 hover:border-purple-400"
+                onClick={handleSuperAdminSelect}
               >
                 <CardContent className="pt-6">
                   <div className="flex flex-col items-center text-center space-y-3">
-                    <div className={`p-4 rounded-full ${getRoleColor(tenant.role)} text-white`}>
-                      {getRoleIcon(tenant.role)}
+                    <div className="p-4 rounded-full bg-purple-600 text-white">
+                      <ShieldCheck className="h-7 w-7" />
                     </div>
                     <div>
-                      <h3 className="font-semibold text-lg">{tenant.full_name}</h3>
-                      <p className="text-sm text-muted-foreground">{tenant.email}</p>
+                      <h3 className="font-semibold text-lg">{superAdmin.full_name}</h3>
                       <span className="inline-block mt-2 px-3 py-1 text-xs font-medium rounded-full bg-secondary">
-                        {getRoleLabel(tenant.role)}
+                        Super Admin
+                      </span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Agency cards */}
+            {agencies.map((agency) => (
+              <Card
+                key={agency.id}
+                className="cursor-pointer hover:shadow-lg transition-all hover:scale-105 border-2 hover:border-blue-400"
+                onClick={() => handleAgencySelect(agency)}
+              >
+                <CardContent className="pt-6">
+                  <div className="flex flex-col items-center text-center space-y-3">
+                    <div className="p-4 rounded-full bg-blue-500 text-white">
+                      <Building2 className="h-7 w-7" />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-lg">{agency.name}</h3>
+                      <span className="inline-block mt-2 px-3 py-1 text-xs font-medium rounded-full bg-secondary">
+                        Agency
                       </span>
                     </div>
                   </div>
@@ -146,8 +161,8 @@ export default function Login() {
     )
   }
 
-  // ── Step 2b: Agency Admin Choice ─────────────────────────────────────────
-  if (step === STEPS.ADMIN_CHOICE) {
+  // ── Step 2: Agency users (admin + team members) ───────────────────────────
+  if (step === STEPS.AGENCY_USERS) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 p-4">
         <div className="w-full max-w-3xl">
@@ -155,87 +170,51 @@ export default function Login() {
             <ArrowLeft className="h-4 w-4" /> Back
           </button>
           <div className="text-center mb-8">
-            <div className={`inline-flex p-4 rounded-full ${getRoleColor(selectedAdmin.role)} text-white mb-3`}>
-              <Shield className="h-7 w-7" />
+            <div className="inline-flex p-4 rounded-full bg-blue-500 text-white mb-3">
+              <Building2 className="h-7 w-7" />
             </div>
-            <h2 className="text-2xl font-bold">{selectedAdmin.full_name}</h2>
-            <p className="text-muted-foreground text-sm mt-1">How would you like to continue?</p>
+            <h2 className="text-2xl font-bold">{selectedAgency.name}</h2>
+            <p className="text-muted-foreground text-sm mt-1">Select who you want to login as</p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
-            {/* Login as Admin */}
-            <Card className="cursor-pointer hover:shadow-lg transition-all hover:scale-105 border-2 hover:border-red-400" onClick={handleLoginAsAdmin}>
-              <CardContent className="pt-6">
-                <div className="flex flex-col items-center text-center space-y-3">
-                  <div className="p-4 rounded-full bg-red-500 text-white">
-                    <Shield className="h-7 w-7" />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-lg">Login as Admin</h3>
-                    <p className="text-sm text-muted-foreground mt-1">Access the admin dashboard</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Team member count card (decorative) */}
-            <Card className="border-2 border-dashed border-gray-200 bg-gray-50 dark:bg-gray-800">
-              <CardContent className="pt-6">
-                <div className="flex flex-col items-center text-center space-y-3">
-                  <div className="p-4 rounded-full bg-blue-100 text-blue-600">
-                    <Users className="h-7 w-7" />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-lg">Team Members</h3>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      {fetchingUsers ? 'Loading...' : `${agencyUsers.length} member${agencyUsers.length !== 1 ? 's' : ''} in your agency`}
-                    </p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Team members */}
-          {!fetchingUsers && agencyUsers.length > 0 && (
-            <>
-              <p className="text-sm font-medium text-muted-foreground mb-3">Or select a team member:</p>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {agencyUsers.map((user) => (
-                  <Card
-                    key={user.id}
-                    className="cursor-pointer hover:shadow-lg transition-all hover:scale-105"
-                    onClick={() => handleTeamMemberSelect(user)}
-                  >
-                    <CardContent className="pt-6">
-                      <div className="flex flex-col items-center text-center space-y-3">
-                        <div className={`p-3 rounded-full ${getRoleColor(user.role)} text-white`}>
-                          {getRoleIcon(user.role)}
-                        </div>
-                        <div>
-                          <h3 className="font-semibold">{user.full_name}</h3>
-                          <p className="text-xs text-muted-foreground">{user.email}</p>
-                          <span className="inline-block mt-2 px-2 py-1 text-xs font-medium rounded-full bg-secondary">
-                            {getRoleLabel(user.role)}
-                          </span>
-                        </div>
+          {fetchingUsers ? (
+            <div className="flex justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : agencyUsers.length === 0 ? (
+            <p className="text-center text-sm text-muted-foreground">No users found for this agency.</p>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {agencyUsers.map((user) => (
+                <Card
+                  key={user.id}
+                  className="cursor-pointer hover:shadow-lg transition-all hover:scale-105"
+                  onClick={() => handleUserSelect(user)}
+                >
+                  <CardContent className="pt-6">
+                    <div className="flex flex-col items-center text-center space-y-3">
+                      <div className={`p-4 rounded-full ${getRoleColor(user.role)} text-white`}>
+                        {getRoleIcon(user.role)}
                       </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            </>
-          )}
-
-          {!fetchingUsers && agencyUsers.length === 0 && (
-            <p className="text-center text-sm text-muted-foreground">No team members found for this agency.</p>
+                      <div>
+                        <h3 className="font-semibold text-lg">{user.full_name}</h3>
+                        <p className="text-sm text-muted-foreground">{user.email}</p>
+                        <span className="inline-block mt-2 px-3 py-1 text-xs font-medium rounded-full bg-secondary">
+                          {getRoleLabel(user.role)}
+                        </span>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
           )}
         </div>
       </div>
     )
   }
 
-  // ── Step 3: Password Entry ────────────────────────────────────────────────
+  // ── Step 3: Password entry ────────────────────────────────────────────────
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 p-4">
       <div className="w-full max-w-md">

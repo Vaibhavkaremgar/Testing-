@@ -230,12 +230,27 @@ def get_public_users(db: Session = Depends(get_db)):
     )).fetchall()
     return [{"id": r[0], "full_name": r[1], "email": r[2], "role": r[3], "agency_id": r[4]} for r in rows]
 
+@router.get("/login-screen")
+def get_login_screen(db: Session = Depends(get_db)):
+    """Return super_admin user + all active agencies for the login screen"""
+    from sqlalchemy import text
+    super_admin = db.execute(text(
+        "SELECT id, full_name, email, role::text FROM users WHERE is_active = true AND role::text = 'super_admin' LIMIT 1"
+    )).fetchone()
+    agencies = db.execute(text(
+        "SELECT id, name, slug FROM agencies WHERE is_active = true ORDER BY name"
+    )).fetchall()
+    return {
+        "super_admin": {"id": super_admin[0], "full_name": super_admin[1], "email": super_admin[2], "role": super_admin[3]} if super_admin else None,
+        "agencies": [{"id": r[0], "name": r[1], "slug": r[2]} for r in agencies]
+    }
+
 @router.get("/users/by-agency/{agency_id}")
 def get_users_by_agency(agency_id: int, db: Session = Depends(get_db)):
-    """Get non-admin users for a specific agency (no auth required)"""
+    """Get all users (admin + team members) for a specific agency"""
     from sqlalchemy import text
     rows = db.execute(text(
-        "SELECT id, full_name, email, role::text FROM users WHERE is_active = true AND agency_id = :agency_id AND role::text NOT IN ('super_admin', 'admin')"
+        "SELECT id, full_name, email, role::text FROM users WHERE is_active = true AND agency_id = :agency_id ORDER BY role::text, full_name"
     ), {"agency_id": agency_id}).fetchall()
     return [{"id": r[0], "full_name": r[1], "email": r[2], "role": r[3]} for r in rows]
 
