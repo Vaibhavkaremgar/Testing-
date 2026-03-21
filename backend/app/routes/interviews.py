@@ -256,23 +256,29 @@ def complete_interview(
         candidate.stage = CandidateStage.INTERVIEWED
         candidate.stage_updated_at = datetime.utcnow()
     
-    # Deduct 1 credit from admin wallet
-    from app.models import UserRole, WalletTransaction, TransactionType
-    admin = db.query(User).filter(User.role == UserRole.ADMIN).first()
+    # Deduct 1 credit from agency admin wallet
+    from app.models import UserRole, WalletTransaction, TransactionType, JobDescription
+    agency_id = None
+    if candidate and candidate.job_id:
+        job = db.query(JobDescription).filter(JobDescription.id == candidate.job_id).first()
+        if job:
+            agency_id = job.agency_id
+    admin = db.query(User).filter(
+        User.role == UserRole.ADMIN,
+        User.agency_id == agency_id
+    ).first()
     if admin:
         admin.wallet_balance = max(0, (admin.wallet_balance or 0) - 1)
-        debit_txn = WalletTransaction(
+        db.add(WalletTransaction(
             user_id=admin.id,
+            agency_id=agency_id,
             amount=1,
             transaction_type=TransactionType.DEBIT,
             description=f"Interview completed - Candidate ID {db_interview.candidate_id}",
             balance_after=admin.wallet_balance
-        )
-        db.add(debit_txn)
-    
+        ))
     db.commit()
-    
-    return {"message": "Interview completed and analyzed", "interview_id": interview_id}
+    return {"message": "Interview completed and analyzed", "interview_id": interview_id, "wallet_balance": admin.wallet_balance if admin else None}
 
 @router.post("/{interview_id}/results", response_model=InterviewResponse)
 def receive_interview_results(
@@ -295,6 +301,28 @@ def receive_interview_results(
     if candidate:
         candidate.stage = CandidateStage.INTERVIEWED
         candidate.stage_updated_at = datetime.utcnow()
+
+    # Deduct 1 credit from agency admin wallet
+    from app.models import UserRole, WalletTransaction, TransactionType, JobDescription
+    agency_id = None
+    if candidate and candidate.job_id:
+        job = db.query(JobDescription).filter(JobDescription.id == candidate.job_id).first()
+        if job:
+            agency_id = job.agency_id
+    admin = db.query(User).filter(
+        User.role == UserRole.ADMIN,
+        User.agency_id == agency_id
+    ).first()
+    if admin:
+        admin.wallet_balance = max(0, (admin.wallet_balance or 0) - 1)
+        db.add(WalletTransaction(
+            user_id=admin.id,
+            agency_id=agency_id,
+            amount=1,
+            transaction_type=TransactionType.DEBIT,
+            description=f"Interview completed - Candidate ID {db_interview.candidate_id}",
+            balance_after=admin.wallet_balance
+        ))
 
     db.commit()
     db.refresh(db_interview)

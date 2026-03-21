@@ -22,6 +22,7 @@ export default function WalletPage() {
   const [selectedUser, setSelectedUser] = useState('');
   const [manualCredits, setManualCredits] = useState('');
   const [manualLoading, setManualLoading] = useState(false);
+  const [showLowCreditModal, setShowLowCreditModal] = useState(false);
 
   const getStats = () => {
     const totalCredits = transactions
@@ -48,9 +49,9 @@ export default function WalletPage() {
       const response = await api.get('/wallet/balance');
       const bal = response.balance || 0;
       setBalance(bal);
-      if (user?.role === 'admin' && bal <= 20 && !sessionStorage.getItem('lowCreditAlertShown')) {
+      if (user?.role === 'admin' && bal <= 10 && !sessionStorage.getItem('lowCreditAlertShown')) {
         sessionStorage.setItem('lowCreditAlertShown', 'true');
-        alert(`⚠️ Low Credits Warning!\n\nYour wallet balance is only ${bal} credits.\nPlease recharge to continue using the services.`);
+        setShowLowCreditModal(true);
       }
     } catch (error) {
       console.error('Failed to fetch balance:', error);
@@ -167,6 +168,27 @@ Status: ${txn.status || 'completed'}
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold">Wallet</h1>
       </div>
+
+      {/* Low Credit Modal */}
+      {showLowCreditModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full mx-4">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="bg-yellow-100 p-2 rounded-full">
+                <Wallet className="h-6 w-6 text-yellow-600" />
+              </div>
+              <h2 className="text-lg font-bold text-gray-900">Low Credits Warning</h2>
+            </div>
+            <p className="text-gray-600 text-sm mb-4">
+              Your wallet balance is only <span className="font-bold text-red-600">{balance} credits</span>. Please recharge to continue using interview services.
+            </p>
+            <div className="flex gap-3">
+              <Button variant="outline" className="flex-1" onClick={() => setShowLowCreditModal(false)}>Dismiss</Button>
+              <Button className="flex-1" onClick={() => { setShowLowCreditModal(false); document.getElementById('creditAmount')?.focus(); }}>Recharge Now</Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Wallet Balance Card */}
       <Card className="bg-gradient-to-r from-blue-500 to-blue-600 text-white">
