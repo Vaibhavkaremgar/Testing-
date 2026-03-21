@@ -48,15 +48,30 @@ async def get_current_user(
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
-    
+
     token_data = verify_token(token)
     if token_data is None:
         raise credentials_exception
-    
-    user = db.query(User).filter(User.email == token_data.email).first()
-    if user is None:
+
+    from sqlalchemy import text
+    row = db.execute(text(
+        "SELECT id, email, full_name, role::text, is_active, agency_id, hashed_password, "
+        "phone, department, bio, avatar_url, last_login_at, wallet_balance, created_at, updated_at "
+        "FROM users WHERE email = :email LIMIT 1"
+    ), {"email": token_data.email}).fetchone()
+
+    if row is None:
         raise credentials_exception
-    
+
+    user = User(
+        id=row[0], email=row[1], full_name=row[2],
+        is_active=row[4], agency_id=row[5], hashed_password=row[6],
+        phone=row[7], department=row[8], bio=row[9],
+        avatar_url=row[10], last_login_at=row[11],
+        wallet_balance=row[12], created_at=row[13], updated_at=row[14]
+    )
+    from app.models import UserRole
+    user.role = UserRole(row[3])
     return user
 
 async def get_current_active_user(current_user: User = Depends(get_current_user)) -> User:
@@ -86,9 +101,23 @@ async def get_current_super_admin(current_user: User = Depends(get_current_activ
     return current_user
 
 def authenticate_user(db: Session, email: str, password: str) -> Optional[User]:
-    user = db.query(User).filter(User.email == email).first()
-    if not user:
+    from sqlalchemy import text
+    from app.models import UserRole
+    row = db.execute(text(
+        "SELECT id, email, full_name, role::text, is_active, agency_id, hashed_password, "
+        "phone, department, bio, avatar_url, last_login_at, wallet_balance, created_at, updated_at "
+        "FROM users WHERE email = :email LIMIT 1"
+    ), {"email": email}).fetchone()
+    if not row:
         return None
-    if not verify_password(password, user.hashed_password):
+    if not verify_password(password, row[6]):
         return None
+    user = User(
+        id=row[0], email=row[1], full_name=row[2],
+        is_active=row[4], agency_id=row[5], hashed_password=row[6],
+        phone=row[7], department=row[8], bio=row[9],
+        avatar_url=row[10], last_login_at=row[11],
+        wallet_balance=row[12], created_at=row[13], updated_at=row[14]
+    )
+    user.role = UserRole(row[3])
     return user
