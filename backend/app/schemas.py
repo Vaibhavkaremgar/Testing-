@@ -9,6 +9,14 @@ class AgencyCreate(BaseModel):
     slug: str
     is_active: bool = True
 
+class AgencyWithAdminCreate(BaseModel):
+    name: str
+    slug: str
+    is_active: bool = True
+    admin_full_name: str
+    admin_email: EmailStr
+    admin_password: str
+
 class AgencyUpdate(BaseModel):
     name: Optional[str] = None
     slug: Optional[str] = None

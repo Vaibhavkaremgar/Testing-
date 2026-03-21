@@ -2,9 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
 from app.database import get_db
-from app.models import Agency, User
-from app.schemas import AgencyCreate, AgencyUpdate, AgencyResponse
-from app.auth import get_current_super_admin
+from app.models import Agency, User, UserRole
+from app.schemas import AgencyWithAdminCreate, AgencyUpdate, AgencyResponse
+from app.auth import get_current_super_admin, get_password_hash
 
 router = APIRouter(prefix="/agencies", tags=["Agencies"])
 
@@ -31,15 +31,29 @@ def get_agency(
 
 @router.post("", response_model=AgencyResponse)
 def create_agency(
-    agency: AgencyCreate,
+    payload: AgencyWithAdminCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_super_admin)
 ):
-    existing = db.query(Agency).filter(Agency.slug == agency.slug).first()
-    if existing:
+    if db.query(Agency).filter(Agency.slug == payload.slug).first():
         raise HTTPException(status_code=400, detail="Agency slug already exists")
-    db_agency = Agency(**agency.model_dump())
+    if db.query(User).filter(User.email == payload.admin_email).first():
+        raise HTTPException(status_code=400, detail="Admin email already registered")
+
+    db_agency = Agency(name=payload.name, slug=payload.slug, is_active=payload.is_active)
     db.add(db_agency)
+    db.flush()  # get db_agency.id without committing
+
+    admin_user = User(
+        email=payload.admin_email,
+        hashed_password=get_password_hash(payload.admin_password),
+        full_name=payload.admin_full_name,
+        role=UserRole.ADMIN,
+        agency_id=db_agency.id,
+        wallet_balance=0,
+        is_active=True
+    )
+    db.add(admin_user)
     db.commit()
     db.refresh(db_agency)
     return db_agency

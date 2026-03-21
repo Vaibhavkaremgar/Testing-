@@ -5,7 +5,12 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Plus, Pencil, Trash2, X, Check } from 'lucide-react'
 
-const emptyForm = { name: '', slug: '', is_active: true }
+const emptyForm = {
+  name: '', slug: '', is_active: true,
+  admin_full_name: '', admin_email: '', admin_password: ''
+}
+
+const emptyEditForm = { name: '', slug: '', is_active: true }
 
 export default function Agencies() {
   const [agencies, setAgencies] = useState([])
@@ -46,14 +51,20 @@ export default function Agencies() {
 
   const handleSave = async () => {
     if (!form.name.trim() || !form.slug.trim()) {
-      setError('Name and slug are required')
+      setError('Agency name and slug are required')
       return
+    }
+    if (!editingId) {
+      if (!form.admin_full_name.trim() || !form.admin_email.trim() || !form.admin_password.trim()) {
+        setError('Admin name, email and password are required')
+        return
+      }
     }
     setSaving(true)
     setError('')
     try {
       if (editingId) {
-        await api.updateAgency(editingId, form)
+        await api.updateAgency(editingId, { name: form.name, slug: form.slug, is_active: form.is_active })
       } else {
         await api.createAgency(form)
       }
@@ -90,42 +101,82 @@ export default function Agencies() {
         </Button>
       </div>
 
-      {/* Create / Edit Form */}
       {showForm && (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">{editingId ? 'Edit Agency' : 'Create Agency'}</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-6">
             {error && <p className="text-sm text-destructive">{error}</p>}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-1">
-                <label className="text-sm font-medium">Agency Name</label>
-                <Input
-                  placeholder="e.g. Acme Recruitment"
-                  value={form.name}
-                  onChange={(e) => setForm({ ...form, name: e.target.value, slug: autoSlug(e.target.value) })}
-                />
+
+            {/* Agency Details */}
+            <div>
+              <p className="text-sm font-semibold mb-3 text-muted-foreground uppercase tracking-wide">Agency Details</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <label className="text-sm font-medium">Agency Name</label>
+                  <Input
+                    placeholder="e.g. Acme Recruitment"
+                    value={form.name}
+                    onChange={(e) => setForm({ ...form, name: e.target.value, slug: autoSlug(e.target.value) })}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-sm font-medium">Slug</label>
+                  <Input
+                    placeholder="e.g. acme-recruitment"
+                    value={form.slug}
+                    onChange={(e) => setForm({ ...form, slug: e.target.value })}
+                  />
+                </div>
               </div>
-              <div className="space-y-1">
-                <label className="text-sm font-medium">Slug</label>
-                <Input
-                  placeholder="e.g. acme-recruitment"
-                  value={form.slug}
-                  onChange={(e) => setForm({ ...form, slug: e.target.value })}
+              <div className="flex items-center gap-2 mt-3">
+                <input
+                  type="checkbox"
+                  id="is_active"
+                  checked={form.is_active}
+                  onChange={(e) => setForm({ ...form, is_active: e.target.checked })}
+                  className="h-4 w-4"
                 />
+                <label htmlFor="is_active" className="text-sm">Active</label>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                id="is_active"
-                checked={form.is_active}
-                onChange={(e) => setForm({ ...form, is_active: e.target.checked })}
-                className="h-4 w-4"
-              />
-              <label htmlFor="is_active" className="text-sm">Active</label>
-            </div>
+
+            {/* Admin User Details — only on create */}
+            {!editingId && (
+              <div>
+                <p className="text-sm font-semibold mb-3 text-muted-foreground uppercase tracking-wide">Admin User</p>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="space-y-1">
+                    <label className="text-sm font-medium">Full Name</label>
+                    <Input
+                      placeholder="e.g. John Smith"
+                      value={form.admin_full_name}
+                      onChange={(e) => setForm({ ...form, admin_full_name: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-sm font-medium">Email</label>
+                    <Input
+                      type="email"
+                      placeholder="e.g. admin@acme.com"
+                      value={form.admin_email}
+                      onChange={(e) => setForm({ ...form, admin_email: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-sm font-medium">Password</label>
+                    <Input
+                      type="password"
+                      placeholder="••••••••"
+                      value={form.admin_password}
+                      onChange={(e) => setForm({ ...form, admin_password: e.target.value })}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="flex gap-2">
               <Button onClick={handleSave} disabled={saving} className="gap-2">
                 <Check className="h-4 w-4" /> {saving ? 'Saving...' : 'Save'}

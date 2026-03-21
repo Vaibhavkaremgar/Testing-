@@ -5,7 +5,7 @@ import { api } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
-import { Loader2, User, Shield, ShieldCheck, ArrowLeft, Building2 } from 'lucide-react'
+import { Loader2, User, Shield, ShieldCheck, ArrowLeft, Building2, Users } from 'lucide-react'
 
 const STEPS = { SELECT: 'select', AGENCY_USERS: 'agency_users', PASSWORD: 'password' }
 
@@ -142,8 +142,10 @@ export default function Login() {
               >
                 <CardContent className="pt-6">
                   <div className="flex flex-col items-center text-center space-y-3">
-                    <div className="p-4 rounded-full bg-blue-500 text-white">
-                      <Building2 className="h-7 w-7" />
+                    <div className="p-4 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-md">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" />
+                      </svg>
                     </div>
                     <div>
                       <h3 className="font-semibold text-lg">{agency.name}</h3>
@@ -182,7 +184,13 @@ export default function Login() {
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
           ) : agencyUsers.length === 0 ? (
-            <p className="text-center text-sm text-muted-foreground">No users found for this agency.</p>
+            <div className="flex flex-col items-center py-12 text-center">
+              <div className="p-4 rounded-full bg-muted mb-4">
+                <Users className="h-8 w-8 text-muted-foreground" />
+              </div>
+              <p className="font-medium text-muted-foreground">No users registered yet</p>
+              <p className="text-sm text-muted-foreground mt-1">Contact your Super Admin to set up users for this agency.</p>
+            </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {agencyUsers.map((user) => (
