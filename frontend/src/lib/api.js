@@ -165,6 +165,10 @@ class ApiClient {
     return this.request('/auth/users/public')
   }
 
+  async getUsersByAgency(agencyId) {
+    return this.request(`/auth/users/by-agency/${agencyId}`)
+  }
+
   async getAllUsers() {
     return this.request('/auth/users')
   }

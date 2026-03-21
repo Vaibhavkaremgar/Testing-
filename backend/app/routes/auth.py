@@ -223,9 +223,20 @@ async def get_avatar(filename: str):
 # Admin endpoints
 @router.get("/users/public")
 def get_public_users(db: Session = Depends(get_db)):
-    """Get all users for selection screen (no auth required)"""
+    """Get super_admin and admin users only for tenant selection screen"""
     from sqlalchemy import text
-    rows = db.execute(text("SELECT id, full_name, email, role::text FROM users WHERE is_active = true")).fetchall()
+    rows = db.execute(text(
+        "SELECT id, full_name, email, role::text, agency_id FROM users WHERE is_active = true AND role::text IN ('super_admin', 'admin')"
+    )).fetchall()
+    return [{"id": r[0], "full_name": r[1], "email": r[2], "role": r[3], "agency_id": r[4]} for r in rows]
+
+@router.get("/users/by-agency/{agency_id}")
+def get_users_by_agency(agency_id: int, db: Session = Depends(get_db)):
+    """Get non-admin users for a specific agency (no auth required)"""
+    from sqlalchemy import text
+    rows = db.execute(text(
+        "SELECT id, full_name, email, role::text FROM users WHERE is_active = true AND agency_id = :agency_id AND role::text NOT IN ('super_admin', 'admin')"
+    ), {"agency_id": agency_id}).fetchall()
     return [{"id": r[0], "full_name": r[1], "email": r[2], "role": r[3]} for r in rows]
 
 @router.get("/users", response_model=List[UserResponse])
