@@ -168,20 +168,20 @@ def create_job(
         
         # Auto-create client if company_name is provided and doesn't exist
         if job.company_name:
-            from app.models import Client
-            existing_client = db.query(Client).filter(
-                Client.company_name == job.company_name
-            ).first()
-            
-            if not existing_client:
-                new_client = Client(
-                    company_name=job.company_name,
-                    total_positions=1,
-                    positions_open=1,
-                    is_active=True
-                )
-                db.add(new_client)
-                db.commit()
+            from sqlalchemy import text
+            existing = db.execute(text(
+                "SELECT id FROM clients WHERE company_name = :name LIMIT 1"
+            ), {"name": job.company_name}).fetchone()
+            if not existing:
+                try:
+                    db.execute(text(
+                        "INSERT INTO clients (company_name, total_positions, positions_filled, positions_open, is_active) "
+                        "VALUES (:name, 1, 0, 1, true)"
+                    ), {"name": job.company_name})
+                    db.commit()
+                except Exception as client_err:
+                    db.rollback()
+                    print(f"Client auto-create skipped: {client_err}")
         
         job_data = job.model_dump()
         

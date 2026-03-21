@@ -121,7 +121,7 @@ export default function Resumes() {
         const [candidatesData, jobsData, usersData] = await Promise.all([
           api.getCandidates({ limit: 1000 }),
           api.getJobs({ limit: 1000 }),
-          api.getPublicUsers()
+          api.getAllUsers().catch(() => [])
         ])
         console.log('Jobs data received:', jobsData)
         console.log('Jobs count:', jobsData?.length)
