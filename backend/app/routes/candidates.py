@@ -11,7 +11,6 @@ import tempfile
 import zipfile
 from datetime import datetime
 from app.database import get_db
-from app.email_utils import trigger_stage_automation
 from app.models import Candidate, CandidateStage, ParsingStatus, User
 from app.schemas import (
     CandidateCreate, CandidateUpdate, CandidateResponse, CandidateStageUpdate
@@ -20,19 +19,6 @@ from app.auth import get_current_active_user
 from app.config import settings
 
 router = APIRouter(prefix="/candidates", tags=["Candidates"])
-
-
-def apply_candidate_stage_change(db: Session, candidate: Candidate, new_stage: CandidateStage, trigger_source: str) -> None:
-    previous_stage = candidate.stage.value if candidate.stage else None
-    candidate.stage = new_stage
-    candidate.stage_updated_at = datetime.utcnow()
-    candidate.stage_entered_at = datetime.utcnow()
-    trigger_stage_automation(
-        db,
-        candidate=candidate,
-        previous_stage=previous_stage,
-        trigger_source=trigger_source,
-    )
 
 def generate_candidate_id(name: str, job_id: int = None) -> str:
     """Generate unique candidate ID: FirstName + JobID"""
@@ -1513,8 +1499,7 @@ def update_candidate(
     update_data = candidate_update.model_dump(exclude_unset=True)
     
     if "stage" in update_data:
-        new_stage = update_data.pop("stage")
-        apply_candidate_stage_change(db, db_candidate, new_stage, "candidate_update")
+        update_data["stage_updated_at"] = datetime.utcnow()
     
     for field, value in update_data.items():
         setattr(db_candidate, field, value)
@@ -1534,7 +1519,9 @@ def update_candidate_stage(
     if not db_candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
     
-    apply_candidate_stage_change(db, db_candidate, stage_update.stage, "stage_update")
+    db_candidate.stage = stage_update.stage
+    db_candidate.stage_updated_at = datetime.utcnow()
+    db_candidate.stage_entered_at = datetime.utcnow()
     
     db.commit()
     db.refresh(db_candidate)
@@ -2098,11 +2085,11 @@ def review_candidate(
     
     if action == "interview":
         candidate.review_status = ReviewStatus.INTERVIEW_INVITED
-        apply_candidate_stage_change(db, candidate, CandidateStage.INTERVIEW_SCHEDULED, "review")
+        candidate.stage = CandidateStage.INTERVIEW_SCHEDULED
         message = "Interview invitation sent"
     elif action == "reject":
         candidate.review_status = ReviewStatus.REJECTED
-        apply_candidate_stage_change(db, candidate, CandidateStage.REJECTED, "review")
+        candidate.stage = CandidateStage.REJECTED
         message = "Candidate rejected"
     else:
         raise HTTPException(status_code=400, detail="Invalid action. Use 'interview' or 'reject'")

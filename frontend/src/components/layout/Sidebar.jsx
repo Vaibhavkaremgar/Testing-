@@ -58,7 +58,6 @@ export function Sidebar() {
         { name: 'Clients', href: '/clients', icon: Building2 },
         { name: 'Analytics', href: '/analytics', icon: BarChart3 },
         { name: 'Communications', href: '/communications', icon: MessageSquare },
-        { name: 'Email Templates', href: '/email-templates', icon: Mail },
         { name: 'Wallet', href: '/wallet', icon: Wallet },
         { name: 'Settings', href: '/settings', icon: Settings },
         { name: 'Users', href: '/admin/users', icon: UserCog },

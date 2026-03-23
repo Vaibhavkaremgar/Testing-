@@ -214,17 +214,12 @@ class EmailTemplate(Base):
     __tablename__ = "email_templates"
 
     id = Column(Integer, primary_key=True, index=True)
-    agency_id = Column(UUID(as_uuid=True), ForeignKey("agencies.id"), nullable=True, index=True)
-    created_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     name = Column(String(255), nullable=False)
     subject = Column(String(500), nullable=False)
     body = Column(Text, nullable=False)
     template_type = Column(String(100))
     variables = Column(JSON)
     is_active = Column(Boolean, default=True)
-    automation_enabled = Column(Boolean, default=False)
-    trigger_stage = Column(String(100), nullable=True, index=True)
-    description = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -267,17 +262,10 @@ class EmailCommunication(Base):
     __tablename__ = "email_communications"
 
     id = Column(Integer, primary_key=True, index=True)
-    agency_id = Column(UUID(as_uuid=True), ForeignKey("agencies.id"), nullable=True, index=True)
     candidate_id = Column(UUID(as_uuid=True), ForeignKey("candidates.id"), nullable=False)
-    template_id = Column(Integer, ForeignKey("email_templates.id"), nullable=True)
     candidate_name = Column(String(255))
     candidate_email = Column(String(255))
     email_type = Column(String(100))
-    subject = Column(String(500), nullable=True)
-    body = Column(Text, nullable=True)
-    trigger_stage = Column(String(100), nullable=True)
-    trigger_source = Column(String(100), nullable=True)
-    error_message = Column(Text, nullable=True)
     status = Column(String(50), default="pending")
     sent_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())

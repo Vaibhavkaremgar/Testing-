@@ -605,23 +605,12 @@ class ApiClient {
   }
 
   // Email Templates
-  async getEmailTemplates(params = {}) {
-    const searchParams = new URLSearchParams()
-    Object.entries(params).forEach(([key, value]) => {
-      if (value !== undefined && value !== null && value !== '') {
-        searchParams.append(key, value)
-      }
-    })
-    const query = searchParams.toString()
-    return this.request(`/email-templates${query ? `?${query}` : ''}`)
+  async getEmailTemplates() {
+    return this.request('/email-templates')
   }
 
   async getEmailTemplate(id) {
     return this.request(`/email-templates/${id}`)
-  }
-
-  async getEmailTemplateMeta() {
-    return this.request('/email-templates/meta')
   }
 
   async createEmailTemplate(data) {
@@ -640,20 +629,6 @@ class ApiClient {
 
   async deleteEmailTemplate(id) {
     return this.request(`/email-templates/${id}`, { method: 'DELETE' })
-  }
-
-  async previewEmailTemplate(id, candidateId) {
-    return this.request(`/email-templates/${id}/preview`, {
-      method: 'POST',
-      body: JSON.stringify({ candidate_id: candidateId }),
-    })
-  }
-
-  async sendEmailTemplate(id, candidateId) {
-    return this.request(`/email-templates/${id}/send`, {
-      method: 'POST',
-      body: JSON.stringify({ candidate_id: candidateId }),
-    })
   }
 
   // Settings
