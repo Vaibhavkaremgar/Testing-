@@ -114,10 +114,10 @@ export default function Pricing() {
       {error && <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm">{error}</div>}
       {success && <div className="bg-green-50 border border-green-200 text-green-700 rounded-lg px-4 py-3 text-sm">{success}</div>}
 
-      {/* Form */}
       <AgencyCreditManager
-        title="Manual Agency Credits"
+        title="Add Credits"
         description="Superadmin can add credits directly to an agency admin wallet."
+        showHistoryTable
       />
 
       <div className="bg-card border rounded-xl p-6 shadow-sm">
@@ -191,7 +191,6 @@ export default function Pricing() {
         </form>
       </div>
 
-      {/* Discounts Table */}
       <div className="bg-card border rounded-xl shadow-sm overflow-hidden">
         <div className="px-6 py-4 border-b">
           <h2 className="text-base font-semibold">Active Discounts</h2>

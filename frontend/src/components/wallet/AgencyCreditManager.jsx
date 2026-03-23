@@ -4,7 +4,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Building2, Wallet } from 'lucide-react'
 
 export default function AgencyCreditManager({
   title = 'Add Credits to Agency',
@@ -12,14 +11,17 @@ export default function AgencyCreditManager({
   preselectedAgencyId = '',
   compact = false,
   onCreditsAdded,
+  showHistoryTable = false,
 }) {
   const [agencies, setAgencies] = useState([])
   const [selectedAgency, setSelectedAgency] = useState(preselectedAgencyId || '')
   const [creditAmount, setCreditAmount] = useState('')
   const [note, setNote] = useState('Credits added by super admin')
   const [agencyWallet, setAgencyWallet] = useState(null)
+  const [creditHistory, setCreditHistory] = useState([])
   const [loadingAgencies, setLoadingAgencies] = useState(true)
   const [loadingWallet, setLoadingWallet] = useState(false)
+  const [loadingHistory, setLoadingHistory] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -37,8 +39,16 @@ export default function AgencyCreditManager({
       setAgencyWallet(null)
       return
     }
-    fetchAgencyWallet(selectedAgency)
-  }, [selectedAgency])
+    if (!showHistoryTable) {
+      fetchAgencyWallet(selectedAgency)
+    }
+  }, [selectedAgency, showHistoryTable])
+
+  useEffect(() => {
+    if (showHistoryTable) {
+      fetchCreditHistory()
+    }
+  }, [showHistoryTable])
 
   async function fetchAgencies() {
     setLoadingAgencies(true)
@@ -63,6 +73,20 @@ export default function AgencyCreditManager({
       setError(err.message || 'Failed to load agency wallet')
     } finally {
       setLoadingWallet(false)
+    }
+  }
+
+  async function fetchCreditHistory() {
+    setLoadingHistory(true)
+    try {
+      const response = await api.get('/wallet/agency-admin-credit-history')
+      setCreditHistory(Array.isArray(response) ? response : [])
+      setError('')
+    } catch (err) {
+      setCreditHistory([])
+      setError(err.message || 'Failed to load credit history')
+    } finally {
+      setLoadingHistory(false)
     }
   }
 
@@ -105,7 +129,11 @@ export default function AgencyCreditManager({
       flash('success', `Added ${creditAmount} credits to ${response.agency_name || 'the agency'} admin wallet`)
       setCreditAmount('')
       setNote('Credits added by super admin')
-      await fetchAgencyWallet(selectedAgency)
+      if (showHistoryTable) {
+        await fetchCreditHistory()
+      } else {
+        await fetchAgencyWallet(selectedAgency)
+      }
       onCreditsAdded?.(response)
     } catch (err) {
       flash('error', err.message || 'Failed to add credits')
@@ -173,32 +201,55 @@ export default function AgencyCreditManager({
           </Button>
         </form>
 
-        {selectedAgency && (
+        {showHistoryTable ? (
+          <div className="overflow-hidden rounded-xl border">
+            <div className="border-b bg-muted/30 px-4 py-3">
+              <h3 className="text-sm font-semibold">Credit History</h3>
+              <p className="text-xs text-muted-foreground">All agency admin credit transactions</p>
+            </div>
+
+            {loadingHistory ? (
+              <div className="px-4 py-6 text-sm text-muted-foreground">Loading credit history...</div>
+            ) : creditHistory.length === 0 ? (
+              <div className="px-4 py-6 text-sm text-muted-foreground">No credit transactions found yet.</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/20">
+                    <tr>
+                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">Date</th>
+                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">Agency Name</th>
+                      <th className="px-4 py-3 text-left font-medium text-muted-foreground">Credits Added</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {creditHistory.map((item) => (
+                      <tr key={item.id} className="hover:bg-muted/20">
+                        <td className="px-4 py-3">{new Date(item.created_at).toLocaleDateString()}</td>
+                        <td className="px-4 py-3 font-medium">{item.agency_name}</td>
+                        <td className="px-4 py-3">{item.amount}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        ) : selectedAgency && (
           <div className="rounded-xl border bg-muted/20 p-4">
             {loadingWallet ? (
               <div className="text-sm text-muted-foreground">Loading agency wallet...</div>
             ) : agencyWallet?.admin ? (
               <div className={compact ? 'space-y-3' : 'grid grid-cols-1 md:grid-cols-2 gap-4'}>
-                <div className="flex items-start gap-3">
-                  <div className="rounded-full bg-primary/10 p-2">
-                    <Building2 className="h-4 w-4 text-primary" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium">{agencyWallet.agency?.name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      Admin: {agencyWallet.admin.full_name} ({agencyWallet.admin.email})
-                    </p>
-                  </div>
+                <div>
+                  <p className="text-sm font-medium">{agencyWallet.agency?.name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    Admin: {agencyWallet.admin.full_name} ({agencyWallet.admin.email})
+                  </p>
                 </div>
-
-                <div className="flex items-start gap-3">
-                  <div className="rounded-full bg-blue-100 p-2">
-                    <Wallet className="h-4 w-4 text-blue-600" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium">{agencyWallet.admin.wallet_balance} credits</p>
-                    <p className="text-xs text-muted-foreground">Current admin wallet balance</p>
-                  </div>
+                <div>
+                  <p className="text-sm font-medium">{agencyWallet.admin.wallet_balance} credits</p>
+                  <p className="text-xs text-muted-foreground">Current admin wallet balance</p>
                 </div>
               </div>
             ) : (

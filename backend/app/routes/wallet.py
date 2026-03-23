@@ -57,7 +57,7 @@ def get_transactions(
     transactions = db.query(WalletTransaction).filter(
         WalletTransaction.user_id == current_user.id
     ).order_by(WalletTransaction.created_at.desc()).all()
-    
+
     return [
         {
             "id": t.id,
@@ -77,8 +77,8 @@ def add_credits(
     current_user: User = Depends(get_current_active_user)
 ):
     """Add credits to a user or agency admin wallet"""
-    if current_user.role not in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
-        raise HTTPException(status_code=403, detail="Only admins can add credits")
+    if current_user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only super admins can add credits")
 
     if not request.user_id and not request.agency_id:
         raise HTTPException(status_code=400, detail="Either user_id or agency_id is required")
@@ -91,20 +91,14 @@ def add_credits(
 
     if request.agency_id:
         agency, user = _get_agency_admin(db, request.agency_id)
-        if current_user.role == UserRole.ADMIN and current_user.agency_id != request.agency_id:
-            raise HTTPException(status_code=403, detail="You can only add credits within your agency")
     elif request.user_id:
         user = db.query(User).filter(User.id == request.user_id).first()
-        if current_user.role == UserRole.ADMIN and user and user.agency_id != current_user.agency_id:
-            raise HTTPException(status_code=403, detail="You can only add credits within your agency")
 
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    # Update balance
     user.wallet_balance = (user.wallet_balance or 0) + request.amount
 
-    # Create transaction record
     transaction = WalletTransaction(
         agency_id=agency.id if agency else user.agency_id,
         user_id=user.id,
@@ -115,7 +109,7 @@ def add_credits(
     )
     db.add(transaction)
     db.commit()
-    
+
     return {
         "success": True,
         "agency_id": str(agency.id) if agency else (str(user.agency_id) if user.agency_id else None),
@@ -169,6 +163,37 @@ def get_agency_admin_wallet(
             for t in transactions
         ]
     }
+
+
+@router.get("/agency-admin-credit-history")
+def get_agency_admin_credit_history(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Get all agency admin credit transactions for super admin pricing history"""
+    if current_user.role != UserRole.SUPER_ADMIN:
+        raise HTTPException(status_code=403, detail="Only super admins can view agency credit history")
+
+    transactions = db.query(WalletTransaction, User, Agency).join(
+        User, WalletTransaction.user_id == User.id
+    ).outerjoin(
+        Agency, WalletTransaction.agency_id == Agency.id
+    ).filter(
+        WalletTransaction.transaction_type == TransactionType.CREDIT,
+        User.role == UserRole.ADMIN
+    ).order_by(WalletTransaction.created_at.desc()).all()
+
+    return [
+        {
+            "id": txn.id,
+            "created_at": txn.created_at.isoformat(),
+            "agency_id": str(agency.id) if agency else (str(user.agency_id) if user.agency_id else None),
+            "agency_name": agency.name if agency else "Unknown Agency",
+            "amount": txn.amount,
+            "description": txn.description,
+        }
+        for txn, user, agency in transactions
+    ]
 
 @router.get("/all-users")
 def get_all_users_wallets(

@@ -21,10 +21,6 @@ export default function WalletPage({ superAdminAgencyId = null }) {
   const [selectedPayment, setSelectedPayment] = useState(null);
   const [creditAmount, setCreditAmount] = useState('');
   const [loading, setLoading] = useState(false);
-  const [allUsers, setAllUsers] = useState([]);
-  const [selectedUser, setSelectedUser] = useState('');
-  const [manualCredits, setManualCredits] = useState('');
-  const [manualLoading, setManualLoading] = useState(false);
   const [showLowCreditModal, setShowLowCreditModal] = useState(false);
   const [discount, setDiscount] = useState(null);
   const [agencyWalletData, setAgencyWalletData] = useState(null);
@@ -58,7 +54,6 @@ export default function WalletPage({ superAdminAgencyId = null }) {
     fetchBalance();
     fetchTransactions();
     if (isAdmin) {
-      fetchAllUsers();
       fetchDiscount();
     }
   }, [user, superAdminAgencyId]);
@@ -122,37 +117,6 @@ export default function WalletPage({ superAdminAgencyId = null }) {
     } catch (error) {
       console.error('Failed to fetch transactions:', error);
       setTransactions([]);
-    }
-  };
-
-  const fetchAllUsers = async () => {
-    try {
-      const response = await api.get('/wallet/all-users');
-      setAllUsers(Array.isArray(response) ? response : []);
-    } catch (error) {
-      console.error('Failed to fetch users:', error);
-    }
-  };
-
-  const handleAddCreditsManually = async () => {
-    if (!selectedUser) return alert('Please select a user');
-    if (!manualCredits || manualCredits <= 0) return alert('Please enter a valid credit amount');
-    setManualLoading(true);
-    try {
-      await api.post('/wallet/add-credits', {
-        user_id: selectedUser,
-        amount: parseInt(manualCredits),
-        description: 'Manual credit by admin'
-      });
-      alert(`Successfully added ${manualCredits} credits!`);
-      setSelectedUser('');
-      setManualCredits('');
-      fetchBalance();
-      fetchTransactions();
-    } catch (error) {
-      alert('Failed to add credits: ' + error.message);
-    } finally {
-      setManualLoading(false);
     }
   };
 
@@ -303,46 +267,6 @@ Status: ${txn.status || 'completed'}
           </CardContent>
         </Card>
       </div>
-
-      {/* Admin: Add Credits Manually */}
-      {isAdmin && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Add Credits Manually</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {/*<div>
-              <Label>Select User</Label>
-              <select
-                value={selectedUser}
-                onChange={(e) => setSelectedUser(e.target.value)}
-                className="mt-2 w-full border rounded-md px-3 py-2 text-sm bg-background"
-              >
-                <option value="">-- Select a user --</option>
-                {allUsers.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.full_name} ({u.email})
-                  </option>
-                ))}
-              </select>
-            </div>*/}
-            <div>
-              <Label>Credits to Add</Label>
-              <Input
-                type="number"
-                placeholder="Enter credits"
-                value={manualCredits}
-                onChange={(e) => setManualCredits(e.target.value)}
-                min="1"
-                className="mt-2"
-              />
-            </div>
-            <Button onClick={handleAddCreditsManually} disabled={manualLoading} className="w-full">
-              {manualLoading ? 'Adding...' : 'Add Credits'}
-            </Button>
-          </CardContent>
-        </Card>
-      )}
 
       {isSuperAdmin && (
         <AgencyCreditManager
