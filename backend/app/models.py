@@ -294,6 +294,21 @@ class UserDashboardPreference(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class AgencyDiscount(Base):
+    __tablename__ = "agency_discounts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    agency_id = Column(UUID(as_uuid=True), ForeignKey("agencies.id"), nullable=False, unique=True)
+    discount_type = Column(String(20), nullable=False)  # 'percentage' or 'amount'
+    discount_value = Column(Float, nullable=False)
+    currency = Column(String(10), default='USD')
+    set_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    agency = relationship("Agency", foreign_keys=[agency_id])
+
+
 class WalletTransaction(Base):
     __tablename__ = "wallet_transactions"
 
