@@ -5,7 +5,7 @@ from uuid import UUID
 from app.database import get_db
 from app.models import Agency, User, UserRole
 from app.schemas import AgencyWithAdminCreate, AgencyUpdate, AgencyResponse
-from app.auth import get_current_super_admin, get_password_hash
+from app.auth import get_current_super_admin, get_current_active_user, get_password_hash
 
 router = APIRouter(prefix="/agencies", tags=["Agencies"])
 
@@ -16,6 +16,16 @@ def get_agencies(
     current_user: User = Depends(get_current_super_admin)
 ):
     return db.query(Agency).order_by(Agency.name).all()
+
+
+@router.get("/list")
+def list_agencies_for_auth_users(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """All active agencies — accessible to any authenticated user (used in dropdowns)"""
+    agencies = db.query(Agency).order_by(Agency.name).all()
+    return [{"id": str(a.id), "name": a.name} for a in agencies]
 
 
 @router.get("/{agency_id}", response_model=AgencyResponse)

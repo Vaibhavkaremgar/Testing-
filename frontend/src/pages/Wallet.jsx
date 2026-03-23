@@ -23,6 +23,7 @@ export default function WalletPage() {
   const [manualCredits, setManualCredits] = useState('');
   const [manualLoading, setManualLoading] = useState(false);
   const [showLowCreditModal, setShowLowCreditModal] = useState(false);
+  const [discount, setDiscount] = useState(null);
 
   const getStats = () => {
     const totalCredits = transactions
@@ -41,8 +42,34 @@ export default function WalletPage() {
   useEffect(() => {
     fetchBalance();
     fetchTransactions();
-    if (user?.role === 'admin') fetchAllUsers();
+    if (user?.role === 'admin') {
+      fetchAllUsers();
+      fetchDiscount();
+    }
   }, [user]);
+
+  const fetchDiscount = async () => {
+    if (!user?.agency_id) return;
+    try {
+      const res = await api.get(`/pricing/discounts/agency/${user.agency_id}`);
+      setDiscount(res || null);
+    } catch {
+      setDiscount(null);
+    }
+  };
+
+  const getDiscountedAmount = (amount) => {
+    if (!discount || !amount || isNaN(amount)) return null;
+    const original = parseFloat(amount);
+    if (discount.discount_type === 'percentage') {
+      const discountAmt = (original * discount.discount_value) / 100;
+      return { original, discountAmt, final: original - discountAmt, label: `${discount.discount_value}% off` };
+    } else {
+      const discountAmt = Math.min(discount.discount_value, original);
+      const sym = discount.currency === 'INR' ? '₹' : '$';
+      return { original, discountAmt, final: original - discountAmt, label: `${sym}${discount.discount_value} off` };
+    }
+  };
 
   const fetchBalance = async () => {
     try {
@@ -301,6 +328,32 @@ Status: ${txn.status || 'completed'}
                 You will get {creditAmount} credits ($1 per credit)
               </p>
             )}
+
+            {/* Discount Breakdown */}
+            {(() => {
+              const calc = getDiscountedAmount(creditAmount);
+              if (!calc) return null;
+              const sym = discount?.currency === 'INR' ? '₹' : '$';
+              return (
+                <div className="mt-3 border rounded-lg p-4 bg-green-50 dark:bg-green-900/20 space-y-2">
+                  <p className="text-xs font-semibold text-green-700 dark:text-green-400 mb-1">
+                    🎉 You have a special discount of {calc.label} on credit purchases
+                  </p>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Original Amount</span>
+                    <span>{sym}{calc.original.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm text-green-600 dark:text-green-400">
+                    <span>Discount ({calc.label})</span>
+                    <span>- {sym}{calc.discountAmt.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm font-bold border-t pt-2">
+                    <span>Amount to Pay</span>
+                    <span>{sym}{calc.final.toFixed(2)}</span>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
 
           <div>

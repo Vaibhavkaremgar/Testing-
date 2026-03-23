@@ -27,7 +27,7 @@ export default function Pricing() {
     setLoading(true)
     try {
       const [agencyRes, discountRes] = await Promise.all([
-        api.get('/agencies'),
+        api.get('/agencies/list'),
         api.get('/pricing/discounts'),
       ])
       setAgencies(agencyRes.data || [])
