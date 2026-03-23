@@ -384,7 +384,7 @@ Status: ${txn.status || 'completed'}
       {/* Transaction History */}
       <Card>
         <CardHeader>
-          <CardTitle>{isSuperAdmin ? 'Agency Admin Transaction History' : 'Transaction History'}</CardTitle>
+          <CardTitle>{isSuperAdmin ? 'Agency Admin Transaction History' : 'Credits History'}</CardTitle>
         </CardHeader>
         <CardContent>
           {isSuperAdmin && !superAdminAgencyId ? (
