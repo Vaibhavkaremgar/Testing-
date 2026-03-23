@@ -943,10 +943,10 @@ def get_candidates_count(
     query = db.query(Candidate)
     if current_user.role == UserRole.SUPER_ADMIN:
         if agency_id:
-            query = query.join(JobDescription, Candidate.job_id == JobDescription.id).filter(JobDescription.agency_id == agency_id)
+            query = query.filter(Candidate.agency_id == agency_id)
         # else: no filter — sees all
     elif current_user.role == UserRole.ADMIN and current_user.agency_id:
-        query = query.join(JobDescription, Candidate.job_id == JobDescription.id).filter(JobDescription.agency_id == current_user.agency_id)
+        query = query.filter(Candidate.agency_id == current_user.agency_id)
     elif current_user.role != UserRole.ADMIN:
         query = query.filter(Candidate.assigned_to_user_id == current_user.id)
     if client:
@@ -978,9 +978,9 @@ def get_candidates(
     query = db.query(Candidate)
 
     if agency_id and current_user.role == UserRole.SUPER_ADMIN:
-        query = query.join(JobDescription, Candidate.job_id == JobDescription.id).filter(JobDescription.agency_id == agency_id)
+        query = query.filter(Candidate.agency_id == agency_id)
     elif current_user.role == UserRole.ADMIN and current_user.agency_id:
-        query = query.join(JobDescription, Candidate.job_id == JobDescription.id).filter(JobDescription.agency_id == current_user.agency_id)
+        query = query.filter(Candidate.agency_id == current_user.agency_id)
     elif current_user.role != UserRole.ADMIN:
         query = query.filter(Candidate.assigned_to_user_id == current_user.id)
     
@@ -1299,13 +1299,14 @@ async def bulk_upload_resumes(
                 name=name,
                 email=email,
                 phone=phone,
-                skills=extracted_skills,  # Use extracted skills
+                skills=extracted_skills,
                 resume_file_path=file_path,
-                resume_text=full_text,  # Store full text
-                candidate_id=candidate_id,  # Store generated ID
+                resume_text=full_text,
+                candidate_id=candidate_id,
                 job_id=job_id,
+                agency_id=current_user.agency_id,
                 created_by=current_user.id,
-                assigned_to_user_id=current_user.id,  # Auto-assign to uploader
+                assigned_to_user_id=current_user.id,
                 parsing_status=ParsingStatus.PROCESSING,
                 score_threshold=threshold
             )
@@ -1421,13 +1422,14 @@ async def zip_upload_resumes(
                             name=name,
                             email=email,
                             phone=phone,
-                            skills=extracted_skills,  # Use extracted skills
+                            skills=extracted_skills,
                             resume_file_path=file_path,
-                            resume_text=full_text,  # Store full text
-                            candidate_id=candidate_id,  # Store generated ID
+                            resume_text=full_text,
+                            candidate_id=candidate_id,
                             job_id=job_id,
+                            agency_id=current_user.agency_id,
                             created_by=current_user.id,
-                            assigned_to_user_id=current_user.id,  # Auto-assign to uploader
+                            assigned_to_user_id=current_user.id,
                             parsing_status=ParsingStatus.PROCESSING,
                             score_threshold=threshold
                         )
@@ -1811,7 +1813,7 @@ def get_pipeline_stages(
         if current_user.role == UserRole.SUPER_ADMIN:
             pass  # sees all candidates
         elif current_user.role == UserRole.ADMIN and current_user.agency_id:
-            query = query.join(JobDescription, Candidate.job_id == JobDescription.id).filter(JobDescription.agency_id == current_user.agency_id)
+            query = query.filter(Candidate.agency_id == current_user.agency_id)
         else:
             query = query.filter(Candidate.assigned_to_user_id == current_user.id)
         if client:
