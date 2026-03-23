@@ -3,7 +3,7 @@ Auto-migration script - runs on startup
 """
 from sqlalchemy import inspect, text
 from app.database import engine
-from app.models import AnalyticsWidget, UserDashboardPreference, Agency, WalletTransaction, AgencyDiscount
+from app.models import AnalyticsWidget, UserDashboardPreference, Agency, WalletTransaction, AgencyDiscount, NotificationWorkflowToken
 
 
 def run_migrations():
@@ -68,6 +68,62 @@ def run_migrations():
                 AgencyDiscount.__table__.create(bind=engine, checkfirst=True)
                 conn.commit()
                 print("Migration completed: agency_discounts created")
+
+            # email_templates table/columns
+            if "email_templates" not in get_tables():
+                print("Running migration: creating email_templates table...")
+                from app.models import EmailTemplate
+                EmailTemplate.__table__.create(bind=engine, checkfirst=True)
+                conn.commit()
+                print("Migration completed: email_templates created")
+            else:
+                email_template_columns = get_columns("email_templates")
+                email_template_additions = {
+                    "agency_id": "ALTER TABLE email_templates ADD COLUMN agency_id UUID",
+                    "created_by_user_id": "ALTER TABLE email_templates ADD COLUMN created_by_user_id UUID",
+                    "status": "ALTER TABLE email_templates ADD COLUMN status VARCHAR(100) DEFAULT 'resume_shortlisted'",
+                    "description": "ALTER TABLE email_templates ADD COLUMN description TEXT",
+                    "is_html": "ALTER TABLE email_templates ADD COLUMN is_html BOOLEAN DEFAULT TRUE",
+                    "is_default": "ALTER TABLE email_templates ADD COLUMN is_default BOOLEAN DEFAULT FALSE",
+                }
+                for column_name, statement in email_template_additions.items():
+                    if column_name not in email_template_columns:
+                        print(f"Running migration: adding email_templates.{column_name}...")
+                        conn.execute(text(statement))
+                        conn.commit()
+                        print(f"Migration completed: email_templates.{column_name} added")
+
+            # email_communications table/columns
+            if "email_communications" not in get_tables():
+                print("Running migration: creating email_communications table...")
+                from app.models import EmailCommunication
+                EmailCommunication.__table__.create(bind=engine, checkfirst=True)
+                conn.commit()
+                print("Migration completed: email_communications created")
+            else:
+                email_communication_columns = get_columns("email_communications")
+                email_communication_additions = {
+                    "agency_id": "ALTER TABLE email_communications ADD COLUMN agency_id UUID",
+                    "template_id": "ALTER TABLE email_communications ADD COLUMN template_id INTEGER",
+                    "subject": "ALTER TABLE email_communications ADD COLUMN subject VARCHAR(500)",
+                    "body": "ALTER TABLE email_communications ADD COLUMN body TEXT",
+                    "placeholder_payload": "ALTER TABLE email_communications ADD COLUMN placeholder_payload JSON",
+                    "workflow_token": "ALTER TABLE email_communications ADD COLUMN workflow_token VARCHAR(255)",
+                    "provider_message_id": "ALTER TABLE email_communications ADD COLUMN provider_message_id VARCHAR(255)",
+                    "error_message": "ALTER TABLE email_communications ADD COLUMN error_message TEXT",
+                }
+                for column_name, statement in email_communication_additions.items():
+                    if column_name not in email_communication_columns:
+                        print(f"Running migration: adding email_communications.{column_name}...")
+                        conn.execute(text(statement))
+                        conn.commit()
+                        print(f"Migration completed: email_communications.{column_name} added")
+
+            if "notification_workflow_tokens" not in get_tables():
+                print("Running migration: creating notification_workflow_tokens table...")
+                NotificationWorkflowToken.__table__.create(bind=engine, checkfirst=True)
+                conn.commit()
+                print("Migration completed: notification_workflow_tokens created")
 
     except Exception as e:
         print(f"Migration warning: {e}")

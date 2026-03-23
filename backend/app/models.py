@@ -47,6 +47,18 @@ class TransactionType(str, enum.Enum):
     DEBIT = "debit"
 
 
+class NotificationDeliveryStatus(str, enum.Enum):
+    PENDING = "pending"
+    QUEUED = "queued"
+    SENT = "sent"
+    FAILED = "failed"
+
+
+class WorkflowTokenType(str, enum.Enum):
+    SLOT_SELECTION = "slot_selection"
+    INTERVIEW_ACCESS = "interview_access"
+
+
 class Agency(Base):
     __tablename__ = "agencies"
 
@@ -214,11 +226,17 @@ class EmailTemplate(Base):
     __tablename__ = "email_templates"
 
     id = Column(Integer, primary_key=True, index=True)
+    agency_id = Column(UUID(as_uuid=True), ForeignKey("agencies.id"), nullable=True, index=True)
+    created_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     name = Column(String(255), nullable=False)
+    status = Column(String(100), nullable=False, index=True)
     subject = Column(String(500), nullable=False)
     body = Column(Text, nullable=False)
-    template_type = Column(String(100))
+    template_type = Column(String(100), nullable=True)
     variables = Column(JSON)
+    description = Column(Text, nullable=True)
+    is_html = Column(Boolean, default=True)
+    is_default = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
@@ -262,13 +280,39 @@ class EmailCommunication(Base):
     __tablename__ = "email_communications"
 
     id = Column(Integer, primary_key=True, index=True)
+    agency_id = Column(UUID(as_uuid=True), ForeignKey("agencies.id"), nullable=True, index=True)
     candidate_id = Column(UUID(as_uuid=True), ForeignKey("candidates.id"), nullable=False)
+    template_id = Column(Integer, ForeignKey("email_templates.id"), nullable=True)
     candidate_name = Column(String(255))
     candidate_email = Column(String(255))
     email_type = Column(String(100))
-    status = Column(String(50), default="pending")
+    subject = Column(String(500), nullable=True)
+    body = Column(Text, nullable=True)
+    placeholder_payload = Column(JSON, nullable=True)
+    workflow_token = Column(String(255), nullable=True)
+    provider_message_id = Column(String(255), nullable=True)
+    error_message = Column(Text, nullable=True)
+    status = Column(String(50), default=NotificationDeliveryStatus.PENDING.value)
     sent_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class NotificationWorkflowToken(Base):
+    __tablename__ = "notification_workflow_tokens"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    agency_id = Column(UUID(as_uuid=True), ForeignKey("agencies.id"), nullable=True, index=True)
+    candidate_id = Column(UUID(as_uuid=True), ForeignKey("candidates.id"), nullable=True, index=True)
+    job_id = Column(UUID(as_uuid=True), ForeignKey("job_descriptions.id"), nullable=True, index=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True)
+    token = Column(String(255), nullable=False, unique=True, index=True)
+    token_type = Column(String(100), nullable=False, index=True)
+    payload = Column(JSON, nullable=False)
+    is_active = Column(Boolean, default=True)
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    consumed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
 
 class AnalyticsWidget(Base):

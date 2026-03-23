@@ -239,29 +239,80 @@ class InterviewResponse(InterviewBase):
 # Email Template Schemas
 class EmailTemplateBase(BaseModel):
     name: str
+    status: str
     subject: str
     body: str
-    template_type: str
+    template_type: Optional[str] = None
     variables: Optional[List[str]] = None
+    description: Optional[str] = None
+    is_html: bool = True
 
 class EmailTemplateCreate(EmailTemplateBase):
-    pass
+    agency_id: Optional[UUID] = None
+    is_default: bool = False
 
 class EmailTemplateUpdate(BaseModel):
     name: Optional[str] = None
+    status: Optional[str] = None
     subject: Optional[str] = None
     body: Optional[str] = None
     template_type: Optional[str] = None
     variables: Optional[List[str]] = None
+    description: Optional[str] = None
+    is_html: Optional[bool] = None
+    is_default: Optional[bool] = None
     is_active: Optional[bool] = None
 
 class EmailTemplateResponse(EmailTemplateBase):
     id: int
+    agency_id: Optional[UUID] = None
+    is_default: bool
     is_active: bool
     created_at: datetime
     
     class Config:
         from_attributes = True
+
+class EmailTemplatePreviewRequest(BaseModel):
+    agency_id: Optional[UUID] = None
+    status: str
+    candidate_id: Optional[UUID] = None
+    user_id: Optional[UUID] = None
+    payload: Optional[dict[str, Any]] = None
+
+class EmailTemplatePreviewResponse(BaseModel):
+    subject: str
+    body: str
+    payload: dict[str, Any]
+    template_id: Optional[int] = None
+    used_default_template: bool = False
+
+class NotificationEventRequest(BaseModel):
+    candidate_id: UUID
+    status: str
+    user_id: Optional[UUID] = None
+    payload: Optional[dict[str, Any]] = None
+
+class NotificationEventResponse(BaseModel):
+    queued: bool
+    candidate_id: UUID
+    status: str
+    template_id: Optional[int] = None
+    communication_id: Optional[int] = None
+    workflow_token: Optional[str] = None
+
+class SlotSelectionSubmitRequest(BaseModel):
+    interview_date: str
+    interview_time: str
+    timezone: Optional[str] = None
+    notes: Optional[str] = None
+
+class WorkflowTokenResolveResponse(BaseModel):
+    token_type: str
+    payload: dict[str, Any]
+    expires_at: Optional[datetime] = None
+    consumed_at: Optional[datetime] = None
+    is_active: bool
 
 # Analytics Schemas
 class DashboardStats(BaseModel):
@@ -343,9 +394,17 @@ class EmailCommunicationUpdate(BaseModel):
 class EmailCommunicationResponse(BaseModel):
     id: int
     candidate_id: UUID
+    agency_id: Optional[UUID] = None
+    template_id: Optional[int] = None
     candidate_name: Optional[str] = None
     candidate_email: Optional[str] = None
     email_type: str
+    subject: Optional[str] = None
+    body: Optional[str] = None
+    placeholder_payload: Optional[dict[str, Any]] = None
+    workflow_token: Optional[str] = None
+    provider_message_id: Optional[str] = None
+    error_message: Optional[str] = None
     status: str
     sent_at: Optional[datetime] = None
     created_at: datetime

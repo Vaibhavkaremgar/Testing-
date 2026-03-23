@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status, UploadFile, File, Query
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, text
@@ -12,6 +12,7 @@ import zipfile
 from datetime import datetime
 from app.database import get_db
 from app.models import Candidate, CandidateStage, ParsingStatus, User
+from app.notification_service import queue_notification_for_stage, send_email_task
 from app.schemas import (
     CandidateCreate, CandidateUpdate, CandidateResponse, CandidateStageUpdate
 )
@@ -19,6 +20,28 @@ from app.auth import get_current_active_user
 from app.config import settings
 
 router = APIRouter(prefix="/candidates", tags=["Candidates"])
+
+
+def enqueue_stage_notification(
+    background_tasks: BackgroundTasks,
+    db: Session,
+    candidate: Candidate,
+    stage_value: str,
+    user_id=None,
+    extra_payload: Optional[dict] = None,
+):
+    try:
+        notification = queue_notification_for_stage(
+            db,
+            candidate=candidate,
+            stage_value=stage_value,
+            user_id=user_id,
+            extra_payload=extra_payload,
+        )
+        if notification:
+            background_tasks.add_task(send_email_task, notification["communication_id"])
+    except Exception as exc:
+        print(f"Notification enqueue failed for stage {stage_value}: {exc}")
 
 def generate_candidate_id(name: str, job_id: int = None) -> str:
     """Generate unique candidate ID: FirstName + JobID"""
@@ -738,7 +761,13 @@ def extract_skills_from_job_text(job_text: str) -> list:
     
     return list(skills)
 
-def simulate_resume_parsing(candidate: Candidate, db: Session, ai_analysis: dict = None):
+def simulate_resume_parsing(
+    candidate: Candidate,
+    db: Session,
+    background_tasks: Optional[BackgroundTasks] = None,
+    ai_analysis: dict = None,
+    user_id=None,
+):
     """Resume parsing with AI scoring, stage assignment, and auto-email for shortlisted"""
     
     candidate.parsing_status = ParsingStatus.COMPLETED
@@ -929,6 +958,51 @@ def generate_interview_questions(resume_text: str, job_title: str, skills: list)
     # Return top 5 questions
     return "\n".join([f"{i+1}. {q}" for i, q in enumerate(questions[:5])])
 
+
+def simulate_resume_parsing(
+    candidate: Candidate,
+    db: Session,
+    background_tasks: Optional[BackgroundTasks] = None,
+    ai_analysis: dict = None,
+    user_id=None,
+):
+    """Override legacy parser flow with stage assignment and secure notification enqueueing."""
+    candidate.parsing_status = ParsingStatus.COMPLETED
+
+    if ai_analysis:
+        score = ai_analysis.get('match_score', 0)
+        if score == 0 and candidate.resume_text and len(candidate.resume_text.strip()) > 100:
+            score = 45
+
+        candidate.resume_score = score
+        candidate.summary = ai_analysis.get('candidate_summary', '')
+
+        if candidate.resume_text and candidate.job_id:
+            try:
+                from app.models import JobDescription
+                job = db.query(JobDescription).filter(JobDescription.id == candidate.job_id).first()
+                if job:
+                    candidate.predefined_questions = generate_interview_questions(candidate.resume_text, job.title, candidate.skills or [])
+            except Exception as exc:
+                print(f"Question generation failed: {exc}")
+
+        threshold = candidate.score_threshold or 60
+        if score >= threshold:
+            candidate.stage = CandidateStage.SHORTLISTED
+        elif score >= (threshold - 10):
+            candidate.stage = CandidateStage.REVIEW
+        else:
+            candidate.stage = CandidateStage.RESUME_REJECTED
+    else:
+        candidate.resume_score = 40
+        candidate.stage = CandidateStage.REVIEW if candidate.job_id else CandidateStage.APPLIED
+
+    db.commit()
+    db.refresh(candidate)
+
+    if background_tasks and candidate.stage in [CandidateStage.SHORTLISTED, CandidateStage.RESUME_REJECTED]:
+        enqueue_stage_notification(background_tasks, db, candidate, candidate.stage.value, user_id=user_id)
+
 @router.get("/count")
 def get_candidates_count(
     search: Optional[str] = None,
@@ -1079,6 +1153,7 @@ def get_candidate(
 @router.post("", response_model=CandidateResponse)
 def create_candidate(
     candidate: CandidateCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -1092,7 +1167,7 @@ def create_candidate(
     db.refresh(db_candidate)
     
     # Simulate resume parsing
-    simulate_resume_parsing(db_candidate, db)
+    simulate_resume_parsing(db_candidate, db, background_tasks=background_tasks, user_id=current_user.id)
     
     return db_candidate
 
@@ -1101,6 +1176,7 @@ async def upload_resume(
     file: UploadFile = File(...),
     job_id: Optional[UUID] = Query(None),
     threshold: Optional[float] = Query(60),
+    background_tasks: BackgroundTasks = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -1226,7 +1302,7 @@ async def upload_resume(
         db.refresh(db_candidate)
         
         # Perform AI analysis and set score/stage
-        simulate_resume_parsing(db_candidate, db, ai_analysis)
+        simulate_resume_parsing(db_candidate, db, background_tasks=background_tasks, ai_analysis=ai_analysis, user_id=current_user.id)
         
         return {"message": "Resume analyzed successfully", "candidate_id": db_candidate.id}
         
@@ -1241,6 +1317,7 @@ async def bulk_upload_resumes(
     files: List[UploadFile] = File(...),
     job_id: Optional[UUID] = Query(None),
     threshold: Optional[float] = Query(60),
+    background_tasks: BackgroundTasks = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -1347,7 +1424,7 @@ async def bulk_upload_resumes(
             }
             ai_analysis = analyze_resume_with_ai(analysis_data, job_data)
             
-            simulate_resume_parsing(db_candidate, db, ai_analysis)
+            simulate_resume_parsing(db_candidate, db, background_tasks=background_tasks, ai_analysis=ai_analysis, user_id=current_user.id)
             
             results.append({"filename": file.filename, "status": "success", "candidate_id": db_candidate.id})
         except Exception as e:
@@ -1360,6 +1437,7 @@ async def zip_upload_resumes(
     file: UploadFile = File(...),
     job_id: Optional[UUID] = Query(None),
     threshold: Optional[float] = Query(60),
+    background_tasks: BackgroundTasks = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -1471,7 +1549,7 @@ async def zip_upload_resumes(
                         ai_analysis = analyze_resume_with_ai(analysis_data, job_data)
                         
                         # Simulate resume parsing with AI analysis
-                        simulate_resume_parsing(db_candidate, db, ai_analysis)
+                        simulate_resume_parsing(db_candidate, db, background_tasks=background_tasks, ai_analysis=ai_analysis, user_id=current_user.id)
                         
                         results.append({"filename": file_info.filename, "status": "success", "candidate_id": db_candidate.id})
                     except Exception as e:
@@ -1489,6 +1567,7 @@ async def zip_upload_resumes(
 def update_candidate(
     candidate_id: UUID,
     candidate_update: CandidateUpdate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -1506,12 +1585,15 @@ def update_candidate(
     
     db.commit()
     db.refresh(db_candidate)
+    if "stage" in update_data:
+        enqueue_stage_notification(background_tasks, db, db_candidate, db_candidate.stage.value, user_id=current_user.id)
     return db_candidate
 
 @router.patch("/{candidate_id}/stage", response_model=CandidateResponse)
 def update_candidate_stage(
     candidate_id: UUID,
     stage_update: CandidateStageUpdate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -1525,6 +1607,7 @@ def update_candidate_stage(
     
     db.commit()
     db.refresh(db_candidate)
+    enqueue_stage_notification(background_tasks, db, db_candidate, db_candidate.stage.value, user_id=current_user.id)
     return db_candidate
 
 
@@ -2066,6 +2149,7 @@ def assign_candidate_to_user(
 def review_candidate(
     candidate_id: UUID,
     review_data: dict,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -2099,6 +2183,7 @@ def review_candidate(
     
     db.commit()
     db.refresh(candidate)
+    enqueue_stage_notification(background_tasks, db, candidate, candidate.stage.value, user_id=current_user.id)
     
     return {"message": message, "candidate_id": candidate.id, "review_status": candidate.review_status.value}
 

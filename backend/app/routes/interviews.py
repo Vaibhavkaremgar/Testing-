@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime
@@ -6,6 +6,7 @@ from uuid import UUID
 import random
 from app.database import get_db
 from app.models import Interview, Candidate, CandidateStage, User
+from app.notification_service import queue_notification_for_stage, send_email_task
 from app.schemas import InterviewCreate, InterviewUpdate, InterviewResponse, InterviewResultsUpdate
 from app.auth import get_current_active_user
 
@@ -148,6 +149,7 @@ def get_interview(
 @router.post("/public", response_model=InterviewResponse)
 def create_interview_public(
     interview: InterviewCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db)
 ):
     """Public endpoint - no auth required. Create an interview record."""
@@ -161,6 +163,13 @@ def create_interview_public(
     candidate.stage_updated_at = datetime.utcnow()
     db.commit()
     db.refresh(db_interview)
+    try:
+        result = queue_notification_for_stage(db, candidate=candidate, stage_value=CandidateStage.INTERVIEW_SCHEDULED.value)
+        db.commit()
+        if result:
+            background_tasks.add_task(send_email_task, result["communication_id"])
+    except Exception as exc:
+        print(f"Failed to queue interview invitation: {exc}")
 
     return InterviewResponse(
         id=db_interview.id,
@@ -185,6 +194,7 @@ def create_interview_public(
 @router.post("", response_model=InterviewResponse)
 def create_interview(
     interview: InterviewCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -202,6 +212,19 @@ def create_interview(
     
     db.commit()
     db.refresh(db_interview)
+    try:
+        result = queue_notification_for_stage(
+            db,
+            candidate=candidate,
+            stage_value=CandidateStage.INTERVIEW_SCHEDULED.value,
+            user_id=current_user.id,
+            extra_payload={"meeting_link": db_interview.meeting_link or ""},
+        )
+        db.commit()
+        if result:
+            background_tasks.add_task(send_email_task, result["communication_id"])
+    except Exception as exc:
+        print(f"Failed to queue interview invitation: {exc}")
     
     interview_dict = {
         "id": db_interview.id,
