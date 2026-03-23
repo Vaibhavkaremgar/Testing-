@@ -19,7 +19,8 @@ import {
   User as UserIcon,
   ClipboardList,
   Wallet,
-  ShieldCheck
+  ShieldCheck,
+  Tag
 } from 'lucide-react'
 
 export function Sidebar() {
@@ -41,6 +42,7 @@ export function Sidebar() {
         { name: 'Interviews', href: '/super-admin/interviews', icon: Video },
         { name: 'Clients', href: '/super-admin/clients', icon: Building2 },
         { name: 'Users', href: '/super-admin/users', icon: UserCog },
+        { name: 'Pricing', href: '/super-admin/pricing', icon: Tag },
       ]
     }
 
