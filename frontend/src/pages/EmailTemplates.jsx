@@ -1,242 +1,622 @@
-import { useState, useEffect } from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { useEffect, useMemo, useState } from 'react'
+import { useAuth } from '@/context/AuthContext'
+import { api } from '@/lib/api'
+import { useToast } from '@/hooks/use-toast'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import { api } from '@/lib/api'
-import { Plus, Mail, Edit, Trash2, Copy } from 'lucide-react'
+import { Textarea } from '@/components/ui/textarea'
+import { Switch } from '@/components/ui/switch'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import {
+  Eye,
+  Mail,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Save,
+  Sparkles,
+} from 'lucide-react'
+
+const EMPTY_FORM = {
+  name: '',
+  status: '',
+  subject: '',
+  body: '',
+  description: '',
+  variables: [],
+  is_html: true,
+  is_active: true,
+}
+
+const PREVIEW_PAYLOAD_TEMPLATE = `{
+  "candidate_name": "Ava Johnson",
+  "candidate_id": "CAND-001",
+  "job_id": "JOB-101",
+  "job_title": "Senior AI Recruiter",
+  "job_role": "AI Recruiter",
+  "job_description": "Lead AI-driven recruitment workflows and candidate experience.",
+  "skills": "FastAPI, React, Screening, Stakeholder Management",
+  "resume_text": "8 years in technical recruitment with ML hiring specialization.",
+  "agency_id": "agency-demo",
+  "user_id": "user-demo",
+  "slot_link": "https://example.com/slot-selection?token=demo",
+  "meeting_link": "https://example.com/interview-room?token=demo",
+  "interview_date": "2026-03-28",
+  "interview_time": "14:30"
+}`
 
 export default function EmailTemplates() {
-  const [templates, setTemplates] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [dialogOpen, setDialogOpen] = useState(false)
-  const [editingTemplate, setEditingTemplate] = useState(null)
-  const [formData, setFormData] = useState({
-    name: '',
-    subject: '',
-    body: '',
-    template_type: 'general',
-    variables: ''
-  })
+  const { user } = useAuth()
+  const { toast } = useToast()
+  const isAdmin = user?.role === 'admin'
+  const isSuperAdmin = user?.role === 'super_admin'
+  const canManage = isAdmin || isSuperAdmin
 
-  const fetchTemplates = async () => {
-    try {
-      const data = await api.getEmailTemplates()
-      setTemplates(data)
-    } catch (error) {
-      console.error('Failed to fetch templates:', error)
-    } finally {
-      setLoading(false)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [previewLoading, setPreviewLoading] = useState(false)
+  const [templates, setTemplates] = useState([])
+  const [meta, setMeta] = useState({ statuses: [], placeholders: [], can_manage: false })
+  const [agencies, setAgencies] = useState([])
+  const [selectedStatus, setSelectedStatus] = useState('all')
+  const [selectedAgencyId, setSelectedAgencyId] = useState('')
+  const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false)
+  const [editingTemplateId, setEditingTemplateId] = useState(null)
+  const [formData, setFormData] = useState(EMPTY_FORM)
+  const [previewStatus, setPreviewStatus] = useState('')
+  const [previewPayload, setPreviewPayload] = useState(PREVIEW_PAYLOAD_TEMPLATE)
+  const [previewResult, setPreviewResult] = useState(null)
+
+  const effectiveAgencyId = useMemo(() => {
+    if (isSuperAdmin) {
+      return selectedAgencyId || undefined
     }
-  }
+    return user?.agency_id || undefined
+  }, [isSuperAdmin, selectedAgencyId, user?.agency_id])
+
+  const filteredTemplates = useMemo(() => {
+    if (selectedStatus === 'all') {
+      return templates
+    }
+    return templates.filter((template) => template.status === selectedStatus)
+  }, [selectedStatus, templates])
 
   useEffect(() => {
-    fetchTemplates()
+    loadInitialData()
   }, [])
 
-  const handleSubmit = async (e) => {
-    e.preventDefault()
+  useEffect(() => {
+    if (!loading) {
+      loadTemplates()
+    }
+  }, [selectedAgencyId])
+
+  const loadInitialData = async () => {
     try {
-      const templateData = {
-        ...formData,
-        variables: formData.variables.split(',').map(s => s.trim()).filter(Boolean)
+      const [metaResponse, agencyResponse] = await Promise.all([
+        api.getEmailTemplateMeta(),
+        isSuperAdmin ? api.getAgencies() : Promise.resolve([]),
+      ])
+
+      setMeta(metaResponse)
+      setPreviewStatus(metaResponse.statuses?.[0] || '')
+      setFormData((current) => ({
+        ...current,
+        status: current.status || metaResponse.statuses?.[0] || '',
+        variables: current.variables?.length ? current.variables : metaResponse.placeholders || [],
+      }))
+
+      if (isSuperAdmin) {
+        setAgencies(agencyResponse || [])
       }
-      
-      if (editingTemplate) {
-        await api.updateEmailTemplate(editingTemplate.id, templateData)
-      } else {
-        await api.createEmailTemplate(templateData)
-      }
-      
-      setDialogOpen(false)
-      setEditingTemplate(null)
-      setFormData({ name: '', subject: '', body: '', template_type: 'general', variables: '' })
-      await fetchTemplates()
     } catch (error) {
-      console.error('Failed to save template:', error)
+      toast({
+        title: 'Failed to load email settings',
+        description: error.message || 'Please try again.',
+        variant: 'destructive',
+      })
+    } finally {
+      setLoading(false)
+      loadTemplates()
     }
   }
 
-  const handleEdit = (template) => {
-    setEditingTemplate(template)
+  const loadTemplates = async () => {
+    try {
+      const data = await api.getEmailTemplates({
+        agency_id: effectiveAgencyId,
+      })
+      setTemplates(data)
+    } catch (error) {
+      toast({
+        title: 'Failed to load templates',
+        description: error.message || 'Please try again.',
+        variant: 'destructive',
+      })
+    }
+  }
+
+  const openCreateDialog = () => {
+    setEditingTemplateId(null)
     setFormData({
-      name: template.name,
-      subject: template.subject,
-      body: template.body,
-      template_type: template.template_type,
-      variables: template.variables?.join(', ') || ''
+      ...EMPTY_FORM,
+      status: meta.statuses?.[0] || '',
+      variables: meta.placeholders || [],
     })
-    setDialogOpen(true)
+    setIsDialogOpen(true)
   }
 
-  const handleDelete = async (id) => {
-    if (confirm('Are you sure you want to delete this template?')) {
-      try {
-        await api.deleteEmailTemplate(id)
-        await fetchTemplates()
-      } catch (error) {
-        console.error('Failed to delete template:', error)
+  const openEditDialog = (template) => {
+    setEditingTemplateId(template.id)
+    setFormData({
+      name: template.name || '',
+      status: template.status || '',
+      subject: template.subject || '',
+      body: template.body || '',
+      description: template.description || '',
+      variables: template.variables || [],
+      is_html: template.is_html ?? true,
+      is_active: template.is_active ?? true,
+    })
+    setIsDialogOpen(true)
+  }
+
+  const handleSave = async (event) => {
+    event.preventDefault()
+
+    if (!formData.name.trim() || !formData.status || !formData.subject.trim() || !formData.body.trim()) {
+      toast({
+        title: 'Missing required fields',
+        description: 'Name, status, subject, and body are required.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    setSaving(true)
+    try {
+      const payload = {
+        ...formData,
+        agency_id: effectiveAgencyId,
+        variables: meta.placeholders || [],
       }
+
+      if (editingTemplateId) {
+        await api.updateEmailTemplate(editingTemplateId, payload)
+      } else {
+        await api.createEmailTemplate(payload)
+      }
+
+      toast({
+        title: editingTemplateId ? 'Template updated' : 'Template created',
+        description: 'The email template is ready to use.',
+      })
+
+      setIsDialogOpen(false)
+      setEditingTemplateId(null)
+      await loadTemplates()
+    } catch (error) {
+      toast({
+        title: 'Could not save template',
+        description: error.message || 'Please try again.',
+        variant: 'destructive',
+      })
+    } finally {
+      setSaving(false)
     }
   }
 
-  const getTypeColor = (type) => {
-    const colors = {
-      interview_invite: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
-      offer: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
-      rejection: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
-      application_received: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300',
-      general: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
+  const handlePreview = async () => {
+    if (!previewStatus) {
+      toast({
+        title: 'Choose a status',
+        description: 'Select a recruitment status before previewing.',
+        variant: 'destructive',
+      })
+      return
     }
-    return colors[type] || colors.general
+
+    let parsedPayload = {}
+    try {
+      parsedPayload = previewPayload.trim() ? JSON.parse(previewPayload) : {}
+    } catch {
+      toast({
+        title: 'Invalid preview payload',
+        description: 'Preview payload must be valid JSON.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    setPreviewLoading(true)
+    try {
+      const result = await api.previewEmailTemplate({
+        agency_id: effectiveAgencyId,
+        status: previewStatus,
+        payload: parsedPayload,
+        user_id: user?.id,
+      })
+      setPreviewResult(result)
+      setIsPreviewOpen(true)
+    } catch (error) {
+      toast({
+        title: 'Preview failed',
+        description: error.message || 'Please try again.',
+        variant: 'destructive',
+      })
+    } finally {
+      setPreviewLoading(false)
+    }
+  }
+
+  const getTemplateScopeLabel = (template) => {
+    if (template.is_default) {
+      return 'Default'
+    }
+    return template.agency_id ? 'Agency' : 'Shared'
   }
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      <div className="flex h-full items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-primary"></div>
+      </div>
+    )
+  }
+
+  if (!canManage || meta.can_manage === false) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold">Email Customization</h1>
+          <p className="text-muted-foreground">Template management is available for admins.</p>
+        </div>
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-sm text-muted-foreground">
+              Your account can view recruitment data, but email template management is restricted.
+            </p>
+          </CardContent>
+        </Card>
       </div>
     )
   }
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Email Templates</h1>
-          <p className="text-muted-foreground">Manage email templates for candidate communication</p>
+          <h1 className="text-2xl font-bold">Email Customization</h1>
+          <p className="text-muted-foreground">
+            Manage status-based notification templates with secure placeholder rendering.
+          </p>
         </div>
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger asChild>
-            <Button onClick={() => {
-              setEditingTemplate(null)
-              setFormData({ name: '', subject: '', body: '', template_type: 'general', variables: '' })
-            }}>
-              <Plus className="h-4 w-4 mr-2" />
-              Add Template
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>{editingTemplate ? 'Edit Template' : 'Create New Template'}</DialogTitle>
-            </DialogHeader>
-            <form onSubmit={handleSubmit} className="space-y-4 mt-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Template Name *</label>
-                  <Input
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Type</label>
-                  <select
-                    className="flex h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
-                    value={formData.template_type}
-                    onChange={(e) => setFormData({ ...formData, template_type: e.target.value })}
-                  >
-                    <option value="general">General</option>
-                    <option value="interview_invite">Interview Invitation</option>
-                    <option value="offer">Offer Letter</option>
-                    <option value="rejection">Rejection</option>
-                    <option value="application_received">Application Received</option>
-                  </select>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Subject *</label>
-                <Input
-                  value={formData.subject}
-                  onChange={(e) => setFormData({ ...formData, subject: e.target.value })}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Body *</label>
-                <textarea
-                  className="flex min-h-[200px] w-full rounded-lg border border-input bg-background px-3 py-2 text-sm font-mono"
-                  value={formData.body}
-                  onChange={(e) => setFormData({ ...formData, body: e.target.value })}
-                  required
-                />
-                <p className="text-xs text-muted-foreground">
-                  Use {'{{variable_name}}'} for dynamic content
-                </p>
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Variables (comma-separated)</label>
-                <Input
-                  value={formData.variables}
-                  onChange={(e) => setFormData({ ...formData, variables: e.target.value })}
-                  placeholder="candidate_name, job_title, interview_date"
-                />
-              </div>
-              <div className="flex justify-end gap-2">
-                <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
-                  Cancel
-                </Button>
-                <Button type="submit">
-                  {editingTemplate ? 'Update' : 'Create'} Template
-                </Button>
-              </div>
-            </form>
-          </DialogContent>
-        </Dialog>
+        <div className="flex flex-col gap-3 sm:flex-row">
+          {isSuperAdmin && (
+            <Select value={selectedAgencyId || 'all'} onValueChange={(value) => setSelectedAgencyId(value === 'all' ? '' : value)}>
+              <SelectTrigger className="w-full sm:w-[240px]">
+                <SelectValue placeholder="Choose agency" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All agencies</SelectItem>
+                {agencies.map((agency) => (
+                  <SelectItem key={agency.id} value={agency.id}>
+                    {agency.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          <Button variant="outline" onClick={loadTemplates}>
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Refresh
+          </Button>
+          <Button onClick={openCreateDialog}>
+            <Plus className="mr-2 h-4 w-4" />
+            New Template
+          </Button>
+        </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        {templates.map((template) => (
-          <Card key={template.id}>
-            <CardHeader className="pb-3">
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 rounded-lg bg-primary/10">
-                    <Mail className="h-5 w-5 text-primary" />
-                  </div>
-                  <div>
-                    <CardTitle className="text-base">{template.name}</CardTitle>
-                    <Badge className={getTypeColor(template.template_type)}>
-                      {template.template_type.replace('_', ' ')}
-                    </Badge>
-                  </div>
-                </div>
-                <div className="flex gap-1">
-                  <Button variant="ghost" size="icon" onClick={() => handleEdit(template)}>
-                    <Edit className="h-4 w-4" />
-                  </Button>
-                  <Button variant="ghost" size="icon" onClick={() => handleDelete(template.id)}>
-                    <Trash2 className="h-4 w-4 text-destructive" />
-                  </Button>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-3">
+      <div className="grid gap-6 xl:grid-cols-[1.6fr,1fr]">
+        <Card>
+          <CardHeader className="gap-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div>
-                <p className="text-xs text-muted-foreground mb-1">Subject</p>
-                <p className="text-sm font-medium">{template.subject}</p>
+                <CardTitle>Templates</CardTitle>
+                <CardDescription>
+                  Each recruitment status can have an agency-specific template, with default fallback support.
+                </CardDescription>
               </div>
-              <div>
-                <p className="text-xs text-muted-foreground mb-1">Preview</p>
-                <p className="text-sm text-muted-foreground line-clamp-3">
-                  {template.body}
+              <Select value={selectedStatus} onValueChange={setSelectedStatus}>
+                <SelectTrigger className="w-full md:w-[240px]">
+                  <SelectValue placeholder="Filter by status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All statuses</SelectItem>
+                  {meta.statuses.map((status) => (
+                    <SelectItem key={status} value={status}>
+                      {status}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {filteredTemplates.length === 0 && (
+              <div className="rounded-lg border border-dashed p-8 text-center">
+                <p className="text-sm font-medium">No templates found for this scope.</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Create an agency template or switch filters to inspect defaults.
                 </p>
               </div>
-              {template.variables?.length > 0 && (
-                <div className="flex flex-wrap gap-1">
-                  {template.variables.map((variable) => (
-                    <Badge key={variable} variant="outline" className="text-xs font-mono">
-                      {'{{'}{variable}{'}}'}
-                    </Badge>
-                  ))}
+            )}
+
+            {filteredTemplates.map((template) => (
+              <div key={template.id} className="rounded-xl border p-4">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="font-semibold">{template.name}</h3>
+                      <Badge variant="outline">{template.status}</Badge>
+                      <Badge variant={template.is_active ? 'default' : 'secondary'}>
+                        {template.is_active ? 'Active' : 'Inactive'}
+                      </Badge>
+                      <Badge variant="secondary">{getTemplateScopeLabel(template)}</Badge>
+                    </div>
+                    <p className="text-sm text-muted-foreground">{template.description || 'No description added yet.'}</p>
+                    <div>
+                      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Subject</p>
+                      <p className="mt-1 text-sm">{template.subject}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Body Preview</p>
+                      <div className="mt-1 max-h-24 overflow-hidden whitespace-pre-wrap text-sm text-muted-foreground">
+                        {template.body}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={() => openEditDialog(template)}>
+                      <Pencil className="mr-2 h-4 w-4" />
+                      Edit
+                    </Button>
+                  </div>
                 </div>
-              )}
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+
+        <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Sparkles className="h-5 w-5 text-primary" />
+                Supported Placeholders
+              </CardTitle>
+              <CardDescription>
+                These variables can be used in your subject or body. The backend replaces them securely at send time.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex flex-wrap gap-2">
+              {meta.placeholders.map((placeholder) => (
+                <Badge key={placeholder} variant="outline" className="font-mono text-xs">
+                  {placeholder}
+                </Badge>
+              ))}
             </CardContent>
           </Card>
-        ))}
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Eye className="h-5 w-5 text-primary" />
+                Preview Renderer
+              </CardTitle>
+              <CardDescription>
+                Test a status against sample payload data and see the rendered result before sending.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label>Recruitment Status</Label>
+                <Select value={previewStatus} onValueChange={setPreviewStatus}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Choose a status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {meta.statuses.map((status) => (
+                      <SelectItem key={status} value={status}>
+                        {status}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Preview Payload JSON</Label>
+                <Textarea
+                  className="min-h-[260px] font-mono text-xs"
+                  value={previewPayload}
+                  onChange={(event) => setPreviewPayload(event.target.value)}
+                />
+              </div>
+              <Button className="w-full" onClick={handlePreview} disabled={previewLoading}>
+                {previewLoading ? 'Rendering Preview...' : 'Render Preview'}
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
       </div>
+
+      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{editingTemplateId ? 'Edit Email Template' : 'Create Email Template'}</DialogTitle>
+            <DialogDescription>
+              Build a recruitment-status template for {isSuperAdmin ? 'the selected agency scope' : 'your agency'}.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleSave} className="space-y-5">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="template-name">Template Name</Label>
+                <Input
+                  id="template-name"
+                  value={formData.name}
+                  onChange={(event) => setFormData({ ...formData, name: event.target.value })}
+                  placeholder="Shortlisted Candidate Email"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Status</Label>
+                <Select value={formData.status} onValueChange={(value) => setFormData({ ...formData, status: value })}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {meta.statuses.map((status) => (
+                      <SelectItem key={status} value={status}>
+                        {status}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="template-description">Description</Label>
+              <Input
+                id="template-description"
+                value={formData.description}
+                onChange={(event) => setFormData({ ...formData, description: event.target.value })}
+                placeholder="Used when a resume passes AI screening."
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="template-subject">Subject</Label>
+              <Input
+                id="template-subject"
+                value={formData.subject}
+                onChange={(event) => setFormData({ ...formData, subject: event.target.value })}
+                placeholder="Your profile is shortlisted for {{job_title}}"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="template-body">Body</Label>
+              <Textarea
+                id="template-body"
+                className="min-h-[260px] whitespace-pre-wrap font-mono text-sm"
+                value={formData.body}
+                onChange={(event) => setFormData({ ...formData, body: event.target.value })}
+                placeholder={`Hi {{candidate_name}},\n\nWe are pleased to move you forward for {{job_title}}.\nUse this slot link: {{slot_link}}`}
+              />
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="flex items-center justify-between rounded-lg border p-4">
+                <div>
+                  <p className="text-sm font-medium">Send as HTML</p>
+                  <p className="text-xs text-muted-foreground">Enable HTML formatting for branded emails.</p>
+                </div>
+                <Switch
+                  checked={formData.is_html}
+                  onCheckedChange={(checked) => setFormData({ ...formData, is_html: checked })}
+                />
+              </div>
+              <div className="flex items-center justify-between rounded-lg border p-4">
+                <div>
+                  <p className="text-sm font-medium">Template Active</p>
+                  <p className="text-xs text-muted-foreground">Inactive templates stay stored but should not be used.</p>
+                </div>
+                <Switch
+                  checked={formData.is_active}
+                  onCheckedChange={(checked) => setFormData({ ...formData, is_active: checked })}
+                />
+              </div>
+            </div>
+
+            <div className="rounded-lg bg-muted/50 p-4">
+              <p className="text-sm font-medium">Available placeholders</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {meta.placeholders.map((placeholder) => (
+                  <Badge key={placeholder} variant="outline" className="font-mono text-xs">
+                    {placeholder}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={saving}>
+                <Save className="mr-2 h-4 w-4" />
+                {saving ? 'Saving...' : editingTemplateId ? 'Update Template' : 'Create Template'}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isPreviewOpen} onOpenChange={setIsPreviewOpen}>
+        <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Mail className="h-5 w-5 text-primary" />
+              Rendered Email Preview
+            </DialogTitle>
+            <DialogDescription>
+              This shows the final template after placeholders are replaced by backend payload values.
+            </DialogDescription>
+          </DialogHeader>
+
+          {previewResult && (
+            <div className="space-y-4">
+              <div className="flex flex-wrap gap-2">
+                <Badge variant="outline">Template #{previewResult.template_id || 'N/A'}</Badge>
+                <Badge variant={previewResult.used_default_template ? 'secondary' : 'default'}>
+                  {previewResult.used_default_template ? 'Default Fallback Used' : 'Agency Template Used'}
+                </Badge>
+              </div>
+              <div className="space-y-2">
+                <Label>Subject</Label>
+                <div className="rounded-lg border p-3 text-sm">{previewResult.subject}</div>
+              </div>
+              <div className="space-y-2">
+                <Label>Body</Label>
+                <div className="rounded-lg border p-3 text-sm whitespace-pre-wrap">
+                  {previewResult.body}
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

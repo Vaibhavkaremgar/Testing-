@@ -12,6 +12,7 @@ import Analytics from '@/pages/Analytics'
 import Jobs from '@/pages/Jobs'
 import Clients from '@/pages/Clients'
 import Communications from '@/pages/Communications'
+import EmailTemplates from '@/pages/EmailTemplates'
 import Settings from '@/pages/Settings'
 import Profile from '@/pages/Profile'
 import AdminUsers from '@/pages/AdminUsers'
@@ -64,6 +65,7 @@ function App() {
         <Route path="/jobs" element={<ProtectedRoute><Jobs /></ProtectedRoute>} />
         <Route path="/clients" element={<ProtectedRoute><Clients /></ProtectedRoute>} />
         <Route path="/communications" element={<ProtectedRoute><Communications /></ProtectedRoute>} />
+        <Route path="/email-templates" element={<ProtectedRoute><EmailTemplates /></ProtectedRoute>} />
         <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
         <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
         <Route path="/admin/users" element={<ProtectedRoute><AdminUsers /></ProtectedRoute>} />
@@ -76,6 +78,7 @@ function App() {
         <Route path="/super-admin/candidates" element={<ProtectedRoute superAdminOnly><SuperAdminDataPage PageComponent={Pipeline} /></ProtectedRoute>} />
         <Route path="/super-admin/interviews" element={<ProtectedRoute superAdminOnly><SuperAdminDataPage PageComponent={Interviews} /></ProtectedRoute>} />
         <Route path="/super-admin/clients" element={<ProtectedRoute superAdminOnly><SuperAdminDataPage PageComponent={Clients} /></ProtectedRoute>} />
+        <Route path="/super-admin/email-templates" element={<ProtectedRoute superAdminOnly><EmailTemplates /></ProtectedRoute>} />
         <Route path="/super-admin/users" element={<ProtectedRoute superAdminOnly><AdminUsers /></ProtectedRoute>} />
         <Route path="/super-admin/pricing" element={<ProtectedRoute superAdminOnly><Pricing /></ProtectedRoute>} />
         <Route path="/super-admin/settings" element={<ProtectedRoute superAdminOnly><Settings /></ProtectedRoute>} />

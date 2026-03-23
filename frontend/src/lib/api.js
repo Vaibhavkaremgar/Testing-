@@ -605,12 +605,23 @@ class ApiClient {
   }
 
   // Email Templates
-  async getEmailTemplates() {
-    return this.request('/email-templates')
+  async getEmailTemplateMeta() {
+    return this.request('/email-templates/meta')
   }
 
-  async getEmailTemplate(id) {
-    return this.request(`/email-templates/${id}`)
+  async getEmailTemplates(params = {}) {
+    const searchParams = new URLSearchParams()
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') {
+        searchParams.append(key, value)
+      }
+    })
+    const query = searchParams.toString()
+    return this.request(`/email-templates${query ? `?${query}` : ''}`)
+  }
+
+  async getEmailTemplatesForAgencyStatus(agencyId, status) {
+    return this.request(`/email-templates/agency/${agencyId}/status/${status}`)
   }
 
   async createEmailTemplate(data) {
@@ -627,8 +638,11 @@ class ApiClient {
     })
   }
 
-  async deleteEmailTemplate(id) {
-    return this.request(`/email-templates/${id}`, { method: 'DELETE' })
+  async previewEmailTemplate(data) {
+    return this.request('/email-templates/preview', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
   }
 
   // Settings
