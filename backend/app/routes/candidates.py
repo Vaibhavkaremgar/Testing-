@@ -1816,6 +1816,7 @@ def get_resume_summary(
 @router.get("/pipeline/stages")
 def get_pipeline_stages(
     client: Optional[str] = None,
+    agency_id: Optional[UUID] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -1825,7 +1826,8 @@ def get_pipeline_stages(
     for stage in CandidateStage:
         query = db.query(Candidate).filter(Candidate.stage == stage)
         if current_user.role == UserRole.SUPER_ADMIN:
-            pass  # sees all candidates
+            if agency_id:
+                query = query.filter(Candidate.agency_id == agency_id)
         elif current_user.role == UserRole.ADMIN and current_user.agency_id:
             query = query.filter(Candidate.agency_id == current_user.agency_id)
         else:

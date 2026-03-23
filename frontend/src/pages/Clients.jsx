@@ -11,7 +11,7 @@ import { api } from '@/lib/api'
 import { useAuth } from '@/context/AuthContext'
 import { Plus, Building2, TrendingUp, TrendingDown, Users, Edit, Trash2, X } from 'lucide-react'
 
-export default function Clients() {
+export default function Clients({ superAdminAgencyId = null }) {
   const [searchParams] = useSearchParams()
   const selectedClient = searchParams.get('client')
   const { user } = useAuth()
@@ -32,12 +32,12 @@ export default function Clients() {
 
   useEffect(() => {
     fetchData()
-  }, [selectedClient, currentPage])
+  }, [selectedClient, currentPage, superAdminAgencyId])
 
   // Reset to page 1 when client filter changes
   useEffect(() => {
     setCurrentPage(1)
-  }, [selectedClient])
+  }, [selectedClient, superAdminAgencyId])
 
   const handleStatClick = (statType) => {
     let filtered = []
@@ -76,6 +76,7 @@ export default function Clients() {
       
       // Get unique clients from jobs (filtered by client if selected) with pagination
       const jobsParams = selectedClient ? { client: selectedClient, limit: 1000 } : { limit: 1000 }
+      if (superAdminAgencyId) jobsParams.agency_id = superAdminAgencyId
       const jobs = await api.getJobs(jobsParams)
       const clientMap = new Map()
       
@@ -105,6 +106,7 @@ export default function Clients() {
       
       // Get candidates to calculate filled positions (filtered by client if selected)
       const candidatesParams = selectedClient ? { client: selectedClient, limit: 1000 } : { limit: 1000 }
+      if (superAdminAgencyId) candidatesParams.agency_id = superAdminAgencyId
       const candidates = await api.getCandidates(candidatesParams)
       candidates.forEach(candidate => {
         if (candidate.stage === 'SELECTED' && candidate.job_id) {

@@ -127,7 +127,7 @@ function StageColumn({ stage, candidates, onCardClick, isOver }) {
   )
 }
 
-export default function Pipeline() {
+export default function Pipeline({ superAdminAgencyId = null }) {
   const [searchParams] = useSearchParams()
   const selectedClient = searchParams.get('client')
   const [stages, setStages] = useState({})
@@ -141,6 +141,7 @@ export default function Pipeline() {
       try {
         const params = {}
         if (selectedClient) params.client = selectedClient
+        if (superAdminAgencyId) params.agency_id = superAdminAgencyId
         const data = await api.getPipelineStages(params)
         setStages(data)
       } catch (error) {
@@ -150,7 +151,7 @@ export default function Pipeline() {
       }
     }
     fetchPipeline()
-  }, [selectedClient])
+  }, [selectedClient, superAdminAgencyId])
 
   const handleCardClick = async (candidate) => {
     // No special click handling needed

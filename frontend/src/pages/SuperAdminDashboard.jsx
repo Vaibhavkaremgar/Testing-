@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { api } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Building2, Users, Briefcase, UserCheck, Video, Wallet } from 'lucide-react'
+import { Building2, Users, Briefcase, UserCheck, Video } from 'lucide-react'
 
 export default function SuperAdminDashboard() {
   const [agencies, setAgencies] = useState([])
@@ -23,9 +23,9 @@ export default function SuperAdminDashboard() {
       const params = selectedAgency ? { agency_id: selectedAgency } : {}
       const [jobs, candidates, interviews, clients] = await Promise.all([
         api.getJobsCount(params).catch(() => ({ count: 0 })),
-        api.getCandidatesCount({}).catch(() => ({ count: 0 })),
+        api.getCandidatesCount(params).catch(() => ({ count: 0 })),
         api.getInterviewsCount(params).catch(() => ({ count: 0 })),
-        api.getClientsCount().catch(() => ({ count: 0 })),
+        api.getClients(params).then((items) => ({ count: items.length })).catch(() => ({ count: 0 })),
       ])
       setStats({
         jobs: jobs.count,

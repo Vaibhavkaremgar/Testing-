@@ -11,7 +11,7 @@ import {
   Video, Calendar, Clock, User, FileText, Brain, Star, Send, X, Play, CheckCircle, RotateCcw, Plus, ExternalLink
 } from 'lucide-react'
 
-export default function Interviews() {
+export default function Interviews({ superAdminAgencyId = null }) {
   const [searchParams] = useSearchParams()
   const selectedClient = searchParams.get('client')
   const [interviews, setInterviews] = useState([])
@@ -39,6 +39,7 @@ export default function Interviews() {
       try {
         const params = {}
         if (selectedClient) params.client = selectedClient
+        if (superAdminAgencyId) params.agency_id = superAdminAgencyId
         
         // Get only SELECTED and REJECTED candidates
         const [selected, rejected] = await Promise.all([
@@ -80,7 +81,9 @@ export default function Interviews() {
     
     const fetchCandidates = async () => {
       try {
-        const data = await api.getCandidates({ limit: 1000 })
+        const params = { limit: 1000 }
+        if (superAdminAgencyId) params.agency_id = superAdminAgencyId
+        const data = await api.getCandidates(params)
         setCandidates(data)
       } catch (error) {
         console.error('Failed to fetch candidates:', error)
@@ -89,7 +92,9 @@ export default function Interviews() {
     
     const fetchJobs = async () => {
       try {
-        const data = await api.getJobs({ limit: 1000 })
+        const params = { limit: 1000 }
+        if (superAdminAgencyId) params.agency_id = superAdminAgencyId
+        const data = await api.getJobs(params)
         setJobs(data)
       } catch (error) {
         console.error('Failed to fetch jobs:', error)
@@ -99,7 +104,7 @@ export default function Interviews() {
     fetchInterviews()
     fetchCandidates()
     fetchJobs()
-  }, [selectedClient])
+  }, [selectedClient, superAdminAgencyId])
 
   const handleScheduleInterview = async () => {
     try {
