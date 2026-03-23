@@ -867,9 +867,10 @@ def simulate_resume_parsing(candidate: Candidate, db: Session, ai_analysis: dict
         
         print(f"✓ Candidate {candidate.name}: Score={candidate.resume_score}, Threshold={threshold}, Stage={candidate.stage.value}")
     else:
-        # No AI analysis - set minimum score
-        candidate.resume_score = 40  # Minimum score when no analysis
-        candidate.stage = CandidateStage.APPLIED
+        # No AI analysis - set minimum score and move out of APPLIED
+        candidate.resume_score = 40
+        # If candidate has a job, put in REVIEW so they show in dashboard
+        candidate.stage = CandidateStage.REVIEW if candidate.job_id else CandidateStage.APPLIED
         print(f"⚠ Candidate {candidate.name}: No AI analysis, score=40")
     
     db.commit()

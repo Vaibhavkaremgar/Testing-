@@ -874,9 +874,9 @@ export default function Resumes() {
                       {candidate.job_title ? (
                         <div>
                           <p className="text-sm font-medium">{candidate.job_title}</p>
-                          {jobs.find(j => j.id === candidate.job_id)?.company_name && (
+                          {allJobs.find(j => j.id === candidate.job_id)?.company_name && (
                             <p className="text-xs text-muted-foreground">
-                              {jobs.find(j => j.id === candidate.job_id).company_name}
+                              {allJobs.find(j => j.id === candidate.job_id).company_name}
                             </p>
                           )}
                         </div>

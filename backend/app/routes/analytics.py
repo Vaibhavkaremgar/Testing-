@@ -412,18 +412,16 @@ def get_dashboard_stats(
         
         # Count all candidates EXCLUDING APPLIED stage
         all_candidates = query.all()
-        # Filter out APPLIED stage candidates
         active_candidates = [c for c in all_candidates if c.stage != CandidateStage.APPLIED]
         total = len(active_candidates)
         
         shortlisted = sum(1 for c in active_candidates if c.stage == CandidateStage.SHORTLISTED)
         resume_rejected = sum(1 for c in active_candidates if c.stage == CandidateStage.RESUME_REJECTED)
         rejected = sum(1 for c in active_candidates if c.stage == CandidateStage.REJECTED)
-        interview_scheduled = sum(1 for c in active_candidates if c.stage in [CandidateStage.INTERVIEW_SCHEDULED, CandidateStage.INTERVIEW_RESCHEDULED, CandidateStage.INTERVIEWED])
+        interview_scheduled = sum(1 for c in active_candidates if c.stage in [
+            CandidateStage.INTERVIEW_SCHEDULED, CandidateStage.INTERVIEW_RESCHEDULED, CandidateStage.INTERVIEWED
+        ])
         selected = sum(1 for c in active_candidates if c.stage == CandidateStage.SELECTED)
-        
-        print(f"📊 Dashboard Stats: total={total}, shortlisted={shortlisted}, resume_rejected={resume_rejected}, rejected={rejected}, interviews={interview_scheduled}, selected={selected}")
-        print(f"   Sum check: {shortlisted + resume_rejected + rejected + interview_scheduled + selected} (should equal total)")
         
         candidate_ids = [c.id for c in active_candidates]
         avg_resume = db.query(func.avg(Candidate.resume_score)).filter(
