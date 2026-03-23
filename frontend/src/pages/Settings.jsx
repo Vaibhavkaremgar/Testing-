@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { useTheme } from '@/context/ThemeContext'
@@ -11,12 +11,13 @@ import { Label } from '@/components/ui/label'
 import { User, Bell, Shield, Palette, Key, Save, Target } from 'lucide-react'
 
 export default function Settings() {
-  const { user, logout } = useAuth()
+  const { user, logout, refreshUser } = useAuth()
   const { theme, setTheme } = useTheme()
   const navigate = useNavigate()
   const [profileData, setProfileData] = useState({
     full_name: user?.full_name || '',
     email: user?.email || '',
+    phone: user?.phone || '',
   })
   const [scoreSettings, setScoreSettings] = useState(() => {
     // Initialize with saved value from localStorage
@@ -29,6 +30,14 @@ export default function Settings() {
     currentPassword: '',
     newPassword: ''
   })
+
+  useEffect(() => {
+    setProfileData({
+      full_name: user?.full_name || '',
+      email: user?.email || '',
+      phone: user?.phone || '',
+    })
+  }, [user])
 
   const handleProfileUpdate = async () => {
     if (!profileData.full_name.trim()) {
@@ -43,8 +52,9 @@ export default function Settings() {
     
     try {
       await api.updateProfile(profileData)
-      // Refresh user data to update the header avatar
-      window.location.reload()
+      if (refreshUser) {
+        await refreshUser()
+      }
       alert('Profile updated successfully!')
     } catch (error) {
       alert(error.message || 'Failed to update profile')
@@ -148,6 +158,16 @@ export default function Settings() {
                 type="email"
                 value={profileData.email}
                 onChange={(e) => setProfileData({ ...profileData, email: e.target.value })}
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Phone Number</label>
+              <Input
+                value={profileData.phone}
+                onChange={(e) => setProfileData({ ...profileData, phone: e.target.value })}
+                placeholder="+1 (555) 123-4567"
               />
             </div>
           </div>

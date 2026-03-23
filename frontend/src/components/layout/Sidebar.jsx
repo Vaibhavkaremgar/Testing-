@@ -43,6 +43,7 @@ export function Sidebar() {
         { name: 'Clients', href: '/super-admin/clients', icon: Building2 },
         { name: 'Users', href: '/super-admin/users', icon: UserCog },
         { name: 'Pricing', href: '/super-admin/pricing', icon: Tag },
+        { name: 'Settings', href: '/super-admin/settings', icon: Settings },
       ]
     }
 

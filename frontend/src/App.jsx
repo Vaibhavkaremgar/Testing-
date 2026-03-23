@@ -76,8 +76,9 @@ function App() {
         <Route path="/super-admin/candidates" element={<ProtectedRoute superAdminOnly><SuperAdminDataPage PageComponent={Pipeline} /></ProtectedRoute>} />
         <Route path="/super-admin/interviews" element={<ProtectedRoute superAdminOnly><SuperAdminDataPage PageComponent={Interviews} /></ProtectedRoute>} />
         <Route path="/super-admin/clients" element={<ProtectedRoute superAdminOnly><SuperAdminDataPage PageComponent={Clients} /></ProtectedRoute>} />
-        <Route path="/super-admin/users" element={<ProtectedRoute superAdminOnly><SuperAdminDataPage PageComponent={AdminUsers} /></ProtectedRoute>} />
+        <Route path="/super-admin/users" element={<ProtectedRoute superAdminOnly><AdminUsers /></ProtectedRoute>} />
         <Route path="/super-admin/pricing" element={<ProtectedRoute superAdminOnly><Pricing /></ProtectedRoute>} />
+        <Route path="/super-admin/settings" element={<ProtectedRoute superAdminOnly><Settings /></ProtectedRoute>} />
 
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>

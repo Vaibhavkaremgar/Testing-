@@ -25,6 +25,8 @@ import {
 
 export default function AdminUsers() {
   const { user } = useAuth()
+  const canManageUsers = user?.role === 'admin'
+  const canViewUsers = user?.role === 'admin' || user?.role === 'super_admin'
   const [users, setUsers] = useState([])
   const [filteredUsers, setFilteredUsers] = useState([])
   const [searchQuery, setSearchQuery] = useState('')
@@ -46,12 +48,12 @@ export default function AdminUsers() {
   })
 
   useEffect(() => {
-    if (user?.role !== 'admin') {
-      alert('Access denied. Admin only.')
+    if (!canViewUsers) {
+      alert('Access denied.')
       return
     }
     fetchUsers()
-  }, [user])
+  }, [user, canViewUsers])
 
   useEffect(() => {
     if (searchQuery.trim() === '') {
@@ -95,6 +97,7 @@ export default function AdminUsers() {
 
   const handleUpdate = async () => {
     if (!selectedUser) return
+    if (!canManageUsers) return
 
     try {
       await api.updateUser(selectedUser.id, editData)
@@ -107,6 +110,7 @@ export default function AdminUsers() {
   }
 
   const handleDelete = async (userId, userName) => {
+    if (!canManageUsers) return
     if (!confirm(`Are you sure you want to delete ${userName}?`)) return
 
     try {
@@ -119,6 +123,7 @@ export default function AdminUsers() {
   }
 
   const handleAddUser = async () => {
+    if (!canManageUsers) return
     if (!newUserData.full_name || !newUserData.email || !newUserData.password) {
       alert('Please fill all required fields')
       return
@@ -148,10 +153,10 @@ export default function AdminUsers() {
     }
   }
 
-  if (user?.role !== 'admin') {
+  if (!canViewUsers) {
     return (
       <div className="flex items-center justify-center h-96">
-        <p className="text-muted-foreground">Access denied. Admin only.</p>
+        <p className="text-muted-foreground">Access denied.</p>
       </div>
     )
   }
@@ -161,12 +166,16 @@ export default function AdminUsers() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">User Management</h1>
-          <p className="text-muted-foreground">Manage system users and permissions</p>
+          <p className="text-muted-foreground">
+            {canManageUsers ? 'Manage system users and permissions' : 'View all users across the system'}
+          </p>
         </div>
-        <Button onClick={() => setAddDialogOpen(true)}>
-          <UserPlus className="h-4 w-4 mr-2" />
-          Add User
-        </Button>
+        {canManageUsers && (
+          <Button onClick={() => setAddDialogOpen(true)}>
+            <UserPlus className="h-4 w-4 mr-2" />
+            Add User
+          </Button>
+        )}
       </div>
 
       {/* Stats */}
@@ -236,7 +245,7 @@ export default function AdminUsers() {
                     <th className="text-left py-3 px-4 font-medium">Department</th>
                     <th className="text-left py-3 px-4 font-medium">Status</th>
                     <th className="text-left py-3 px-4 font-medium">Joined</th>
-                    <th className="text-right py-3 px-4 font-medium">Actions</th>
+                    {canManageUsers && <th className="text-right py-3 px-4 font-medium">Actions</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -279,26 +288,28 @@ export default function AdminUsers() {
                       <td className="py-3 px-4 text-sm text-muted-foreground">
                         {new Date(u.created_at).toLocaleDateString()}
                       </td>
-                      <td className="py-3 px-4">
-                        <div className="flex items-center justify-end gap-2">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleEdit(u)}
-                          >
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                          {u.id !== user.id && (
+                      {canManageUsers && (
+                        <td className="py-3 px-4">
+                          <div className="flex items-center justify-end gap-2">
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => handleDelete(u.id, u.full_name)}
+                              onClick={() => handleEdit(u)}
                             >
-                              <Trash2 className="h-4 w-4 text-destructive" />
+                              <Edit className="h-4 w-4" />
                             </Button>
-                          )}
-                        </div>
-                      </td>
+                            {u.id !== user.id && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleDelete(u.id, u.full_name)}
+                              >
+                                <Trash2 className="h-4 w-4 text-destructive" />
+                              </Button>
+                            )}
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -309,7 +320,7 @@ export default function AdminUsers() {
       </Card>
 
       {/* Add User Dialog */}
-      <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
+      <Dialog open={canManageUsers && addDialogOpen} onOpenChange={setAddDialogOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Add New User</DialogTitle>
@@ -379,7 +390,7 @@ export default function AdminUsers() {
       </Dialog>
 
       {/* Edit Dialog */}
-      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
+      <Dialog open={canManageUsers && editDialogOpen} onOpenChange={setEditDialogOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Edit User</DialogTitle>
