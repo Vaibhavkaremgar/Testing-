@@ -36,15 +36,15 @@ export default function Communications() {
     switch(statType) {
       case 'shortlisted':
         filtered = communications.filter(c => 
-          c.type === 'Shortlisted' || 
-          c.type === 'Slot Selection Email' || 
-          c.type === 'Interview Invitation'
+          c.email_type === 'Shortlisted' || 
+          c.email_type === 'Slot Selection Email' || 
+          c.email_type === 'Interview Invitation'
         )
         break
       case 'rejected':
         filtered = communications.filter(c => 
-          c.type === 'Rejection Email' || 
-          c.type === 'Interview Rejected'
+          c.email_type === 'Rejection Email' || 
+          c.email_type === 'Interview Rejected'
         )
         break
       case 'total':
@@ -111,9 +111,9 @@ export default function Communications() {
     { 
       label: 'Shortlisted Emails', 
       value: communications.filter(c => 
-        c.type === 'Shortlisted' || 
-        c.type === 'Slot Selection Email' || 
-        c.type === 'Interview Invitation'
+        c.email_type === 'Shortlisted' || 
+        c.email_type === 'Slot Selection Email' || 
+        c.email_type === 'Interview Invitation'
       ).length, 
       icon: Mail, 
       color: 'text-blue-600',
@@ -122,8 +122,8 @@ export default function Communications() {
     { 
       label: 'Rejected Emails', 
       value: communications.filter(c => 
-        c.type === 'Rejection Email' || 
-        c.type === 'Interview Rejected'
+        c.email_type === 'Rejection Email' || 
+        c.email_type === 'Interview Rejected'
       ).length, 
       icon: Mail, 
       color: 'text-red-600',
@@ -137,11 +137,11 @@ export default function Communications() {
   // Filter communications
   const filteredCommunications = communications.filter(comm => {
     const matchesSearch = 
-      comm.candidate.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      comm.email.toLowerCase().includes(searchTerm.toLowerCase())
+      (comm.candidate_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (comm.candidate_email || '').toLowerCase().includes(searchTerm.toLowerCase())
     
-    const matchesType = typeFilter.length === 0 || typeFilter.includes(comm.type)
-    const matchesStatus = statusFilter.length === 0 || statusFilter.includes(comm.status)
+    const matchesType = typeFilter.length === 0 || typeFilter.includes(comm.email_type)
+    const matchesStatus = statusFilter.length === 0 || statusFilter.includes((comm.status || '').charAt(0).toUpperCase() + (comm.status || '').slice(1))
     
     return matchesSearch && matchesType && matchesStatus
   })
@@ -167,12 +167,13 @@ export default function Communications() {
   const hasActiveFilters = typeFilter.length > 0 || statusFilter.length > 0 || searchTerm
 
   const getStatusBadge = (status) => {
+    const normalizedStatus = (status || '').charAt(0).toUpperCase() + (status || '').slice(1)
     const variants = {
       Sent: 'default',
       Pending: 'secondary',
       Failed: 'destructive'
     }
-    return <Badge variant={variants[status]}>{status}</Badge>
+    return <Badge variant={variants[normalizedStatus]}>{normalizedStatus}</Badge>
   }
 
   return (
@@ -284,11 +285,11 @@ export default function Communications() {
               <tbody>
                 {filteredCommunications.slice(0, visibleCount).map((comm) => (
                   <tr key={comm.id} className="border-b hover:bg-muted/50 cursor-pointer" onClick={() => setSelectedEmail(comm)}>
-                    <td className="p-3 text-sm">{comm.candidate}</td>
-                    <td className="p-3 text-sm text-muted-foreground">{comm.email}</td>
-                    <td className="p-3 text-sm">{comm.type}</td>
+                    <td className="p-3 text-sm">{comm.candidate_name}</td>
+                    <td className="p-3 text-sm text-muted-foreground">{comm.candidate_email}</td>
+                    <td className="p-3 text-sm">{comm.email_type}</td>
                     <td className="p-3 text-sm">{getStatusBadge(comm.status)}</td>
-                    <td className="p-3 text-sm">{comm.date}</td>
+                    <td className="p-3 text-sm">{comm.sent_at ? new Date(comm.sent_at).toLocaleString() : new Date(comm.created_at).toLocaleString()}</td>
                     <td className="p-3 text-right" onClick={(e) => e.stopPropagation()}>
                       <Button 
                         variant="ghost" 
@@ -334,15 +335,15 @@ export default function Communications() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <p className="text-sm text-muted-foreground">Candidate Name</p>
-                  <p className="font-medium">{selectedEmail.candidate}</p>
+                  <p className="font-medium">{selectedEmail.candidate_name}</p>
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Email</p>
-                  <p>{selectedEmail.email}</p>
+                  <p>{selectedEmail.candidate_email}</p>
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Type</p>
-                  <p>{selectedEmail.type}</p>
+                  <p>{selectedEmail.email_type}</p>
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Status</p>
@@ -350,15 +351,15 @@ export default function Communications() {
                 </div>
                 <div>
                   <p className="text-sm text-muted-foreground">Date</p>
-                  <p>{selectedEmail.date}</p>
+                  <p>{selectedEmail.sent_at ? new Date(selectedEmail.sent_at).toLocaleString() : new Date(selectedEmail.created_at).toLocaleString()}</p>
                 </div>
               </div>
               
-              {selectedEmail.message && (
+              {selectedEmail.body && (
                 <div>
                   <p className="text-sm text-muted-foreground mb-2">Email Message</p>
                   <div className="bg-muted p-4 rounded-lg whitespace-pre-wrap text-sm">
-                    {selectedEmail.message}
+                    {selectedEmail.body}
                   </div>
                 </div>
               )}
@@ -397,11 +398,11 @@ export default function Communications() {
                     <tbody>
                       {filteredEmails.map((comm) => (
                         <tr key={comm.id} className="border-b hover:bg-muted/50 cursor-pointer" onClick={() => setSelectedEmail(comm)}>
-                          <td className="p-3 text-sm">{comm.candidate}</td>
-                          <td className="p-3 text-sm text-muted-foreground">{comm.email}</td>
-                          <td className="p-3 text-sm">{comm.type}</td>
+                          <td className="p-3 text-sm">{comm.candidate_name}</td>
+                          <td className="p-3 text-sm text-muted-foreground">{comm.candidate_email}</td>
+                          <td className="p-3 text-sm">{comm.email_type}</td>
                           <td className="p-3 text-sm">{getStatusBadge(comm.status)}</td>
-                          <td className="p-3 text-sm">{comm.date}</td>
+                          <td className="p-3 text-sm">{comm.sent_at ? new Date(comm.sent_at).toLocaleString() : new Date(comm.created_at).toLocaleString()}</td>
                           <td className="p-3 text-right" onClick={(e) => e.stopPropagation()}>
                             <Button 
                               variant="ghost" 

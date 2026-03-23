@@ -243,6 +243,9 @@ class EmailTemplateBase(BaseModel):
     body: str
     template_type: str
     variables: Optional[List[str]] = None
+    automation_enabled: bool = False
+    trigger_stage: Optional[str] = None
+    description: Optional[str] = None
 
 class EmailTemplateCreate(EmailTemplateBase):
     pass
@@ -254,14 +257,29 @@ class EmailTemplateUpdate(BaseModel):
     template_type: Optional[str] = None
     variables: Optional[List[str]] = None
     is_active: Optional[bool] = None
+    automation_enabled: Optional[bool] = None
+    trigger_stage: Optional[str] = None
+    description: Optional[str] = None
 
 class EmailTemplateResponse(EmailTemplateBase):
     id: int
     is_active: bool
+    agency_id: Optional[UUID] = None
     created_at: datetime
     
     class Config:
         from_attributes = True
+
+class EmailTemplatePreviewRequest(BaseModel):
+    candidate_id: UUID
+
+class EmailTemplatePreviewResponse(BaseModel):
+    subject: str
+    body: str
+    variables: dict[str, Any]
+
+class EmailTemplateSendRequest(BaseModel):
+    candidate_id: UUID
 
 # Analytics Schemas
 class DashboardStats(BaseModel):
@@ -343,9 +361,16 @@ class EmailCommunicationUpdate(BaseModel):
 class EmailCommunicationResponse(BaseModel):
     id: int
     candidate_id: UUID
+    template_id: Optional[int] = None
+    agency_id: Optional[UUID] = None
     candidate_name: Optional[str] = None
     candidate_email: Optional[str] = None
     email_type: str
+    subject: Optional[str] = None
+    body: Optional[str] = None
+    trigger_stage: Optional[str] = None
+    trigger_source: Optional[str] = None
+    error_message: Optional[str] = None
     status: str
     sent_at: Optional[datetime] = None
     created_at: datetime

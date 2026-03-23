@@ -3,8 +3,9 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from typing import List
 from datetime import datetime
+from uuid import UUID
 from app.database import get_db
-from app.models import EmailCommunication, Candidate
+from app.models import EmailCommunication, Candidate, UserRole
 from app.schemas import EmailCommunicationCreate, EmailCommunicationResponse, EmailCommunicationUpdate
 from app.auth import get_current_user
 
@@ -12,19 +13,21 @@ router = APIRouter(prefix="/api/communications", tags=["communications"])
 
 @router.get("", response_model=List[EmailCommunicationResponse])
 def get_communications(
-    candidate_id: int = None,
+    candidate_id: UUID = None,
     status: str = None,
     email_type: str = None,
     client: str = None,
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    from app.models import JobDescription, UserRole
+    from app.models import JobDescription
     query = db.query(EmailCommunication)
     
     # Filter by assigned candidates for non-admin users
-    if current_user.role != UserRole.ADMIN:
+    if current_user.role not in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
         query = query.join(Candidate).filter(Candidate.assigned_to_user_id == current_user.id)
+    elif current_user.role == UserRole.ADMIN and current_user.agency_id:
+        query = query.filter(EmailCommunication.agency_id == current_user.agency_id)
     
     if candidate_id:
         query = query.filter(EmailCommunication.candidate_id == candidate_id)
@@ -40,6 +43,28 @@ def get_communications(
     
     return query.order_by(desc(EmailCommunication.created_at)).all()
 
+
+@router.delete("/{comm_id}")
+def delete_communication(
+    comm_id: int,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    comm = db.query(EmailCommunication).filter(EmailCommunication.id == comm_id).first()
+    if not comm:
+        raise HTTPException(status_code=404, detail="Communication not found")
+
+    if current_user.role == UserRole.ADMIN and current_user.agency_id and comm.agency_id != current_user.agency_id:
+        raise HTTPException(status_code=403, detail="Communication is outside your agency scope")
+    if current_user.role not in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
+        candidate = db.query(Candidate).filter(Candidate.id == comm.candidate_id).first()
+        if not candidate or candidate.assigned_to_user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Communication is outside your scope")
+
+    db.delete(comm)
+    db.commit()
+    return {"message": "Communication deleted successfully"}
+
 @router.post("", response_model=EmailCommunicationResponse)
 def create_communication(
     comm: EmailCommunicationCreate,
@@ -51,6 +76,7 @@ def create_communication(
         raise HTTPException(status_code=404, detail="Candidate not found")
     
     db_comm = EmailCommunication(
+        agency_id=candidate.agency_id,
         candidate_id=comm.candidate_id,
         candidate_name=candidate.name,
         candidate_email=candidate.email,
@@ -104,6 +130,7 @@ def n8n_webhook(payload: dict, db: Session = Depends(get_db)):
         return {"success": False, "error": f"Candidate not found"}
     
     comm = EmailCommunication(
+        agency_id=candidate.agency_id,
         candidate_id=candidate.id,
         candidate_name=candidate.name,
         candidate_email=candidate.email,

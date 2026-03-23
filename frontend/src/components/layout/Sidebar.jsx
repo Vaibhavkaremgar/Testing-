@@ -43,7 +43,7 @@ export function Sidebar() {
         { name: 'Clients', href: '/super-admin/clients', icon: Building2 },
         { name: 'Users', href: '/super-admin/users', icon: UserCog },
         { name: 'Pricing', href: '/super-admin/pricing', icon: Tag },
-        { name: 'Profile', href: '/super-admin/settings', icon: Settings },
+        { name: 'Settings', href: '/super-admin/settings', icon: Settings },
       ]
     }
 
@@ -58,6 +58,7 @@ export function Sidebar() {
         { name: 'Clients', href: '/clients', icon: Building2 },
         { name: 'Analytics', href: '/analytics', icon: BarChart3 },
         { name: 'Communications', href: '/communications', icon: MessageSquare },
+        { name: 'Email Templates', href: '/email-templates', icon: Mail },
         { name: 'Wallet', href: '/wallet', icon: Wallet },
         { name: 'Settings', href: '/settings', icon: Settings },
         { name: 'Users', href: '/admin/users', icon: UserCog },

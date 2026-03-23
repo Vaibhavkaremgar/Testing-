@@ -605,12 +605,23 @@ class ApiClient {
   }
 
   // Email Templates
-  async getEmailTemplates() {
-    return this.request('/email-templates')
+  async getEmailTemplates(params = {}) {
+    const searchParams = new URLSearchParams()
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') {
+        searchParams.append(key, value)
+      }
+    })
+    const query = searchParams.toString()
+    return this.request(`/email-templates${query ? `?${query}` : ''}`)
   }
 
   async getEmailTemplate(id) {
     return this.request(`/email-templates/${id}`)
+  }
+
+  async getEmailTemplateMeta() {
+    return this.request('/email-templates/meta')
   }
 
   async createEmailTemplate(data) {
@@ -629,6 +640,20 @@ class ApiClient {
 
   async deleteEmailTemplate(id) {
     return this.request(`/email-templates/${id}`, { method: 'DELETE' })
+  }
+
+  async previewEmailTemplate(id, candidateId) {
+    return this.request(`/email-templates/${id}/preview`, {
+      method: 'POST',
+      body: JSON.stringify({ candidate_id: candidateId }),
+    })
+  }
+
+  async sendEmailTemplate(id, candidateId) {
+    return this.request(`/email-templates/${id}/send`, {
+      method: 'POST',
+      body: JSON.stringify({ candidate_id: candidateId }),
+    })
   }
 
   // Settings
@@ -724,11 +749,11 @@ class ApiClient {
       }
     })
     const query = searchParams.toString()
-    return this.request(`/webhook/communications${query ? `?${query}` : ''}`)
+    return this.request(`/communications${query ? `?${query}` : ''}`)
   }
 
   async deleteEmailCommunication(id) {
-    return this.request(`/webhook/communications/${id}`, { method: 'DELETE' })
+    return this.request(`/communications/${id}`, { method: 'DELETE' })
   }
 
   // Send Email

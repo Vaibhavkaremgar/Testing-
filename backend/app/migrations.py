@@ -69,6 +69,84 @@ def run_migrations():
                 conn.commit()
                 print("Migration completed: agency_discounts created")
 
+            # Email template automation columns
+            email_template_columns = get_columns("email_templates") if "email_templates" in get_tables() else []
+
+            if "email_templates" in get_tables() and "agency_id" not in email_template_columns:
+                print("Running migration: adding email_templates.agency_id...")
+                conn.execute(text("ALTER TABLE email_templates ADD COLUMN agency_id UUID"))
+                conn.commit()
+                print("Migration completed: email_templates.agency_id added")
+
+            if "email_templates" in get_tables() and "created_by_user_id" not in email_template_columns:
+                print("Running migration: adding email_templates.created_by_user_id...")
+                conn.execute(text("ALTER TABLE email_templates ADD COLUMN created_by_user_id UUID"))
+                conn.commit()
+                print("Migration completed: email_templates.created_by_user_id added")
+
+            if "email_templates" in get_tables() and "automation_enabled" not in email_template_columns:
+                print("Running migration: adding email_templates.automation_enabled...")
+                conn.execute(text("ALTER TABLE email_templates ADD COLUMN automation_enabled BOOLEAN DEFAULT FALSE"))
+                conn.commit()
+                print("Migration completed: email_templates.automation_enabled added")
+
+            if "email_templates" in get_tables() and "trigger_stage" not in email_template_columns:
+                print("Running migration: adding email_templates.trigger_stage...")
+                conn.execute(text("ALTER TABLE email_templates ADD COLUMN trigger_stage VARCHAR(100)"))
+                conn.commit()
+                print("Migration completed: email_templates.trigger_stage added")
+
+            if "email_templates" in get_tables() and "description" not in email_template_columns:
+                print("Running migration: adding email_templates.description...")
+                conn.execute(text("ALTER TABLE email_templates ADD COLUMN description TEXT"))
+                conn.commit()
+                print("Migration completed: email_templates.description added")
+
+            # Email communication detail columns
+            email_communication_columns = get_columns("email_communications") if "email_communications" in get_tables() else []
+
+            if "email_communications" in get_tables() and "agency_id" not in email_communication_columns:
+                print("Running migration: adding email_communications.agency_id...")
+                conn.execute(text("ALTER TABLE email_communications ADD COLUMN agency_id UUID"))
+                conn.commit()
+                print("Migration completed: email_communications.agency_id added")
+
+            if "email_communications" in get_tables() and "template_id" not in email_communication_columns:
+                print("Running migration: adding email_communications.template_id...")
+                conn.execute(text("ALTER TABLE email_communications ADD COLUMN template_id INTEGER"))
+                conn.commit()
+                print("Migration completed: email_communications.template_id added")
+
+            if "email_communications" in get_tables() and "subject" not in email_communication_columns:
+                print("Running migration: adding email_communications.subject...")
+                conn.execute(text("ALTER TABLE email_communications ADD COLUMN subject VARCHAR(500)"))
+                conn.commit()
+                print("Migration completed: email_communications.subject added")
+
+            if "email_communications" in get_tables() and "body" not in email_communication_columns:
+                print("Running migration: adding email_communications.body...")
+                conn.execute(text("ALTER TABLE email_communications ADD COLUMN body TEXT"))
+                conn.commit()
+                print("Migration completed: email_communications.body added")
+
+            if "email_communications" in get_tables() and "trigger_stage" not in email_communication_columns:
+                print("Running migration: adding email_communications.trigger_stage...")
+                conn.execute(text("ALTER TABLE email_communications ADD COLUMN trigger_stage VARCHAR(100)"))
+                conn.commit()
+                print("Migration completed: email_communications.trigger_stage added")
+
+            if "email_communications" in get_tables() and "trigger_source" not in email_communication_columns:
+                print("Running migration: adding email_communications.trigger_source...")
+                conn.execute(text("ALTER TABLE email_communications ADD COLUMN trigger_source VARCHAR(100)"))
+                conn.commit()
+                print("Migration completed: email_communications.trigger_source added")
+
+            if "email_communications" in get_tables() and "error_message" not in email_communication_columns:
+                print("Running migration: adding email_communications.error_message...")
+                conn.execute(text("ALTER TABLE email_communications ADD COLUMN error_message TEXT"))
+                conn.commit()
+                print("Migration completed: email_communications.error_message added")
+
     except Exception as e:
         print(f"Migration warning: {e}")
 
