@@ -357,7 +357,18 @@ export default function Resumes() {
   const handleSendEmail = async () => {
     setSending(true)
     try {
-      await api.sendEmail(selectedCandidate.id, emailModal.subject, emailModal.message)
+      const templateTypeMap = {
+        invitation: 'interview_scheduled',
+        reschedule: 'interview_scheduled',
+        rejection: 'rejected',
+      }
+
+      await api.sendEmail(
+        selectedCandidate.id,
+        emailModal.subject,
+        emailModal.message,
+        templateTypeMap[emailModal.type] || null
+      )
       
       // Update candidate stage
       const stageMap = {

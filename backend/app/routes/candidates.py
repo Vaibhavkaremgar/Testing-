@@ -772,92 +772,29 @@ def simulate_resume_parsing(candidate: Candidate, db: Session, ai_analysis: dict
         threshold = candidate.score_threshold or 60
         
         if score >= threshold:
-            # SHORTLISTED: Auto-send email
             candidate.stage = CandidateStage.SHORTLISTED
-            
-            # Auto-send email to shortlisted candidates
-            try:
-                from app.config import settings
-                from sendgrid import SendGridAPIClient
-                from sendgrid.helpers.mail import Mail
-                from app.models import EmailCommunication, JobDescription, UserRole
-                from urllib.parse import urlencode
 
-                # Check admin wallet balance before sending email
-                admin = db.query(User).filter(User.role == UserRole.ADMIN).first()
-                if not admin or (admin.wallet_balance or 0) <= 0:
-                    print(f"⚠️ Email blocked: Admin wallet has 0 credits")
-                    raise Exception("Insufficient credits to send email")
-                
-                if settings.SENDGRID_API_KEY and candidate.email:
-                    # Get job details
-                    job = None
-                    if candidate.job_id:
-                        job = db.query(JobDescription).filter(JobDescription.id == candidate.job_id).first()
-                    
-                    # Build interview URL
-                    params = {
-                        'candidateId': candidate.id,
-                        'name': candidate.name,
-                        'email': candidate.email,
-                        'resumeText': candidate.resume_text or ''
-                    }
-                    if job:
-                        params['jobId'] = job.id
-                        params['jobTitle'] = job.title
-                        params['jobDescription'] = job.description or ''
-                    
-                    interview_url = f"{settings.FRONTEND_URL}/interview?{urlencode(params)}"
-                    
-                    # Email content
-                    subject = f"Interview Invitation - {job.title if job else 'Position'}"
-                    message = f"Dear {candidate.name},\n\nCongratulations! Your resume has been shortlisted for the {job.title if job else 'position'}. Please book your interview slot using the button below."
-                    
-                    html_body = f"""
-                    <html>
-                    <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-                        <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-                            <p>{message.replace(chr(10), '<br>')}</p>
-                            <div style="margin: 30px 0; text-align: center;">
-                                <a href="{settings.SLOT_BOOKING_URL}" 
-                                   style="display: inline-block; padding: 15px 30px; background-color: #2563eb; color: white; text-decoration: none; border-radius: 5px; font-weight: bold;">
-                                    Book Your Slot
-                                </a>
-                            </div>
-                            <p style="font-size: 12px; color: #666; margin-top: 30px;">
-                                View your interview details: <a href="{interview_url}">{interview_url}</a>
-                            </p>
-                        </div>
-                    </body>
-                    </html>
-                    """
-                    
-                    # Send email
-                    mail_message = Mail(
-                        from_email=(settings.FROM_EMAIL, settings.FROM_NAME),
-                        to_emails=candidate.email,
-                        subject=subject,
-                        html_content=html_body
-                    )
-                    
-                    sg = SendGridAPIClient(settings.SENDGRID_API_KEY)
-                    response = sg.send(mail_message)
-                    
-                    # Create EmailCommunication record
-                    email_comm = EmailCommunication(
-                        candidate_id=candidate.id,
-                        candidate_name=candidate.name,
-                        candidate_email=candidate.email,
-                        email_type="Slot Selection Email",
-                        status="sent",
-                        sent_at=datetime.utcnow()
-                    )
-                    db.add(email_comm)
-                    
-                    print(f"✅ Auto-email sent to {candidate.email} (SHORTLISTED)")
+            try:
+                from app.email_utils import send_candidate_email_from_template
+
+                send_candidate_email_from_template(
+                    db=db,
+                    candidate=candidate,
+                    template_type="resume_shortlisted_slot_selection",
+                    fallback_subject=f"Interview Invitation - {candidate.job.title if candidate.job else 'Position'}",
+                    fallback_body=(
+                        f"Dear {candidate.name},\n\n"
+                        f"Congratulations! Your resume has been shortlisted for the "
+                        f"{candidate.job.title if candidate.job else 'position'}.\n\n"
+                        "Please book your interview slot here: {{slot_booking_url}}\n\n"
+                        "Interview details: {{interview_details_url}}\n\n"
+                        "Best regards,\n{{agency_name}}"
+                    ),
+                )
+                print(f"Auto-email sent to {candidate.email} (SHORTLISTED)")
             except Exception as e:
-                print(f"⚠️ Auto-email failed: {e}")
-        
+                print(f"Auto-email failed: {e}")
+
         elif score >= (threshold - 10):
             # REVIEW: Score within 10 points below threshold
             candidate.stage = CandidateStage.REVIEW
@@ -1522,6 +1459,22 @@ def update_candidate_stage(
     db_candidate.stage = stage_update.stage
     db_candidate.stage_updated_at = datetime.utcnow()
     db_candidate.stage_entered_at = datetime.utcnow()
+
+    try:
+        from app.email_utils import send_candidate_email_from_template
+
+        stage_template_map = {
+            CandidateStage.SELECTED: "selected",
+        }
+        template_type = stage_template_map.get(stage_update.stage)
+        if template_type and db_candidate.email:
+            send_candidate_email_from_template(
+                db=db,
+                candidate=db_candidate,
+                template_type=template_type,
+            )
+    except Exception as e:
+        print(f"Stage email trigger failed: {e}")
     
     db.commit()
     db.refresh(db_candidate)
@@ -1882,128 +1835,46 @@ def send_email(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """Send email to candidate with interview details link and slot booking button"""
-    from sendgrid import SendGridAPIClient
-    from sendgrid.helpers.mail import Mail
-    from app.config import settings
-    from urllib.parse import urlencode
-    from app.models import EmailCommunication
-    
+    """Send email to candidate using agency templates or custom content"""
     try:
         candidate_id = email_data.get('candidate_id')
         subject = email_data.get('subject')
         message = email_data.get('message')
-        
-        if not all([candidate_id, subject, message]):
-            raise HTTPException(status_code=400, detail="Missing required fields: candidate_id, subject, message")
-        
-        # Get candidate details
+        template_type = email_data.get('template_type')
+
+        if not candidate_id:
+            raise HTTPException(status_code=400, detail="Missing required field: candidate_id")
+        if not template_type and not all([subject, message]):
+            raise HTTPException(status_code=400, detail="Missing required fields: subject and message, or provide template_type")
+
         candidate = db.query(Candidate).filter(Candidate.id == candidate_id).first()
         if not candidate:
             raise HTTPException(status_code=404, detail="Candidate not found")
-        
-        # Get job details
-        job = None
-        if candidate.job_id:
-            from app.models import JobDescription
-            job = db.query(JobDescription).filter(JobDescription.id == candidate.job_id).first()
-        
-        # Check if SendGrid is configured
-        if not settings.SENDGRID_API_KEY:
-            error_msg = "SendGrid not configured. Set SENDGRID_API_KEY, FROM_EMAIL, and FROM_NAME in Railway environment variables."
-            print(f"❌ {error_msg}")
-            raise HTTPException(status_code=500, detail=error_msg)
-        
-        # Build interview details URL with query parameters (including job description and resume text)
-        params = {
-            'candidateId': candidate.id,
-            'name': candidate.name,
-            'email': candidate.email,
-            'resumeText': candidate.resume_text or ''
-        }
-        if job:
-            params['jobId'] = job.id
-            params['jobTitle'] = job.title
-            params['jobDescription'] = job.description or ''
-        
-        interview_url = f"{settings.FRONTEND_URL}/interview?{urlencode(params)}"
-        
-        # Build HTML email with slot booking button
-        html_body = f"""
-        <html>
-        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-            <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-                <p>{message.replace(chr(10), '<br>')}</p>
-                
-                <div style="margin: 30px 0; text-align: center;">
-                    <a href="{settings.SLOT_BOOKING_URL}" 
-                       style="display: inline-block; padding: 15px 30px; background-color: #2563eb; color: white; text-decoration: none; border-radius: 5px; font-weight: bold;">
-                        Book Your Slot
-                    </a>
-                </div>
-                
-                <p style="font-size: 12px; color: #666; margin-top: 30px;">
-                    View your interview details: <a href="{interview_url}">{interview_url}</a>
-                </p>
-            </div>
-        </body>
-        </html>
-        """
-        
-        # Send email via SendGrid
-        mail_message = Mail(
-            from_email=(settings.FROM_EMAIL, settings.FROM_NAME),
-            to_emails=candidate.email,
-            subject=subject,
-            html_content=html_body
+
+        from app.email_utils import send_candidate_email_from_template
+
+        result = send_candidate_email_from_template(
+            db=db,
+            candidate=candidate,
+            template_type=template_type or "custom_manual",
+            fallback_subject=subject,
+            fallback_body=message,
         )
-        
-        sg = SendGridAPIClient(settings.SENDGRID_API_KEY)
-        response = sg.send(mail_message)
-        
-        # Determine email type based on subject
-        email_type = "Slot Selection Email"
-        if "reject" in subject.lower() or "decline" in subject.lower():
-            email_type = "Rejection Email"
-        elif "reschedule" in subject.lower():
-            email_type = "Interview Rescheduled"
-        
-        # Create EmailCommunication record
-        email_comm = EmailCommunication(
-            candidate_id=candidate.id,
-            candidate_name=candidate.name,
-            candidate_email=candidate.email,
-            email_type=email_type,
-            status="sent",
-            sent_at=datetime.utcnow()
-        )
-        db.add(email_comm)
+
         db.commit()
-        
-        print(f"✅ Email sent to {candidate.email} - Status: {response.status_code}")
-        print(f"   Email type: {email_type}")
-        print(f"   Interview URL: {interview_url}")
-        print(f"   Slot Booking: {settings.SLOT_BOOKING_URL}")
-        
+
         return {
             "success": True,
             "message": f"Email sent to {candidate.email}",
-            "interview_url": interview_url
+            "subject": result["subject"],
+            "template_type": result["template_type"],
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
         print(f"Email send error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to send email: {str(e)}")
-
-
-
-
-
-
-
-
 
 @router.patch("/{candidate_id}/notes")
 def update_candidate_notes(
@@ -2094,6 +1965,19 @@ def review_candidate(
     
     candidate.reviewed_at = datetime.utcnow()
     candidate.reviewed_by_user_id = current_user.id
+
+    try:
+        from app.email_utils import send_candidate_email_from_template
+
+        template_type = "interview_scheduled" if action == "interview" else "rejected"
+        if candidate.email:
+            send_candidate_email_from_template(
+                db=db,
+                candidate=candidate,
+                template_type=template_type,
+            )
+    except Exception as e:
+        print(f"Review email trigger failed: {e}")
     
     db.commit()
     db.refresh(candidate)
@@ -2210,3 +2094,5 @@ def bulk_assign_candidates(
         "assigned_count": assigned_count,
         "assigned_to": user.full_name
     }
+
+
