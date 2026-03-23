@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import api from '@/lib/api'
+import AgencyCreditManager from '@/components/wallet/AgencyCreditManager'
 
 const CURRENCY_SYMBOLS = { USD: '$', INR: '₹' }
 
@@ -114,6 +115,11 @@ export default function Pricing() {
       {success && <div className="bg-green-50 border border-green-200 text-green-700 rounded-lg px-4 py-3 text-sm">{success}</div>}
 
       {/* Form */}
+      <AgencyCreditManager
+        title="Manual Agency Credits"
+        description="Superadmin can add credits directly to an agency admin wallet."
+      />
+
       <div className="bg-card border rounded-xl p-6 shadow-sm">
         <h2 className="text-base font-semibold mb-4">
           {form.agency_id && discounts.find(d => d.agency_id === form.agency_id) ? 'Update Discount' : 'Assign Discount'}

@@ -6,13 +6,16 @@ import { Label } from '@/components/ui/label';
 import { Wallet, ArrowUpCircle, ArrowDownCircle, CreditCard, TrendingUp, Minus, Download } from 'lucide-react';
 import api from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
+import AgencyCreditManager from '@/components/wallet/AgencyCreditManager';
 
 const PAYMENT_METHODS = [
   { id: 'razorpay', name: 'Razorpay', icon: CreditCard, color: 'text-blue-600' },
 ];
 
-export default function WalletPage() {
+export default function WalletPage({ superAdminAgencyId = null }) {
   const { user } = useAuth();
+  const isSuperAdmin = user?.role === 'super_admin';
+  const isAdmin = user?.role === 'admin';
   const [balance, setBalance] = useState(0);
   const [transactions, setTransactions] = useState([]);
   const [selectedPayment, setSelectedPayment] = useState(null);
@@ -24,6 +27,7 @@ export default function WalletPage() {
   const [manualLoading, setManualLoading] = useState(false);
   const [showLowCreditModal, setShowLowCreditModal] = useState(false);
   const [discount, setDiscount] = useState(null);
+  const [agencyWalletData, setAgencyWalletData] = useState(null);
 
   const getStats = () => {
     const totalCredits = transactions
@@ -40,13 +44,24 @@ export default function WalletPage() {
   const { totalCredits, usedCredits, remainingCredits } = getStats();
 
   useEffect(() => {
+    if (isSuperAdmin) {
+      if (superAdminAgencyId) {
+        fetchAgencyWallet(superAdminAgencyId);
+      } else {
+        setAgencyWalletData(null);
+        setTransactions([]);
+        setBalance(0);
+      }
+      return;
+    }
+
     fetchBalance();
     fetchTransactions();
-    if (user?.role === 'admin') {
+    if (isAdmin) {
       fetchAllUsers();
       fetchDiscount();
     }
-  }, [user]);
+  }, [user, superAdminAgencyId]);
 
   const fetchDiscount = async () => {
     if (!user?.agency_id) return;
@@ -55,6 +70,20 @@ export default function WalletPage() {
       setDiscount(res || null);
     } catch {
       setDiscount(null);
+    }
+  };
+
+  const fetchAgencyWallet = async (agencyId) => {
+    try {
+      const response = await api.get(`/wallet/agency-admin/${agencyId}`);
+      setAgencyWalletData(response);
+      setBalance(response?.admin?.wallet_balance || 0);
+      setTransactions(Array.isArray(response?.transactions) ? response.transactions : []);
+    } catch (error) {
+      console.error('Failed to fetch agency wallet:', error);
+      setAgencyWalletData(null);
+      setBalance(0);
+      setTransactions([]);
     }
   };
 
@@ -76,7 +105,7 @@ export default function WalletPage() {
       const response = await api.get('/wallet/balance');
       const bal = response.balance || 0;
       setBalance(bal);
-      if (user?.role === 'admin' && bal <= 10 && !sessionStorage.getItem('lowCreditAlertShown')) {
+      if (isAdmin && bal <= 10 && !sessionStorage.getItem('lowCreditAlertShown')) {
         sessionStorage.setItem('lowCreditAlertShown', 'true');
         setShowLowCreditModal(true);
       }
@@ -193,11 +222,20 @@ Status: ${txn.status || 'completed'}
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold">Wallet</h1>
+        <div>
+          <h1 className="text-3xl font-bold">Wallet</h1>
+          {isSuperAdmin && (
+            <p className="mt-1 text-sm text-muted-foreground">
+              {superAdminAgencyId && agencyWalletData?.agency
+                ? `Managing ${agencyWalletData.agency.name} admin wallet`
+                : 'Select an agency from the filter to manage its admin wallet'}
+            </p>
+          )}
+        </div>
       </div>
 
       {/* Low Credit Modal */}
-      {showLowCreditModal && (
+      {!isSuperAdmin && showLowCreditModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full mx-4">
             <div className="flex items-center gap-3 mb-3">
@@ -222,7 +260,7 @@ Status: ${txn.status || 'completed'}
         <CardContent className="pt-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm opacity-90">Wallet Balance</p>
+              <p className="text-sm opacity-90">{isSuperAdmin ? 'Agency Admin Wallet Balance' : 'Wallet Balance'}</p>
               <h2 className="text-4xl font-bold mt-2">{remainingCredits} Credits</h2>
             </div>
             <Wallet className="h-16 w-16 opacity-20" />
@@ -267,7 +305,7 @@ Status: ${txn.status || 'completed'}
       </div>
 
       {/* Admin: Add Credits Manually */}
-      {user?.role === 'admin' && (
+      {isAdmin && (
         <Card>
           <CardHeader>
             <CardTitle>Add Credits Manually</CardTitle>
@@ -306,7 +344,21 @@ Status: ${txn.status || 'completed'}
         </Card>
       )}
 
+      {isSuperAdmin && (
+        <AgencyCreditManager
+          title="Add Credits to Agency Admin"
+          description="Credits added here are applied directly to the selected agency admin wallet and will appear in that admin's Wallet tab."
+          preselectedAgencyId={superAdminAgencyId || ''}
+          onCreditsAdded={() => {
+            if (superAdminAgencyId) {
+              fetchAgencyWallet(superAdminAgencyId);
+            }
+          }}
+        />
+      )}
+
       {/* Buy Credits */}
+      {!isSuperAdmin && (
       <Card>
         <CardHeader>
           <CardTitle>Buy Credits</CardTitle>
@@ -392,14 +444,17 @@ Status: ${txn.status || 'completed'}
           </Button>
         </CardContent>
       </Card>
+      )}
 
       {/* Transaction History */}
       <Card>
         <CardHeader>
-          <CardTitle>Transaction History</CardTitle>
+          <CardTitle>{isSuperAdmin ? 'Agency Admin Transaction History' : 'Transaction History'}</CardTitle>
         </CardHeader>
         <CardContent>
-          {transactions.length === 0 ? (
+          {isSuperAdmin && !superAdminAgencyId ? (
+            <p className="text-gray-500">Select an agency from the filter to view its admin wallet transactions.</p>
+          ) : transactions.length === 0 ? (
             <p className="text-gray-500">No transactions yet</p>
           ) : (
             <div className="overflow-x-auto">
