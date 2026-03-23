@@ -35,9 +35,8 @@ export function Header() {
   useEffect(() => {
     const fetchClients = async () => {
       try {
-        const jobs = await api.getJobs()
-        const uniqueClients = [...new Set(jobs.map(j => j.company_name).filter(Boolean))]
-        setClients(uniqueClients.sort())
+        const clientNames = await api.getClientNames()
+        setClients((clientNames || []).sort())
       } catch (error) {
         console.error('Failed to fetch clients:', error)
       }
@@ -123,7 +122,7 @@ export function Header() {
   // Global search
   useEffect(() => {
     const performSearch = async () => {
-      if (!searchQuery || searchQuery.length < 2) {
+      if (!searchQuery || searchQuery.length < 3) {
         setSearchResults({ candidates: [], jobs: [], interviews: [] })
         setShowSearchResults(false)
         return
@@ -134,7 +133,7 @@ export function Header() {
         const [candidates, jobs, interviews] = await Promise.all([
           api.getCandidates({ search: searchQuery, limit: 5 }),
           api.getJobs({ search: searchQuery, limit: 5 }),
-          api.getInterviews({ limit: 100 })
+          api.getInterviews({ limit: 20 })
         ])
 
         const filteredInterviews = interviews.filter(i => 
