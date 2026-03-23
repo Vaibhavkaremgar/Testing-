@@ -43,8 +43,8 @@ export default function Interviews({ superAdminAgencyId = null }) {
         
         // Get only SELECTED and REJECTED candidates
         const [selected, rejected] = await Promise.all([
-          api.getCandidates({ ...params, stage: 'SELECTED', limit: 200 }),
-          api.getCandidates({ ...params, stage: 'REJECTED', limit: 200 })
+          api.getCandidates({ ...params, stage: 'SELECTED', limit: 1000 }),
+          api.getCandidates({ ...params, stage: 'REJECTED', limit: 1000 })
         ])
         
         const allCandidates = [...selected, ...rejected]
@@ -81,7 +81,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
     
     const fetchCandidates = async () => {
       try {
-        const params = { limit: 200 }
+        const params = { limit: 1000 }
         if (superAdminAgencyId) params.agency_id = superAdminAgencyId
         const data = await api.getCandidates(params)
         setCandidates(data)
@@ -92,7 +92,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
     
     const fetchJobs = async () => {
       try {
-        const params = { limit: 200 }
+        const params = { limit: 1000 }
         if (superAdminAgencyId) params.agency_id = superAdminAgencyId
         const data = await api.getJobs(params)
         setJobs(data)

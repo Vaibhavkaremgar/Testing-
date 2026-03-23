@@ -75,7 +75,7 @@ export default function Clients({ superAdminAgencyId = null }) {
       const statsData = await api.getClientStats()
       
       // Get unique clients from jobs (filtered by client if selected) with pagination
-      const jobsParams = selectedClient ? { client: selectedClient, limit: 250 } : { limit: 250 }
+      const jobsParams = selectedClient ? { client: selectedClient, limit: 1000 } : { limit: 1000 }
       if (superAdminAgencyId) jobsParams.agency_id = superAdminAgencyId
       const jobs = await api.getJobs(jobsParams)
       const clientMap = new Map()
@@ -105,7 +105,7 @@ export default function Clients({ superAdminAgencyId = null }) {
       })
       
       // Get candidates to calculate filled positions (filtered by client if selected)
-      const candidatesParams = selectedClient ? { client: selectedClient, limit: 250 } : { limit: 250 }
+      const candidatesParams = selectedClient ? { client: selectedClient, limit: 1000 } : { limit: 1000 }
       if (superAdminAgencyId) candidatesParams.agency_id = superAdminAgencyId
       const candidates = await api.getCandidates(candidatesParams)
       candidates.forEach(candidate => {

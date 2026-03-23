@@ -5,7 +5,7 @@ import os
 import sqlite3
 from app.config import settings
 from app.database import engine, Base
-from app.routes import auth, candidates, jobs, interviews, analytics, clients, webhooks, email, communications, async_interviews, wallet, payment, agencies, pricing
+from app.routes import auth, candidates, jobs, interviews, analytics, email_templates, clients, webhooks, email, communications, async_interviews, wallet, payment, agencies, pricing
 from app.routes import settings as settings_routes
 from app.seed import seed_database
 
@@ -65,6 +65,7 @@ app.include_router(candidates.router, prefix="/api")
 app.include_router(jobs.router, prefix="/api")
 app.include_router(interviews.router, prefix="/api")
 app.include_router(analytics.router, prefix="/api")
+app.include_router(email_templates.router, prefix="/api")
 app.include_router(settings_routes.router, prefix="/api")
 app.include_router(clients.router, prefix="/api")
 app.include_router(webhooks.router, prefix="/api")

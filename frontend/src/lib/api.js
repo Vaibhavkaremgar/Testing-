@@ -7,8 +7,6 @@ console.log('API_BASE:', API_BASE)
 class ApiClient {
   constructor() {
     this.token = localStorage.getItem('token')
-    this.cache = new Map()
-    this.inFlightRequests = new Map()
   }
 
   setToken(token) {
@@ -24,40 +22,8 @@ class ApiClient {
     return this.token || localStorage.getItem('token')
   }
 
-  invalidateCache() {
-    this.cache.clear()
-    this.inFlightRequests.clear()
-  }
-
-  getCacheTtl(endpoint, options = {}) {
-    if (options.method && options.method !== 'GET') return 0
-    if (endpoint.includes('search=')) return 0
-    if (endpoint.includes('/auth/me')) return 10000
-    if (endpoint.includes('/notifications')) return 0
-    if (endpoint.includes('/jobs/names') || endpoint.includes('/clients/names')) return 5 * 60 * 1000
-    if (endpoint.includes('/analytics/')) return 30000
-    if (endpoint.includes('/candidates/pipeline/stages')) return 15000
-    return 30000
-  }
-
   async request(endpoint, options = {}) {
     const url = `${API_BASE}${endpoint}`
-    const method = options.method || 'GET'
-    const cacheTtl = this.getCacheTtl(endpoint, options)
-    const cacheKey = `${method}:${url}:${this.getToken() || ''}`
-
-    if (method === 'GET' && cacheTtl > 0) {
-      const cached = this.cache.get(cacheKey)
-      if (cached && cached.expiresAt > Date.now()) {
-        return cached.data
-      }
-
-      const inFlight = this.inFlightRequests.get(cacheKey)
-      if (inFlight) {
-        return inFlight
-      }
-    }
-
     const headers = {
       ...options.headers,
     }
@@ -70,50 +36,26 @@ class ApiClient {
       headers['Content-Type'] = 'application/json'
     }
 
-    const requestPromise = (async () => {
-      const response = await fetch(url, {
-        ...options,
-        headers,
-      })
+    const response = await fetch(url, {
+      ...options,
+      headers,
+    })
 
-      if (response.status === 401) {
-        throw new Error('Unauthorized')
-      }
-
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({ detail: 'An error occurred' }))
-        throw new Error(error.detail || 'An error occurred')
-      }
-
-      const contentType = response.headers.get('content-type')
-      let data = {}
-      if (contentType && contentType.includes('application/json')) {
-        data = await response.json()
-      }
-
-      if (method === 'GET' && cacheTtl > 0) {
-        this.cache.set(cacheKey, {
-          data,
-          expiresAt: Date.now() + cacheTtl,
-        })
-      } else if (method !== 'GET') {
-        this.invalidateCache()
-      }
-
-      return data
-    })()
-
-    if (method === 'GET' && cacheTtl > 0) {
-      this.inFlightRequests.set(cacheKey, requestPromise)
+    if (response.status === 401) {
+      // Don't auto-logout, just throw error
+      throw new Error('Unauthorized')
     }
 
-    try {
-      return await requestPromise
-    } finally {
-      if (method === 'GET' && cacheTtl > 0) {
-        this.inFlightRequests.delete(cacheKey)
-      }
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'An error occurred' }))
+      throw new Error(error.detail || 'An error occurred')
     }
+
+    const contentType = response.headers.get('content-type')
+    if (contentType && contentType.includes('application/json')) {
+      return response.json()
+    }
+    return {}
   }
 
   async get(endpoint) {
@@ -660,6 +602,33 @@ class ApiClient {
     })
     const query = searchParams.toString()
     return this.request(`/analytics/time-to-hire-stages${query ? `?${query}` : ''}`)
+  }
+
+  // Email Templates
+  async getEmailTemplates() {
+    return this.request('/email-templates')
+  }
+
+  async getEmailTemplate(id) {
+    return this.request(`/email-templates/${id}`)
+  }
+
+  async createEmailTemplate(data) {
+    return this.request('/email-templates', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    })
+  }
+
+  async updateEmailTemplate(id, data) {
+    return this.request(`/email-templates/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    })
+  }
+
+  async deleteEmailTemplate(id) {
+    return this.request(`/email-templates/${id}`, { method: 'DELETE' })
   }
 
   // Settings
