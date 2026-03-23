@@ -35,11 +35,14 @@ app = FastAPI(
     redoc_url="/api/redoc"
 )
 
-# CORS middleware - Allow all origins
+# CORS middleware
+# Use explicit origins plus a Railway wildcard so deployed frontend domains
+# can call the API with Authorization headers and preflight requests.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
+    allow_origins=settings.allowed_origins_list,
+    allow_origin_regex=r"https://.*\.railway\.app",
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
