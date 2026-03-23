@@ -27,6 +27,7 @@ export default function AdminUsers() {
   const { user } = useAuth()
   const canManageUsers = user?.role === 'admin'
   const canViewUsers = user?.role === 'admin' || user?.role === 'super_admin'
+  const showAgencyColumn = user?.role === 'super_admin'
   const [users, setUsers] = useState([])
   const [filteredUsers, setFilteredUsers] = useState([])
   const [searchQuery, setSearchQuery] = useState('')
@@ -242,7 +243,7 @@ export default function AdminUsers() {
                     <th className="text-left py-3 px-4 font-medium">Name</th>
                     <th className="text-left py-3 px-4 font-medium">Email</th>
                     <th className="text-left py-3 px-4 font-medium">Role</th>
-                    <th className="text-left py-3 px-4 font-medium">Department</th>
+                    <th className="text-left py-3 px-4 font-medium">{showAgencyColumn ? 'Agency Name' : 'Department'}</th>
                     <th className="text-left py-3 px-4 font-medium">Status</th>
                     <th className="text-left py-3 px-4 font-medium">Joined</th>
                     {canManageUsers && <th className="text-right py-3 px-4 font-medium">Actions</th>}
@@ -276,7 +277,7 @@ export default function AdminUsers() {
                         </Badge>
                       </td>
                       <td className="py-3 px-4 text-sm text-muted-foreground">
-                        {u.department || '-'}
+                        {showAgencyColumn ? (u.agency_name || '-') : (u.department || '-')}
                       </td>
                       <td className="py-3 px-4">
                         {u.is_online ? (

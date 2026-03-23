@@ -5,7 +5,7 @@ from datetime import timedelta
 from typing import List
 from uuid import UUID
 from app.database import get_db
-from app.models import User
+from app.models import User, Agency
 from app.schemas import Token, UserCreate, UserResponse, UserLogin, PasswordUpdate, UserUpdate, AdminUserUpdate
 from app.auth import (
     get_password_hash,
@@ -291,6 +291,11 @@ def get_all_users(
         users = db.query(User).all()
     else:
         users = db.query(User).filter(User.agency_id == current_user.agency_id).all()
+
+    agency_map = {
+        str(agency.id): agency.name
+        for agency in db.query(Agency).all()
+    }
     
     # Add online status based on last_login_at (online if logged in within last 15 minutes)
     result = []
@@ -303,6 +308,8 @@ def get_all_users(
             "phone": user.phone,
             "department": user.department,
             "bio": user.bio,
+            "agency_id": user.agency_id,
+            "agency_name": agency_map.get(str(user.agency_id), None) if user.agency_id else None,
             "avatar_url": user.avatar_url,
             "is_active": user.is_active,
             "created_at": user.created_at,

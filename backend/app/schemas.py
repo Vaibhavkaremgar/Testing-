@@ -61,6 +61,7 @@ class UserResponse(UserBase):
     avatar_url: Optional[str] = None
     last_login_at: Optional[datetime] = None
     is_online: Optional[bool] = False
+    agency_name: Optional[str] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
     
