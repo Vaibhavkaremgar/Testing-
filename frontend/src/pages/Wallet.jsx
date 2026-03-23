@@ -6,7 +6,6 @@ import { Label } from '@/components/ui/label';
 import { Wallet, ArrowUpCircle, ArrowDownCircle, CreditCard, TrendingUp, Minus, Download } from 'lucide-react';
 import api from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
-import AgencyCreditManager from '@/components/wallet/AgencyCreditManager';
 
 const PAYMENT_METHODS = [
   { id: 'razorpay', name: 'Razorpay', icon: CreditCard, color: 'text-blue-600' },
@@ -267,19 +266,6 @@ Status: ${txn.status || 'completed'}
           </CardContent>
         </Card>
       </div>
-
-      {isSuperAdmin && (
-        <AgencyCreditManager
-          title="Add Credits to Agency Admin"
-          description="Credits added here are applied directly to the selected agency admin wallet and will appear in that admin's Wallet tab."
-          preselectedAgencyId={superAdminAgencyId || ''}
-          onCreditsAdded={() => {
-            if (superAdminAgencyId) {
-              fetchAgencyWallet(superAdminAgencyId);
-            }
-          }}
-        />
-      )}
 
       {/* Buy Credits */}
       {!isSuperAdmin && (
