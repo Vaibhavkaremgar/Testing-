@@ -940,8 +940,10 @@ def get_candidates_count(
 ):
     from app.models import JobDescription, UserRole
     query = db.query(Candidate)
-    if agency_id and current_user.role == UserRole.SUPER_ADMIN:
-        query = query.join(JobDescription).filter(JobDescription.agency_id == agency_id)
+    if current_user.role == UserRole.SUPER_ADMIN:
+        if agency_id:
+            query = query.join(JobDescription, Candidate.job_id == JobDescription.id).filter(JobDescription.agency_id == agency_id)
+        # else: no filter — sees all
     elif current_user.role == UserRole.ADMIN and current_user.agency_id:
         query = query.join(JobDescription, Candidate.job_id == JobDescription.id).filter(JobDescription.agency_id == current_user.agency_id)
     elif current_user.role != UserRole.ADMIN:
