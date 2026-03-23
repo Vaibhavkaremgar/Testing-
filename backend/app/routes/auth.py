@@ -73,7 +73,14 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     agency_id_str = str(user.agency_id) if user.agency_id else None
     access_token = create_access_token(
-        data={"sub": user.email, "agency_id": agency_id_str}, expires_delta=access_token_expires
+        data={
+            "sub": user.email,
+            "agency_id": agency_id_str,
+            "role": user.role.value,
+            "user_id": str(user.id),
+            "full_name": user.full_name,
+        },
+        expires_delta=access_token_expires
     )
     return {"access_token": access_token, "token_type": "bearer"}
 
@@ -95,7 +102,14 @@ def login_json(user_login: UserLogin, db: Session = Depends(get_db)):
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     agency_id_str = str(user.agency_id) if user.agency_id else None
     access_token = create_access_token(
-        data={"sub": user.email, "agency_id": agency_id_str}, expires_delta=access_token_expires
+        data={
+            "sub": user.email,
+            "agency_id": agency_id_str,
+            "role": user.role.value,
+            "user_id": str(user.id),
+            "full_name": user.full_name,
+        },
+        expires_delta=access_token_expires
     )
     return {"access_token": access_token, "token_type": "bearer"}
 
