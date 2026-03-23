@@ -145,6 +145,43 @@ def get_interview(
     }
     return InterviewResponse(**interview_dict)
 
+@router.post("/public", response_model=InterviewResponse)
+def create_interview_public(
+    interview: InterviewCreate,
+    db: Session = Depends(get_db)
+):
+    """Public endpoint - no auth required. Create an interview record."""
+    candidate = db.query(Candidate).filter(Candidate.id == interview.candidate_id).first()
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+
+    db_interview = Interview(**interview.model_dump())
+    db.add(db_interview)
+    candidate.stage = CandidateStage.INTERVIEW_SCHEDULED
+    candidate.stage_updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(db_interview)
+
+    return InterviewResponse(
+        id=db_interview.id,
+        candidate_id=db_interview.candidate_id,
+        candidate_name=candidate.name,
+        interview_type=db_interview.interview_type,
+        scheduled_at=db_interview.scheduled_at,
+        duration_minutes=db_interview.duration_minutes,
+        meeting_link=db_interview.meeting_link,
+        status=db_interview.status,
+        video_url=db_interview.video_url,
+        transcript=db_interview.transcript,
+        ai_summary=db_interview.ai_summary,
+        interview_score=db_interview.interview_score,
+        feedback=db_interview.feedback,
+        technical_score=db_interview.technical_score,
+        communication_score=db_interview.communication_score,
+        culture_fit_score=db_interview.culture_fit_score,
+        created_at=db_interview.created_at
+    )
+
 @router.post("", response_model=InterviewResponse)
 def create_interview(
     interview: InterviewCreate,
