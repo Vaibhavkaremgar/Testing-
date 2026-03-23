@@ -613,10 +613,6 @@ class ApiClient {
     return this.request(`/email-templates/${id}`)
   }
 
-  async getEmailTemplateVariables() {
-    return this.request('/email-templates/meta/variables')
-  }
-
   async createEmailTemplate(data) {
     return this.request('/email-templates', {
       method: 'POST',
@@ -736,14 +732,13 @@ class ApiClient {
   }
 
   // Send Email
-  async sendEmail(candidateId, subject, message, templateType = null) {
+  async sendEmail(candidateId, subject, message) {
     return this.request('/candidates/send-email', {
       method: 'POST',
       body: JSON.stringify({
         candidate_id: candidateId,
         subject: subject,
-        message: message,
-        template_type: templateType
+        message: message
       }),
     })
   }

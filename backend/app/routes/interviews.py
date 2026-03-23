@@ -199,18 +199,6 @@ def create_interview(
     # Update candidate stage
     candidate.stage = CandidateStage.INTERVIEW_SCHEDULED
     candidate.stage_updated_at = datetime.utcnow()
-
-    try:
-        from app.email_utils import send_candidate_email_from_template
-
-        if candidate.email:
-            send_candidate_email_from_template(
-                db=db,
-                candidate=candidate,
-                template_type="interview_scheduled",
-            )
-    except Exception as e:
-        print(f"Interview scheduled email trigger failed: {e}")
     
     db.commit()
     db.refresh(db_interview)

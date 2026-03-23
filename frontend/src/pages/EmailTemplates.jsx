@@ -9,7 +9,6 @@ import { Plus, Mail, Edit, Trash2, Copy } from 'lucide-react'
 
 export default function EmailTemplates() {
   const [templates, setTemplates] = useState([])
-  const [availableVariables, setAvailableVariables] = useState([])
   const [loading, setLoading] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingTemplate, setEditingTemplate] = useState(null)
@@ -17,17 +16,9 @@ export default function EmailTemplates() {
     name: '',
     subject: '',
     body: '',
-    template_type: 'resume_shortlisted_slot_selection',
+    template_type: 'general',
     variables: ''
   })
-
-  const templateTypeOptions = [
-    { value: 'resume_shortlisted_slot_selection', label: 'Resume Shortlisted With Slot Selection' },
-    { value: 'resume_rejected', label: 'Resume Rejected' },
-    { value: 'interview_scheduled', label: 'Interview Scheduled' },
-    { value: 'selected', label: 'Selected' },
-    { value: 'rejected', label: 'Rejected' },
-  ]
 
   const fetchTemplates = async () => {
     try {
@@ -42,9 +33,6 @@ export default function EmailTemplates() {
 
   useEffect(() => {
     fetchTemplates()
-    api.getEmailTemplateVariables()
-      .then((data) => setAvailableVariables(data.variables || []))
-      .catch(() => setAvailableVariables([]))
   }, [])
 
   const handleSubmit = async (e) => {
@@ -63,7 +51,7 @@ export default function EmailTemplates() {
       
       setDialogOpen(false)
       setEditingTemplate(null)
-      setFormData({ name: '', subject: '', body: '', template_type: 'resume_shortlisted_slot_selection', variables: '' })
+      setFormData({ name: '', subject: '', body: '', template_type: 'general', variables: '' })
       await fetchTemplates()
     } catch (error) {
       console.error('Failed to save template:', error)
@@ -99,11 +87,6 @@ export default function EmailTemplates() {
       offer: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
       rejection: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
       application_received: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300',
-      resume_shortlisted_slot_selection: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
-      resume_rejected: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
-      interview_scheduled: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
-      selected: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
-      rejected: 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300',
       general: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
     }
     return colors[type] || colors.general
@@ -122,13 +105,13 @@ export default function EmailTemplates() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Email Templates</h1>
-          <p className="text-muted-foreground">Manage agency-specific templates for automated and user-triggered candidate emails</p>
+          <p className="text-muted-foreground">Manage email templates for candidate communication</p>
         </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
             <Button onClick={() => {
               setEditingTemplate(null)
-              setFormData({ name: '', subject: '', body: '', template_type: 'resume_shortlisted_slot_selection', variables: '' })
+              setFormData({ name: '', subject: '', body: '', template_type: 'general', variables: '' })
             }}>
               <Plus className="h-4 w-4 mr-2" />
               Add Template
@@ -155,9 +138,11 @@ export default function EmailTemplates() {
                     value={formData.template_type}
                     onChange={(e) => setFormData({ ...formData, template_type: e.target.value })}
                   >
-                    {templateTypeOptions.map((option) => (
-                      <option key={option.value} value={option.value}>{option.label}</option>
-                    ))}
+                    <option value="general">General</option>
+                    <option value="interview_invite">Interview Invitation</option>
+                    <option value="offer">Offer Letter</option>
+                    <option value="rejection">Rejection</option>
+                    <option value="application_received">Application Received</option>
                   </select>
                 </div>
               </div>
@@ -178,7 +163,7 @@ export default function EmailTemplates() {
                   required
                 />
                 <p className="text-xs text-muted-foreground">
-                  Candidate and job details are auto-filled using placeholders like {'{{candidate_name}}'} and {'{{job_title}}'}
+                  Use {'{{variable_name}}'} for dynamic content
                 </p>
               </div>
               <div className="space-y-2">
@@ -189,18 +174,6 @@ export default function EmailTemplates() {
                   placeholder="candidate_name, job_title, interview_date"
                 />
               </div>
-              {availableVariables.length > 0 && (
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Available Variables</label>
-                  <div className="flex flex-wrap gap-2">
-                    {availableVariables.map((variable) => (
-                      <Badge key={variable} variant="outline" className="text-xs font-mono">
-                        {'{{'}{variable}{'}}'}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-              )}
               <div className="flex justify-end gap-2">
                 <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
                   Cancel

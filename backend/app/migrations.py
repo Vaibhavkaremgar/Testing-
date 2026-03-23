@@ -3,7 +3,7 @@ Auto-migration script - runs on startup
 """
 from sqlalchemy import inspect, text
 from app.database import engine
-from app.models import AnalyticsWidget, UserDashboardPreference, Agency, WalletTransaction, AgencyDiscount, EmailTemplate
+from app.models import AnalyticsWidget, UserDashboardPreference, Agency, WalletTransaction, AgencyDiscount
 
 
 def run_migrations():
@@ -68,25 +68,6 @@ def run_migrations():
                 AgencyDiscount.__table__.create(bind=engine, checkfirst=True)
                 conn.commit()
                 print("Migration completed: agency_discounts created")
-
-            # email_templates table / columns
-            if "email_templates" not in get_tables():
-                print("Running migration: creating email_templates table...")
-                EmailTemplate.__table__.create(bind=engine, checkfirst=True)
-                conn.commit()
-                print("Migration completed: email_templates created")
-            else:
-                email_template_columns = get_columns("email_templates")
-                if "agency_id" not in email_template_columns:
-                    print("Running migration: adding email_templates.agency_id...")
-                    conn.execute(text("ALTER TABLE email_templates ADD COLUMN agency_id UUID"))
-                    conn.commit()
-                    print("Migration completed: email_templates.agency_id added")
-                if "created_by_user_id" not in email_template_columns:
-                    print("Running migration: adding email_templates.created_by_user_id...")
-                    conn.execute(text("ALTER TABLE email_templates ADD COLUMN created_by_user_id UUID"))
-                    conn.commit()
-                    print("Migration completed: email_templates.created_by_user_id added")
 
     except Exception as e:
         print(f"Migration warning: {e}")

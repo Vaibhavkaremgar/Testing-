@@ -4,8 +4,7 @@ from typing import List, Optional
 from app.database import get_db
 from app.models import EmailTemplate, User
 from app.schemas import EmailTemplateCreate, EmailTemplateUpdate, EmailTemplateResponse
-from app.auth import get_current_active_user
-from app.email_utils import get_default_template_variables
+from app.auth import get_current_active_user, get_current_admin_user
 
 router = APIRouter(prefix="/email-templates", tags=["Email Templates"])
 
@@ -17,10 +16,7 @@ def get_email_templates(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    if not current_user.agency_id:
-        raise HTTPException(status_code=403, detail="Only agency users can access email templates")
-
-    query = db.query(EmailTemplate).filter(EmailTemplate.agency_id == current_user.agency_id)
+    query = db.query(EmailTemplate)
     
     if template_type:
         query = query.filter(EmailTemplate.template_type == template_type)
@@ -34,40 +30,18 @@ def get_email_template(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    if not current_user.agency_id:
-        raise HTTPException(status_code=403, detail="Only agency users can access email templates")
-
-    template = db.query(EmailTemplate).filter(
-        EmailTemplate.id == template_id,
-        EmailTemplate.agency_id == current_user.agency_id
-    ).first()
+    template = db.query(EmailTemplate).filter(EmailTemplate.id == template_id).first()
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
     return template
-
-
-@router.get("/meta/variables")
-def get_email_template_variables(
-    current_user: User = Depends(get_current_active_user)
-):
-    if not current_user.agency_id:
-        raise HTTPException(status_code=403, detail="Only agency users can access email template variables")
-    return {"variables": get_default_template_variables()}
 
 @router.post("", response_model=EmailTemplateResponse)
 def create_email_template(
     template: EmailTemplateCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_admin_user)
 ):
-    if not current_user.agency_id:
-        raise HTTPException(status_code=403, detail="Only agency users can create email templates")
-
-    db_template = EmailTemplate(
-        **template.model_dump(exclude={"agency_id"}),
-        agency_id=current_user.agency_id,
-        created_by_user_id=current_user.id
-    )
+    db_template = EmailTemplate(**template.model_dump())
     db.add(db_template)
     db.commit()
     db.refresh(db_template)
@@ -78,15 +52,9 @@ def update_email_template(
     template_id: int,
     template_update: EmailTemplateUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_admin_user)
 ):
-    if not current_user.agency_id:
-        raise HTTPException(status_code=403, detail="Only agency users can update email templates")
-
-    db_template = db.query(EmailTemplate).filter(
-        EmailTemplate.id == template_id,
-        EmailTemplate.agency_id == current_user.agency_id
-    ).first()
+    db_template = db.query(EmailTemplate).filter(EmailTemplate.id == template_id).first()
     if not db_template:
         raise HTTPException(status_code=404, detail="Template not found")
     
@@ -102,15 +70,9 @@ def update_email_template(
 def delete_email_template(
     template_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_admin_user)
 ):
-    if not current_user.agency_id:
-        raise HTTPException(status_code=403, detail="Only agency users can delete email templates")
-
-    db_template = db.query(EmailTemplate).filter(
-        EmailTemplate.id == template_id,
-        EmailTemplate.agency_id == current_user.agency_id
-    ).first()
+    db_template = db.query(EmailTemplate).filter(EmailTemplate.id == template_id).first()
     if not db_template:
         raise HTTPException(status_code=404, detail="Template not found")
     

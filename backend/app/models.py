@@ -214,8 +214,6 @@ class EmailTemplate(Base):
     __tablename__ = "email_templates"
 
     id = Column(Integer, primary_key=True, index=True)
-    agency_id = Column(UUID(as_uuid=True), ForeignKey("agencies.id"), nullable=True, index=True)
-    created_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     name = Column(String(255), nullable=False)
     subject = Column(String(500), nullable=False)
     body = Column(Text, nullable=False)
@@ -224,8 +222,6 @@ class EmailTemplate(Base):
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-
-    agency = relationship("Agency", foreign_keys=[agency_id])
 
 
 class ActivityLog(Base):

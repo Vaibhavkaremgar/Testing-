@@ -243,7 +243,6 @@ class EmailTemplateBase(BaseModel):
     body: str
     template_type: str
     variables: Optional[List[str]] = None
-    agency_id: Optional[UUID] = None
 
 class EmailTemplateCreate(EmailTemplateBase):
     pass
@@ -259,7 +258,6 @@ class EmailTemplateUpdate(BaseModel):
 class EmailTemplateResponse(EmailTemplateBase):
     id: int
     is_active: bool
-    created_by_user_id: Optional[UUID] = None
     created_at: datetime
     
     class Config:
