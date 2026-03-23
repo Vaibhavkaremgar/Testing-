@@ -64,14 +64,16 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    # Update last login
+    # Update last login via raw SQL (user object is not session-tracked)
     from datetime import datetime
-    user.last_login_at = datetime.utcnow()
+    from sqlalchemy import text
+    db.execute(text("UPDATE users SET last_login_at = :now WHERE id = :id"), {"now": datetime.utcnow(), "id": user.id})
     db.commit()
     
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    agency_id_str = str(user.agency_id) if user.agency_id else None
     access_token = create_access_token(
-        data={"sub": user.email, "agency_id": user.agency_id}, expires_delta=access_token_expires
+        data={"sub": user.email, "agency_id": agency_id_str}, expires_delta=access_token_expires
     )
     return {"access_token": access_token, "token_type": "bearer"}
 
@@ -84,14 +86,16 @@ def login_json(user_login: UserLogin, db: Session = Depends(get_db)):
             detail="Incorrect email or password"
         )
     
-    # Update last login
+    # Update last login via raw SQL (user object is not session-tracked)
     from datetime import datetime
-    user.last_login_at = datetime.utcnow()
+    from sqlalchemy import text
+    db.execute(text("UPDATE users SET last_login_at = :now WHERE id = :id"), {"now": datetime.utcnow(), "id": user.id})
     db.commit()
     
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    agency_id_str = str(user.agency_id) if user.agency_id else None
     access_token = create_access_token(
-        data={"sub": user.email, "agency_id": user.agency_id}, expires_delta=access_token_expires
+        data={"sub": user.email, "agency_id": agency_id_str}, expires_delta=access_token_expires
     )
     return {"access_token": access_token, "token_type": "bearer"}
 
