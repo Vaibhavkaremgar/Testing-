@@ -18,6 +18,7 @@ import AdminUsers from '@/pages/AdminUsers'
 import Wallet from '@/pages/Wallet'
 import SuperAdminDashboard from '@/pages/SuperAdminDashboard'
 import Agencies from '@/pages/Agencies'
+import Pricing from '@/pages/Pricing'
 import SuperAdminDataPage from '@/pages/SuperAdminDataPage'
 
 function ProtectedRoute({ children, superAdminOnly = false }) {
@@ -77,6 +78,7 @@ function App() {
         <Route path="/super-admin/clients" element={<ProtectedRoute superAdminOnly><SuperAdminDataPage PageComponent={Clients} /></ProtectedRoute>} />
         <Route path="/super-admin/wallet" element={<ProtectedRoute superAdminOnly><SuperAdminDataPage PageComponent={Wallet} /></ProtectedRoute>} />
         <Route path="/super-admin/users" element={<ProtectedRoute superAdminOnly><SuperAdminDataPage PageComponent={AdminUsers} /></ProtectedRoute>} />
+        <Route path="/super-admin/pricing" element={<ProtectedRoute superAdminOnly><Pricing /></ProtectedRoute>} />
 
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
