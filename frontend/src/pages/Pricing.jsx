@@ -27,11 +27,11 @@ export default function Pricing() {
     setLoading(true)
     try {
       const [agencyRes, discountRes] = await Promise.all([
-        api.get('/agencies/list'),
+        api.get('/pricing/agencies'),
         api.get('/pricing/discounts'),
       ])
-      setAgencies(agencyRes.data || [])
-      setDiscounts(discountRes.data || [])
+      setAgencies(Array.isArray(agencyRes) ? agencyRes : [])
+      setDiscounts(Array.isArray(discountRes) ? discountRes : [])
     } catch (e) {
       setError('Failed to load data')
     } finally {

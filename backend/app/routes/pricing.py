@@ -23,6 +23,16 @@ def require_super_admin(current_user=Depends(get_current_active_user)):
     return current_user
 
 
+@router.get("/agencies")
+def list_agencies(
+    db: Session = Depends(get_db),
+    current_user=Depends(require_super_admin)
+):
+    from app.models import Agency
+    agencies = db.query(Agency).order_by(Agency.name).all()
+    return [{"id": str(a.id), "name": a.name} for a in agencies]
+
+
 @router.get("/discounts")
 def get_all_discounts(
     db: Session = Depends(get_db),
