@@ -3,7 +3,7 @@ Auto-migration script - runs on startup
 """
 from sqlalchemy import inspect, text
 from app.database import engine
-from app.models import AnalyticsWidget, UserDashboardPreference, Agency, WalletTransaction, AgencyDiscount
+from app.models import AnalyticsWidget, UserDashboardPreference, Agency, WalletTransaction
 
 
 def run_migrations():
@@ -61,13 +61,6 @@ def run_migrations():
                 print("Running migration: creating user_dashboard_preferences...")
                 UserDashboardPreference.__table__.create(bind=engine, checkfirst=True)
                 print("Migration completed: user_dashboard_preferences created")
-
-            # agency_discounts table
-            if "agency_discounts" not in get_tables():
-                print("Running migration: creating agency_discounts table...")
-                AgencyDiscount.__table__.create(bind=engine, checkfirst=True)
-                conn.commit()
-                print("Migration completed: agency_discounts created")
 
     except Exception as e:
         print(f"Migration warning: {e}")
