@@ -41,7 +41,6 @@ export function Sidebar() {
         { name: 'Candidates', href: '/super-admin/candidates', icon: Users },
         { name: 'Interviews', href: '/super-admin/interviews', icon: Video },
         { name: 'Clients', href: '/super-admin/clients', icon: Building2 },
-        { name: 'Wallet', href: '/super-admin/wallet', icon: Wallet },
         { name: 'Users', href: '/super-admin/users', icon: UserCog },
         { name: 'Pricing', href: '/super-admin/pricing', icon: Tag },
       ]
