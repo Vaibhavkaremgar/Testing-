@@ -119,6 +119,31 @@ export default function WalletPage({ superAdminAgencyId = null }) {
     }
   };
 
+  const getTransactionUsageLabel = (txn) => {
+    const description = (txn.description || '').toLowerCase();
+
+    if (txn.transaction_type === 'debit') {
+      if (description.includes('interview completed')) {
+        return 'Interview done';
+      }
+      return 'Credits used';
+    }
+
+    if (description.includes('purchased')) {
+      return 'Credits purchased';
+    }
+
+    if (description.includes('trial')) {
+      return 'Trial credits';
+    }
+
+    if (description.includes('super admin')) {
+      return 'Added by super admin';
+    }
+
+    return 'Credits added';
+  };
+
   const handleDownloadInvoice = (txn) => {
     const invoiceContent = `
 INVOICE
@@ -376,7 +401,7 @@ Status: ${txn.status || 'completed'}
                     <th className="text-left py-3 px-4">Credits</th>
                     <th className="text-left py-3 px-4">Amount</th>
                     <th className="text-left py-3 px-4">Payment Method</th>
-                    <th className="text-left py-3 px-4">Status</th>
+                    <th className="text-left py-3 px-4">Usage</th>
                     <th className="text-left py-3 px-4">Invoice</th>
                   </tr>
                 </thead>
@@ -408,8 +433,12 @@ Status: ${txn.status || 'completed'}
                         {txn.payment_method || '-'}
                       </td>
                       <td className="py-3 px-4">
-                        <span className="text-xs px-2 py-1 bg-green-100 text-green-800 rounded">
-                          {txn.status || 'completed'}
+                        <span className={`text-xs px-2 py-1 rounded ${
+                          txn.transaction_type === 'debit'
+                            ? 'bg-amber-100 text-amber-800'
+                            : 'bg-green-100 text-green-800'
+                        }`}>
+                          {getTransactionUsageLabel(txn)}
                         </span>
                       </td>
                       <td className="py-3 px-4">
