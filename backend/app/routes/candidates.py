@@ -1098,7 +1098,7 @@ def create_candidate(
 @router.post("/upload")
 async def upload_resume(
     file: UploadFile = File(...),
-    job_id: Optional[int] = Query(None),
+    job_id: Optional[UUID] = Query(None),
     threshold: Optional[float] = Query(60),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
@@ -1238,7 +1238,7 @@ async def upload_resume(
 @router.post("/bulk-upload")
 async def bulk_upload_resumes(
     files: List[UploadFile] = File(...),
-    job_id: Optional[int] = Query(None),
+    job_id: Optional[UUID] = Query(None),
     threshold: Optional[float] = Query(60),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
@@ -1356,7 +1356,7 @@ async def bulk_upload_resumes(
 @router.post("/zip-upload")
 async def zip_upload_resumes(
     file: UploadFile = File(...),
-    job_id: Optional[int] = Query(None),
+    job_id: Optional[UUID] = Query(None),
     threshold: Optional[float] = Query(60),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
@@ -2126,10 +2126,10 @@ def get_my_assigned_candidates(
     return result
 
 
-@router.post("/{candidate_id}/assign")
+@router.post("/{candidate_id}/assign-legacy")
 def assign_candidate(
-    candidate_id: int,
-    user_id: int,
+    candidate_id: UUID,
+    user_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):

@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
 from datetime import datetime
+from uuid import UUID
 from app.database import get_db
 from app.models import User, WalletTransaction, TransactionType, UserRole
 from app.auth import get_current_active_user
@@ -10,8 +11,8 @@ from pydantic import BaseModel
 router = APIRouter(prefix="/wallet", tags=["Wallet"])
 
 class AddCreditsRequest(BaseModel):
-    user_id: int
-    amount: int  # Credits
+    user_id: UUID
+    amount: int
     description: str
 
 class TransactionResponse(BaseModel):

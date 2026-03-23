@@ -228,8 +228,8 @@ class ActivityLog(Base):
     __tablename__ = "activity_logs"
 
     id = Column(Integer, primary_key=True, index=True)
-    agency_id = Column(Integer, ForeignKey("agencies.id"), nullable=True)
-    user_id = Column(Integer, ForeignKey("users.id"))
+    agency_id = Column(UUID(as_uuid=True), ForeignKey("agencies.id"), nullable=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     action = Column(String(255), nullable=False)
     entity_type = Column(String(100))
     entity_id = Column(Integer)
@@ -286,7 +286,7 @@ class UserDashboardPreference(Base):
     __tablename__ = "user_dashboard_preferences"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
     widget_id = Column(Integer, ForeignKey("analytics_widgets.id"), nullable=False, index=True)
     position = Column(Integer, nullable=True)
     size = Column(String(50), nullable=True)
@@ -298,8 +298,8 @@ class WalletTransaction(Base):
     __tablename__ = "wallet_transactions"
 
     id = Column(Integer, primary_key=True, index=True)
-    agency_id = Column(Integer, ForeignKey("agencies.id"), nullable=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    agency_id = Column(UUID(as_uuid=True), ForeignKey("agencies.id"), nullable=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     amount = Column(Integer, nullable=False)
     transaction_type = Column(Enum(TransactionType), nullable=False)
     description = Column(String(500))

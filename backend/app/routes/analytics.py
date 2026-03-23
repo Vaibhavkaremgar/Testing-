@@ -160,8 +160,8 @@ def _apply_analytics_filters(
 
     if role_name == UserRole.ADMIN.value and recruiter and recruiter != "all":
         try:
-            recruiter_id = int(recruiter)
-            query = query.filter(Candidate.assigned_to_user_id == recruiter_id)
+            from uuid import UUID as _UUID
+            query = query.filter(Candidate.assigned_to_user_id == _UUID(recruiter))
         except (TypeError, ValueError):
             pass
 
@@ -225,8 +225,8 @@ def _apply_scope_filters_only(
 
     if role_name == UserRole.ADMIN.value and recruiter and recruiter != "all":
         try:
-            recruiter_id = int(recruiter)
-            query = query.filter(Candidate.assigned_to_user_id == recruiter_id)
+            from uuid import UUID as _UUID
+            query = query.filter(Candidate.assigned_to_user_id == _UUID(recruiter))
         except (TypeError, ValueError):
             pass
 

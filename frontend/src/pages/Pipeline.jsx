@@ -169,9 +169,9 @@ export default function Pipeline() {
       await api.updateCandidateStage(candidateId, toStage)
       
       // Store move for undo
-      const candidate = stages[fromStage]?.find(c => c.id === parseInt(candidateId))
+      const candidate = stages[fromStage]?.find(c => c.id === candidateId)
       setLastMove({
-        candidateId: parseInt(candidateId),
+        candidateId: candidateId,
         candidateName: candidate?.name,
         fromStage,
         toStage
@@ -179,12 +179,12 @@ export default function Pipeline() {
       
       // Update local state
       setStages(prev => {
-        const candidate = prev[fromStage]?.find(c => c.id === parseInt(candidateId))
+        const candidate = prev[fromStage]?.find(c => c.id === candidateId)
         if (!candidate) return prev
         
         return {
           ...prev,
-          [fromStage]: prev[fromStage].filter(c => c.id !== parseInt(candidateId)),
+          [fromStage]: prev[fromStage].filter(c => c.id !== candidateId),
           [toStage]: [...(prev[toStage] || []), { ...candidate, stage: toStage }]
         }
       })

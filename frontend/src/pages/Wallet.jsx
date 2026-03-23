@@ -84,7 +84,7 @@ export default function WalletPage() {
     setManualLoading(true);
     try {
       await api.post('/wallet/add-credits', {
-        user_id: parseInt(selectedUser),
+        user_id: selectedUser,
         amount: parseInt(manualCredits),
         description: 'Manual credit by admin'
       });

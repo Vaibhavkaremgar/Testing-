@@ -241,7 +241,7 @@ export default function Resumes() {
     }
     
     // Get threshold from selected job's min_passing_score
-    const jobId = selectedJobForUpload ? parseInt(selectedJobForUpload) : null
+    const jobId = selectedJobForUpload || null
     const threshold = jobId ? (jobScores[jobId] || 60) : 60
     
     console.log('Starting upload with:', {
@@ -662,7 +662,7 @@ export default function Resumes() {
                   }
                   setAssigning(true)
                   try {
-                    const result = await api.bulkAssignCandidates(selectedCandidates, parseInt(selectedUser))
+                    const result = await api.bulkAssignCandidates(selectedCandidates, selectedUser)
                     alert(result.message)
                     setSelectedCandidates([])
                     setSelectedUser('')
