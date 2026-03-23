@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime
+from uuid import UUID
 import random
 from app.database import get_db
 from app.models import Interview, Candidate, CandidateStage, User
@@ -42,9 +43,9 @@ SAMPLE_TRANSCRIPTS = """
 
 @router.get("/count")
 def get_interviews_count(
-    candidate_id: Optional[int] = None,
+    candidate_id: Optional[UUID] = None,
     status: Optional[str] = None,
-    agency_id: Optional[int] = None,
+    agency_id: Optional[UUID] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -66,9 +67,9 @@ def get_interviews_count(
 def get_interviews(
     page: int = 1,
     limit: int = 10,
-    candidate_id: Optional[int] = None,
+    candidate_id: Optional[UUID] = None,
     status: Optional[str] = None,
-    agency_id: Optional[int] = None,
+    agency_id: Optional[UUID] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -115,7 +116,7 @@ def get_interviews(
 
 @router.get("/{interview_id}", response_model=InterviewResponse)
 def get_interview(
-    interview_id: int,
+    interview_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -188,7 +189,7 @@ def create_interview(
 
 @router.put("/{interview_id}", response_model=InterviewResponse)
 def update_interview(
-    interview_id: int,
+    interview_id: UUID,
     interview_update: InterviewUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
@@ -235,7 +236,7 @@ def update_interview(
 
 @router.post("/{interview_id}/complete")
 def complete_interview(
-    interview_id: int,
+    interview_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -286,7 +287,7 @@ def complete_interview(
 
 @router.post("/{interview_id}/results", response_model=InterviewResponse)
 def receive_interview_results(
-    interview_id: int,
+    interview_id: UUID,
     results: InterviewResultsUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
@@ -353,7 +354,7 @@ def receive_interview_results(
 
 @router.delete("/{interview_id}")
 def delete_interview(
-    interview_id: int,
+    interview_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):

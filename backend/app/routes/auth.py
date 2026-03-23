@@ -3,6 +3,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from datetime import timedelta
 from typing import List
+from uuid import UUID
 from app.database import get_db
 from app.models import User
 from app.schemas import Token, UserCreate, UserResponse, UserLogin, PasswordUpdate, UserUpdate, AdminUserUpdate
@@ -246,7 +247,7 @@ def get_login_screen(db: Session = Depends(get_db)):
     }
 
 @router.get("/users/by-agency/{agency_id}")
-def get_users_by_agency(agency_id: int, db: Session = Depends(get_db)):
+def get_users_by_agency(agency_id: UUID, db: Session = Depends(get_db)):
     """Get all users (admin + team members) for a specific agency"""
     from sqlalchemy import text
     rows = db.execute(text(
@@ -303,7 +304,7 @@ def get_all_users(
 
 @router.put("/users/{user_id}", response_model=UserResponse)
 def update_user(
-    user_id: int,
+    user_id: UUID,
     user_data: AdminUserUpdate,
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
@@ -346,7 +347,7 @@ def update_user(
 
 @router.delete("/users/{user_id}")
 def delete_user(
-    user_id: int,
+    user_id: UUID,
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):

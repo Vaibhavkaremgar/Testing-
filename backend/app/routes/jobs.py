@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import List, Optional
+from uuid import UUID
 import os
 import re
 from app.database import get_db
@@ -29,7 +30,7 @@ def debug_job_count(db: Session = Depends(get_db)):
 def get_jobs_count(
     is_active: Optional[bool] = None,
     client: Optional[str] = None,
-    agency_id: Optional[int] = None,
+    agency_id: Optional[UUID] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -54,7 +55,7 @@ def get_jobs(
     limit: int = 100,
     is_active: Optional[bool] = None,
     client: Optional[str] = None,
-    agency_id: Optional[int] = None,
+    agency_id: Optional[UUID] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -118,7 +119,7 @@ def get_jobs(
 
 @router.get("/{job_id}", response_model=JobDescriptionResponse)
 def get_job(
-    job_id: int,
+    job_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -226,7 +227,7 @@ def create_job(
 
 @router.put("/{job_id}", response_model=JobDescriptionResponse)
 def update_job(
-    job_id: int,
+    job_id: UUID,
     job_update: JobDescriptionUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
@@ -515,7 +516,7 @@ def extract_skills(text):
 
 @router.delete("/{job_id}")
 def delete_job(
-    job_id: int,
+    job_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_admin_user)
 ):

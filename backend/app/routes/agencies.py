@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
+from uuid import UUID
 from app.database import get_db
 from app.models import Agency, User, UserRole
 from app.schemas import AgencyWithAdminCreate, AgencyUpdate, AgencyResponse
@@ -19,7 +20,7 @@ def get_agencies(
 
 @router.get("/{agency_id}", response_model=AgencyResponse)
 def get_agency(
-    agency_id: int,
+    agency_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_super_admin)
 ):
@@ -61,7 +62,7 @@ def create_agency(
 
 @router.put("/{agency_id}", response_model=AgencyResponse)
 def update_agency(
-    agency_id: int,
+    agency_id: UUID,
     agency_update: AgencyUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_super_admin)
@@ -78,7 +79,7 @@ def update_agency(
 
 @router.delete("/{agency_id}")
 def delete_agency(
-    agency_id: int,
+    agency_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_super_admin)
 ):

@@ -3,6 +3,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, text
 from typing import List, Optional
+from uuid import UUID
 import os
 import uuid
 import random
@@ -931,10 +932,10 @@ def generate_interview_questions(resume_text: str, job_title: str, skills: list)
 def get_candidates_count(
     search: Optional[str] = None,
     stage: Optional[CandidateStage] = None,
-    job_id: Optional[int] = None,
+    job_id: Optional[UUID] = None,
     min_score: Optional[float] = None,
     client: Optional[str] = None,
-    agency_id: Optional[int] = None,
+    agency_id: Optional[UUID] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -966,10 +967,10 @@ def get_candidates(
     limit: int = 10,
     search: Optional[str] = None,
     stage: Optional[CandidateStage] = None,
-    job_id: Optional[int] = None,
+    job_id: Optional[UUID] = None,
     min_score: Optional[float] = None,
     client: Optional[str] = None,
-    agency_id: Optional[int] = None,
+    agency_id: Optional[UUID] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -1037,7 +1038,7 @@ def get_candidates(
 
 @router.get("/{candidate_id}", response_model=CandidateResponse)
 def get_candidate(
-    candidate_id: int,
+    candidate_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -1483,7 +1484,7 @@ async def zip_upload_resumes(
 
 @router.put("/{candidate_id}", response_model=CandidateResponse)
 def update_candidate(
-    candidate_id: int,
+    candidate_id: UUID,
     candidate_update: CandidateUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
@@ -1506,7 +1507,7 @@ def update_candidate(
 
 @router.patch("/{candidate_id}/stage", response_model=CandidateResponse)
 def update_candidate_stage(
-    candidate_id: int,
+    candidate_id: UUID,
     stage_update: CandidateStageUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
@@ -1531,7 +1532,7 @@ def update_candidate_stage(
 
 @router.delete("/{candidate_id}")
 def delete_candidate(
-    candidate_id: int,
+    candidate_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -1571,7 +1572,7 @@ def delete_candidate(
 
 @router.get("/{candidate_id}/resume-file")
 async def get_resume_file(
-    candidate_id: int,
+    candidate_id: UUID,
     token: Optional[str] = Query(None),
     db: Session = Depends(get_db)
 ):
@@ -1716,7 +1717,7 @@ async def get_resume_file(
 
 @router.get("/{candidate_id}/ai-analysis")
 def get_ai_analysis(
-    candidate_id: int,
+    candidate_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -1764,7 +1765,7 @@ def get_ai_analysis(
 
 @router.get("/{candidate_id}/resume-summary")
 def get_resume_summary(
-    candidate_id: int,
+    candidate_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -2003,7 +2004,7 @@ def send_email(
 
 @router.patch("/{candidate_id}/notes")
 def update_candidate_notes(
-    candidate_id: int,
+    candidate_id: UUID,
     notes_data: dict,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
@@ -2022,7 +2023,7 @@ def update_candidate_notes(
 
 @router.post("/{candidate_id}/assign")
 def assign_candidate_to_user(
-    candidate_id: int,
+    candidate_id: UUID,
     assign_data: dict,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
@@ -2058,7 +2059,7 @@ def assign_candidate_to_user(
 
 @router.post("/{candidate_id}/review")
 def review_candidate(
-    candidate_id: int,
+    candidate_id: UUID,
     review_data: dict,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)

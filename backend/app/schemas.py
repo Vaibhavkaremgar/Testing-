@@ -1,6 +1,7 @@
 from pydantic import BaseModel, EmailStr
 from typing import Optional, List, Any
 from datetime import datetime
+from uuid import UUID
 from app.models import UserRole, CandidateStage, ParsingStatus, ReviewStatus
 
 # Agency Schemas
@@ -23,7 +24,7 @@ class AgencyUpdate(BaseModel):
     is_active: Optional[bool] = None
 
 class AgencyResponse(BaseModel):
-    id: int
+    id: UUID
     name: str
     slug: str
     is_active: bool
@@ -39,7 +40,7 @@ class Token(BaseModel):
 
 class TokenData(BaseModel):
     email: Optional[str] = None
-    agency_id: Optional[int] = None
+    agency_id: Optional[UUID] = None
 
 class UserBase(BaseModel):
     email: EmailStr
@@ -48,14 +49,14 @@ class UserBase(BaseModel):
     phone: Optional[str] = None
     department: Optional[str] = None
     bio: Optional[str] = None
-    agency_id: Optional[int] = None
+    agency_id: Optional[UUID] = None
 
 class UserCreate(UserBase):
     password: str
-    agency_id: Optional[int] = None
+    agency_id: Optional[UUID] = None
 
 class UserResponse(UserBase):
-    id: int
+    id: UUID
     is_active: bool
     avatar_url: Optional[str] = None
     last_login_at: Optional[datetime] = None
@@ -113,7 +114,7 @@ class JobDescriptionUpdate(JobDescriptionBase):
     is_active: Optional[bool] = None
 
 class JobDescriptionResponse(JobDescriptionBase):
-    id: int
+    id: UUID
     job_id: Optional[str] = None
     is_active: bool
     vacancies: int
@@ -135,7 +136,7 @@ class CandidateBase(BaseModel):
     linkedin_url: Optional[str] = None
 
 class CandidateCreate(CandidateBase):
-    job_id: Optional[int] = None
+    job_id: Optional[UUID] = None
 
 class CandidateUpdate(BaseModel):
     name: Optional[str] = None
@@ -146,16 +147,16 @@ class CandidateUpdate(BaseModel):
     experience_years: Optional[float] = None
     location: Optional[str] = None
     stage: Optional[CandidateStage] = None
-    job_id: Optional[int] = None
+    job_id: Optional[UUID] = None
 
 class CandidateAssign(BaseModel):
-    assigned_to_user_id: int
+    assigned_to_user_id: UUID
 
 class CandidateReview(BaseModel):
     action: str  # "interview" or "reject"
 
 class CandidateResponse(CandidateBase):
-    id: int
+    id: UUID
     resume_file_path: Optional[str] = None
     resume_text: Optional[str] = None
     parsing_status: ParsingStatus
@@ -168,7 +169,7 @@ class CandidateResponse(CandidateBase):
     stage_updated_at: datetime
     stage_entered_at: Optional[datetime] = None
     applied_at: Optional[datetime] = None
-    job_id: Optional[int] = None
+    job_id: Optional[UUID] = None
     job_title: Optional[str] = None
     summary: Optional[str] = None
     predefined_questions: Optional[str] = None
@@ -188,7 +189,7 @@ class InterviewBase(BaseModel):
     meeting_link: Optional[str] = None
 
 class InterviewCreate(InterviewBase):
-    candidate_id: int
+    candidate_id: UUID
 
 class InterviewUpdate(BaseModel):
     interview_type: Optional[str] = None
@@ -217,8 +218,8 @@ class InterviewResultsUpdate(BaseModel):
     feedback: Optional[str] = None
 
 class InterviewResponse(InterviewBase):
-    id: int
-    candidate_id: int
+    id: UUID
+    candidate_id: UUID
     candidate_name: Optional[str] = None
     status: str
     video_url: Optional[str] = None
@@ -316,7 +317,7 @@ class ClientUpdate(ClientBase):
     is_active: Optional[bool] = None
 
 class ClientResponse(ClientBase):
-    id: int
+    id: UUID
     is_active: bool
     created_at: datetime
     
@@ -332,7 +333,7 @@ class ClientStats(BaseModel):
 
 # Communication Schemas
 class EmailCommunicationCreate(BaseModel):
-    candidate_id: int
+    candidate_id: UUID
     email_type: str
 
 class EmailCommunicationUpdate(BaseModel):
@@ -340,7 +341,7 @@ class EmailCommunicationUpdate(BaseModel):
 
 class EmailCommunicationResponse(BaseModel):
     id: int
-    candidate_id: int
+    candidate_id: UUID
     candidate_name: Optional[str] = None
     candidate_email: Optional[str] = None
     email_type: str

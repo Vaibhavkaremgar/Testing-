@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import List, Optional
+from uuid import UUID
 from app.database import get_db
 from app.models import Client, JobDescription, Candidate, User, CandidateStage, UserRole
 from app.schemas import ClientCreate, ClientUpdate, ClientResponse, ClientStats
@@ -73,7 +74,7 @@ def get_clients_count(
 def get_clients(
     page: int = 1,
     limit: int = 100,
-    agency_id: Optional[int] = None,
+    agency_id: Optional[UUID] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -99,7 +100,7 @@ def create_client(
 
 @router.put("/{client_id}", response_model=ClientResponse)
 def update_client(
-    client_id: int,
+    client_id: UUID,
     client_update: ClientUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_admin_user)
@@ -118,7 +119,7 @@ def update_client(
 
 @router.delete("/{client_id}")
 def delete_client(
-    client_id: int,
+    client_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_admin_user)
 ):

@@ -1,8 +1,10 @@
 from sqlalchemy import Column, Integer, String, Text, Float, DateTime, ForeignKey, Enum, Boolean, JSON
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
 import enum
+import uuid
 
 
 class UserRole(str, enum.Enum):
@@ -48,7 +50,7 @@ class TransactionType(str, enum.Enum):
 class Agency(Base):
     __tablename__ = "agencies"
 
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
     name = Column(String(255), nullable=False)
     slug = Column(String(100), unique=True, nullable=False)
     is_active = Column(Boolean, default=True)
@@ -59,8 +61,8 @@ class Agency(Base):
 class User(Base):
     __tablename__ = "users"
 
-    id = Column(Integer, primary_key=True, index=True)
-    agency_id = Column(Integer, ForeignKey("agencies.id"), nullable=True)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    agency_id = Column(UUID(as_uuid=True), ForeignKey("agencies.id"), nullable=True)
     email = Column(String(255), unique=True, index=True, nullable=False)
     hashed_password = Column(String(255), nullable=False)
     full_name = Column(String(255), nullable=False)
@@ -82,8 +84,8 @@ class User(Base):
 class JobDescription(Base):
     __tablename__ = "job_descriptions"
 
-    id = Column(Integer, primary_key=True, index=True)
-    agency_id = Column(Integer, ForeignKey("agencies.id"), nullable=True)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    agency_id = Column(UUID(as_uuid=True), ForeignKey("agencies.id"), nullable=True)
     job_id = Column(String(50), unique=True, index=True)
     title = Column(String(255), nullable=False)
     company_name = Column(String(255))
@@ -110,8 +112,8 @@ class JobDescription(Base):
 class Candidate(Base):
     __tablename__ = "candidates"
 
-    id = Column(Integer, primary_key=True, index=True)
-    agency_id = Column(Integer, ForeignKey("agencies.id"), nullable=True)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    agency_id = Column(UUID(as_uuid=True), ForeignKey("agencies.id"), nullable=True)
     candidate_id = Column(String(50), unique=True, index=True)
     name = Column(String(255), nullable=False)
     email = Column(String(255), index=True)
@@ -145,10 +147,10 @@ class Candidate(Base):
     internal_notes = Column(Text)
 
     # Resume review assignment
-    assigned_to_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    assigned_to_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
     review_status = Column(Enum(ReviewStatus), default=ReviewStatus.UNASSIGNED)
     reviewed_at = Column(DateTime(timezone=True), nullable=True)
-    reviewed_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    reviewed_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
 
     # Google Sheets sync
     synced_to_sheets = Column(Boolean, default=False)
@@ -156,10 +158,10 @@ class Candidate(Base):
     predefined_questions = Column(Text, nullable=True)
 
     # Relationships
-    job_id = Column(Integer, ForeignKey("job_descriptions.id"))
+    job_id = Column(UUID(as_uuid=True), ForeignKey("job_descriptions.id"))
     job = relationship("JobDescription", back_populates="candidates")
 
-    created_by = Column(Integer, ForeignKey("users.id"))
+    created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     created_by_user = relationship("User", back_populates="candidates", foreign_keys=[created_by])
 
     interviews = relationship("Interview", back_populates="candidate")
@@ -171,9 +173,9 @@ class Candidate(Base):
 class Interview(Base):
     __tablename__ = "interviews"
 
-    id = Column(Integer, primary_key=True, index=True)
-    agency_id = Column(Integer, ForeignKey("agencies.id"), nullable=True)
-    candidate_id = Column(Integer, ForeignKey("candidates.id"), nullable=False)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    agency_id = Column(UUID(as_uuid=True), ForeignKey("agencies.id"), nullable=True)
+    candidate_id = Column(UUID(as_uuid=True), ForeignKey("candidates.id"), nullable=False)
     candidate = relationship("Candidate", back_populates="interviews")
 
     interview_type = Column(String(100))
@@ -238,8 +240,8 @@ class ActivityLog(Base):
 class Client(Base):
     __tablename__ = "clients"
 
-    id = Column(Integer, primary_key=True, index=True)
-    agency_id = Column(Integer, ForeignKey("agencies.id"), nullable=True)
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    agency_id = Column(UUID(as_uuid=True), ForeignKey("agencies.id"), nullable=True)
     company_name = Column(String(255), nullable=False)
     industry = Column(String(255))
     contact_person = Column(String(255))
@@ -260,7 +262,7 @@ class EmailCommunication(Base):
     __tablename__ = "email_communications"
 
     id = Column(Integer, primary_key=True, index=True)
-    candidate_id = Column(Integer, ForeignKey("candidates.id"), nullable=False)
+    candidate_id = Column(UUID(as_uuid=True), ForeignKey("candidates.id"), nullable=False)
     candidate_name = Column(String(255))
     candidate_email = Column(String(255))
     email_type = Column(String(100))
