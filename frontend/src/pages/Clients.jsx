@@ -2,33 +2,21 @@ import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Badge } from '@/components/ui/badge'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Progress } from '@/components/ui/progress'
-import { Pagination } from '@/components/ui/pagination'
 import { api } from '@/lib/api'
-import { useAuth } from '@/context/AuthContext'
-import { Plus, Building2, TrendingUp, TrendingDown, Users, Edit, Trash2, X } from 'lucide-react'
+import { Trash2, X } from 'lucide-react'
 
 export default function Clients({ superAdminAgencyId = null }) {
   const [searchParams] = useSearchParams()
   const selectedClient = searchParams.get('client')
-  const { user } = useAuth()
   const [clients, setClients] = useState([])
   const [stats, setStats] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [dialogOpen, setDialogOpen] = useState(false)
-  const [editingClient, setEditingClient] = useState(null)
   const [selectedStat, setSelectedStat] = useState(null)
   const [filteredClients, setFilteredClients] = useState([])
   const [currentPage, setCurrentPage] = useState(1)
   const [totalClients, setTotalClients] = useState(0)
   const ITEMS_PER_PAGE = 10
-  const [formData, setFormData] = useState({
-    company_name: '', industry: '', contact_person: '', contact_email: '', contact_phone: '',
-    total_positions: 0, positions_filled: 0, positions_open: 0
-  })
 
   useEffect(() => {
     fetchData()
@@ -71,9 +59,6 @@ export default function Clients({ superAdminAgencyId = null }) {
 
   const fetchData = async () => {
     try {
-      // Get stats from backend (filtered by client if selected)
-      const statsData = await api.getClientStats()
-      
       // Get unique clients from jobs (filtered by client if selected) with pagination
       const jobsParams = selectedClient ? { client: selectedClient, limit: 1000 } : { limit: 1000 }
       if (superAdminAgencyId) jobsParams.agency_id = superAdminAgencyId
@@ -151,41 +136,6 @@ export default function Clients({ superAdminAgencyId = null }) {
     }
   }
 
-  const handleSubmit = async (e) => {
-    e.preventDefault()
-    try {
-      if (editingClient) {
-        await api.updateClient(editingClient.id, formData)
-      } else {
-        await api.createClient(formData)
-      }
-      setDialogOpen(false)
-      setEditingClient(null)
-      setFormData({
-        company_name: '', industry: '', contact_person: '', contact_email: '', contact_phone: '',
-        total_positions: 0, positions_filled: 0, positions_open: 0
-      })
-      await fetchData()
-    } catch (error) {
-      console.error('Failed to save client:', error)
-    }
-  }
-
-  const handleEdit = (client) => {
-    setEditingClient(client)
-    setFormData({
-      company_name: client.company_name || client.name,
-      industry: client.industry || '',
-      contact_person: client.contact_person || '',
-      contact_email: client.contact_email || '',
-      contact_phone: client.contact_phone || '',
-      total_positions: client.total_positions || 0,
-      positions_filled: client.positions_filled || 0,
-      positions_open: client.positions_open || 0
-    })
-    setDialogOpen(true)
-  }
-
   const handleDelete = async (id) => {
     if (!window.confirm('Are you sure you want to delete this client?')) {
       return
@@ -221,86 +171,6 @@ export default function Clients({ superAdminAgencyId = null }) {
           <h1 className="text-2xl font-bold">Clients</h1>
           <p className="text-muted-foreground">Manage client relationships and hiring progress</p>
         </div>
-        {user?.role === 'admin' && (
-          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-            <DialogTrigger asChild>
-              <Button onClick={() => {
-                setEditingClient(null)
-                setFormData({
-                  company_name: '', industry: '', contact_person: '', contact_email: '', contact_phone: '',
-                  total_positions: 0, positions_filled: 0, positions_open: 0
-                })
-              }}>
-                <Plus className="h-4 w-4 mr-2" />
-                Add Client
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-2xl">
-              <DialogHeader>
-                <DialogTitle>{editingClient ? 'Edit Client' : 'Add New Client'}</DialogTitle>
-              </DialogHeader>
-              <form onSubmit={handleSubmit} className="space-y-4 mt-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Company Name *</label>
-                    <Input
-                      value={formData.company_name}
-                      onChange={(e) => setFormData({ ...formData, company_name: e.target.value })}
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Industry</label>
-                    <Input
-                      value={formData.industry}
-                      onChange={(e) => setFormData({ ...formData, industry: e.target.value })}
-                    />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Contact Person</label>
-                    <Input
-                      value={formData.contact_person}
-                      onChange={(e) => setFormData({ ...formData, contact_person: e.target.value })}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Contact Email</label>
-                    <Input
-                      type="email"
-                      value={formData.contact_email}
-                      onChange={(e) => setFormData({ ...formData, contact_email: e.target.value })}
-                    />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Contact Phone</label>
-                    <Input
-                      value={formData.contact_phone}
-                      onChange={(e) => setFormData({ ...formData, contact_phone: e.target.value })}
-                    />
-                  </div>
-                </div>
-                <div className="flex justify-end gap-2">
-                  <Button type="button" variant="outline" onClick={() => {
-                    setDialogOpen(false)
-                    setFormData({
-                      company_name: '', industry: '', contact_person: '', contact_email: '', contact_phone: '',
-                      total_positions: 0, positions_filled: 0, positions_open: 0
-                    })
-                  }}>
-                    Cancel
-                  </Button>
-                  <Button type="submit">
-                    {editingClient ? 'Update' : 'Create'} Client
-                  </Button>
-                </div>
-              </form>
-            </DialogContent>
-          </Dialog>
-        )}
       </div>
 
       {stats && (
@@ -417,7 +287,7 @@ export default function Clients({ superAdminAgencyId = null }) {
             </table>
             {clients.length === 0 && (
               <div className="text-center py-8 text-muted-foreground">
-                No clients found. Add your first client to get started.
+                No clients found.
               </div>
             )}
           </div>
