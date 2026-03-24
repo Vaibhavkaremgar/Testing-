@@ -10,8 +10,8 @@ import random
 import tempfile
 import zipfile
 from datetime import datetime
-from app.database import get_db
-from app.models import Candidate, CandidateStage, ParsingStatus, User
+from app.database import SessionLocal, get_db
+from app.models import Candidate, CandidateStage, ParsingStatus, User, JobDescription
 from app.notification_service import queue_notification_for_stage, send_email_task
 from app.schemas import (
     CandidateCreate, CandidateUpdate, CandidateResponse, CandidateStageUpdate
@@ -467,6 +467,122 @@ def analyze_resume_with_ai(candidate_data: dict, job_description: dict) -> dict:
         "resumeText": full_text[:1000],
         "status": evaluation['status']
     }
+
+
+def get_job_data(db: Session, job_id: Optional[UUID]) -> dict:
+    """Load job data once and reuse it across batch processing."""
+    if not job_id:
+        return {
+            'title': 'General Position',
+            'description': '',
+            'requirements': '',
+            'skills': []
+        }
+
+    job = db.query(JobDescription).filter(JobDescription.id == job_id).first()
+    if not job:
+        return {
+            'title': 'General Position',
+            'description': '',
+            'requirements': '',
+            'skills': []
+        }
+
+    return {
+        'title': job.title,
+        'description': job.description or '',
+        'requirements': job.requirements or '',
+        'skills': job.skills or []
+    }
+
+
+def generate_unique_candidate_id(db: Session, name: str, job_id: Optional[UUID]) -> str:
+    """Generate a unique candidate ID for bulk operations."""
+    name_prefix = name[:3].upper() if name else "UNK"
+    job_suffix = str(job_id) if job_id else "000"
+    candidate_id = f"{name_prefix}{job_suffix}"
+    base_id = candidate_id
+    counter = 1
+
+    while db.query(Candidate).filter(Candidate.candidate_id == candidate_id).first():
+        candidate_id = f"{base_id}{counter}"
+        counter += 1
+
+    return candidate_id
+
+
+def process_zip_upload_batch(
+    zip_path: str,
+    job_id: Optional[UUID],
+    threshold: float,
+    agency_id,
+    current_user_id,
+):
+    """Process ZIP uploads after the response so large archives don't time out."""
+    db = SessionLocal()
+
+    try:
+        os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+        job_data = get_job_data(db, job_id)
+
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            for file_info in zip_ref.filelist:
+                file_ext = os.path.splitext(file_info.filename)[1].lower()
+                if file_info.is_dir() or file_ext not in ['.pdf', '.doc', '.docx']:
+                    continue
+
+                try:
+                    resume_content = zip_ref.read(file_info.filename)
+                    unique_filename = f"{uuid.uuid4()}{file_ext}"
+                    file_path = os.path.join(settings.UPLOAD_DIR, unique_filename)
+
+                    with open(file_path, "wb") as resume_file:
+                        resume_file.write(resume_content)
+
+                    resume_data = extract_resume_data(file_path, file_info.filename)
+                    candidate_id = generate_unique_candidate_id(db, resume_data['name'], job_id)
+
+                    db_candidate = Candidate(
+                        name=resume_data['name'],
+                        email=resume_data['email'],
+                        phone=resume_data['phone'],
+                        skills=resume_data['skills'],
+                        resume_file_path=file_path,
+                        resume_text=resume_data['full_text'],
+                        candidate_id=candidate_id,
+                        job_id=job_id,
+                        agency_id=agency_id,
+                        created_by=current_user_id,
+                        assigned_to_user_id=current_user_id,
+                        parsing_status=ParsingStatus.PROCESSING,
+                        score_threshold=threshold
+                    )
+                    db.add(db_candidate)
+                    db.commit()
+                    db.refresh(db_candidate)
+
+                    analysis_data = {
+                        'name': resume_data['name'],
+                        'email': resume_data['email'],
+                        'phone': resume_data['phone'],
+                        'skills': resume_data['skills'],
+                        'experience_text': resume_data['experience_text'],
+                        'projects': resume_data['projects'],
+                        'full_text': resume_data['full_text']
+                    }
+                    ai_analysis = analyze_resume_with_ai(analysis_data, job_data)
+                    simulate_resume_parsing(db_candidate, db, ai_analysis=ai_analysis, user_id=current_user_id)
+                except Exception as exc:
+                    db.rollback()
+                    print(f"ZIP processing failed for {file_info.filename}: {exc}")
+    except Exception as exc:
+        print(f"ZIP batch processing failed: {exc}")
+    finally:
+        try:
+            if os.path.exists(zip_path):
+                os.unlink(zip_path)
+        finally:
+            db.close()
 
 def evaluate_candidate_contextually(resume_text: str, job_title: str, job_description: str, job_requirements: str, candidate_skills: list, experience_text: str, projects: list, job_skills: list = None) -> dict:
     """Evidence-based AI evaluation using LLM with structured scoring"""
@@ -1465,126 +1581,41 @@ async def zip_upload_resumes(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    import zipfile
-    import tempfile
-    
     # Validate ZIP file
     if file.content_type != "application/zip" and not file.filename.lower().endswith('.zip'):
         raise HTTPException(status_code=400, detail="Only ZIP files are allowed")
-    
-    results = []
-    
+
     try:
         # Save ZIP file temporarily
         with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as temp_zip:
             content = await file.read()
             temp_zip.write(content)
             temp_zip_path = temp_zip.name
-        
-        # Extract and process resumes from ZIP
+
         with zipfile.ZipFile(temp_zip_path, 'r') as zip_ref:
-            for file_info in zip_ref.filelist:
-                file_ext = os.path.splitext(file_info.filename)[1].lower()
-                if file_ext in ['.pdf', '.doc', '.docx'] and not file_info.is_dir():
-                    try:
-                        # Extract resume to temporary location
-                        resume_content = zip_ref.read(file_info.filename)
-                        
-                        # Create upload directory if not exists
-                        os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
-                        
-                        # Save resume file
-                        unique_filename = f"{uuid.uuid4()}{file_ext}"
-                        file_path = os.path.join(settings.UPLOAD_DIR, unique_filename)
-                        
-                        with open(file_path, "wb") as resume_file:
-                            resume_file.write(resume_content)
-                        
-                        # Extract candidate data
-                        resume_data = extract_resume_data(file_path, file_info.filename)
-                        name = resume_data['name']
-                        email = resume_data['email']
-                        phone = resume_data['phone']
-                        extracted_skills = resume_data['skills']
-                        full_text = resume_data['full_text']
-                        
-                        # Generate candidate ID: first 3 letters of name + job ID
-                        name_prefix = name[:3].upper() if name else "UNK"
-                        job_suffix = str(job_id) if job_id else "000"
-                        candidate_id = f"{name_prefix}{job_suffix}"
-                        
-                        # Ensure uniqueness
-                        base_id = candidate_id
-                        counter = 1
-                        while db.query(Candidate).filter(Candidate.candidate_id == candidate_id).first():
-                            candidate_id = f"{base_id}{counter}"
-                            counter += 1
-                        
-                        # Create candidate
-                        db_candidate = Candidate(
-                            name=name,
-                            email=email,
-                            phone=phone,
-                            skills=extracted_skills,
-                            resume_file_path=file_path,
-                            resume_text=full_text,
-                            candidate_id=candidate_id,
-                            job_id=job_id,
-                            agency_id=current_user.agency_id,
-                            created_by=current_user.id,
-                            assigned_to_user_id=current_user.id,
-                            parsing_status=ParsingStatus.PROCESSING,
-                            score_threshold=threshold
-                        )
-                        db.add(db_candidate)
-                        db.commit()
-                        db.refresh(db_candidate)
-                        
-                        # Get AI analysis for this candidate
-                        job_data = None
-                        if job_id:
-                            from app.models import JobDescription
-                            job = db.query(JobDescription).filter(JobDescription.id == job_id).first()
-                            if job:
-                                job_data = {
-                                    'title': job.title,
-                                    'description': job.description or '',
-                                    'requirements': job.requirements or '',
-                                    'skills': job.skills or []
-                                }
-                        
-                        if not job_data:
-                            job_data = {
-                                'title': 'General Position',
-                                'description': '',
-                                'requirements': '',
-                                'skills': []
-                            }
-                        
-                        analysis_data = {
-                            'name': name,
-                            'email': email,
-                            'phone': phone,
-                            'skills': extracted_skills,
-                            'experience_text': '',
-                            'projects': [],
-                            'full_text': full_text
-                        }
-                        ai_analysis = analyze_resume_with_ai(analysis_data, job_data)
-                        
-                        # Simulate resume parsing with AI analysis
-                        simulate_resume_parsing(db_candidate, db, background_tasks=background_tasks, ai_analysis=ai_analysis, user_id=current_user.id)
-                        
-                        results.append({"filename": file_info.filename, "status": "success", "candidate_id": db_candidate.id})
-                    except Exception as e:
-                        results.append({"filename": file_info.filename, "status": "failed", "error": str(e)})
-        
-        # Clean up temporary ZIP file
-        os.unlink(temp_zip_path)
-        
-        return {"results": results}
-        
+            queued_files = [
+                {"filename": file_info.filename, "status": "queued"}
+                for file_info in zip_ref.filelist
+                if not file_info.is_dir() and os.path.splitext(file_info.filename)[1].lower() in ['.pdf', '.doc', '.docx']
+            ]
+
+        background_tasks.add_task(
+            process_zip_upload_batch,
+            temp_zip_path,
+            job_id,
+            threshold,
+            current_user.agency_id,
+            current_user.id,
+        )
+
+        return {
+            "message": f"ZIP upload accepted. {len(queued_files)} resumes queued for background processing.",
+            "queued": len(queued_files),
+            "results": queued_files,
+        }
     except Exception as e:
+        if 'temp_zip_path' in locals() and os.path.exists(temp_zip_path):
+            os.unlink(temp_zip_path)
         raise HTTPException(status_code=500, detail=f"ZIP upload failed: {str(e)}")
 
 @router.put("/{candidate_id}", response_model=CandidateResponse)

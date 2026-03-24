@@ -258,8 +258,9 @@ export default function Resumes() {
         console.log('ZIP file upload')
         const result = await api.zipUploadResumes(files[0], jobId, threshold)
         console.log('ZIP upload result:', result)
-        const successCount = result.results?.filter(r => r.status === 'success').length || 0
-        setUploadProgress({ show: true, current: successCount, total: result.results?.length || 0, status: 'completed' })
+        const queuedCount = result.queued || result.results?.filter(r => r.status === 'queued').length || 0
+        setUploadProgress({ show: true, current: queuedCount, total: result.results?.length || queuedCount, status: 'completed' })
+        alert(result.message || `ZIP upload accepted. ${queuedCount} resumes are processing in the background.`)
       } else if (files.length === 1) {
         console.log('Single file upload')
         const result = await api.uploadResume(files[0], jobId, threshold)
