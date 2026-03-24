@@ -22,7 +22,7 @@ import Agencies from '@/pages/Agencies'
 import Pricing from '@/pages/Pricing'
 import SuperAdminDataPage from '@/pages/SuperAdminDataPage'
 
-function ProtectedRoute({ children, superAdminOnly = false }) {
+function ProtectedRoute({ children, superAdminOnly = false, userOnly = false }) {
   const { isAuthenticated, loading, user } = useAuth()
 
   if (loading) {
@@ -35,6 +35,7 @@ function ProtectedRoute({ children, superAdminOnly = false }) {
 
   if (!isAuthenticated) return <Navigate to="/login" replace />
   if (superAdminOnly && user?.role !== 'super_admin') return <Navigate to="/" replace />
+  if (userOnly && (user?.role === 'super_admin' || user?.role === 'admin')) return <Navigate to="/" replace />
 
   return <DashboardLayout>{children}</DashboardLayout>
 }
@@ -65,7 +66,7 @@ function App() {
         <Route path="/jobs" element={<ProtectedRoute><Jobs /></ProtectedRoute>} />
         <Route path="/clients" element={<ProtectedRoute><Clients /></ProtectedRoute>} />
         <Route path="/communications" element={<ProtectedRoute><Communications /></ProtectedRoute>} />
-        <Route path="/email-templates" element={<ProtectedRoute><EmailTemplates /></ProtectedRoute>} />
+        <Route path="/email-templates" element={<ProtectedRoute userOnly><EmailTemplates /></ProtectedRoute>} />
         <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
         <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
         <Route path="/admin/users" element={<ProtectedRoute><AdminUsers /></ProtectedRoute>} />
@@ -78,7 +79,6 @@ function App() {
         <Route path="/super-admin/candidates" element={<ProtectedRoute superAdminOnly><SuperAdminDataPage PageComponent={Pipeline} /></ProtectedRoute>} />
         <Route path="/super-admin/interviews" element={<ProtectedRoute superAdminOnly><SuperAdminDataPage PageComponent={Interviews} /></ProtectedRoute>} />
         <Route path="/super-admin/clients" element={<ProtectedRoute superAdminOnly><SuperAdminDataPage PageComponent={Clients} /></ProtectedRoute>} />
-        <Route path="/super-admin/email-templates" element={<ProtectedRoute superAdminOnly><EmailTemplates /></ProtectedRoute>} />
         <Route path="/super-admin/users" element={<ProtectedRoute superAdminOnly><AdminUsers /></ProtectedRoute>} />
         <Route path="/super-admin/pricing" element={<ProtectedRoute superAdminOnly><Pricing /></ProtectedRoute>} />
         <Route path="/super-admin/settings" element={<ProtectedRoute superAdminOnly><Settings /></ProtectedRoute>} />

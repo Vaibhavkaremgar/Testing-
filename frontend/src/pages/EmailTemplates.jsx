@@ -63,7 +63,8 @@ export default function EmailTemplates() {
   const { toast } = useToast()
   const isAdmin = user?.role === 'admin'
   const isSuperAdmin = user?.role === 'super_admin'
-  const canManage = isAdmin || isSuperAdmin
+  const isRegularUser = !isAdmin && !isSuperAdmin
+  const canManage = isRegularUser
 
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -281,7 +282,7 @@ export default function EmailTemplates() {
       <div className="space-y-6">
         <div>
           <h1 className="text-2xl font-bold">Email Customization</h1>
-          <p className="text-muted-foreground">Template management is available for admins only.</p>
+          <p className="text-muted-foreground">Template management is available for users only.</p>
         </div>
       </div>
     )
