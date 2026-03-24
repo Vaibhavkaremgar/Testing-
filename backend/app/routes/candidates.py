@@ -1654,7 +1654,6 @@ async def zip_upload_resumes(
 
         set_upload_progress(
             upload_id,
-            upload_id=upload_id,
             current=0,
             total=len(queued_files),
             status="queued",
