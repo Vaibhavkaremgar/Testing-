@@ -543,6 +543,7 @@ def process_zip_upload_batch(
     try:
         os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
         job_data = get_job_data(db, job_id)
+        job_title = job_data.get("title", "")
         processed_count = 0
         total_count = upload_progress_store.get(upload_id, {}).get("total", 0)
         set_upload_progress(upload_id, status="processing", current=0, total=total_count, message="Screening resumes...")
@@ -580,8 +581,7 @@ def process_zip_upload_batch(
                         score_threshold=threshold
                     )
                     db.add(db_candidate)
-                    db.commit()
-                    db.refresh(db_candidate)
+                    db.flush()
 
                     analysis_data = {
                         'name': resume_data['name'],
@@ -593,7 +593,13 @@ def process_zip_upload_batch(
                         'full_text': resume_data['full_text']
                     }
                     ai_analysis = analyze_resume_with_ai(analysis_data, job_data)
-                    simulate_resume_parsing(db_candidate, db, ai_analysis=ai_analysis, user_id=current_user_id)
+                    simulate_resume_parsing(
+                        db_candidate,
+                        db,
+                        ai_analysis=ai_analysis,
+                        user_id=current_user_id,
+                        job_title=job_title,
+                    )
                 except Exception as exc:
                     db.rollback()
                     print(f"ZIP processing failed for {file_info.filename}: {exc}")
@@ -1144,6 +1150,7 @@ def simulate_resume_parsing(
     background_tasks: Optional[BackgroundTasks] = None,
     ai_analysis: dict = None,
     user_id=None,
+    job_title: Optional[str] = None,
 ):
     """Override legacy parser flow with stage assignment and secure notification enqueueing."""
     candidate.parsing_status = ParsingStatus.COMPLETED
@@ -1158,10 +1165,18 @@ def simulate_resume_parsing(
 
         if candidate.resume_text and candidate.job_id:
             try:
-                from app.models import JobDescription
-                job = db.query(JobDescription).filter(JobDescription.id == candidate.job_id).first()
-                if job:
-                    candidate.predefined_questions = generate_interview_questions(candidate.resume_text, job.title, candidate.skills or [])
+                resolved_job_title = job_title
+                if not resolved_job_title:
+                    from app.models import JobDescription
+                    job = db.query(JobDescription).filter(JobDescription.id == candidate.job_id).first()
+                    resolved_job_title = job.title if job else ""
+
+                if resolved_job_title:
+                    candidate.predefined_questions = generate_interview_questions(
+                        candidate.resume_text,
+                        resolved_job_title,
+                        candidate.skills or []
+                    )
             except Exception as exc:
                 print(f"Question generation failed: {exc}")
 
