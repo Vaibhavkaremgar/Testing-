@@ -36,7 +36,17 @@ class Settings(BaseSettings):
     
     @property
     def allowed_origins_list(self) -> List[str]:
-        return [origin.strip() for origin in self.ALLOWED_ORIGINS.split(",")]
+        origins = []
+        for origin in self.ALLOWED_ORIGINS.split(","):
+            cleaned = origin.strip().rstrip("/")
+            if cleaned:
+                origins.append(cleaned)
+
+        frontend_origin = self.FRONTEND_URL.strip().rstrip("/")
+        if frontend_origin and frontend_origin not in origins:
+            origins.append(frontend_origin)
+
+        return origins
     
     class Config:
         env_file = ".env"

@@ -85,6 +85,7 @@ def run_migrations():
                     "description": "ALTER TABLE email_templates ADD COLUMN description TEXT",
                     "is_html": "ALTER TABLE email_templates ADD COLUMN is_html BOOLEAN DEFAULT TRUE",
                     "is_default": "ALTER TABLE email_templates ADD COLUMN is_default BOOLEAN DEFAULT FALSE",
+                    "is_selected": "ALTER TABLE email_templates ADD COLUMN is_selected BOOLEAN DEFAULT FALSE",
                 }
                 for column_name, statement in email_template_additions.items():
                     if column_name not in email_template_columns:
