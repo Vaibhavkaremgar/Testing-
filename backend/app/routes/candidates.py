@@ -20,6 +20,7 @@ from app.auth import get_current_active_user
 from app.config import settings
 
 router = APIRouter(prefix="/candidates", tags=["Candidates"])
+upload_progress_store = {}
 
 
 def enqueue_stage_notification(
@@ -68,8 +69,19 @@ def clean_candidate_name(raw_name: str) -> str:
     }
 
     normalized = raw_name.replace('_', ' ').replace('-', ' ')
+    normalized = re.sub(r'\([^)]*\)', ' ', normalized)
+    normalized = re.sub(r'\[[^\]]*\]', ' ', normalized)
     normalized = re.sub(r'\s+', ' ', normalized).strip()
-    words = [word for word in normalized.split() if word.lower() not in stop_words]
+    words = []
+    for word in normalized.split():
+        cleaned_word = re.sub(r'^\d+|\d+$', '', word).strip()
+        if not cleaned_word:
+            continue
+        if cleaned_word.lower() in stop_words:
+            continue
+        if any(char.isdigit() for char in cleaned_word):
+            continue
+        words.append(cleaned_word)
 
     if words:
         return " ".join(words).title()
@@ -511,7 +523,14 @@ def generate_unique_candidate_id(db: Session, name: str, job_id: Optional[UUID])
     return candidate_id
 
 
+def set_upload_progress(upload_id: str, **kwargs):
+    progress = upload_progress_store.get(upload_id, {})
+    progress.update(kwargs)
+    upload_progress_store[upload_id] = progress
+
+
 def process_zip_upload_batch(
+    upload_id: str,
     zip_path: str,
     job_id: Optional[UUID],
     threshold: float,
@@ -524,6 +543,9 @@ def process_zip_upload_batch(
     try:
         os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
         job_data = get_job_data(db, job_id)
+        processed_count = 0
+        total_count = upload_progress_store.get(upload_id, {}).get("total", 0)
+        set_upload_progress(upload_id, status="processing", current=0, total=total_count, message="Screening resumes...")
 
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
             for file_info in zip_ref.filelist:
@@ -575,7 +597,24 @@ def process_zip_upload_batch(
                 except Exception as exc:
                     db.rollback()
                     print(f"ZIP processing failed for {file_info.filename}: {exc}")
+                finally:
+                    processed_count += 1
+                    set_upload_progress(
+                        upload_id,
+                        current=processed_count,
+                        total=total_count,
+                        status="processing" if processed_count < total_count else "completed",
+                        message=f"Screened {processed_count} of {total_count} resumes"
+                    )
+        set_upload_progress(
+            upload_id,
+            current=processed_count,
+            total=total_count,
+            status="completed",
+            message=f"Completed screening {processed_count} resumes"
+        )
     except Exception as exc:
+        set_upload_progress(upload_id, status="error", message=str(exc))
         print(f"ZIP batch processing failed: {exc}")
     finally:
         try:
@@ -1143,6 +1182,18 @@ def simulate_resume_parsing(
     if background_tasks and candidate.stage in [CandidateStage.SHORTLISTED, CandidateStage.RESUME_REJECTED]:
         enqueue_stage_notification(background_tasks, db, candidate, candidate.stage.value, user_id=user_id)
 
+@router.get("/upload-progress/{upload_id}")
+def get_upload_progress(
+    upload_id: str,
+    current_user: User = Depends(get_current_active_user)
+):
+    progress = upload_progress_store.get(upload_id)
+    if not progress:
+        raise HTTPException(status_code=404, detail="Upload progress not found")
+
+    return progress
+
+
 @router.get("/count")
 def get_candidates_count(
     search: Optional[str] = None,
@@ -1592,6 +1643,8 @@ async def zip_upload_resumes(
             temp_zip.write(content)
             temp_zip_path = temp_zip.name
 
+        upload_id = str(uuid.uuid4())
+
         with zipfile.ZipFile(temp_zip_path, 'r') as zip_ref:
             queued_files = [
                 {"filename": file_info.filename, "status": "queued"}
@@ -1599,8 +1652,18 @@ async def zip_upload_resumes(
                 if not file_info.is_dir() and os.path.splitext(file_info.filename)[1].lower() in ['.pdf', '.doc', '.docx']
             ]
 
+        set_upload_progress(
+            upload_id,
+            upload_id=upload_id,
+            current=0,
+            total=len(queued_files),
+            status="queued",
+            message=f"Queued {len(queued_files)} resumes for screening"
+        )
+
         background_tasks.add_task(
             process_zip_upload_batch,
+            upload_id,
             temp_zip_path,
             job_id,
             threshold,
@@ -1610,6 +1673,7 @@ async def zip_upload_resumes(
 
         return {
             "message": f"ZIP upload accepted. {len(queued_files)} resumes queued for background processing.",
+            "upload_id": upload_id,
             "queued": len(queued_files),
             "results": queued_files,
         }

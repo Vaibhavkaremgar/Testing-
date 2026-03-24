@@ -20,6 +20,20 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 
+function formatCandidateDisplayName(name) {
+  if (!name) return 'Unknown Candidate'
+
+  const cleaned = name
+    .replace(/[_-]+/g, ' ')
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/\[[^\]]*\]/g, ' ')
+    .replace(/\b\d+\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+  return cleaned || 'Unknown Candidate'
+}
+
 export default function Resumes() {
   const [searchParams] = useSearchParams()
   const selectedClient = searchParams.get('client')
@@ -150,6 +164,34 @@ export default function Resumes() {
     return () => clearTimeout(debounce)
   }, [search, fetchCandidates])
 
+  useEffect(() => {
+    if (!uploadProgress.show || !uploadProgress.uploadId || uploadProgress.status === 'completed' || uploadProgress.status === 'error') {
+      return
+    }
+
+    const intervalId = setInterval(async () => {
+      try {
+        const progress = await api.getUploadProgress(uploadProgress.uploadId)
+        setUploadProgress(prev => ({
+          ...prev,
+          current: progress.current ?? prev.current,
+          total: progress.total ?? prev.total,
+          status: progress.status || prev.status,
+          message: progress.message || prev.message
+        }))
+
+        if (progress.status === 'completed' || progress.status === 'error') {
+          clearInterval(intervalId)
+          await fetchCandidates()
+        }
+      } catch (error) {
+        console.error('Failed to fetch upload progress:', error)
+      }
+    }, 1500)
+
+    return () => clearInterval(intervalId)
+  }, [uploadProgress.show, uploadProgress.uploadId, uploadProgress.status, fetchCandidates])
+
   useEffect(() => { setVisibleCount(20) }, [candidates.length])
 
   const handleDrag = (e) => {
@@ -237,7 +279,7 @@ export default function Resumes() {
     
     // Show progress for bulk uploads
     if (files.length > 1 || uploadType === 'zip') {
-      setUploadProgress({ show: true, current: 0, total: files.length, status: 'uploading' })
+      setUploadProgress({ show: true, current: 0, total: files.length, status: 'uploading', message: 'Preparing upload...' })
     }
     
     // Get threshold from selected job's min_passing_score
@@ -256,24 +298,70 @@ export default function Resumes() {
       
       if (uploadType === 'zip') {
         console.log('ZIP file upload')
+        setUploadProgress({ show: true, current: 0, total: 0, status: 'uploading', message: 'Uploading ZIP file...' })
         const result = await api.zipUploadResumes(files[0], jobId, threshold)
         console.log('ZIP upload result:', result)
         const queuedCount = result.queued || result.results?.filter(r => r.status === 'queued').length || 0
-        setUploadProgress({ show: true, current: queuedCount, total: result.results?.length || queuedCount, status: 'completed' })
-        alert(result.message || `ZIP upload accepted. ${queuedCount} resumes are processing in the background.`)
+        setUploadProgress({
+          show: true,
+          current: 0,
+          total: result.results?.length || queuedCount,
+          status: 'processing',
+          uploadId: result.upload_id,
+          message: result.message || `Queued ${queuedCount} resumes for screening`
+        })
       } else if (files.length === 1) {
         console.log('Single file upload')
         const result = await api.uploadResume(files[0], jobId, threshold)
         console.log('Upload result:', result)
       } else {
         console.log('Bulk file upload')
-        const result = await api.bulkUploadResumes(files, jobId, threshold)
-        console.log('Bulk upload result:', result)
-        const successCount = result.results?.filter(r => r.status === 'success').length || 0
-        setUploadProgress({ show: true, current: successCount, total: files.length, status: 'completed' })
+        let successCount = 0
+        setUploadProgress({
+          show: true,
+          current: 0,
+          total: files.length,
+          status: 'processing',
+          message: `Screening 0 of ${files.length} resumes`
+        })
+
+        for (let index = 0; index < files.length; index += 1) {
+          const currentFile = files[index]
+          setUploadProgress(prev => ({
+            ...prev,
+            current: index,
+            total: files.length,
+            status: 'processing',
+            message: `Screening ${index} of ${files.length}: ${currentFile.name}`
+          }))
+
+          try {
+            await api.uploadResume(currentFile, jobId, threshold)
+            successCount += 1
+            setUploadProgress(prev => ({
+              ...prev,
+              current: successCount,
+              total: files.length,
+              status: 'processing',
+              message: `Screened ${successCount} of ${files.length} resumes`
+            }))
+          } catch (singleError) {
+            console.error(`Upload failed for ${currentFile.name}:`, singleError)
+          }
+        }
+
+        setUploadProgress(prev => ({
+          ...prev,
+          current: successCount,
+          total: files.length,
+          status: 'completed',
+          message: `Completed screening ${successCount} of ${files.length} resumes`
+        }))
       }
       
-      await fetchCandidates()
+      if (uploadType !== 'zip') {
+        await fetchCandidates()
+      }
       
       if (files.length === 1 && uploadType !== 'zip') {
         alert('Resume analyzed successfully!')
@@ -281,7 +369,7 @@ export default function Resumes() {
     } catch (error) {
       console.error('Upload failed:', error)
       setError(`Upload failed: ${error.message}`)
-      setUploadProgress({ show: false, current: 0, total: 0, status: 'error' })
+      setUploadProgress(prev => ({ ...prev, show: true, status: 'error', message: error.message || 'Upload failed' }))
     } finally {
       setUploading(false)
     }
@@ -866,7 +954,7 @@ export default function Resumes() {
                         </div>
                       ) : (
                         <div onClick={() => handleViewCandidate(candidate)}>
-                          <p className="font-medium text-primary hover:underline cursor-pointer">{candidate.name}</p>
+                          <p className="font-medium text-primary hover:underline cursor-pointer">{formatCandidateDisplayName(candidate.name)}</p>
                           <p className="text-sm text-muted-foreground">{candidate.email}</p>
                         </div>
                       )}
@@ -1308,7 +1396,11 @@ export default function Resumes() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-card rounded-lg p-6 max-w-md w-full mx-4">
             <h3 className="text-lg font-semibold mb-4">
-              {uploadProgress.status === 'uploading' ? 'Uploading Resumes...' : 'Upload Complete'}
+              {uploadProgress.status === 'completed'
+                ? 'Upload Complete'
+                : uploadProgress.status === 'error'
+                  ? 'Upload Failed'
+                  : 'Uploading Resumes...'}
             </h3>
             <div className="space-y-4">
               <div>
@@ -1316,11 +1408,19 @@ export default function Resumes() {
                   <span>Progress</span>
                   <span className="font-medium">{uploadProgress.current} / {uploadProgress.total}</span>
                 </div>
-                <Progress value={(uploadProgress.current / uploadProgress.total) * 100} className="h-2" />
+                <div className="relative overflow-hidden rounded-full">
+                  <Progress value={uploadProgress.total ? (uploadProgress.current / uploadProgress.total) * 100 : 0} className="h-2" />
+                  {uploadProgress.status !== 'completed' && uploadProgress.status !== 'error' && (
+                    <div className="absolute inset-y-0 left-0 w-20 animate-pulse bg-white/30 rounded-full" />
+                  )}
+                </div>
+                <p className="text-sm text-muted-foreground mt-2">
+                  {uploadProgress.message || 'Processing resumes...'}
+                </p>
               </div>
-              {uploadProgress.status === 'completed' && (
+              {(uploadProgress.status === 'completed' || uploadProgress.status === 'error') && (
                 <div className="flex justify-end">
-                  <Button onClick={() => setUploadProgress({ show: false, current: 0, total: 0, status: 'uploading' })}>
+                  <Button onClick={() => setUploadProgress({ show: false, current: 0, total: 0, status: 'uploading', message: '', uploadId: null })}>
                     Close
                   </Button>
                 </div>

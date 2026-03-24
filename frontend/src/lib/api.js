@@ -332,6 +332,10 @@ class ApiClient {
     })
   }
 
+  async getUploadProgress(uploadId) {
+    return this.request(`/candidates/upload-progress/${uploadId}`)
+  }
+
   async getPipelineStages(params = {}) {
     const searchParams = new URLSearchParams()
     Object.entries(params).forEach(([key, value]) => {
