@@ -250,6 +250,7 @@ class EmailTemplateBase(BaseModel):
 class EmailTemplateCreate(EmailTemplateBase):
     agency_id: Optional[UUID] = None
     is_default: bool = False
+    is_selected: bool = False
 
 class EmailTemplateUpdate(BaseModel):
     name: Optional[str] = None
@@ -261,12 +262,14 @@ class EmailTemplateUpdate(BaseModel):
     description: Optional[str] = None
     is_html: Optional[bool] = None
     is_default: Optional[bool] = None
+    is_selected: Optional[bool] = None
     is_active: Optional[bool] = None
 
 class EmailTemplateResponse(EmailTemplateBase):
     id: int
     agency_id: Optional[UUID] = None
     is_default: bool
+    is_selected: bool
     is_active: bool
     created_at: datetime
     
@@ -276,6 +279,7 @@ class EmailTemplateResponse(EmailTemplateBase):
 class EmailTemplatePreviewRequest(BaseModel):
     agency_id: Optional[UUID] = None
     status: str
+    template_id: Optional[int] = None
     candidate_id: Optional[UUID] = None
     user_id: Optional[UUID] = None
     payload: Optional[dict[str, Any]] = None

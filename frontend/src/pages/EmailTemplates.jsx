@@ -29,6 +29,7 @@ import {
   Pencil,
   Plus,
   Save,
+  CheckCircle2,
 } from 'lucide-react'
 
 const EMPTY_FORM = {
@@ -73,7 +74,7 @@ export default function EmailTemplates() {
   const [previewOpen, setPreviewOpen] = useState(false)
   const [templates, setTemplates] = useState([])
   const [agencies, setAgencies] = useState([])
-  const [meta, setMeta] = useState({ statuses: [], placeholders: [], can_manage: false })
+  const [meta, setMeta] = useState({ statuses: [], status_options: [], placeholders: [], can_manage: false })
   const [selectedAgencyId, setSelectedAgencyId] = useState('')
   const [selectedStatus, setSelectedStatus] = useState('all')
   const [editingTemplate, setEditingTemplate] = useState(null)
@@ -95,6 +96,17 @@ export default function EmailTemplates() {
     }
     return templates.filter((template) => template.status === selectedStatus)
   }, [selectedStatus, templates])
+
+  const statusOptions = useMemo(() => {
+    if (meta.status_options?.length) {
+      return meta.status_options
+    }
+    return (meta.statuses || []).map((status) => ({ value: status, label: status }))
+  }, [meta.status_options, meta.statuses])
+
+  const getStatusLabel = (statusValue) => {
+    return statusOptions.find((status) => status.value === statusValue)?.label || statusValue
+  }
 
   useEffect(() => {
     loadInitialData()
@@ -226,10 +238,10 @@ export default function EmailTemplates() {
     setPreviewTemplate(template)
     setPreviewResult(null)
     setPreviewOpen(true)
-    await renderPreview(template.status)
+    await renderPreview(template)
   }
 
-  const renderPreview = async (status) => {
+  const renderPreview = async (template) => {
     let parsedPayload = {}
 
     try {
@@ -247,7 +259,8 @@ export default function EmailTemplates() {
     try {
       const result = await api.previewEmailTemplate({
         agency_id: effectiveAgencyId,
-        status,
+        status: template.status,
+        template_id: template.id,
         payload: parsedPayload,
         user_id: user?.id,
       })
@@ -267,6 +280,26 @@ export default function EmailTemplates() {
     if (template.is_default) return 'Default'
     if (template.agency_id) return 'Agency'
     return 'Shared'
+  }
+
+  const selectTemplateForStatus = async (template) => {
+    try {
+      await api.updateEmailTemplate(template.id, {
+        is_selected: true,
+        is_active: true,
+      })
+      toast({
+        title: 'Template selected',
+        description: `${template.name} will now be used for ${getStatusLabel(template.status)} emails.`,
+      })
+      await loadTemplates()
+    } catch (error) {
+      toast({
+        title: 'Could not select template',
+        description: error.message || 'Please try again.',
+        variant: 'destructive',
+      })
+    }
   }
 
   if (loading) {
@@ -293,19 +326,19 @@ export default function EmailTemplates() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Email Customization</h1>
-          <p className="text-muted-foreground">Manage recruitment email templates by status</p>
+          <p className="text-muted-foreground">Add templates, pick one active template per status, and send it automatically on status updates</p>
         </div>
 
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
             <Button onClick={openCreateDialog}>
               <Plus className="h-4 w-4 mr-2" />
-              New Template
+              Add Email Template
             </Button>
           </DialogTrigger>
           <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>{editingTemplate ? 'Edit Template' : 'Create New Template'}</DialogTitle>
+              <DialogTitle>{editingTemplate ? 'Edit Email Template' : 'Add Email Template'}</DialogTitle>
             </DialogHeader>
             <form onSubmit={handleSubmit} className="space-y-4 mt-4">
               <div className="grid grid-cols-2 gap-4">
@@ -327,9 +360,9 @@ export default function EmailTemplates() {
                       <SelectValue placeholder="Select status" />
                     </SelectTrigger>
                     <SelectContent>
-                      {meta.statuses.map((status) => (
-                        <SelectItem key={status} value={status}>
-                          {status}
+                      {statusOptions.map((status) => (
+                        <SelectItem key={status.value} value={status.value}>
+                          {status.label}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -342,7 +375,7 @@ export default function EmailTemplates() {
                 <Input
                   value={formData.description}
                   onChange={(event) => setFormData({ ...formData, description: event.target.value })}
-                  placeholder="Used when a resume is shortlisted."
+                  placeholder="Used when this candidate status email is sent."
                 />
               </div>
 
@@ -442,9 +475,9 @@ export default function EmailTemplates() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All statuses</SelectItem>
-              {meta.statuses.map((status) => (
-                <SelectItem key={status} value={status}>
-                  {status}
+              {statusOptions.map((status) => (
+                <SelectItem key={status.value} value={status.value}>
+                  {status.label}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -460,14 +493,21 @@ export default function EmailTemplates() {
               <div className="flex items-start justify-between gap-2">
                 <div className="flex-1">
                   <CardTitle className="text-base">{template.name}</CardTitle>
-                  <p className="text-xs text-muted-foreground font-mono mt-0.5">{template.status}</p>
+                  <p className="text-xs text-muted-foreground font-mono mt-0.5">{getStatusLabel(template.status)}</p>
                   <p className="text-sm text-muted-foreground mt-1">
                     {template.description || 'No description added'}
                   </p>
                 </div>
-                <Badge variant={template.is_active ? 'default' : 'secondary'}>
-                  {template.is_active ? 'Active' : 'Inactive'}
-                </Badge>
+                <div className="flex flex-col items-end gap-2">
+                  <Badge variant={template.is_active ? 'default' : 'secondary'}>
+                    {template.is_active ? 'Active' : 'Inactive'}
+                  </Badge>
+                  {template.is_selected && (
+                    <Badge variant="outline" className="border-green-600 text-green-700">
+                      Selected
+                    </Badge>
+                  )}
+                </div>
               </div>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -479,6 +519,11 @@ export default function EmailTemplates() {
               <div className="flex flex-wrap gap-2">
                 <Badge variant="outline">{getScopeLabel(template)}</Badge>
                 <Badge variant="secondary">{template.is_html ? 'HTML' : 'Text'}</Badge>
+                {template.is_selected && (
+                  <Badge variant="outline" className="border-green-600 text-green-700">
+                    Default for this status
+                  </Badge>
+                )}
               </div>
 
               <div className="rounded-lg bg-muted/50 p-3 text-sm text-muted-foreground whitespace-pre-wrap line-clamp-4 min-h-[112px]">
@@ -489,6 +534,15 @@ export default function EmailTemplates() {
                 <Button variant="outline" size="sm" onClick={() => openPreview(template)}>
                   <Eye className="h-4 w-4 mr-2" />
                   Preview
+                </Button>
+                <Button
+                  variant={template.is_selected ? 'secondary' : 'default'}
+                  size="sm"
+                  onClick={() => selectTemplateForStatus(template)}
+                  disabled={template.is_selected}
+                >
+                  <CheckCircle2 className="h-4 w-4 mr-2" />
+                  {template.is_selected ? 'Selected' : 'Use for Status'}
                 </Button>
                 <Button variant="outline" size="sm" onClick={() => openEditDialog(template)}>
                   <Pencil className="h-4 w-4 mr-2" />
@@ -530,7 +584,7 @@ export default function EmailTemplates() {
             <div className="flex justify-end">
               <Button
                 variant="outline"
-                onClick={() => previewTemplate && renderPreview(previewTemplate.status)}
+                onClick={() => previewTemplate && renderPreview(previewTemplate)}
                 disabled={previewLoading || !previewTemplate}
               >
                 {previewLoading ? 'Rendering...' : 'Render Again'}

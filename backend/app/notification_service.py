@@ -28,12 +28,18 @@ from app.models import (
 EMAIL_TEMPLATE_STATUSES = [
     "resume_shortlisted",
     "resume_rejected",
-    "slot_selection",
     "slot_confirmation",
-    "interview_invitation",
     "interview_selected",
     "interview_rejected",
 ]
+
+EMAIL_TEMPLATE_STATUS_LABELS = {
+    "resume_shortlisted": "Resume Shortlisted",
+    "resume_rejected": "Resume Rejected",
+    "slot_confirmation": "Interview Slot Confirmation Email",
+    "interview_selected": "Interview Selected Email",
+    "interview_rejected": "Interview Rejected Email",
+}
 
 SUPPORTED_PLACEHOLDERS = [
     "candidate_name",
@@ -53,9 +59,9 @@ SUPPORTED_PLACEHOLDERS = [
 ]
 
 STAGE_TO_NOTIFICATION_STATUS = {
-    CandidateStage.SHORTLISTED.value: "slot_selection",
+    CandidateStage.SHORTLISTED.value: "resume_shortlisted",
     CandidateStage.RESUME_REJECTED.value: "resume_rejected",
-    CandidateStage.INTERVIEW_SCHEDULED.value: "interview_invitation",
+    CandidateStage.INTERVIEW_SCHEDULED.value: "slot_confirmation",
     CandidateStage.SELECTED.value: "interview_selected",
     CandidateStage.REJECTED.value: "interview_rejected",
 }
@@ -78,22 +84,13 @@ DEFAULT_TEMPLATE_DEFINITIONS = {
             "<p>Thank you for applying for {{job_title}}. We appreciate your interest, but we are not moving forward at this stage.</p>"
         ),
     },
-    "slot_selection": {
-        "name": "Default Slot Selection",
-        "subject": "Choose your interview slot for {{job_title}}",
-        "body": (
-            "<p>Hi {{candidate_name}},</p>"
-            "<p>Your profile has progressed for {{job_title}}.</p>"
-            "<p>Please select a slot here: <a href=\"{{slot_link}}\">Choose interview slot</a></p>"
-        ),
-    },
     "slot_confirmation": {
         "name": "Default Slot Confirmation",
         "subject": "Interview slot confirmed for {{job_title}}",
         "body": (
             "<p>Hi {{candidate_name}},</p>"
             "<p>Your interview is confirmed for {{interview_date}} at {{interview_time}}.</p>"
-            "<p>We will share your meeting link shortly.</p>"
+            "<p>Interview link: <a href=\"{{meeting_link}}\">Join interview</a></p>"
         ),
     },
     "interview_invitation": {
@@ -142,10 +139,18 @@ def ensure_default_email_templates(db: Session) -> None:
                 body=template["body"],
                 variables=SUPPORTED_PLACEHOLDERS,
                 is_default=True,
+                is_selected=True,
                 is_html=True,
                 is_active=True,
             )
         )
+    db.commit()
+
+    db.query(EmailTemplate).filter(
+        EmailTemplate.agency_id.is_(None),
+        EmailTemplate.is_default == True,
+        EmailTemplate.is_selected != True,
+    ).update({"is_selected": True}, synchronize_session=False)
     db.commit()
 
 
@@ -216,6 +221,7 @@ def get_template_for_agency_and_status(db: Session, agency_id, status: str) -> t
         agency_template = db.query(EmailTemplate).filter(
             EmailTemplate.agency_id == agency_id,
             EmailTemplate.status == status,
+            EmailTemplate.is_selected == True,
             EmailTemplate.is_active == True,
         ).order_by(EmailTemplate.updated_at.desc().nullslast(), EmailTemplate.created_at.desc()).first()
     if agency_template:
@@ -224,6 +230,7 @@ def get_template_for_agency_and_status(db: Session, agency_id, status: str) -> t
     default_template = db.query(EmailTemplate).filter(
         EmailTemplate.agency_id.is_(None),
         EmailTemplate.status == status,
+        EmailTemplate.is_selected == True,
         EmailTemplate.is_active == True,
     ).order_by(EmailTemplate.updated_at.desc().nullslast(), EmailTemplate.created_at.desc()).first()
     if not default_template:
@@ -286,7 +293,7 @@ def build_rendered_notification(
         )
         payload["slot_link"] = build_workflow_url(slot_token.token, WorkflowTokenType.SLOT_SELECTION.value)
 
-    if status == "interview_invitation" and not payload.get("meeting_link"):
+    if status in {"slot_confirmation", "interview_invitation"} and not payload.get("meeting_link"):
         interview_payload = dict(payload)
         interview_token = create_workflow_token(
             db,

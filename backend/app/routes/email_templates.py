@@ -4,14 +4,16 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.auth import get_current_active_user, get_current_admin_user
+from app.auth import get_current_active_user
 from app.database import get_db
 from app.models import Candidate, EmailTemplate, User, UserRole
 from app.notification_service import (
     EMAIL_TEMPLATE_STATUSES,
+    EMAIL_TEMPLATE_STATUS_LABELS,
     SUPPORTED_PLACEHOLDERS,
     build_rendered_notification,
     ensure_default_email_templates,
+    render_template_content,
 )
 from app.schemas import (
     EmailTemplateCreate,
@@ -22,6 +24,16 @@ from app.schemas import (
 )
 
 router = APIRouter(prefix="/email-templates", tags=["Email Templates"])
+
+
+def _ensure_user_can_manage_templates(current_user: User) -> None:
+    if current_user.role in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
+        raise HTTPException(status_code=403, detail="Email template management is available for users only")
+
+
+def _ensure_visible_status(status: str) -> None:
+    if status not in EMAIL_TEMPLATE_STATUSES:
+        raise HTTPException(status_code=400, detail="Unsupported template status")
 
 
 def _apply_scope(query, current_user: User, agency_id: Optional[UUID] = None):
@@ -35,6 +47,43 @@ def _apply_scope(query, current_user: User, agency_id: Optional[UUID] = None):
     return query.filter(EmailTemplate.agency_id.is_(None))
 
 
+def _clear_selected_for_scope(
+    db: Session,
+    *,
+    status: str,
+    agency_id,
+    exclude_template_id: Optional[int] = None,
+):
+    query = db.query(EmailTemplate).filter(
+        EmailTemplate.status == status,
+        EmailTemplate.agency_id == agency_id,
+    )
+    if exclude_template_id is not None:
+        query = query.filter(EmailTemplate.id != exclude_template_id)
+    query.update({"is_selected": False}, synchronize_session=False)
+
+
+def _get_preview_template(
+    db: Session,
+    *,
+    current_user: User,
+    template_id: Optional[int],
+    agency_id: Optional[UUID],
+    status: str,
+):
+    if template_id is None:
+        return None
+
+    template = _apply_scope(db.query(EmailTemplate), current_user, agency_id=agency_id).filter(
+        EmailTemplate.id == template_id
+    ).first()
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+    if template.status != status:
+        raise HTTPException(status_code=400, detail="Template does not match the selected status")
+    return template
+
+
 @router.get("/meta")
 def get_template_meta(
     db: Session = Depends(get_db),
@@ -43,8 +92,12 @@ def get_template_meta(
     ensure_default_email_templates(db)
     return {
         "statuses": EMAIL_TEMPLATE_STATUSES,
+        "status_options": [
+            {"value": status, "label": EMAIL_TEMPLATE_STATUS_LABELS.get(status, status)}
+            for status in EMAIL_TEMPLATE_STATUSES
+        ],
         "placeholders": SUPPORTED_PLACEHOLDERS,
-        "can_manage": current_user.role in [UserRole.ADMIN, UserRole.SUPER_ADMIN],
+        "can_manage": current_user.role not in [UserRole.ADMIN, UserRole.SUPER_ADMIN],
     }
 
 
@@ -59,7 +112,14 @@ def get_templates(
     query = _apply_scope(db.query(EmailTemplate), current_user, agency_id=agency_id)
     if status:
         query = query.filter(EmailTemplate.status == status)
-    return query.order_by(EmailTemplate.is_default.desc(), EmailTemplate.created_at.desc()).all()
+    else:
+        query = query.filter(EmailTemplate.status.in_(EMAIL_TEMPLATE_STATUSES))
+    return query.order_by(
+        EmailTemplate.is_selected.desc(),
+        EmailTemplate.is_default.desc(),
+        EmailTemplate.updated_at.desc().nullslast(),
+        EmailTemplate.created_at.desc(),
+    ).all()
 
 
 @router.get("/agency/{agency_id}/status/{status}", response_model=List[EmailTemplateResponse])
@@ -88,16 +148,21 @@ def get_templates_for_agency_status(
 def create_template(
     template: EmailTemplateCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_admin_user),
+    current_user: User = Depends(get_current_active_user),
 ):
+    _ensure_user_can_manage_templates(current_user)
+    _ensure_visible_status(template.status)
     ensure_default_email_templates(db)
-    agency_id = template.agency_id if current_user.role == UserRole.SUPER_ADMIN else current_user.agency_id
-    is_default = bool(template.is_default and current_user.role == UserRole.SUPER_ADMIN and agency_id is None)
+    agency_id = current_user.agency_id
+    is_selected = bool(template.is_selected)
+    if is_selected:
+        _clear_selected_for_scope(db, status=template.status, agency_id=agency_id)
     db_template = EmailTemplate(
-        **template.model_dump(exclude={"agency_id", "is_default"}),
+        **template.model_dump(exclude={"agency_id", "is_default", "is_selected"}),
         agency_id=agency_id,
         created_by_user_id=current_user.id,
-        is_default=is_default,
+        is_default=False,
+        is_selected=is_selected,
     )
     db.add(db_template)
     db.commit()
@@ -110,18 +175,36 @@ def update_template(
     template_id: int,
     template_update: EmailTemplateUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_admin_user),
+    current_user: User = Depends(get_current_active_user),
 ):
+    _ensure_user_can_manage_templates(current_user)
     db_template = _apply_scope(db.query(EmailTemplate), current_user).filter(EmailTemplate.id == template_id).first()
     if not db_template:
         raise HTTPException(status_code=404, detail="Template not found")
 
     update_data = template_update.model_dump(exclude_unset=True)
-    if "is_default" in update_data and current_user.role != UserRole.SUPER_ADMIN:
-        update_data.pop("is_default")
+    update_data.pop("is_default", None)
+
+    new_status = update_data.get("status", db_template.status)
+    _ensure_visible_status(new_status)
+    should_be_active = update_data.get("is_active", db_template.is_active)
+    should_select = update_data.get("is_selected", db_template.is_selected)
+
+    if should_select and not should_be_active:
+        raise HTTPException(status_code=400, detail="Selected template must be active")
+    if should_select:
+        _clear_selected_for_scope(
+            db,
+            status=new_status,
+            agency_id=db_template.agency_id,
+            exclude_template_id=db_template.id,
+        )
 
     for field, value in update_data.items():
         setattr(db_template, field, value)
+
+    if not db_template.is_active:
+        db_template.is_selected = False
 
     db.commit()
     db.refresh(db_template)
@@ -155,6 +238,14 @@ def preview_template(
             created_by=current_user.id,
         )
 
+    preview_template = _get_preview_template(
+        db,
+        current_user=current_user,
+        template_id=request.template_id,
+        agency_id=request.agency_id,
+        status=request.status,
+    )
+
     rendered = build_rendered_notification(
         db,
         candidate=candidate,
@@ -162,6 +253,13 @@ def preview_template(
         user_id=request.user_id or current_user.id,
         extra_payload=request.payload,
     )
+
+    if preview_template:
+        rendered["template"] = preview_template
+        rendered["subject"] = render_template_content(preview_template.subject, rendered["payload"])
+        rendered["body"] = render_template_content(preview_template.body, rendered["payload"])
+        rendered["used_default"] = preview_template.agency_id is None
+
     db.rollback()
 
     return EmailTemplatePreviewResponse(
