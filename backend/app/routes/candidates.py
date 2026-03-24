@@ -54,6 +54,28 @@ def generate_candidate_id(name: str, job_id: int = None) -> str:
     job_suffix = str(job_id) if job_id else "0"
     return f"{first_name}{job_suffix}"
 
+
+def clean_candidate_name(raw_name: str) -> str:
+    """Normalize names extracted from filenames like 'Swapna Resume' -> 'Swapna'."""
+    import re
+
+    if not raw_name:
+        return "Unknown Candidate"
+
+    stop_words = {
+        "resume", "cv", "profile", "updated", "final", "latest", "new",
+        "doc", "document", "copy", "version", "v1", "v2", "v3"
+    }
+
+    normalized = raw_name.replace('_', ' ').replace('-', ' ')
+    normalized = re.sub(r'\s+', ' ', normalized).strip()
+    words = [word for word in normalized.split() if word.lower() not in stop_words]
+
+    if words:
+        return " ".join(words).title()
+
+    return normalized.title() if normalized else "Unknown Candidate"
+
 def extract_resume_data(file_path: str, original_filename: str = None) -> dict:
     """Extract name and email from resume file (PDF or Word)"""
     import os
@@ -180,7 +202,9 @@ def extract_resume_data(file_path: str, original_filename: str = None) -> dict:
     
     # Fallback to filename if no name found in document
     if not name and original_filename:
-        name = os.path.splitext(original_filename)[0].replace('_', ' ').replace('-', ' ').title()
+        name = clean_candidate_name(os.path.splitext(original_filename)[0])
+    elif name:
+        name = clean_candidate_name(name)
     elif not name:
         name = "Unknown Candidate"
     
