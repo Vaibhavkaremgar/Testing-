@@ -1,3 +1,4 @@
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 from functools import lru_cache
 from typing import List
@@ -6,6 +7,22 @@ import os
 class Settings(BaseSettings):
     APP_NAME: str = "TalentAI Recruitment System"
     DEBUG: bool = True
+
+    @field_validator("DEBUG", mode="before")
+    @classmethod
+    def parse_debug(cls, value):
+        """Accept common deployment strings like 'release' without crashing startup."""
+        if isinstance(value, bool):
+            return value
+        if value is None:
+            return True
+
+        normalized = str(value).strip().lower()
+        if normalized in {"1", "true", "yes", "on", "debug", "development", "dev"}:
+            return True
+        if normalized in {"0", "false", "no", "off", "release", "production", "prod"}:
+            return False
+        return value
     
     # Database
     DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql://postgres:AKwoGijyptKJZVJiPBWUjeGDuqfnXwXD@postgres.railway.internal:5432/railway")
