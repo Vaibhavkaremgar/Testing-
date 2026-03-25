@@ -53,8 +53,10 @@ def enqueue_stage_notification(
             extra_payload=extra_payload,
         )
         if notification:
+            db.commit()
             background_tasks.add_task(send_email_task, notification["communication_id"])
     except Exception as exc:
+        db.rollback()
         print(f"Notification enqueue failed for stage {stage_value}: {exc}")
 
 def generate_candidate_id(name: str, job_id: int = None) -> str:
