@@ -5,8 +5,6 @@ import secrets
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 from typing import Optional
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
-from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -341,47 +339,6 @@ def create_workflow_token(
     return token_record
 
 
-def build_booking_url(token: str) -> str:
-    base_url = settings.SLOT_BOOKING_URL or "http://localhost:3000/booking.html"
-    parsed = urlsplit(base_url)
-    query_params = dict(parse_qsl(parsed.query, keep_blank_values=True))
-    query_params["token"] = token
-    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(query_params), parsed.fragment))
-
-
-def create_booking_link(
-    db: Session,
-    *,
-    candidate: Candidate,
-    user_id=None,
-) -> dict:
-    try:
-        result = db.execute(
-            text(
-                """
-                INSERT INTO booking_links (agency_id, candidate_id, job_id, user_id)
-                VALUES (:agency_id, :candidate_id, :job_id, :user_id)
-                RETURNING token
-                """
-            ),
-            {
-                "agency_id": candidate.agency_id,
-                "candidate_id": candidate.id,
-                "job_id": candidate.job_id,
-                "user_id": user_id or candidate.created_by,
-            },
-        )
-        token = result.scalar_one()
-    except Exception as exc:
-        raise RuntimeError(f"Failed to create booking link for candidate {candidate.id}: {exc}") from exc
-
-    booking_url = build_booking_url(token)
-    return {
-        "token": token,
-        "booking_url": booking_url,
-    }
-
-
 def build_workflow_url(token: str, token_type: str) -> str:
     if token_type == WorkflowTokenType.SLOT_SELECTION.value:
         return f"{settings.FRONTEND_URL}/slot-selection?token={token}"
@@ -397,16 +354,6 @@ def build_rendered_notification(
     extra_payload: Optional[dict] = None,
 ) -> dict:
     payload = build_notification_payload(db, candidate=candidate, user_id=user_id, extra_payload=extra_payload)
-    booking_token = None
-    booking_url = None
-
-    if status == "resume_shortlisted":
-        booking_link = create_booking_link(db, candidate=candidate, user_id=user_id)
-        booking_token = booking_link["token"]
-        booking_url = booking_link["booking_url"]
-        payload["slot_link"] = booking_url
-        payload["booking_token"] = booking_token
-        payload["booking_url"] = booking_url
 
     if status in BUILTIN_ONLY_EMAIL_TEMPLATE_STATUSES:
         template = DEFAULT_TEMPLATE_DEFINITIONS[status]
@@ -421,8 +368,6 @@ def build_rendered_notification(
             "slot_token": None,
             "meeting_token": None,
             "workflow_token": None,
-            "booking_token": booking_token,
-            "booking_url": booking_url,
         }
 
     slot_token = None
@@ -463,8 +408,6 @@ def build_rendered_notification(
         "slot_token": slot_token.token if slot_token else None,
         "meeting_token": interview_token.token if interview_token else None,
         "workflow_token": slot_token.token if slot_token else (interview_token.token if interview_token else None),
-        "booking_token": booking_token,
-        "booking_url": booking_url,
     }
 
 
@@ -559,8 +502,6 @@ def queue_notification(
         "communication_id": communication.id,
         "template_id": rendered["template"].id,
         "workflow_token": rendered["workflow_token"],
-        "booking_token": rendered.get("booking_token"),
-        "booking_url": rendered.get("booking_url"),
         "subject": rendered["subject"],
         "body": rendered["body"],
         "payload": rendered["payload"],

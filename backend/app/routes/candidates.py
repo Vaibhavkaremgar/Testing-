@@ -1841,11 +1841,10 @@ def delete_candidate(
         sheets_candidate_id = db_candidate.candidate_id
         
         # Delete dependent records first to satisfy foreign key constraints
-        from app.models import BookingLink, EmailCommunication, Interview, NotificationWorkflowToken
+        from app.models import EmailCommunication, Interview, NotificationWorkflowToken
         db.query(Interview).filter(Interview.candidate_id == candidate_id).delete()
         db.query(EmailCommunication).filter(EmailCommunication.candidate_id == candidate_id).delete()
         db.query(NotificationWorkflowToken).filter(NotificationWorkflowToken.candidate_id == candidate_id).delete()
-        db.query(BookingLink).filter(BookingLink.candidate_id == candidate_id).delete()
         
         # Try to delete resume file if exists (skip if fails on Railway)
         if db_candidate.resume_file_path:
