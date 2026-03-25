@@ -4,13 +4,11 @@ import json
 import secrets
 from datetime import datetime, timedelta
 from typing import Optional
-
-from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import SessionLocal
+from app.mailer import is_email_configured, send_html_email
 from app.models import (
     Agency,
     Candidate,
@@ -409,24 +407,21 @@ def send_email_task(communication_id: int) -> None:
             print(f"Email send skipped: communication {communication_id} not found")
             return
 
-        if not settings.SENDGRID_API_KEY:
+        if not is_email_configured():
             communication.status = NotificationDeliveryStatus.FAILED.value
-            communication.error_message = "SendGrid is not configured"
+            communication.error_message = "SMTP email is not configured"
             db.commit()
-            print(f"Email send failed: communication {communication_id} missing SENDGRID_API_KEY")
+            print(f"Email send failed: communication {communication_id} missing SMTP configuration")
             return
 
-        mail_message = Mail(
-            from_email=(settings.FROM_EMAIL, settings.FROM_NAME),
-            to_emails=communication.candidate_email,
+        provider_message_id = send_html_email(
+            to_email=communication.candidate_email,
             subject=communication.subject or communication.email_type,
             html_content=communication.body or "",
         )
-
-        response = SendGridAPIClient(settings.SENDGRID_API_KEY).send(mail_message)
         communication.status = NotificationDeliveryStatus.SENT.value
         communication.sent_at = datetime.utcnow()
-        communication.provider_message_id = response.headers.get("X-Message-Id") if hasattr(response, "headers") else None
+        communication.provider_message_id = provider_message_id
         db.commit()
         print(
             f"Email sent: communication_id={communication.id}, "

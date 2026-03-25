@@ -1128,8 +1128,7 @@ def simulate_resume_parsing(
             # Auto-send email to shortlisted candidates
             try:
                 from app.config import settings
-                from sendgrid import SendGridAPIClient
-                from sendgrid.helpers.mail import Mail
+                from app.mailer import is_email_configured, send_html_email
                 from app.models import EmailCommunication, JobDescription, UserRole
                 from urllib.parse import urlencode
 
@@ -1139,7 +1138,7 @@ def simulate_resume_parsing(
                     print(f"⚠️ Email blocked: Admin wallet has 0 credits")
                     raise Exception("Insufficient credits to send email")
                 
-                if settings.SENDGRID_API_KEY and candidate.email:
+                if is_email_configured() and candidate.email:
                     # Get job details
                     job = None
                     if candidate.job_id:
@@ -1183,16 +1182,12 @@ def simulate_resume_parsing(
                     """
                     
                     # Send email
-                    mail_message = Mail(
-                        from_email=(settings.FROM_EMAIL, settings.FROM_NAME),
-                        to_emails=candidate.email,
+                    provider_message_id = send_html_email(
+                        to_email=candidate.email,
                         subject=subject,
                         html_content=html_body
                     )
-                    
-                    sg = SendGridAPIClient(settings.SENDGRID_API_KEY)
-                    response = sg.send(mail_message)
-                    
+
                     # Create EmailCommunication record
                     email_comm = EmailCommunication(
                         candidate_id=candidate.id,
@@ -1200,7 +1195,8 @@ def simulate_resume_parsing(
                         candidate_email=candidate.email,
                         email_type="Slot Selection Email",
                         status="sent",
-                        sent_at=datetime.utcnow()
+                        sent_at=datetime.utcnow(),
+                        provider_message_id=provider_message_id
                     )
                     db.add(email_comm)
                     
@@ -1840,9 +1836,11 @@ def delete_candidate(
         # Store candidate_id for sheets deletion
         sheets_candidate_id = db_candidate.candidate_id
         
-        # Delete related interviews first
-        from app.models import Interview
+        # Delete dependent records first to satisfy foreign key constraints
+        from app.models import EmailCommunication, Interview, NotificationWorkflowToken
         db.query(Interview).filter(Interview.candidate_id == candidate_id).delete()
+        db.query(EmailCommunication).filter(EmailCommunication.candidate_id == candidate_id).delete()
+        db.query(NotificationWorkflowToken).filter(NotificationWorkflowToken.candidate_id == candidate_id).delete()
         
         # Try to delete resume file if exists (skip if fails on Railway)
         if db_candidate.resume_file_path:
@@ -2178,9 +2176,8 @@ def send_email(
     current_user: User = Depends(get_current_active_user)
 ):
     """Send email to candidate with interview details link and slot booking button"""
-    from sendgrid import SendGridAPIClient
-    from sendgrid.helpers.mail import Mail
     from app.config import settings
+    from app.mailer import is_email_configured, send_html_email
     from urllib.parse import urlencode
     from app.models import EmailCommunication
     
@@ -2203,9 +2200,9 @@ def send_email(
             from app.models import JobDescription
             job = db.query(JobDescription).filter(JobDescription.id == candidate.job_id).first()
         
-        # Check if SendGrid is configured
-        if not settings.SENDGRID_API_KEY:
-            error_msg = "SendGrid not configured. Set SENDGRID_API_KEY, FROM_EMAIL, and FROM_NAME in Railway environment variables."
+        # Check if SMTP email is configured
+        if not is_email_configured():
+            error_msg = "SMTP email is not configured. Set SMTP_HOST, SMTP_PORT, SMTP_USERNAME, SMTP_PASSWORD, FROM_EMAIL, and FROM_NAME in Railway environment variables."
             print(f"❌ {error_msg}")
             raise HTTPException(status_code=500, detail=error_msg)
         
@@ -2245,16 +2242,12 @@ def send_email(
         </html>
         """
         
-        # Send email via SendGrid
-        mail_message = Mail(
-            from_email=(settings.FROM_EMAIL, settings.FROM_NAME),
-            to_emails=candidate.email,
+        # Send email via Gmail SMTP
+        provider_message_id = send_html_email(
+            to_email=candidate.email,
             subject=subject,
             html_content=html_body
         )
-        
-        sg = SendGridAPIClient(settings.SENDGRID_API_KEY)
-        response = sg.send(mail_message)
         
         # Determine email type based on subject
         email_type = "Slot Selection Email"
@@ -2270,12 +2263,13 @@ def send_email(
             candidate_email=candidate.email,
             email_type=email_type,
             status="sent",
-            sent_at=datetime.utcnow()
+            sent_at=datetime.utcnow(),
+            provider_message_id=provider_message_id
         )
         db.add(email_comm)
         db.commit()
         
-        print(f"✅ Email sent to {candidate.email} - Status: {response.status_code}")
+        print(f"✅ Email sent to {candidate.email} - Message-ID: {provider_message_id}")
         print(f"   Email type: {email_type}")
         print(f"   Interview URL: {interview_url}")
         print(f"   Slot Booking: {settings.SLOT_BOOKING_URL}")
