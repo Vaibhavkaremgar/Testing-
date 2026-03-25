@@ -54,7 +54,11 @@ def enqueue_stage_notification(
         )
         if notification:
             db.commit()
-            background_tasks.add_task(send_email_task, notification["communication_id"])
+            print(
+                f"Notification queued: candidate_id={candidate.id}, "
+                f"stage={stage_value}, communication_id={notification['communication_id']}"
+            )
+            send_email_task(notification["communication_id"])
     except Exception as exc:
         db.rollback()
         print(f"Notification enqueue failed for stage {stage_value}: {exc}")
