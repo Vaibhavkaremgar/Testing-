@@ -216,26 +216,48 @@ def render_template_content(content: str, payload: dict) -> str:
 def get_template_for_agency_and_status(db: Session, agency_id, status: str) -> tuple[EmailTemplate, bool]:
     ensure_default_email_templates(db)
 
-    agency_template = None
-    if agency_id:
-        agency_template = db.query(EmailTemplate).filter(
-            EmailTemplate.agency_id == agency_id,
+    def _find_template(scope_agency_id, selected_only: bool) -> Optional[EmailTemplate]:
+        query = db.query(EmailTemplate).filter(
             EmailTemplate.status == status,
-            EmailTemplate.is_selected == True,
             EmailTemplate.is_active == True,
-        ).order_by(EmailTemplate.updated_at.desc().nullslast(), EmailTemplate.created_at.desc()).first()
-    if agency_template:
-        return agency_template, False
+        )
+        if scope_agency_id is None:
+            query = query.filter(EmailTemplate.agency_id.is_(None))
+        else:
+            query = query.filter(EmailTemplate.agency_id == scope_agency_id)
 
-    default_template = db.query(EmailTemplate).filter(
-        EmailTemplate.agency_id.is_(None),
-        EmailTemplate.status == status,
-        EmailTemplate.is_selected == True,
-        EmailTemplate.is_active == True,
-    ).order_by(EmailTemplate.updated_at.desc().nullslast(), EmailTemplate.created_at.desc()).first()
-    if not default_template:
-        raise ValueError(f"No default template configured for status '{status}'")
-    return default_template, True
+        if selected_only:
+            query = query.filter(EmailTemplate.is_selected == True)
+
+        return query.order_by(
+            EmailTemplate.is_selected.desc(),
+            EmailTemplate.is_default.desc(),
+            EmailTemplate.updated_at.desc().nullslast(),
+            EmailTemplate.created_at.desc(),
+        ).first()
+
+    search_order = []
+    if agency_id:
+        search_order.extend([
+            (agency_id, True, False),
+            (agency_id, False, False),
+        ])
+    search_order.extend([
+        (None, True, True),
+        (None, False, True),
+    ])
+
+    for scope_agency_id, selected_only, used_default in search_order:
+        template = _find_template(scope_agency_id, selected_only)
+        if template:
+            return template, used_default
+
+    ensure_default_email_templates(db)
+    fallback_template = _find_template(None, False)
+    if fallback_template:
+        return fallback_template, True
+
+    raise ValueError(f"No active template configured for status '{status}'")
 
 
 def create_workflow_token(
