@@ -3,7 +3,7 @@ Auto-migration script - runs on startup
 """
 from sqlalchemy import inspect, text
 from app.database import engine
-from app.models import AnalyticsWidget, UserDashboardPreference, Agency, WalletTransaction, AgencyDiscount, NotificationWorkflowToken
+from app.models import AnalyticsWidget, UserDashboardPreference, Agency, WalletTransaction, AgencyDiscount, NotificationWorkflowToken, BookingLink
 
 
 def run_migrations():
@@ -125,6 +125,12 @@ def run_migrations():
                 NotificationWorkflowToken.__table__.create(bind=engine, checkfirst=True)
                 conn.commit()
                 print("Migration completed: notification_workflow_tokens created")
+
+            if "booking_links" not in get_tables():
+                print("Running migration: creating booking_links table...")
+                BookingLink.__table__.create(bind=engine, checkfirst=True)
+                conn.commit()
+                print("Migration completed: booking_links created")
 
     except Exception as e:
         print(f"Migration warning: {e}")
