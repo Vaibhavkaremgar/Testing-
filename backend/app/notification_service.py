@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import secrets
 from datetime import datetime, timedelta
+from types import SimpleNamespace
 from typing import Optional
 from sqlalchemy.orm import Session
 
@@ -30,6 +31,13 @@ EMAIL_TEMPLATE_STATUSES = [
     "interview_selected",
     "interview_rejected",
 ]
+MANAGEABLE_EMAIL_TEMPLATE_STATUSES = [
+    "resume_rejected",
+    "slot_confirmation",
+    "interview_selected",
+    "interview_rejected",
+]
+BUILTIN_ONLY_EMAIL_TEMPLATE_STATUSES = {"resume_shortlisted"}
 
 EMAIL_TEMPLATE_STATUS_LABELS = {
     "resume_shortlisted": "Resume Shortlisted",
@@ -163,6 +171,8 @@ DEFAULT_TEMPLATE_DEFINITIONS = {
 
 def ensure_default_email_templates(db: Session) -> None:
     for status, template in DEFAULT_TEMPLATE_DEFINITIONS.items():
+        if status in BUILTIN_ONLY_EMAIL_TEMPLATE_STATUSES:
+            continue
         exists = db.query(EmailTemplate).filter(
             EmailTemplate.agency_id.is_(None),
             EmailTemplate.status == status,
@@ -347,6 +357,21 @@ def build_rendered_notification(
     extra_payload: Optional[dict] = None,
 ) -> dict:
     payload = build_notification_payload(db, candidate=candidate, user_id=user_id, extra_payload=extra_payload)
+
+    if status in BUILTIN_ONLY_EMAIL_TEMPLATE_STATUSES:
+        template = DEFAULT_TEMPLATE_DEFINITIONS[status]
+        subject = render_template_content(template["subject"], payload)
+        body = render_template_content(template["body"], payload)
+        return {
+            "template": SimpleNamespace(id=None, is_html=True),
+            "used_default": True,
+            "payload": payload,
+            "subject": subject,
+            "body": body,
+            "slot_token": None,
+            "meeting_token": None,
+            "workflow_token": None,
+        }
 
     slot_token = None
     interview_token = None

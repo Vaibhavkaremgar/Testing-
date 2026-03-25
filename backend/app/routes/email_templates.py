@@ -10,6 +10,7 @@ from app.models import Candidate, EmailTemplate, User, UserRole
 from app.notification_service import (
     EMAIL_TEMPLATE_STATUSES,
     EMAIL_TEMPLATE_STATUS_LABELS,
+    MANAGEABLE_EMAIL_TEMPLATE_STATUSES,
     SUPPORTED_PLACEHOLDERS,
     build_rendered_notification,
     ensure_default_email_templates,
@@ -32,7 +33,7 @@ def _ensure_user_can_manage_templates(current_user: User) -> None:
 
 
 def _ensure_visible_status(status: str) -> None:
-    if status not in EMAIL_TEMPLATE_STATUSES:
+    if status not in MANAGEABLE_EMAIL_TEMPLATE_STATUSES:
         raise HTTPException(status_code=400, detail="Unsupported template status")
 
 
@@ -91,10 +92,10 @@ def get_template_meta(
 ):
     ensure_default_email_templates(db)
     return {
-        "statuses": EMAIL_TEMPLATE_STATUSES,
+        "statuses": MANAGEABLE_EMAIL_TEMPLATE_STATUSES,
         "status_options": [
             {"value": status, "label": EMAIL_TEMPLATE_STATUS_LABELS.get(status, status)}
-            for status in EMAIL_TEMPLATE_STATUSES
+            for status in MANAGEABLE_EMAIL_TEMPLATE_STATUSES
         ],
         "placeholders": SUPPORTED_PLACEHOLDERS,
         "can_manage": current_user.role not in [UserRole.ADMIN, UserRole.SUPER_ADMIN],
@@ -111,9 +112,10 @@ def get_templates(
     ensure_default_email_templates(db)
     query = _apply_scope(db.query(EmailTemplate), current_user, agency_id=agency_id)
     if status:
+        _ensure_visible_status(status)
         query = query.filter(EmailTemplate.status == status)
     else:
-        query = query.filter(EmailTemplate.status.in_(EMAIL_TEMPLATE_STATUSES))
+        query = query.filter(EmailTemplate.status.in_(MANAGEABLE_EMAIL_TEMPLATE_STATUSES))
     return query.order_by(
         EmailTemplate.is_selected.desc(),
         EmailTemplate.is_default.desc(),
@@ -130,6 +132,7 @@ def get_templates_for_agency_status(
     current_user: User = Depends(get_current_active_user),
 ):
     ensure_default_email_templates(db)
+    _ensure_visible_status(status)
     if current_user.role != UserRole.SUPER_ADMIN and current_user.agency_id != agency_id:
         raise HTTPException(status_code=403, detail="Outside your agency scope")
 
