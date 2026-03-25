@@ -646,7 +646,10 @@ def finalize_batch_notifications(
     if pending_notifications:
         db.commit()
         for communication_id in pending_notifications:
-            background_tasks.add_task(send_email_task, communication_id)
+            if background_tasks:
+                background_tasks.add_task(send_email_task, communication_id)
+            else:
+                send_email_task(communication_id)
 
 
 def process_zip_upload_batch(
@@ -733,6 +736,12 @@ def process_zip_upload_batch(
 
         if processed_candidates:
             db.commit()
+            finalize_batch_notifications(
+                None,
+                db,
+                processed_candidates,
+                user_id=current_user_id,
+            )
         else:
             db.rollback()
 
