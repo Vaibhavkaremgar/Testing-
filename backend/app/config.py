@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     SENDGRID_API_KEY: str = os.getenv("SENDGRID_API_KEY", "")
     FROM_EMAIL: str = os.getenv("FROM_EMAIL", "noreply@yourcompany.com")
     FROM_NAME: str = os.getenv("FROM_NAME", "TalentAI Recruitment")
-    SLOT_BOOKING_URL: str = os.getenv("SLOT_BOOKING_URL", "https://calendly.com/yourcompany/interview")
+    SLOT_BOOKING_URL: str = os.getenv("SLOT_BOOKING_URL", "http://localhost:3000/booking.html")
     FRONTEND_URL: str = os.getenv("FRONTEND_URL", "https://glistening-youth-production.up.railway.app")
     
     # CORS

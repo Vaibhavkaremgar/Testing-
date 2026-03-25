@@ -69,11 +69,53 @@ STAGE_TO_NOTIFICATION_STATUS = {
 DEFAULT_TEMPLATE_DEFINITIONS = {
     "resume_shortlisted": {
         "name": "Default Resume Shortlisted",
-        "subject": "Your profile is shortlisted for {{job_title}}",
+        "subject": "Your Profile got shortlisted",
         "body": (
-            "<p>Hi {{candidate_name}},</p>"
-            "<p>Your resume for <strong>{{job_title}}</strong> has been shortlisted by our team.</p>"
-            "<p>We will share the next steps shortly.</p>"
+            "<!DOCTYPE html>"
+            "<html>"
+            "<head>"
+            "<meta charset=\"UTF-8\">"
+            "<title>Resume Shortlisted</title>"
+            "</head>"
+            "<body style=\"margin:0; padding:0; font-family: Arial, sans-serif; background-color:#f4f6f8;\">"
+            "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"background-color:#f4f6f8; padding:20px;\">"
+            "<tr>"
+            "<td align=\"center\">"
+            "<table width=\"600\" cellpadding=\"0\" cellspacing=\"0\" style=\"background:#ffffff; border-radius:8px; padding:30px;\">"
+            "<tr>"
+            "<td align=\"center\" style=\"padding-bottom:20px;\">"
+            "<h2 style=\"margin:0; color:#333;\">Congratulations!</h2>"
+            "</td>"
+            "</tr>"
+            "<tr>"
+            "<td style=\"color:#555; font-size:16px; line-height:1.6;\">"
+            "<p>Hi <strong>{{candidate_name}}</strong>,</p>"
+            "<p>We&#39;re excited to inform you that your profile has been <strong>shortlisted</strong> for the position of <strong>{{job_title}}</strong>.</p>"
+            "<p><strong>Role:</strong> {{job_role}}</p>"
+            "<p><strong>Skills:</strong> {{skills}}</p>"
+            "<p>{{job_description}}</p>"
+            "<p>Please select your preferred interview slot by clicking the button below:</p>"
+            "</td>"
+            "</tr>"
+            "<tr>"
+            "<td align=\"center\" style=\"padding:20px 0;\">"
+            "<a href=\"{{slot_link}}\" style=\"background-color:#007BFF; color:#ffffff; padding:12px 24px; text-decoration:none; border-radius:5px; font-size:16px; display:inline-block;\">"
+            "Select Interview Slot"
+            "</a>"
+            "</td>"
+            "</tr>"
+            "<tr>"
+            "<td style=\"color:#999; font-size:14px; padding-top:20px; text-align:center;\">"
+            "<p>If you have any questions, feel free to contact us.</p>"
+            "<p>Best regards,<br/>Recruitment Team</p>"
+            "</td>"
+            "</tr>"
+            "</table>"
+            "</td>"
+            "</tr>"
+            "</table>"
+            "</body>"
+            "</html>"
         ),
     },
     "resume_rejected": {
@@ -128,6 +170,13 @@ def ensure_default_email_templates(db: Session) -> None:
             EmailTemplate.status == status,
         ).first()
         if exists:
+            if exists.is_default:
+                exists.name = template["name"]
+                exists.subject = template["subject"]
+                exists.body = template["body"]
+                exists.variables = SUPPORTED_PLACEHOLDERS
+                exists.is_html = True
+                exists.is_active = True
             continue
 
         db.add(
@@ -189,7 +238,7 @@ def build_notification_payload(
         "resume_text": candidate.resume_text or "",
         "agency_id": str(candidate.agency_id) if candidate.agency_id else "",
         "user_id": str(user_id or candidate.created_by) if (user_id or candidate.created_by) else "",
-        "slot_link": "",
+        "slot_link": settings.SLOT_BOOKING_URL or "",
         "meeting_link": "",
         "interview_date": "",
         "interview_time": "",
