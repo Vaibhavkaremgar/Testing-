@@ -9,6 +9,7 @@ import uuid
 import random
 import tempfile
 import zipfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from app.database import SessionLocal, get_db
 from app.models import Candidate, CandidateStage, ParsingStatus, User, JobDescription
@@ -21,6 +22,18 @@ from app.config import settings
 
 router = APIRouter(prefix="/candidates", tags=["Candidates"])
 upload_progress_store = {}
+ALLOWED_RESUME_EXTENSIONS = {'.pdf', '.doc', '.docx'}
+ALLOWED_RESUME_CONTENT_TYPES = {
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+}
+
+
+def get_bulk_processing_workers(item_count: int) -> int:
+    """Keep worker count bounded so batch uploads scale without exhausting the host."""
+    cpu_count = os.cpu_count() or 4
+    return max(2, min(8, cpu_count, item_count or 1))
 
 
 def enqueue_stage_notification(
@@ -529,6 +542,113 @@ def set_upload_progress(upload_id: str, **kwargs):
     upload_progress_store[upload_id] = progress
 
 
+def is_valid_resume_upload(file: UploadFile) -> bool:
+    return (
+        file.content_type in ALLOWED_RESUME_CONTENT_TYPES
+        or any(file.filename.lower().endswith(ext) for ext in ALLOWED_RESUME_EXTENSIONS)
+    )
+
+
+def get_default_job_data() -> dict:
+    return {
+        'title': 'General Position',
+        'description': 'General professional role',
+        'requirements': 'Professional experience with relevant skills',
+        'skills': ['communication', 'teamwork', 'problem solving']
+    }
+
+
+def build_batch_candidate_id(name: str, job_id: Optional[UUID]) -> str:
+    """Generate a unique batch-safe candidate id without extra database lookups."""
+    name_prefix = (name or "UNK")[:3].upper()
+    job_token = str(job_id).replace("-", "")[:6].upper() if job_id else "000000"
+    return f"{name_prefix}{job_token}{uuid.uuid4().hex[:8].upper()}"
+
+
+def process_saved_resume(file_path: str, original_filename: str, job_data: dict) -> dict:
+    """Run extraction and scoring for one saved resume file."""
+    resume_data = extract_resume_data(file_path, original_filename)
+    analysis_data = {
+        'name': resume_data['name'],
+        'email': resume_data['email'],
+        'phone': resume_data['phone'],
+        'skills': resume_data['skills'],
+        'experience_text': resume_data['experience_text'],
+        'projects': resume_data['projects'],
+        'full_text': resume_data['full_text']
+    }
+    ai_analysis = analyze_resume_with_ai(analysis_data, job_data)
+    return {
+        "resume_data": resume_data,
+        "ai_analysis": ai_analysis,
+    }
+
+
+def apply_resume_analysis(
+    candidate: Candidate,
+    ai_analysis: Optional[dict] = None,
+    job_title: Optional[str] = None,
+):
+    """Apply analysis results without forcing a commit for every candidate."""
+    candidate.parsing_status = ParsingStatus.COMPLETED
+
+    if ai_analysis:
+        score = ai_analysis.get('match_score', 0)
+        if score == 0 and candidate.resume_text and len(candidate.resume_text.strip()) > 100:
+            score = 45
+
+        candidate.resume_score = score
+        candidate.summary = ai_analysis.get('candidate_summary', '')
+
+        if candidate.resume_text and job_title:
+            try:
+                candidate.predefined_questions = generate_interview_questions(
+                    candidate.resume_text,
+                    job_title,
+                    candidate.skills or []
+                )
+            except Exception as exc:
+                print(f"Question generation failed: {exc}")
+
+        threshold = candidate.score_threshold or 60
+        if score >= threshold:
+            candidate.stage = CandidateStage.SHORTLISTED
+        elif score >= (threshold - 10):
+            candidate.stage = CandidateStage.REVIEW
+        else:
+            candidate.stage = CandidateStage.RESUME_REJECTED
+    else:
+        candidate.resume_score = 40
+        candidate.stage = CandidateStage.REVIEW if candidate.job_id else CandidateStage.APPLIED
+
+
+def finalize_batch_notifications(
+    background_tasks: Optional[BackgroundTasks],
+    db: Session,
+    candidates: List[Candidate],
+    user_id=None,
+):
+    if not background_tasks:
+        return
+
+    pending_notifications = []
+    for candidate in candidates:
+        if candidate.stage in [CandidateStage.SHORTLISTED, CandidateStage.RESUME_REJECTED]:
+            notification = queue_notification_for_stage(
+                db,
+                candidate=candidate,
+                stage_value=candidate.stage.value,
+                user_id=user_id,
+            )
+            if notification:
+                pending_notifications.append(notification["communication_id"])
+
+    if pending_notifications:
+        db.commit()
+        for communication_id in pending_notifications:
+            background_tasks.add_task(send_email_task, communication_id)
+
+
 def process_zip_upload_batch(
     upload_id: str,
     zip_path: str,
@@ -543,36 +663,51 @@ def process_zip_upload_batch(
     try:
         os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
         job_data = get_job_data(db, job_id)
+        if not job_data.get("title"):
+            job_data = get_default_job_data()
         job_title = job_data.get("title", "")
         processed_count = 0
         total_count = upload_progress_store.get(upload_id, {}).get("total", 0)
         set_upload_progress(upload_id, status="processing", current=0, total=total_count, message="Screening resumes...")
-
+        saved_files = []
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
             for file_info in zip_ref.filelist:
                 file_ext = os.path.splitext(file_info.filename)[1].lower()
-                if file_info.is_dir() or file_ext not in ['.pdf', '.doc', '.docx']:
+                if file_info.is_dir() or file_ext not in ALLOWED_RESUME_EXTENSIONS:
                     continue
 
+                resume_content = zip_ref.read(file_info.filename)
+                unique_filename = f"{uuid.uuid4()}{file_ext}"
+                file_path = os.path.join(settings.UPLOAD_DIR, unique_filename)
+                with open(file_path, "wb") as resume_file:
+                    resume_file.write(resume_content)
+                saved_files.append({
+                    "file_path": file_path,
+                    "filename": file_info.filename,
+                })
+
+        processed_candidates = []
+        failed_files = []
+        worker_count = get_bulk_processing_workers(len(saved_files))
+
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            future_map = {
+                executor.submit(process_saved_resume, item["file_path"], item["filename"], job_data): item
+                for item in saved_files
+            }
+            for future in as_completed(future_map):
+                item = future_map[future]
                 try:
-                    resume_content = zip_ref.read(file_info.filename)
-                    unique_filename = f"{uuid.uuid4()}{file_ext}"
-                    file_path = os.path.join(settings.UPLOAD_DIR, unique_filename)
-
-                    with open(file_path, "wb") as resume_file:
-                        resume_file.write(resume_content)
-
-                    resume_data = extract_resume_data(file_path, file_info.filename)
-                    candidate_id = generate_unique_candidate_id(db, resume_data['name'], job_id)
-
-                    db_candidate = Candidate(
+                    processed = future.result()
+                    resume_data = processed["resume_data"]
+                    candidate = Candidate(
                         name=resume_data['name'],
                         email=resume_data['email'],
                         phone=resume_data['phone'],
                         skills=resume_data['skills'],
-                        resume_file_path=file_path,
+                        resume_file_path=item["file_path"],
                         resume_text=resume_data['full_text'],
-                        candidate_id=candidate_id,
+                        candidate_id=build_batch_candidate_id(resume_data['name'], job_id),
                         job_id=job_id,
                         agency_id=agency_id,
                         created_by=current_user_id,
@@ -580,29 +715,12 @@ def process_zip_upload_batch(
                         parsing_status=ParsingStatus.PROCESSING,
                         score_threshold=threshold
                     )
-                    db.add(db_candidate)
-                    db.flush()
-
-                    analysis_data = {
-                        'name': resume_data['name'],
-                        'email': resume_data['email'],
-                        'phone': resume_data['phone'],
-                        'skills': resume_data['skills'],
-                        'experience_text': resume_data['experience_text'],
-                        'projects': resume_data['projects'],
-                        'full_text': resume_data['full_text']
-                    }
-                    ai_analysis = analyze_resume_with_ai(analysis_data, job_data)
-                    simulate_resume_parsing(
-                        db_candidate,
-                        db,
-                        ai_analysis=ai_analysis,
-                        user_id=current_user_id,
-                        job_title=job_title,
-                    )
+                    apply_resume_analysis(candidate, processed["ai_analysis"], job_title=job_title)
+                    db.add(candidate)
+                    processed_candidates.append(candidate)
                 except Exception as exc:
-                    db.rollback()
-                    print(f"ZIP processing failed for {file_info.filename}: {exc}")
+                    failed_files.append({"filename": item["filename"], "error": str(exc)})
+                    print(f"ZIP processing failed for {item['filename']}: {exc}")
                 finally:
                     processed_count += 1
                     set_upload_progress(
@@ -612,6 +730,12 @@ def process_zip_upload_batch(
                         status="processing" if processed_count < total_count else "completed",
                         message=f"Screened {processed_count} of {total_count} resumes"
                     )
+
+        if processed_candidates:
+            db.commit()
+        else:
+            db.rollback()
+
         set_upload_progress(
             upload_id,
             current=processed_count,
@@ -620,6 +744,7 @@ def process_zip_upload_batch(
             message=f"Completed screening {processed_count} resumes"
         )
     except Exception as exc:
+        db.rollback()
         set_upload_progress(upload_id, status="error", message=str(exc))
         print(f"ZIP batch processing failed: {exc}")
     finally:
@@ -1153,43 +1278,7 @@ def simulate_resume_parsing(
     job_title: Optional[str] = None,
 ):
     """Override legacy parser flow with stage assignment and secure notification enqueueing."""
-    candidate.parsing_status = ParsingStatus.COMPLETED
-
-    if ai_analysis:
-        score = ai_analysis.get('match_score', 0)
-        if score == 0 and candidate.resume_text and len(candidate.resume_text.strip()) > 100:
-            score = 45
-
-        candidate.resume_score = score
-        candidate.summary = ai_analysis.get('candidate_summary', '')
-
-        if candidate.resume_text and candidate.job_id:
-            try:
-                resolved_job_title = job_title
-                if not resolved_job_title:
-                    from app.models import JobDescription
-                    job = db.query(JobDescription).filter(JobDescription.id == candidate.job_id).first()
-                    resolved_job_title = job.title if job else ""
-
-                if resolved_job_title:
-                    candidate.predefined_questions = generate_interview_questions(
-                        candidate.resume_text,
-                        resolved_job_title,
-                        candidate.skills or []
-                    )
-            except Exception as exc:
-                print(f"Question generation failed: {exc}")
-
-        threshold = candidate.score_threshold or 60
-        if score >= threshold:
-            candidate.stage = CandidateStage.SHORTLISTED
-        elif score >= (threshold - 10):
-            candidate.stage = CandidateStage.REVIEW
-        else:
-            candidate.stage = CandidateStage.RESUME_REJECTED
-    else:
-        candidate.resume_score = 40
-        candidate.stage = CandidateStage.REVIEW if candidate.job_id else CandidateStage.APPLIED
+    apply_resume_analysis(candidate, ai_analysis, job_title=job_title)
 
     db.commit()
     db.refresh(candidate)
@@ -1529,113 +1618,90 @@ async def bulk_upload_resumes(
 ):
     print(f"Bulk upload received - job_id: {job_id}, files: {len(files)}")
     results = []
-    
+
+    os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+    job_data = get_job_data(db, job_id)
+    if not job_data.get("title"):
+        job_data = get_default_job_data()
+    job_title = job_data.get("title", "")
+    saved_files = []
+
     for file in files:
         try:
-            # Validate file type
-            valid_types = [
-                "application/pdf",
-                "application/msword",
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            ]
-            valid_extensions = ['.pdf', '.doc', '.docx']
-            
-            is_valid = (file.content_type in valid_types or 
-                       any(file.filename.lower().endswith(ext) for ext in valid_extensions))
-            
-            if not is_valid:
+            if not is_valid_resume_upload(file):
                 results.append({"filename": file.filename, "status": "failed", "error": "Invalid file type"})
                 continue
-            
-            # Create upload directory if not exists
-            os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
-            
-            # Save file
+
             file_ext = os.path.splitext(file.filename)[1]
             unique_filename = f"{uuid.uuid4()}{file_ext}"
             file_path = os.path.join(settings.UPLOAD_DIR, unique_filename)
-            
+
             with open(file_path, "wb") as buffer:
                 content = await file.read()
                 buffer.write(content)
-            
-            # Extract candidate data - pass original filename
-            resume_data = extract_resume_data(file_path, file.filename)
-            name = resume_data['name']
-            email = resume_data['email']
-            phone = resume_data['phone']
-            extracted_skills = resume_data['skills']
-            full_text = resume_data['full_text']
-            
-            # Generate candidate ID: first 3 letters of name + job ID
-            name_prefix = name[:3].upper() if name else "UNK"
-            job_suffix = str(job_id) if job_id else "000"
-            candidate_id = f"{name_prefix}{job_suffix}"
-            
-            # Ensure uniqueness
-            base_id = candidate_id
-            counter = 1
-            while db.query(Candidate).filter(Candidate.candidate_id == candidate_id).first():
-                candidate_id = f"{base_id}{counter}"
-                counter += 1
-            
-            db_candidate = Candidate(
-                name=name,
-                email=email,
-                phone=phone,
-                skills=extracted_skills,
-                resume_file_path=file_path,
-                resume_text=full_text,
-                candidate_id=candidate_id,
-                job_id=job_id,
-                agency_id=current_user.agency_id,
-                created_by=current_user.id,
-                assigned_to_user_id=current_user.id,
-                parsing_status=ParsingStatus.PROCESSING,
-                score_threshold=threshold
-            )
-            db.add(db_candidate)
-            db.commit()
-            db.refresh(db_candidate)
-            
-            # Get AI analysis for this candidate
-            job_data = None
-            if job_id:
-                from app.models import JobDescription
-                job = db.query(JobDescription).filter(JobDescription.id == job_id).first()
-                if job:
-                    job_data = {
-                        'title': job.title,
-                        'description': job.description or '',
-                        'requirements': job.requirements or '',
-                        'skills': job.skills or []
-                    }
-            
-            if not job_data:
-                job_data = {
-                    'title': 'General Position',
-                    'description': '',
-                    'requirements': '',
-                    'skills': []
-                }
-            
-            analysis_data = {
-                'name': name,
-                'email': email,
-                'phone': phone,
-                'skills': extracted_skills,
-                'experience_text': '',
-                'projects': [],
-                'full_text': full_text
-            }
-            ai_analysis = analyze_resume_with_ai(analysis_data, job_data)
-            
-            simulate_resume_parsing(db_candidate, db, background_tasks=background_tasks, ai_analysis=ai_analysis, user_id=current_user.id)
-            
-            results.append({"filename": file.filename, "status": "success", "candidate_id": db_candidate.id})
+            saved_files.append({
+                "filename": file.filename,
+                "file_path": file_path,
+            })
         except Exception as e:
             results.append({"filename": file.filename, "status": "failed", "error": str(e)})
-    
+
+    if not saved_files:
+        return {"results": results}
+
+    processed_candidates = []
+    worker_count = get_bulk_processing_workers(len(saved_files))
+
+    try:
+        with ThreadPoolExecutor(max_workers=worker_count) as executor:
+            future_map = {
+                executor.submit(process_saved_resume, item["file_path"], item["filename"], job_data): item
+                for item in saved_files
+            }
+            for future in as_completed(future_map):
+                item = future_map[future]
+                try:
+                    processed = future.result()
+                    resume_data = processed["resume_data"]
+                    candidate = Candidate(
+                        name=resume_data['name'],
+                        email=resume_data['email'],
+                        phone=resume_data['phone'],
+                        skills=resume_data['skills'],
+                        resume_file_path=item["file_path"],
+                        resume_text=resume_data['full_text'],
+                        candidate_id=build_batch_candidate_id(resume_data['name'], job_id),
+                        job_id=job_id,
+                        agency_id=current_user.agency_id,
+                        created_by=current_user.id,
+                        assigned_to_user_id=current_user.id,
+                        parsing_status=ParsingStatus.PROCESSING,
+                        score_threshold=threshold
+                    )
+                    apply_resume_analysis(candidate, processed["ai_analysis"], job_title=job_title)
+                    db.add(candidate)
+                    processed_candidates.append((item["filename"], candidate))
+                except Exception as exc:
+                    results.append({"filename": item["filename"], "status": "failed", "error": str(exc)})
+
+        if processed_candidates:
+            db.commit()
+            finalize_batch_notifications(
+                background_tasks,
+                db,
+                [candidate for _, candidate in processed_candidates],
+                user_id=current_user.id,
+            )
+            for filename, candidate in processed_candidates:
+                results.append({"filename": filename, "status": "success", "candidate_id": candidate.id})
+        else:
+            db.rollback()
+    except Exception as exc:
+        db.rollback()
+        for item in saved_files:
+            if not any(result.get("filename") == item["filename"] for result in results):
+                results.append({"filename": item["filename"], "status": "failed", "error": str(exc)})
+
     return {"results": results}
 
 @router.post("/zip-upload")
@@ -1664,7 +1730,7 @@ async def zip_upload_resumes(
             queued_files = [
                 {"filename": file_info.filename, "status": "queued"}
                 for file_info in zip_ref.filelist
-                if not file_info.is_dir() and os.path.splitext(file_info.filename)[1].lower() in ['.pdf', '.doc', '.docx']
+                if not file_info.is_dir() and os.path.splitext(file_info.filename)[1].lower() in ALLOWED_RESUME_EXTENSIONS
             ]
 
         set_upload_progress(
