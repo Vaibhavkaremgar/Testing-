@@ -5,11 +5,10 @@ from typing import Optional
 from urllib.parse import urlencode
 
 from fastapi import HTTPException
-from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.mailer import is_email_configured, send_html_email
 from app.models import Agency, Candidate, EmailCommunication, EmailTemplate, Interview, JobDescription
 
 
@@ -106,8 +105,8 @@ def send_candidate_email_from_template(
     if not candidate.email:
         raise HTTPException(status_code=400, detail="Candidate email is missing")
 
-    if not settings.SENDGRID_API_KEY:
-        raise HTTPException(status_code=500, detail="SendGrid is not configured")
+    if not is_email_configured():
+        raise HTTPException(status_code=500, detail="SMTP email is not configured")
 
     template = get_template_for_agency(db, candidate.agency_id, template_type)
     if not template and not (fallback_subject and fallback_body):
@@ -126,15 +125,11 @@ def send_candidate_email_from_template(
     </html>
     """
 
-    mail_message = Mail(
-        from_email=(settings.FROM_EMAIL, settings.FROM_NAME),
-        to_emails=candidate.email,
+    provider_message_id = send_html_email(
+        to_email=candidate.email,
         subject=subject,
         html_content=html_body,
     )
-
-    sg = SendGridAPIClient(settings.SENDGRID_API_KEY)
-    sg.send(mail_message)
 
     email_comm = EmailCommunication(
         candidate_id=candidate.id,
@@ -143,6 +138,7 @@ def send_candidate_email_from_template(
         email_type=EMAIL_TEMPLATE_LABELS.get(template_type, template_type),
         status="sent",
         sent_at=datetime.utcnow(),
+        provider_message_id=provider_message_id,
     )
     db.add(email_comm)
 
