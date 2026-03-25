@@ -335,12 +335,14 @@ def send_email_task(communication_id: int) -> None:
     try:
         communication = db.query(EmailCommunication).filter(EmailCommunication.id == communication_id).first()
         if not communication:
+            print(f"Email send skipped: communication {communication_id} not found")
             return
 
         if not settings.SENDGRID_API_KEY:
             communication.status = NotificationDeliveryStatus.FAILED.value
             communication.error_message = "SendGrid is not configured"
             db.commit()
+            print(f"Email send failed: communication {communication_id} missing SENDGRID_API_KEY")
             return
 
         mail_message = Mail(
@@ -355,12 +357,23 @@ def send_email_task(communication_id: int) -> None:
         communication.sent_at = datetime.utcnow()
         communication.provider_message_id = response.headers.get("X-Message-Id") if hasattr(response, "headers") else None
         db.commit()
+        print(
+            f"Email sent: communication_id={communication.id}, "
+            f"email_type={communication.email_type}, to={communication.candidate_email}, "
+            f"provider_message_id={communication.provider_message_id}"
+        )
     except Exception as exc:
         communication = db.query(EmailCommunication).filter(EmailCommunication.id == communication_id).first()
         if communication:
             communication.status = NotificationDeliveryStatus.FAILED.value
             communication.error_message = str(exc)
             db.commit()
+            print(
+                f"Email send failed: communication_id={communication.id}, "
+                f"email_type={communication.email_type}, to={communication.candidate_email}, error={exc}"
+            )
+        else:
+            print(f"Email send failed before communication lookup: communication_id={communication_id}, error={exc}")
     finally:
         db.close()
 
@@ -418,7 +431,15 @@ def queue_notification_for_stage(
 ) -> Optional[dict]:
     status = STAGE_TO_NOTIFICATION_STATUS.get(stage_value)
     if not status or not candidate.email:
+        print(
+            f"Notification not queued: candidate_id={candidate.id}, stage={stage_value}, "
+            f"mapped_status={status}, has_email={bool(candidate.email)}"
+        )
         return None
+    print(
+        f"Notification queue requested: candidate_id={candidate.id}, "
+        f"stage={stage_value}, status={status}, email={candidate.email}"
+    )
     return queue_notification(db, candidate=candidate, status=status, user_id=user_id, extra_payload=extra_payload)
 
 
