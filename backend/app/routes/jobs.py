@@ -22,10 +22,14 @@ def _apply_job_list_scope(query, current_user, db: Session):
         return query
 
     if current_user.role == UserRole.ADMIN and current_user.agency_id:
-        return query.outerjoin(Candidate, Candidate.job_id == JobDescription.id).filter(
+        candidate_exists = db.query(Candidate.id).filter(
+            Candidate.job_id == JobDescription.id,
+            Candidate.agency_id == current_user.agency_id,
+        ).exists()
+        return query.filter(
             (JobDescription.agency_id == current_user.agency_id) |
-            (Candidate.agency_id == current_user.agency_id)
-        ).distinct()
+            candidate_exists
+        )
 
     if current_user.role not in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
         subquery = db.query(Candidate.job_id).filter(Candidate.assigned_to_user_id == current_user.id).subquery()
