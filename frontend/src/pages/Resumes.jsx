@@ -20,6 +20,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 
+const DEFAULT_LIST_LIMIT = 100
+
 function formatCandidateDisplayName(name) {
   if (!name) return 'Unknown Candidate'
 
@@ -80,7 +82,7 @@ export default function Resumes() {
   useEffect(() => {
     const fetchJobScores = async () => {
       try {
-        const jobsData = await api.getJobs({ limit: 1000 })
+        const jobsData = await api.getJobs({ limit: DEFAULT_LIST_LIMIT })
         const scores = {}
         jobsData.forEach(job => {
           scores[job.id] = job.min_passing_score || 60
@@ -96,7 +98,7 @@ export default function Resumes() {
 
   const fetchCandidates = useCallback(async () => {
     try {
-      const data = await api.getCandidates({ search, client: selectedClient, limit: 1000 })
+      const data = await api.getCandidates({ search, client: selectedClient, limit: DEFAULT_LIST_LIMIT })
       let filteredData = (data || [])
       
       if (jobFilter.length > 0) {
@@ -133,8 +135,8 @@ export default function Resumes() {
       try {
         console.log('Fetching candidates and jobs...')
         const [candidatesData, jobsData, usersData] = await Promise.all([
-          api.getCandidates({ limit: 1000 }),
-          api.getJobs({ limit: 1000 }),
+          api.getCandidates({ limit: DEFAULT_LIST_LIMIT }),
+          api.getJobs({ limit: DEFAULT_LIST_LIMIT }),
           api.getAllUsers().catch(() => [])
         ])
         console.log('Jobs data received:', jobsData)
@@ -314,57 +316,32 @@ export default function Resumes() {
         console.log('Single file upload')
         const result = await api.uploadResume(files[0], jobId, threshold)
         console.log('Upload result:', result)
-      } else {
-        console.log('Bulk file upload')
-        let successCount = 0
         setUploadProgress({
           show: true,
           current: 0,
-          total: files.length,
+          total: 1,
           status: 'processing',
-          message: `Screening 0 of ${files.length} resumes`
+          uploadId: result.upload_id,
+          message: result.message || 'Resume queued for analysis'
         })
-
-        for (let index = 0; index < files.length; index += 1) {
-          const currentFile = files[index]
-          setUploadProgress(prev => ({
-            ...prev,
-            current: index,
-            total: files.length,
-            status: 'processing',
-            message: `Screening ${index} of ${files.length}: ${currentFile.name}`
-          }))
-
-          try {
-            await api.uploadResume(currentFile, jobId, threshold)
-            successCount += 1
-            setUploadProgress(prev => ({
-              ...prev,
-              current: successCount,
-              total: files.length,
-              status: 'processing',
-              message: `Screened ${successCount} of ${files.length} resumes`
-            }))
-          } catch (singleError) {
-            console.error(`Upload failed for ${currentFile.name}:`, singleError)
-          }
-        }
-
-        setUploadProgress(prev => ({
-          ...prev,
-          current: successCount,
-          total: files.length,
-          status: 'completed',
-          message: `Completed screening ${successCount} of ${files.length} resumes`
-        }))
+      } else {
+        console.log('Bulk file upload')
+        setUploadProgress({ show: true, current: 0, total: files.length, status: 'uploading', message: 'Uploading resumes...' })
+        const result = await api.bulkUploadResumes(files, jobId, threshold)
+        console.log('Bulk upload result:', result)
+        const queuedCount = result.queued || result.results?.filter(r => r.status === 'queued').length || files.length
+        setUploadProgress({
+          show: true,
+          current: 0,
+          total: queuedCount,
+          status: 'processing',
+          uploadId: result.upload_id,
+          message: result.message || `Queued ${queuedCount} resumes for screening`
+        })
       }
       
-      if (uploadType !== 'zip') {
+      if (uploadType !== 'zip' && files.length > 1) {
         await fetchCandidates()
-      }
-      
-      if (files.length === 1 && uploadType !== 'zip') {
-        alert('Resume analyzed successfully!')
       }
     } catch (error) {
       console.error('Upload failed:', error)
@@ -1432,3 +1409,4 @@ export default function Resumes() {
     </div>
   )
 }
+

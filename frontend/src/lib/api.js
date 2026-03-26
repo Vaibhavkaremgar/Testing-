@@ -1,4 +1,5 @@
 const API_BASE = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'https://ai-recruitment-dashboard-production.up.railway.app/api'
+const DEFAULT_LIST_LIMIT = 100
 
 // Debug logging
 console.log('VITE_API_URL:', import.meta.env.VITE_API_URL)
@@ -193,7 +194,7 @@ class ApiClient {
   // Candidates
   async getCandidates(params = {}) {
     const searchParams = new URLSearchParams()
-    Object.entries(params).forEach(([key, value]) => {
+    Object.entries(params.limit ? params : { ...params, limit: DEFAULT_LIST_LIMIT }).forEach(([key, value]) => {
       if (value !== undefined && value !== null && value !== '') {
         searchParams.append(key, value)
       }
@@ -362,7 +363,7 @@ class ApiClient {
   // Jobs
   async getJobs(params = {}) {
     const searchParams = new URLSearchParams()
-    Object.entries(params).forEach(([key, value]) => {
+    Object.entries(params.limit ? params : { ...params, limit: DEFAULT_LIST_LIMIT }).forEach(([key, value]) => {
       if (value !== undefined && value !== null) {
         searchParams.append(key, value)
       }
@@ -780,3 +781,4 @@ class ApiClient {
 
 export const api = new ApiClient()
 export default api
+

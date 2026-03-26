@@ -23,6 +23,8 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import AnalyticsWidget from '@/components/analytics/AnalyticsWidget'
 
+const DEFAULT_LIST_LIMIT = 100
+
 const METRIC_CATEGORIES = [
   {
     title: 'Hiring Metrics',
@@ -169,7 +171,7 @@ export default function Analytics() {
       setLoadingFilters(true)
       try {
         const [jobsData, usersData] = await Promise.all([
-          api.getJobs({ limit: 1000 }).catch(() => []),
+          api.getJobs({ limit: DEFAULT_LIST_LIMIT }).catch(() => []),
           api.getPublicUsers().catch(() => [])
         ])
 
@@ -594,3 +596,4 @@ export default function Analytics() {
     </div>
   )
 }
+

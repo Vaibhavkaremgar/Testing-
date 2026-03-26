@@ -6,6 +6,8 @@ import { Progress } from '@/components/ui/progress'
 import { api } from '@/lib/api'
 import { Trash2, X } from 'lucide-react'
 
+const DEFAULT_LIST_LIMIT = 100
+
 export default function Clients({ superAdminAgencyId = null }) {
   const [searchParams] = useSearchParams()
   const selectedClient = searchParams.get('client')
@@ -60,7 +62,7 @@ export default function Clients({ superAdminAgencyId = null }) {
   const fetchData = async () => {
     try {
       // Get unique clients from jobs (filtered by client if selected) with pagination
-      const jobsParams = selectedClient ? { client: selectedClient, limit: 1000 } : { limit: 1000 }
+      const jobsParams = selectedClient ? { client: selectedClient, limit: DEFAULT_LIST_LIMIT } : { limit: DEFAULT_LIST_LIMIT }
       if (superAdminAgencyId) jobsParams.agency_id = superAdminAgencyId
       const jobs = await api.getJobs(jobsParams)
       const clientMap = new Map()
@@ -90,7 +92,7 @@ export default function Clients({ superAdminAgencyId = null }) {
       })
       
       // Get candidates to calculate filled positions (filtered by client if selected)
-      const candidatesParams = selectedClient ? { client: selectedClient, limit: 1000 } : { limit: 1000 }
+      const candidatesParams = selectedClient ? { client: selectedClient, limit: DEFAULT_LIST_LIMIT } : { limit: DEFAULT_LIST_LIMIT }
       if (superAdminAgencyId) candidatesParams.agency_id = superAdminAgencyId
       const candidates = await api.getCandidates(candidatesParams)
       candidates.forEach(candidate => {
@@ -345,3 +347,4 @@ export default function Clients({ superAdminAgencyId = null }) {
     </div>
   )
 }
+

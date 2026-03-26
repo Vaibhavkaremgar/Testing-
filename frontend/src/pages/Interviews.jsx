@@ -11,6 +11,8 @@ import {
   Video, Calendar, Clock, User, FileText, Brain, Star, Send, X, Play, CheckCircle, RotateCcw, Plus, ExternalLink
 } from 'lucide-react'
 
+const DEFAULT_LIST_LIMIT = 100
+
 export default function Interviews({ superAdminAgencyId = null }) {
   const [searchParams] = useSearchParams()
   const selectedClient = searchParams.get('client')
@@ -43,8 +45,8 @@ export default function Interviews({ superAdminAgencyId = null }) {
         
         // Get only SELECTED and REJECTED candidates
         const [selected, rejected] = await Promise.all([
-          api.getCandidates({ ...params, stage: 'SELECTED', limit: 1000 }),
-          api.getCandidates({ ...params, stage: 'REJECTED', limit: 1000 })
+          api.getCandidates({ ...params, stage: 'SELECTED', limit: DEFAULT_LIST_LIMIT }),
+          api.getCandidates({ ...params, stage: 'REJECTED', limit: DEFAULT_LIST_LIMIT })
         ])
         
         const allCandidates = [...selected, ...rejected]
@@ -81,7 +83,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
     
     const fetchCandidates = async () => {
       try {
-        const params = { limit: 1000 }
+        const params = { limit: DEFAULT_LIST_LIMIT }
         if (superAdminAgencyId) params.agency_id = superAdminAgencyId
         const data = await api.getCandidates(params)
         setCandidates(data)
@@ -92,7 +94,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
     
     const fetchJobs = async () => {
       try {
-        const params = { limit: 1000 }
+        const params = { limit: DEFAULT_LIST_LIMIT }
         if (superAdminAgencyId) params.agency_id = superAdminAgencyId
         const data = await api.getJobs(params)
         setJobs(data)
@@ -547,3 +549,4 @@ export default function Interviews({ superAdminAgencyId = null }) {
     </div>
   )
 }
+
