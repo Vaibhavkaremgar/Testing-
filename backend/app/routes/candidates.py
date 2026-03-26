@@ -127,6 +127,26 @@ def clean_candidate_name(raw_name: str) -> str:
 
     return normalized.title() if normalized else "Unknown Candidate"
 
+
+def extract_email_from_raw_file(file_path: str) -> Optional[str]:
+    """Fallback email extraction for files where text parsing misses the address."""
+    import re
+
+    try:
+        with open(file_path, "rb") as file_handle:
+            raw_content = file_handle.read()
+    except Exception as exc:
+        print(f"Raw email extraction failed to read file: {exc}")
+        return None
+
+    decoded_content = raw_content.decode("utf-8", errors="ignore")
+    if "@" not in decoded_content:
+        decoded_content = raw_content.decode("latin-1", errors="ignore")
+
+    email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+    emails = re.findall(email_pattern, decoded_content, re.IGNORECASE)
+    return emails[0] if emails else None
+
 def extract_resume_data(file_path: str, original_filename: str = None) -> dict:
     """Extract name and email from resume file (PDF or Word)"""
     import os
@@ -247,6 +267,11 @@ def extract_resume_data(file_path: str, original_filename: str = None) -> dict:
             
             # Extract experience text for matching
             experience_text = extract_experience_text(text)
+
+        if not email:
+            email = extract_email_from_raw_file(file_path)
+            if email:
+                print(f"   Recovered email via raw file scan: {email}")
                     
     except Exception as e:
         print(f"Error in resume extraction: {e}")
