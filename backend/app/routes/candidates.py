@@ -654,9 +654,6 @@ def finalize_batch_notifications(
     candidates: List[Candidate],
     user_id=None,
 ):
-    if not background_tasks:
-        return
-
     pending_notifications = []
     for candidate in candidates:
         if candidate.stage in [CandidateStage.SHORTLISTED, CandidateStage.RESUME_REJECTED]:
@@ -670,12 +667,16 @@ def finalize_batch_notifications(
                 pending_notifications.append(notification["communication_id"])
 
     if pending_notifications:
-        db.commit()
-        for communication_id in pending_notifications:
-            if background_tasks:
-                background_tasks.add_task(send_email_task, communication_id)
-            else:
-                send_email_task(communication_id)
+        try:
+            db.commit()
+            for communication_id in pending_notifications:
+                if background_tasks:
+                    background_tasks.add_task(send_email_task, communication_id)
+                else:
+                    send_email_task(communication_id)
+        except Exception:
+            db.rollback()
+            raise
 
 
 def process_single_resume_upload(
