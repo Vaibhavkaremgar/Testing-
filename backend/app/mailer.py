@@ -25,10 +25,17 @@ def send_html_email(*, to_email: str, subject: str, html_content: str) -> str:
     message.set_content("This email requires HTML support.")
     message.add_alternative(html_content, subtype="html")
 
-    with smtplib.SMTP("smtp.gmail.com", 587) as server:
+    print(
+        f"SMTP send starting: to={to_email}, "
+        f"from={settings.FROM_EMAIL or settings.GMAIL_SENDER}, timeout={settings.SMTP_TIMEOUT_SECONDS}s"
+    )
+
+    with smtplib.SMTP("smtp.gmail.com", 587, timeout=settings.SMTP_TIMEOUT_SECONDS) as server:
         server.starttls()
         server.login(settings.GMAIL_SENDER, settings.GMAIL_APP_PASSWORD)
         server.send_message(message)
+
+    print(f"SMTP send completed: to={to_email}")
 
     # SendGrid implementation kept for now as commented reference.
     # mail_message = Mail(
