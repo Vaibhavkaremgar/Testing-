@@ -30,6 +30,26 @@ ALLOWED_RESUME_CONTENT_TYPES = {
 }
 
 
+def _apply_candidate_list_scope(query, current_user):
+    from app.models import JobDescription, UserRole
+
+    if current_user.role == UserRole.SUPER_ADMIN:
+        return query
+
+    if current_user.role == UserRole.ADMIN and current_user.agency_id:
+        return query.outerjoin(JobDescription, Candidate.job_id == JobDescription.id).filter(
+            or_(
+                Candidate.agency_id == current_user.agency_id,
+                JobDescription.agency_id == current_user.agency_id,
+            )
+        )
+
+    if current_user.role != UserRole.ADMIN:
+        return query.filter(Candidate.assigned_to_user_id == current_user.id)
+
+    return query
+
+
 def get_bulk_processing_workers(item_count: int) -> int:
     """Keep worker count bounded so batch uploads scale without exhausting the host."""
     cpu_count = os.cpu_count() or 4
@@ -1325,11 +1345,8 @@ def get_candidates_count(
     if current_user.role == UserRole.SUPER_ADMIN:
         if agency_id:
             query = query.filter(Candidate.agency_id == agency_id)
-        # else: no filter — sees all
-    elif current_user.role == UserRole.ADMIN and current_user.agency_id:
-        query = query.filter(Candidate.agency_id == current_user.agency_id)
-    elif current_user.role != UserRole.ADMIN:
-        query = query.filter(Candidate.assigned_to_user_id == current_user.id)
+    else:
+        query = _apply_candidate_list_scope(query, current_user)
     if client:
         query = query.join(JobDescription).filter(JobDescription.company_name == client)
     if search:
@@ -1360,10 +1377,8 @@ def get_candidates(
 
     if agency_id and current_user.role == UserRole.SUPER_ADMIN:
         query = query.filter(Candidate.agency_id == agency_id)
-    elif current_user.role == UserRole.ADMIN and current_user.agency_id:
-        query = query.filter(Candidate.agency_id == current_user.agency_id)
-    elif current_user.role != UserRole.ADMIN:
-        query = query.filter(Candidate.assigned_to_user_id == current_user.id)
+    else:
+        query = _apply_candidate_list_scope(query, current_user)
     
     if client:
         query = query.join(JobDescription).filter(JobDescription.company_name == client)

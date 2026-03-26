@@ -14,6 +14,25 @@ from app.auth import get_current_active_user, get_current_admin_user
 
 router = APIRouter(prefix="/jobs", tags=["Job Descriptions"])
 
+
+def _apply_job_list_scope(query, current_user, db: Session):
+    from app.models import UserRole
+
+    if current_user.role == UserRole.SUPER_ADMIN:
+        return query
+
+    if current_user.role == UserRole.ADMIN and current_user.agency_id:
+        return query.outerjoin(Candidate, Candidate.job_id == JobDescription.id).filter(
+            (JobDescription.agency_id == current_user.agency_id) |
+            (Candidate.agency_id == current_user.agency_id)
+        ).distinct()
+
+    if current_user.role not in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
+        subquery = db.query(Candidate.job_id).filter(Candidate.assigned_to_user_id == current_user.id).subquery()
+        return query.filter(JobDescription.id.in_(subquery))
+
+    return query
+
 @router.get("/debug/count")
 def debug_job_count(db: Session = Depends(get_db)):
     """Debug endpoint to check job count without auth"""
@@ -38,15 +57,12 @@ def get_jobs_count(
     query = db.query(JobDescription)
     if agency_id and current_user.role == UserRole.SUPER_ADMIN:
         query = query.filter(JobDescription.agency_id == agency_id)
-    elif current_user.agency_id:
-        query = query.filter(JobDescription.agency_id == current_user.agency_id)
+    else:
+        query = _apply_job_list_scope(query, current_user, db)
     if is_active is not None:
         query = query.filter(JobDescription.is_active == is_active)
     if client:
         query = query.filter(JobDescription.company_name == client)
-    if current_user.role not in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
-        subquery = db.query(Candidate.job_id).filter(Candidate.assigned_to_user_id == current_user.id).subquery()
-        query = query.filter(JobDescription.id.in_(subquery))
     return {"count": query.count()}
 
 @router.get("", response_model=List[JobDescriptionResponse])
@@ -64,8 +80,8 @@ def get_jobs(
 
     if agency_id and current_user.role == UserRole.SUPER_ADMIN:
         query = query.filter(JobDescription.agency_id == agency_id)
-    elif current_user.agency_id:
-        query = query.filter(JobDescription.agency_id == current_user.agency_id)
+    else:
+        query = _apply_job_list_scope(query, current_user, db)
 
     if is_active is not None:
         query = query.filter(JobDescription.is_active == is_active)
