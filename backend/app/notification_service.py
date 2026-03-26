@@ -62,6 +62,9 @@ SUPPORTED_PLACEHOLDERS = [
     "meeting_link",
     "interview_date",
     "interview_time",
+    "agency_name",
+    "interview_questions",
+    "async_questions",
 ]
 
 STAGE_TO_NOTIFICATION_STATUS = {
@@ -231,6 +234,7 @@ def build_notification_payload(
 ) -> dict:
     job = db.query(JobDescription).filter(JobDescription.id == candidate.job_id).first() if candidate.job_id else None
     agency = db.query(Agency).filter(Agency.id == candidate.agency_id).first() if candidate.agency_id else None
+    interview_questions = _parse_questions(candidate.predefined_questions) or _parse_questions(job.interview_questions if job else None)
 
     payload = {
         "candidate_name": candidate.name or "",
@@ -248,7 +252,8 @@ def build_notification_payload(
         "interview_date": "",
         "interview_time": "",
         "agency_name": agency.name if agency else "",
-        "async_questions": _parse_questions(candidate.predefined_questions) or _parse_questions(job.interview_questions if job else None),
+        "interview_questions": interview_questions,
+        "async_questions": interview_questions,
     }
 
     if extra_payload:
