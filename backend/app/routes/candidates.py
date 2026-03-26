@@ -728,8 +728,6 @@ def process_single_resume_upload(
         db.commit()
         db.refresh(candidate)
 
-        finalize_batch_notifications(None, db, [candidate], user_id=current_user_id)
-
         set_upload_progress(
             upload_id,
             current=1,
@@ -738,6 +736,7 @@ def process_single_resume_upload(
             message="Resume analyzed successfully",
             candidate_id=str(candidate.id),
         )
+        finalize_batch_notifications(None, db, [candidate], user_id=current_user_id)
     except Exception as exc:
         db.rollback()
         set_upload_progress(
@@ -823,7 +822,6 @@ def process_bulk_upload_batch(
 
         if processed_candidates:
             db.commit()
-            finalize_batch_notifications(None, db, processed_candidates, user_id=current_user_id)
             set_upload_progress(
                 upload_id,
                 current=processed_count,
@@ -832,6 +830,7 @@ def process_bulk_upload_batch(
                 message=f"Completed screening {len(processed_candidates)} of {total_count} resumes",
                 processed=len(processed_candidates),
             )
+            finalize_batch_notifications(None, db, processed_candidates, user_id=current_user_id)
         else:
             db.rollback()
             set_upload_progress(
@@ -939,6 +938,13 @@ def process_zip_upload_batch(
 
         if processed_candidates:
             db.commit()
+            set_upload_progress(
+                upload_id,
+                current=processed_count,
+                total=total_count,
+                status="completed",
+                message=f"Completed screening {processed_count} resumes"
+            )
             finalize_batch_notifications(
                 None,
                 db,
@@ -947,14 +953,13 @@ def process_zip_upload_batch(
             )
         else:
             db.rollback()
-
-        set_upload_progress(
-            upload_id,
-            current=processed_count,
-            total=total_count,
-            status="completed",
-            message=f"Completed screening {processed_count} resumes"
-        )
+            set_upload_progress(
+                upload_id,
+                current=processed_count,
+                total=total_count,
+                status="error",
+                message="No resumes could be processed"
+            )
     except Exception as exc:
         db.rollback()
         set_upload_progress(upload_id, status="error", message=str(exc))
