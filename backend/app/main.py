@@ -99,6 +99,27 @@ async def startup_event():
         ensure_default_email_templates(db)
     finally:
         db.close()
+
+    try:
+        # Warm expensive scoring imports at boot so the first resume upload is faster.
+        from app.balanced_scoring import evaluate_resume_balanced
+        from app.spacy_nlp import get_nlp_signals
+
+        get_nlp_signals("Built scalable APIs, improved performance by 20%, and collaborated across teams.")
+        evaluate_resume_balanced(
+            {"full_text": "Python FastAPI SQL Docker AWS", "years_of_experience": 3},
+            {
+                "required_skills": ["Python", "FastAPI", "SQL"],
+                "experience_min": 2,
+                "experience_max": 5,
+                "description": "Backend role",
+                "title": "Backend Engineer",
+            },
+        )
+        print("Resume scoring warmup complete")
+    except Exception as exc:
+        print(f"Resume scoring warmup skipped: {exc}")
+
     print("Application started successfully")
 
 

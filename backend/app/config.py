@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     # File Upload
     UPLOAD_DIR: str = os.getenv("UPLOAD_DIR", "/data")  # Railway volume mount
     MAX_FILE_SIZE: int = 10 * 1024 * 1024  # 10MB
+    NLP_MAX_TEXT_LENGTH: int = int(os.getenv("NLP_MAX_TEXT_LENGTH", "4000"))
     
     # LLM Configuration
     GROQ_API_KEY: str = ""

@@ -5,6 +5,7 @@ Provides NLP signals using spaCy for accurate linguistic analysis
 
 import spacy
 from typing import Dict, List
+from app.config import settings
 
 # Load spaCy model globally (load once, reuse everywhere)
 try:
@@ -35,7 +36,7 @@ def get_nlp_signals(text: str) -> Dict:
             'collaboration_count': 0, 'action_sentences': 0, 'total_sentences': 0
         }
     
-    doc = nlp(text[:10000])  # Limit for performance
+    doc = nlp(text[:settings.NLP_MAX_TEXT_LENGTH])  # Limit for performance
     
     # Professional action verbs (evidence of doing work)
     action_verb_set = {'develop', 'build', 'create', 'design', 'implement', 'architect',
@@ -131,5 +132,4 @@ def extract_soft_skill_signals(text: str) -> Dict:
         'collaboration': signals['collaboration_count'],
         'communication': 0  # Not used in new system
     }
-
 
