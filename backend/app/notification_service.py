@@ -435,9 +435,9 @@ def send_email_task(communication_id: int) -> None:
 
         if not is_email_configured():
             communication.status = NotificationDeliveryStatus.FAILED.value
-            communication.error_message = "Gmail SMTP is not configured"
+            communication.error_message = "SendGrid email API is not configured"
             db.commit()
-            print(f"Email send failed: communication {communication_id} missing Gmail SMTP configuration")
+            print(f"Email send failed: communication {communication_id} missing SendGrid email configuration")
             return
 
         provider_message_id = send_html_email(
@@ -545,3 +545,4 @@ def resolve_workflow_token(db: Session, token: str) -> NotificationWorkflowToken
     if token_record.expires_at and token_record.expires_at < datetime.utcnow():
         raise ValueError("Workflow token has expired")
     return token_record
+

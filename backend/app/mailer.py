@@ -1,50 +1,49 @@
-import smtplib
-from email.message import EmailMessage
-from email.utils import make_msgid
-
-# SendGrid implementation kept for now as commented reference.
-# from sendgrid import SendGridAPIClient
-# from sendgrid.helpers.mail import Mail
+import requests
 
 from app.config import settings
 
 
 def is_email_configured() -> bool:
-    return bool(settings.GMAIL_SENDER and settings.GMAIL_APP_PASSWORD)
+    return bool(settings.SENDGRID_API_KEY and settings.FROM_EMAIL)
 
 
 def send_html_email(*, to_email: str, subject: str, html_content: str) -> str:
     if not is_email_configured():
-        raise RuntimeError("Gmail SMTP is not configured")
-
-    message = EmailMessage()
-    message["Subject"] = subject
-    message["From"] = f"{settings.FROM_NAME} <{settings.FROM_EMAIL or settings.GMAIL_SENDER}>"
-    message["To"] = to_email
-    message["Message-ID"] = make_msgid()
-    message.set_content("This email requires HTML support.")
-    message.add_alternative(html_content, subtype="html")
+        raise RuntimeError("SendGrid email API is not configured")
 
     print(
-        f"SMTP send starting: to={to_email}, "
-        f"from={settings.FROM_EMAIL or settings.GMAIL_SENDER}, timeout={settings.SMTP_TIMEOUT_SECONDS}s"
+        f"SendGrid send starting: to={to_email}, "
+        f"from={settings.FROM_EMAIL}, timeout={settings.SMTP_TIMEOUT_SECONDS}s"
     )
 
-    with smtplib.SMTP("smtp.gmail.com", 587, timeout=settings.SMTP_TIMEOUT_SECONDS) as server:
-        server.starttls()
-        server.login(settings.GMAIL_SENDER, settings.GMAIL_APP_PASSWORD)
-        server.send_message(message)
+    response = requests.post(
+        settings.SENDGRID_API_URL,
+        headers={
+            "Authorization": f"Bearer {settings.SENDGRID_API_KEY}",
+            "content-type": "application/json",
+        },
+        json={
+            "personalizations": [
+                {
+                    "to": [{"email": to_email}],
+                    "subject": subject,
+                }
+            ],
+            "from": {
+                "email": settings.FROM_EMAIL,
+                "name": settings.FROM_NAME,
+            },
+            "content": [
+                {
+                    "type": "text/html",
+                    "value": html_content,
+                }
+            ],
+        },
+        timeout=settings.SMTP_TIMEOUT_SECONDS,
+    )
+    response.raise_for_status()
+    message_id = response.headers.get("X-Message-Id", "")
 
-    print(f"SMTP send completed: to={to_email}")
-
-    # SendGrid implementation kept for now as commented reference.
-    # mail_message = Mail(
-    #     from_email=(settings.FROM_EMAIL, settings.FROM_NAME),
-    #     to_emails=to_email,
-    #     subject=subject,
-    #     html_content=html_content,
-    # )
-    # response = SendGridAPIClient(settings.SENDGRID_API_KEY).send(mail_message)
-    # return response.headers.get("X-Message-Id") if hasattr(response, "headers") else ""
-
-    return message["Message-ID"] or ""
+    print(f"SendGrid send completed: to={to_email}, message_id={message_id}")
+    return message_id

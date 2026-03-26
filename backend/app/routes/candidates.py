@@ -2322,9 +2322,9 @@ def send_email(
             from app.models import JobDescription
             job = db.query(JobDescription).filter(JobDescription.id == candidate.job_id).first()
         
-        # Check if Gmail SMTP email is configured
+        # Check if SendGrid email API is configured
         if not is_email_configured():
-            error_msg = "Gmail SMTP is not configured. Set GMAIL_SENDER, GMAIL_APP_PASSWORD, FROM_EMAIL, and FROM_NAME in Railway environment variables."
+            error_msg = "SendGrid email API is not configured. Set SENDGRID_API_KEY, FROM_EMAIL, and FROM_NAME in Railway environment variables."
             print(f"❌ {error_msg}")
             raise HTTPException(status_code=500, detail=error_msg)
         
@@ -2623,4 +2623,6 @@ def bulk_assign_candidates(
         "assigned_count": assigned_count,
         "assigned_to": user.full_name
     }
+
+
 

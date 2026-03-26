@@ -42,9 +42,9 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     LLM_PROVIDER: str = "groq"
     
-    # Gmail SMTP Email Configuration
-    GMAIL_SENDER: str = os.getenv("GMAIL_SENDER", "")
-    GMAIL_APP_PASSWORD: str = os.getenv("GMAIL_APP_PASSWORD", "")
+    # SendGrid transactional email configuration
+    SENDGRID_API_KEY: str = os.getenv("SENDGRID_API_KEY", "")
+    SENDGRID_API_URL: str = os.getenv("SENDGRID_API_URL", "https://api.sendgrid.com/v3/mail/send")
     SMTP_TIMEOUT_SECONDS: int = int(os.getenv("SMTP_TIMEOUT_SECONDS", "20"))
     FROM_EMAIL: str = os.getenv("FROM_EMAIL", "noreply@yourcompany.com")
     FROM_NAME: str = os.getenv("FROM_NAME", "TalentAI Recruitment")
@@ -78,3 +78,4 @@ def get_settings():
     return Settings()
 
 settings = get_settings()
+
