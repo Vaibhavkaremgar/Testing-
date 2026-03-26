@@ -346,7 +346,7 @@ def create_workflow_token(
 
 def build_workflow_url(token: str, token_type: str) -> str:
     if token_type == WorkflowTokenType.SLOT_SELECTION.value:
-        return f"{settings.FRONTEND_URL}/slot-selection?token={token}"
+        return settings.SLOT_BOOKING_URL or f"{settings.FRONTEND_URL}/slot-selection?token={token}"
     return f"{settings.FRONTEND_URL}/interview-room?token={token}"
 
 
