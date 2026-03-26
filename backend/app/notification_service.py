@@ -247,7 +247,7 @@ def build_notification_payload(
         "resume_text": candidate.resume_text or "",
         "agency_id": str(candidate.agency_id) if candidate.agency_id else "",
         "user_id": str(user_id or candidate.created_by) if (user_id or candidate.created_by) else "",
-        "slot_link": settings.SLOT_BOOKING_URL or "",
+        "slot_link": "",
         "meeting_link": "",
         "interview_date": "",
         "interview_time": "",
@@ -359,26 +359,10 @@ def build_rendered_notification(
     extra_payload: Optional[dict] = None,
 ) -> dict:
     payload = build_notification_payload(db, candidate=candidate, user_id=user_id, extra_payload=extra_payload)
-
-    if status in BUILTIN_ONLY_EMAIL_TEMPLATE_STATUSES:
-        template = DEFAULT_TEMPLATE_DEFINITIONS[status]
-        subject = render_template_content(template["subject"], payload)
-        body = render_template_content(template["body"], payload)
-        return {
-            "template": SimpleNamespace(id=None, is_html=True),
-            "used_default": True,
-            "payload": payload,
-            "subject": subject,
-            "body": body,
-            "slot_token": None,
-            "meeting_token": None,
-            "workflow_token": None,
-        }
-
     slot_token = None
     interview_token = None
 
-    if status == "slot_selection" and not payload.get("slot_link"):
+    if status in {"resume_shortlisted", "slot_selection"} and not payload.get("slot_link"):
         slot_payload = dict(payload)
         slot_token = create_workflow_token(
             db,
@@ -399,6 +383,21 @@ def build_rendered_notification(
             user_id=user_id,
         )
         payload["meeting_link"] = build_workflow_url(interview_token.token, WorkflowTokenType.INTERVIEW_ACCESS.value)
+
+    if status in BUILTIN_ONLY_EMAIL_TEMPLATE_STATUSES:
+        template = DEFAULT_TEMPLATE_DEFINITIONS[status]
+        subject = render_template_content(template["subject"], payload)
+        body = render_template_content(template["body"], payload)
+        return {
+            "template": SimpleNamespace(id=None, is_html=True),
+            "used_default": True,
+            "payload": payload,
+            "subject": subject,
+            "body": body,
+            "slot_token": slot_token.token if slot_token else None,
+            "meeting_token": interview_token.token if interview_token else None,
+            "workflow_token": slot_token.token if slot_token else (interview_token.token if interview_token else None),
+        }
 
     template, used_default = get_template_for_agency_and_status(db, candidate.agency_id, status)
     subject = render_template_content(template.subject, payload)
