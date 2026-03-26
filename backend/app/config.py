@@ -41,8 +41,9 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     LLM_PROVIDER: str = "groq"
     
-    # SendGrid Email Configuration
-    SENDGRID_API_KEY: str = os.getenv("SENDGRID_API_KEY", "")
+    # Gmail SMTP Email Configuration
+    GMAIL_SENDER: str = os.getenv("GMAIL_SENDER", "")
+    GMAIL_APP_PASSWORD: str = os.getenv("GMAIL_APP_PASSWORD", "")
     FROM_EMAIL: str = os.getenv("FROM_EMAIL", "noreply@yourcompany.com")
     FROM_NAME: str = os.getenv("FROM_NAME", "TalentAI Recruitment")
     SLOT_BOOKING_URL: str = os.getenv("SLOT_BOOKING_URL", "http://localhost:3000/booking.html")

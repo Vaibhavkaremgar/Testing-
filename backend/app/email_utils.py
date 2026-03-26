@@ -106,7 +106,7 @@ def send_candidate_email_from_template(
         raise HTTPException(status_code=400, detail="Candidate email is missing")
 
     if not is_email_configured():
-        raise HTTPException(status_code=500, detail="SendGrid email is not configured")
+        raise HTTPException(status_code=500, detail="Gmail SMTP is not configured")
 
     template = get_template_for_agency(db, candidate.agency_id, template_type)
     if not template and not (fallback_subject and fallback_body):
