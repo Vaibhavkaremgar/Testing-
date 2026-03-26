@@ -346,7 +346,13 @@ def create_workflow_token(
 
 def build_workflow_url(token: str, token_type: str) -> str:
     if token_type == WorkflowTokenType.SLOT_SELECTION.value:
-        return settings.SLOT_BOOKING_URL or f"{settings.FRONTEND_URL}/slot-selection?token={token}"
+        from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+
+        base_url = settings.SLOT_BOOKING_URL or f"{settings.FRONTEND_URL}/slot-selection"
+        parsed_url = urlparse(base_url)
+        query_params = dict(parse_qsl(parsed_url.query, keep_blank_values=True))
+        query_params["token"] = token
+        return urlunparse(parsed_url._replace(query=urlencode(query_params)))
     return f"{settings.FRONTEND_URL}/interview-room?token={token}"
 
 
