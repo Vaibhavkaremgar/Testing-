@@ -42,9 +42,8 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     LLM_PROVIDER: str = "groq"
     
-    # SendGrid transactional email configuration
-    SENDGRID_API_KEY: str = os.getenv("SENDGRID_API_KEY", "")
-    SENDGRID_API_URL: str = os.getenv("SENDGRID_API_URL", "https://api.sendgrid.com/v3/mail/send")
+    # Resend transactional email configuration
+    RESEND_API_KEY: str = os.getenv("RESEND_API_KEY", "")
     SMTP_TIMEOUT_SECONDS: int = int(os.getenv("SMTP_TIMEOUT_SECONDS", "20"))
     FROM_EMAIL: str = os.getenv("FROM_EMAIL", "noreply@yourcompany.com")
     FROM_NAME: str = os.getenv("FROM_NAME", "TalentAI Recruitment")
