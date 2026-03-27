@@ -30,6 +30,18 @@ ALLOWED_RESUME_CONTENT_TYPES = {
 }
 
 
+def normalize_legacy_candidate_stages(db: Session) -> None:
+    """Self-heal stale enum values that can crash ORM reads on older rows."""
+    result = db.execute(text(
+        "UPDATE candidates "
+        "SET stage = 'INTERVIEWED' "
+        "WHERE stage::text = 'INTERVIEW_REVIEW'"
+    ))
+    if result.rowcount:
+        print(f"Normalized legacy candidate stages before query: rows_updated={result.rowcount}")
+        db.commit()
+
+
 def _apply_candidate_list_scope(query, current_user):
     from sqlalchemy.orm import aliased
     from app.models import JobDescription, User, UserRole
@@ -1556,6 +1568,7 @@ def get_candidates_count(
     current_user: User = Depends(get_current_active_user)
 ):
     from app.models import JobDescription, UserRole
+    normalize_legacy_candidate_stages(db)
     query = db.query(Candidate)
     if current_user.role == UserRole.SUPER_ADMIN:
         if agency_id:
@@ -1588,6 +1601,7 @@ def get_candidates(
     current_user: User = Depends(get_current_active_user)
 ):
     from app.models import JobDescription, UserRole
+    normalize_legacy_candidate_stages(db)
     query = db.query(Candidate)
 
     if agency_id and current_user.role == UserRole.SUPER_ADMIN:
@@ -2232,6 +2246,7 @@ def get_pipeline_stages(
 ):
     """Get candidates grouped by stage for Kanban board"""
     from app.models import JobDescription, UserRole
+    normalize_legacy_candidate_stages(db)
     stages = {}
     for stage in CandidateStage:
         query = db.query(Candidate).filter(Candidate.stage == stage)
