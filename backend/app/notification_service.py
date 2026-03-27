@@ -463,9 +463,9 @@ def send_email_task(communication_id: int) -> None:
 
         if not is_email_configured():
             communication.status = NotificationDeliveryStatus.FAILED.value
-            communication.error_message = "Resend email API is not configured"
+            communication.error_message = "SendGrid email API is not configured"
             db.commit()
-            print(f"Email send failed: communication {communication_id} missing Resend email configuration")
+            print(f"Email send failed: communication {communication_id} missing SendGrid email configuration")
             return
 
         provider_message_id = send_html_email(
