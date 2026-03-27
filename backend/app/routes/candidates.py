@@ -2225,13 +2225,10 @@ def get_pipeline_stages(
     stages = {}
     for stage in CandidateStage:
         query = db.query(Candidate).filter(Candidate.stage == stage)
-        if current_user.role == UserRole.SUPER_ADMIN:
-            if agency_id:
-                query = query.filter(Candidate.agency_id == agency_id)
-        elif current_user.role == UserRole.ADMIN and current_user.agency_id:
-            query = query.filter(Candidate.agency_id == current_user.agency_id)
+        if agency_id and current_user.role == UserRole.SUPER_ADMIN:
+            query = query.filter(Candidate.agency_id == agency_id)
         else:
-            query = query.filter(Candidate.assigned_to_user_id == current_user.id)
+            query = _apply_candidate_list_scope(query, current_user)
         if client:
             query = query.join(JobDescription).filter(JobDescription.company_name == client)
         candidates = query.all()
