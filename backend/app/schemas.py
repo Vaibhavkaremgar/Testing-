@@ -222,6 +222,7 @@ class InterviewResponse(InterviewBase):
     id: UUID
     candidate_id: UUID
     candidate_name: Optional[str] = None
+    async_token: Optional[str] = None
     status: str
     video_url: Optional[str] = None
     transcript: Optional[str] = None

@@ -24,6 +24,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
   const SHOW_MORE_STEP = 20
   const [candidates, setCandidates] = useState([])
   const [jobs, setJobs] = useState([])
+  const [videoError, setVideoError] = useState('')
   const [scheduleForm, setScheduleForm] = useState({
     name: '',
     email: '',
@@ -42,33 +43,17 @@ export default function Interviews({ superAdminAgencyId = null }) {
         const params = {}
         if (selectedClient) params.client = selectedClient
         if (superAdminAgencyId) params.agency_id = superAdminAgencyId
-        
-        // Get only SELECTED and REJECTED candidates
-        const [selected, rejected] = await Promise.all([
-          api.getCandidates({ ...params, stage: 'SELECTED', limit: DEFAULT_LIST_LIMIT }),
-          api.getCandidates({ ...params, stage: 'REJECTED', limit: DEFAULT_LIST_LIMIT })
-        ])
-        
-        const allCandidates = [...selected, ...rejected]
-        
-        // Transform to interview format
-        const interviewsData = allCandidates.map(candidate => ({
-          id: candidate.id,
-          candidate_id: candidate.id,
-          candidate_name: candidate.name,
-          interview_type: 'technical',
-          scheduled_at: candidate.created_at,
-          status: 'completed',
-          video_url: candidate.interview_video_url,
-          transcript: candidate.interview_transcript,
-          ai_summary: candidate.interview_ai_summary || candidate.summary || 'No summary available',
-          interview_score: candidate.interview_technical_score && candidate.interview_communication_score && candidate.interview_culture_fit_score 
-            ? Math.round((candidate.interview_technical_score + candidate.interview_communication_score + candidate.interview_culture_fit_score) / 3)
-            : candidate.resume_score || 0,
-          technical_score: candidate.interview_technical_score || candidate.resume_score || 0,
-          communication_score: candidate.interview_communication_score || candidate.resume_score || 0,
-          culture_fit_score: candidate.interview_culture_fit_score || candidate.resume_score || 0
-        }))
+        const interviewRows = await api.getInterviews({ ...params, limit: DEFAULT_LIST_LIMIT })
+        const interviewsData = (interviewRows || [])
+          .map(interview => ({
+            ...interview,
+            playback_url:
+              interview.video_url ||
+              api.getInterviewVideoUrl(interview.async_token || interview.id)
+          }))
+          .filter(interview =>
+            interview.playback_url || interview.transcript || interview.ai_summary || interview.status === 'completed'
+          )
         
         setInterviews(interviewsData)
         if (interviewsData.length > 0) {
@@ -181,6 +166,10 @@ export default function Interviews({ superAdminAgencyId = null }) {
     }
   }
 
+  useEffect(() => {
+    setVideoError('')
+  }, [selectedInterview?.id])
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -285,9 +274,15 @@ export default function Interviews({ superAdminAgencyId = null }) {
 
               <TabsContent value="video" className="mt-4">
                 <div className="bg-muted rounded-xl aspect-video flex items-center justify-center">
-                  {selectedInterview.video_url ? (
-                    <video controls className="w-full h-full rounded-xl">
-                      <source src={selectedInterview.video_url} type="video/mp4" />
+                  {selectedInterview.playback_url ? (
+                    <video
+                      key={selectedInterview.id}
+                      controls
+                      preload="metadata"
+                      className="w-full h-full rounded-xl"
+                      src={selectedInterview.playback_url}
+                      onError={() => setVideoError('Unable to load interview recording. The video may be missing or in an unsupported format.')}
+                    >
                       Your browser does not support the video tag.
                     </video>
                   ) : (
@@ -297,6 +292,9 @@ export default function Interviews({ superAdminAgencyId = null }) {
                     </div>
                   )}
                 </div>
+                {videoError && (
+                  <p className="mt-3 text-sm text-destructive">{videoError}</p>
+                )}
               </TabsContent>
 
               <TabsContent value="transcript" className="mt-4">

@@ -677,6 +677,17 @@ class ApiClient {
     return `${API_BASE}/candidates/${candidateId}/resume-file`
   }
 
+  getInterviewVideoUrl(sessionId) {
+    const token = this.getToken()
+    const encodedSessionId = encodeURIComponent(sessionId)
+    const query = token ? `?token=${encodeURIComponent(token)}` : ''
+    return `${API_BASE}/interviews/video/${encodedSessionId}${query}`
+  }
+
+  getInterviewRecordingUrl(sessionToken) {
+    return this.getInterviewVideoUrl(sessionToken)
+  }
+
   // Extract job data from file
   async extractJobData(file) {
     const formData = new FormData()

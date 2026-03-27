@@ -1,16 +1,23 @@
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Response
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 from typing import List, Optional
 from datetime import datetime
 from uuid import UUID
 import random
+import psycopg2
 from app.database import get_db
+from app.config import settings
 from app.models import Interview, Candidate, CandidateStage, User
 from app.notification_service import queue_notification_for_stage, send_email_task
 from app.schemas import InterviewCreate, InterviewUpdate, InterviewResponse, InterviewResultsUpdate
 from app.auth import get_current_active_user
+from app.auth import verify_token
 
 router = APIRouter(prefix="/interviews", tags=["Interviews"])
+
+VIDEO_CHUNK_SIZE = 1024 * 1024
 
 # Sample AI summaries for demo
 SAMPLE_SUMMARIES = [
@@ -42,6 +49,130 @@ SAMPLE_TRANSCRIPTS = """
 [20:10] Candidate: Yes, I'd love to learn more about the team structure and the technologies you're currently using.
 """
 
+
+def _apply_interview_scope(query, current_user):
+    from app.models import JobDescription, UserRole
+
+    if current_user.role == UserRole.SUPER_ADMIN:
+        return query
+
+    if current_user.role == UserRole.ADMIN and current_user.agency_id:
+        return query.join(Candidate).outerjoin(JobDescription, Candidate.job_id == JobDescription.id).filter(
+            or_(
+                Candidate.agency_id == current_user.agency_id,
+                JobDescription.agency_id == current_user.agency_id,
+            )
+        )
+
+    return query.join(Candidate).filter(Candidate.assigned_to_user_id == current_user.id)
+
+
+def _resolve_video_request_user(db: Session, access_token: Optional[str], current_user: Optional[User]) -> User:
+    if current_user:
+        return current_user
+
+    if not access_token:
+        raise HTTPException(status_code=401, detail="Authentication required to access interview recordings")
+
+    token_data = verify_token(access_token)
+    if token_data is None:
+        raise HTTPException(status_code=401, detail="Invalid authentication token")
+
+    user = db.query(User).filter(User.email == token_data.email).first()
+    if not user or not user.is_active:
+        raise HTTPException(status_code=401, detail="Authentication failed")
+
+    return user
+
+
+def _get_scoped_interview_for_video(db: Session, session_id: str, current_user: User) -> Optional[Interview]:
+    try:
+        query = db.query(Interview).filter(Interview.id == UUID(session_id))
+    except ValueError:
+        query = db.query(Interview).filter(Interview.async_token == session_id)
+
+    query = _apply_interview_scope(query, current_user)
+    return query.first()
+
+
+def _detect_video_media_type(video_bytes: bytes, fallback: str = "video/webm") -> str:
+    if len(video_bytes) >= 12 and video_bytes[4:8] == b"ftyp":
+        return "video/mp4"
+    if video_bytes.startswith(b"\x1A\x45\xDF\xA3"):
+        return "video/webm"
+    if video_bytes.startswith(b"OggS"):
+        return "video/ogg"
+    return fallback
+
+
+def _iter_video_chunks(video_bytes: bytes, start: int = 0, end: Optional[int] = None):
+    final_end = len(video_bytes) - 1 if end is None else end
+    offset = start
+    while offset <= final_end:
+        chunk_end = min(offset + VIDEO_CHUNK_SIZE, final_end + 1)
+        yield video_bytes[offset:chunk_end]
+        offset = chunk_end
+
+
+def _build_video_stream_response(video_bytes: bytes, media_type: str, range_header: Optional[str]) -> Response:
+    total_size = len(video_bytes)
+    common_headers = {
+        "Accept-Ranges": "bytes",
+        "Content-Disposition": 'inline; filename="interview-recording"',
+        "Cache-Control": "private, max-age=3600",
+    }
+
+    if total_size == 0:
+        return Response(status_code=204, headers=common_headers)
+
+    if not range_header:
+        headers = {
+            **common_headers,
+            "Content-Length": str(total_size),
+        }
+        return StreamingResponse(
+            _iter_video_chunks(video_bytes),
+            media_type=media_type,
+            headers=headers,
+        )
+
+    try:
+        units, byte_range = range_header.strip().split("=", 1)
+        if units != "bytes":
+            raise ValueError("Unsupported range unit")
+
+        start_str, end_str = byte_range.split("-", 1)
+        if start_str == "":
+            suffix_length = int(end_str)
+            start = max(total_size - suffix_length, 0)
+            end = total_size - 1
+        else:
+            start = int(start_str)
+            end = int(end_str) if end_str else total_size - 1
+
+        if start < 0 or end < start or start >= total_size:
+            raise ValueError("Invalid byte range")
+
+        end = min(end, total_size - 1)
+    except (ValueError, IndexError):
+        return Response(
+            status_code=416,
+            headers={**common_headers, "Content-Range": f"bytes */{total_size}"},
+        )
+
+    content_length = (end - start) + 1
+    headers = {
+        **common_headers,
+        "Content-Length": str(content_length),
+        "Content-Range": f"bytes {start}-{end}/{total_size}",
+    }
+    return StreamingResponse(
+        _iter_video_chunks(video_bytes, start=start, end=end),
+        media_type=media_type,
+        status_code=206,
+        headers=headers,
+    )
+
 @router.get("/count")
 def get_interviews_count(
     candidate_id: Optional[UUID] = None,
@@ -58,10 +189,8 @@ def get_interviews_count(
         query = query.filter(Interview.status == status)
     if agency_id and current_user.role == UserRole.SUPER_ADMIN:
         query = query.join(Candidate).join(JobDescription, Candidate.job_id == JobDescription.id).filter(JobDescription.agency_id == agency_id)
-    elif current_user.role == UserRole.ADMIN and current_user.agency_id:
-        query = query.join(Candidate).join(JobDescription, Candidate.job_id == JobDescription.id).filter(JobDescription.agency_id == current_user.agency_id)
-    elif current_user.role != UserRole.ADMIN:
-        query = query.join(Candidate).filter(Candidate.assigned_to_user_id == current_user.id)
+    else:
+        query = _apply_interview_scope(query, current_user)
     return {"count": query.count()}
 
 @router.get("", response_model=List[InterviewResponse])
@@ -83,10 +212,8 @@ def get_interviews(
         query = query.filter(Interview.status == status)
     if agency_id and current_user.role == UserRole.SUPER_ADMIN:
         query = query.join(Candidate).join(JobDescription, Candidate.job_id == JobDescription.id).filter(JobDescription.agency_id == agency_id)
-    elif current_user.role == UserRole.ADMIN and current_user.agency_id:
-        query = query.join(Candidate).join(JobDescription, Candidate.job_id == JobDescription.id).filter(JobDescription.agency_id == current_user.agency_id)
-    elif current_user.role != UserRole.ADMIN:
-        query = query.join(Candidate).filter(Candidate.assigned_to_user_id == current_user.id)
+    else:
+        query = _apply_interview_scope(query, current_user)
     
     interviews = query.order_by(Interview.scheduled_at.desc()).offset((page - 1) * limit).limit(limit).all()
     
@@ -96,6 +223,7 @@ def get_interviews(
             "id": interview.id,
             "candidate_id": interview.candidate_id,
             "candidate_name": interview.candidate.name if interview.candidate else None,
+            "async_token": interview.async_token,
             "interview_type": interview.interview_type,
             "scheduled_at": interview.scheduled_at,
             "duration_minutes": interview.duration_minutes,
@@ -115,6 +243,50 @@ def get_interviews(
     
     return result
 
+
+@router.get("/video/{session_id}")
+def stream_interview_video(
+    session_id: str,
+    token: Optional[str] = Query(None),
+    range_header: Optional[str] = Header(None, alias="Range"),
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+    db: Session = Depends(get_db),
+):
+    connection = None
+    bearer_token = None
+    if authorization and authorization.lower().startswith("bearer "):
+        bearer_token = authorization.split(" ", 1)[1].strip()
+
+    current_user = _resolve_video_request_user(db, token or bearer_token, None)
+    interview = _get_scoped_interview_for_video(db, session_id, current_user)
+    if not interview:
+        raise HTTPException(status_code=404, detail="Interview session not found")
+
+    try:
+        connection = psycopg2.connect(settings.DATABASE_URL)
+        with connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT recording_data FROM interview_sessions WHERE id = %s",
+                    (session_id,),
+                )
+                row = cursor.fetchone()
+    except Exception as exc:
+        print(f"Interview video query failed for session {session_id}: {exc}")
+        raise HTTPException(status_code=500, detail="Failed to load interview recording")
+    finally:
+        try:
+            connection.close()
+        except Exception:
+            pass
+
+    if not row or not row[0]:
+        raise HTTPException(status_code=404, detail="Interview recording not found")
+
+    video_bytes = bytes(row[0])
+    media_type = _detect_video_media_type(video_bytes, fallback="video/webm")
+    return _build_video_stream_response(video_bytes, media_type, range_header)
+
 @router.get("/{interview_id}", response_model=InterviewResponse)
 def get_interview(
     interview_id: UUID,
@@ -129,6 +301,7 @@ def get_interview(
         "id": interview.id,
         "candidate_id": interview.candidate_id,
         "candidate_name": interview.candidate.name if interview.candidate else None,
+        "async_token": interview.async_token,
         "interview_type": interview.interview_type,
         "scheduled_at": interview.scheduled_at,
         "duration_minutes": interview.duration_minutes,
@@ -175,6 +348,7 @@ def create_interview_public(
         id=db_interview.id,
         candidate_id=db_interview.candidate_id,
         candidate_name=candidate.name,
+        async_token=db_interview.async_token,
         interview_type=db_interview.interview_type,
         scheduled_at=db_interview.scheduled_at,
         duration_minutes=db_interview.duration_minutes,
@@ -230,6 +404,7 @@ def create_interview(
         "id": db_interview.id,
         "candidate_id": db_interview.candidate_id,
         "candidate_name": candidate.name,
+        "async_token": db_interview.async_token,
         "interview_type": db_interview.interview_type,
         "scheduled_at": db_interview.scheduled_at,
         "duration_minutes": db_interview.duration_minutes,
@@ -277,6 +452,7 @@ def update_interview(
         "id": db_interview.id,
         "candidate_id": db_interview.candidate_id,
         "candidate_name": db_interview.candidate.name if db_interview.candidate else None,
+        "async_token": db_interview.async_token,
         "interview_type": db_interview.interview_type,
         "scheduled_at": db_interview.scheduled_at,
         "duration_minutes": db_interview.duration_minutes,
@@ -396,6 +572,7 @@ def receive_interview_results(
         id=db_interview.id,
         candidate_id=db_interview.candidate_id,
         candidate_name=candidate.name if candidate else None,
+        async_token=db_interview.async_token,
         interview_type=db_interview.interview_type,
         scheduled_at=db_interview.scheduled_at,
         duration_minutes=db_interview.duration_minutes,
