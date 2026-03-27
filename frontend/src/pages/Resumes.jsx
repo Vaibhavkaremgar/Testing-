@@ -977,10 +977,7 @@ export default function Resumes() {
                         {candidate.stage === 'SHORTLISTED' ? 'Resume Shortlisted' :
                          candidate.stage === 'REVIEW' ? 'Review' :
                          candidate.stage === 'RESUME_REJECTED' ? 'Resume Rejected' :
-                         candidate.stage === 'INTERVIEW_SCHEDULED' ? 'Interview Invited' :
-                         candidate.stage === 'INTERVIEW_RESCHEDULED' ? 'Interview Rescheduled' :
-                         candidate.stage === 'REJECTED' ? 'Rejected' :
-                         'Pending'}
+                         '-'}
                       </Badge>
                     </td>
                     <td className="p-4">
