@@ -31,16 +31,26 @@ ALLOWED_RESUME_CONTENT_TYPES = {
 
 
 def _apply_candidate_list_scope(query, current_user):
-    from app.models import JobDescription, UserRole
+    from sqlalchemy.orm import aliased
+    from app.models import JobDescription, User, UserRole
 
     if current_user.role == UserRole.SUPER_ADMIN:
         return query
 
+    creator = aliased(User)
+    assignee = aliased(User)
+
     if current_user.role == UserRole.ADMIN and current_user.agency_id:
-        return query.outerjoin(JobDescription, Candidate.job_id == JobDescription.id).filter(
+        return query.outerjoin(JobDescription, Candidate.job_id == JobDescription.id).outerjoin(
+            creator, Candidate.created_by == creator.id
+        ).outerjoin(
+            assignee, Candidate.assigned_to_user_id == assignee.id
+        ).filter(
             or_(
                 Candidate.agency_id == current_user.agency_id,
                 JobDescription.agency_id == current_user.agency_id,
+                creator.agency_id == current_user.agency_id,
+                assignee.agency_id == current_user.agency_id,
             )
         )
 
@@ -1687,7 +1697,9 @@ def create_candidate(
 ):
     db_candidate = Candidate(
         **candidate.model_dump(),
+        agency_id=current_user.agency_id,
         created_by=current_user.id,
+        assigned_to_user_id=current_user.id,
         parsing_status=ParsingStatus.PENDING
     )
     db.add(db_candidate)
