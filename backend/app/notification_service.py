@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import SessionLocal
-from app.mailer import is_email_configured, send_html_email
+from app.mailer import get_email_provider, is_email_configured, send_html_email
 from app.models import (
     Agency,
     Candidate,
@@ -462,10 +462,15 @@ def send_email_task(communication_id: int) -> None:
             return
 
         if not is_email_configured():
+            provider = get_email_provider()
+            provider_label = provider.capitalize() if provider else "Email"
             communication.status = NotificationDeliveryStatus.FAILED.value
-            communication.error_message = "SendGrid email API is not configured"
+            communication.error_message = f"{provider_label} service is not configured"
             db.commit()
-            print(f"Email send failed: communication {communication_id} missing SendGrid email configuration")
+            print(
+                f"Email send failed: communication {communication_id} "
+                f"missing {provider_label} configuration"
+            )
             return
 
         provider_message_id = send_html_email(

@@ -2329,9 +2329,13 @@ def send_email(
             from app.models import JobDescription
             job = db.query(JobDescription).filter(JobDescription.id == candidate.job_id).first()
         
-        # Check if SendGrid email API is configured
+        # Check if email service is configured
         if not is_email_configured():
-            error_msg = "SendGrid email API is not configured. Set SENDGRID_API_KEY, FROM_EMAIL, and FROM_NAME in Railway environment variables."
+            error_msg = (
+                "Email service is not configured. Set RESEND_API_KEY "
+                "(or SENDGRID_API_KEY for fallback), FROM_EMAIL, and FROM_NAME "
+                "in Railway environment variables."
+            )
             print(f"❌ {error_msg}")
             raise HTTPException(status_code=500, detail=error_msg)
         
@@ -2369,7 +2373,7 @@ def send_email(
         </html>
         """
         
-        # Send email via SendGrid
+        # Send email via configured provider
         provider_message_id = send_html_email(
             to_email=candidate.email,
             subject=subject,
