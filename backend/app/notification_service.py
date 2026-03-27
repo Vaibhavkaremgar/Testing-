@@ -235,6 +235,9 @@ def build_notification_payload(
     job = db.query(JobDescription).filter(JobDescription.id == candidate.job_id).first() if candidate.job_id else None
     agency = db.query(Agency).filter(Agency.id == candidate.agency_id).first() if candidate.agency_id else None
     interview_questions = _parse_questions(candidate.predefined_questions) or _parse_questions(job.interview_questions if job else None)
+    interview_questions_text = json.dumps(interview_questions, ensure_ascii=False) if interview_questions else ""
+    resume_text = candidate.resume_text or ""
+    job_description = job.description if job else ""
 
     payload = {
         "candidate_name": candidate.name or "",
@@ -242,9 +245,9 @@ def build_notification_payload(
         "job_id": job.job_id if job and job.job_id else (str(job.id) if job else ""),
         "job_title": job.title if job else "",
         "job_role": candidate.current_role or (job.title if job else ""),
-        "job_description": job.description if job else "",
+        "job_description": job_description,
         "skills": ", ".join(candidate.skills or (job.skills if job else []) or []),
-        "resume_text": candidate.resume_text or "",
+        "resume_text": resume_text,
         "agency_id": str(candidate.agency_id) if candidate.agency_id else "",
         "user_id": str(user_id or candidate.created_by) if (user_id or candidate.created_by) else "",
         "slot_link": "",
@@ -254,6 +257,25 @@ def build_notification_payload(
         "agency_name": agency.name if agency else "",
         "interview_questions": interview_questions,
         "async_questions": interview_questions,
+        "predefined_questions": interview_questions,
+        "interview_questions_text": interview_questions_text,
+        "predefined_questions_text": interview_questions_text,
+        # CamelCase aliases for interview bot consumers
+        "candidateName": candidate.name or "",
+        "candidateId": candidate.candidate_id or str(candidate.id),
+        "jobId": job.job_id if job and job.job_id else (str(job.id) if job else ""),
+        "jobTitle": job.title if job else "",
+        "jobRole": candidate.current_role or (job.title if job else ""),
+        "jobDescription": job_description,
+        "resumeText": resume_text,
+        "meetingLink": "",
+        "interviewDate": "",
+        "interviewTime": "",
+        "agencyName": agency.name if agency else "",
+        "predefinedQuestions": interview_questions,
+        "predefinedQuestionsText": interview_questions_text,
+        "interviewQuestions": interview_questions,
+        "interviewQuestionsText": interview_questions_text,
     }
 
     if extra_payload:

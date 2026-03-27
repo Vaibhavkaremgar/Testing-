@@ -22,6 +22,34 @@ from app.schemas import (
 router = APIRouter(prefix="/notifications", tags=["Notifications"])
 
 
+def _normalize_workflow_payload(payload: dict) -> dict:
+    normalized = dict(payload or {})
+
+    resume_text = normalized.get("resumeText") or normalized.get("resume_text") or ""
+    job_description = normalized.get("jobDescription") or normalized.get("job_description") or ""
+    predefined_questions = (
+        normalized.get("predefinedQuestions")
+        or normalized.get("predefined_questions")
+        or normalized.get("interviewQuestions")
+        or normalized.get("interview_questions")
+        or normalized.get("async_questions")
+        or []
+    )
+
+    normalized["resume_text"] = resume_text
+    normalized["resumeText"] = resume_text
+    normalized["job_description"] = job_description
+    normalized["jobDescription"] = job_description
+    normalized["predefined_questions"] = predefined_questions
+    normalized["predefinedQuestions"] = predefined_questions
+    normalized["interview_questions"] = normalized.get("interview_questions") or predefined_questions
+    normalized["interviewQuestions"] = normalized.get("interviewQuestions") or normalized["interview_questions"]
+    normalized["meeting_link"] = normalized.get("meeting_link") or normalized.get("meetingLink") or ""
+    normalized["meetingLink"] = normalized["meeting_link"]
+
+    return normalized
+
+
 @router.post("/trigger", response_model=NotificationEventResponse)
 def trigger_notification_event(
     request: NotificationEventRequest,
@@ -65,7 +93,7 @@ def resolve_notification_workflow(
 
     return WorkflowTokenResolveResponse(
         token_type=token_record.token_type,
-        payload=token_record.payload,
+        payload=_normalize_workflow_payload(token_record.payload),
         expires_at=token_record.expires_at,
         consumed_at=token_record.consumed_at,
         is_active=token_record.is_active,
@@ -89,9 +117,11 @@ def confirm_slot_selection(
         raise HTTPException(status_code=404, detail="Candidate not found")
 
     slot_token.payload = {
-        **slot_token.payload,
+        **_normalize_workflow_payload(slot_token.payload),
         "interview_date": request.interview_date,
         "interview_time": request.interview_time,
+        "interviewDate": request.interview_date,
+        "interviewTime": request.interview_time,
         "timezone": request.timezone or "",
         "slot_selection_confirmed_at": datetime.utcnow().isoformat(),
         "slot_notes": request.notes or "",

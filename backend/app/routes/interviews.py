@@ -173,6 +173,66 @@ def _build_video_stream_response(video_bytes: bytes, media_type: str, range_head
         headers=headers,
     )
 
+
+def _get_table_columns(cursor, table_name: str) -> set[str]:
+    cursor.execute(
+        """
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = %s
+        """,
+        (table_name,),
+    )
+    return {row[0] for row in cursor.fetchall()}
+
+
+def _fetch_interview_recording(cursor, session_keys: List[str]):
+    columns = _get_table_columns(cursor, "interview_sessions")
+    if "recording_data" not in columns:
+        raise HTTPException(status_code=500, detail="interview_sessions.recording_data column is missing")
+
+    select_fields = ["recording_data"]
+    mime_column = None
+    for candidate_column in ("mime_type", "content_type", "recording_mime_type", "video_format"):
+        if candidate_column in columns:
+            mime_column = candidate_column
+            select_fields.append(candidate_column)
+            break
+
+    lookup_columns = []
+    for candidate_column in ("id", "session_id", "interview_id", "async_token", "token"):
+        if candidate_column in columns:
+            lookup_columns.append(candidate_column)
+
+    if not lookup_columns:
+        raise HTTPException(status_code=500, detail="No usable lookup column found in interview_sessions")
+
+    deduped_keys = [key for key in dict.fromkeys([k for k in session_keys if k])]
+    if not deduped_keys:
+        return None, None
+
+    where_clauses = []
+    params = []
+    for column_name in lookup_columns:
+        placeholders = ", ".join(["%s"] * len(deduped_keys))
+        where_clauses.append(f"{column_name}::text IN ({placeholders})")
+        params.extend(deduped_keys)
+
+    query = f"""
+        SELECT {", ".join(select_fields)}
+        FROM interview_sessions
+        WHERE {" OR ".join(where_clauses)}
+        LIMIT 1
+    """
+    cursor.execute(query, params)
+    row = cursor.fetchone()
+    if not row:
+        return None, None
+
+    recording_data = row[0]
+    configured_media_type = row[1] if mime_column and len(row) > 1 else None
+    return recording_data, configured_media_type
+
 @router.get("/count")
 def get_interviews_count(
     candidate_id: Optional[UUID] = None,
@@ -266,11 +326,13 @@ def stream_interview_video(
         connection = psycopg2.connect(settings.DATABASE_URL)
         with connection:
             with connection.cursor() as cursor:
-                cursor.execute(
-                    "SELECT recording_data FROM interview_sessions WHERE id = %s",
-                    (session_id,),
-                )
-                row = cursor.fetchone()
+                session_keys = [session_id, str(interview.id)]
+                if interview.async_token:
+                    session_keys.append(interview.async_token)
+
+                recording_data, configured_media_type = _fetch_interview_recording(cursor, session_keys)
+    except HTTPException:
+        raise
     except Exception as exc:
         print(f"Interview video query failed for session {session_id}: {exc}")
         raise HTTPException(status_code=500, detail="Failed to load interview recording")
@@ -280,11 +342,11 @@ def stream_interview_video(
         except Exception:
             pass
 
-    if not row or not row[0]:
+    if not recording_data:
         raise HTTPException(status_code=404, detail="Interview recording not found")
 
-    video_bytes = bytes(row[0])
-    media_type = _detect_video_media_type(video_bytes, fallback="video/webm")
+    video_bytes = bytes(recording_data)
+    media_type = configured_media_type or _detect_video_media_type(video_bytes, fallback="video/webm")
     return _build_video_stream_response(video_bytes, media_type, range_header)
 
 @router.get("/{interview_id}", response_model=InterviewResponse)

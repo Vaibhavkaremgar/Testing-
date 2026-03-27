@@ -71,12 +71,10 @@ def build_candidate_email_context(db: Session, candidate: Candidate) -> dict:
         "candidateId": candidate.id,
         "name": candidate.name,
         "email": candidate.email or "",
-        "resumeText": candidate.resume_text or "",
     }
     if job:
         params["jobId"] = job.id
         params["jobTitle"] = job.title
-        params["jobDescription"] = job.description or ""
 
     return {
         "candidate_name": candidate.name or "",
