@@ -850,6 +850,7 @@ export default function Resumes() {
                     <td className="p-4">
                       <Badge className={
                         candidate.stage === 'SHORTLISTED' ? 'bg-green-500' :
+                        candidate.stage === 'REVIEW' ? 'bg-amber-500' :
                         candidate.stage === 'RESUME_REJECTED' ? 'bg-red-500' :
                         candidate.stage === 'INTERVIEW_SCHEDULED' ? 'bg-blue-500' :
                         candidate.stage === 'INTERVIEW_RESCHEDULED' ? 'bg-yellow-500' :
@@ -857,6 +858,7 @@ export default function Resumes() {
                         'bg-gray-500'
                       }>
                         {candidate.stage === 'SHORTLISTED' ? 'Resume Shortlisted' :
+                         candidate.stage === 'REVIEW' ? 'Review' :
                          candidate.stage === 'RESUME_REJECTED' ? 'Resume Rejected' :
                          candidate.stage === 'INTERVIEW_SCHEDULED' ? 'Interview Invited' :
                          candidate.stage === 'INTERVIEW_RESCHEDULED' ? 'Interview Rescheduled' :

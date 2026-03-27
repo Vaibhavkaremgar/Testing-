@@ -674,7 +674,7 @@ def apply_resume_analysis(
         threshold = candidate.score_threshold or 60
         if score >= threshold:
             candidate.stage = CandidateStage.SHORTLISTED
-        elif score >= (threshold - 10):
+        elif score > (threshold - 10):
             candidate.stage = CandidateStage.REVIEW
         else:
             candidate.stage = CandidateStage.RESUME_REJECTED
@@ -1443,11 +1443,11 @@ def simulate_resume_parsing(
             except Exception as e:
                 print(f"⚠️ Auto-email failed: {e}")
         
-        elif score >= (threshold - 10):
-            # REVIEW: Score within 10 points below threshold
+        elif score > (threshold - 10):
+            # REVIEW: Score is less than 10 points below threshold
             candidate.stage = CandidateStage.REVIEW
         else:
-            # RESUME_REJECTED: Score more than 10 points below threshold
+            # RESUME_REJECTED: Score is 10 or more points below threshold
             candidate.stage = CandidateStage.RESUME_REJECTED
         
         print(f"✓ Candidate {candidate.name}: Score={candidate.resume_score}, Threshold={threshold}, Stage={candidate.stage.value}")
