@@ -49,6 +49,7 @@ EMAIL_TEMPLATE_STATUS_LABELS = {
 
 SUPPORTED_PLACEHOLDERS = [
     "candidate_name",
+    "candidate_email",
     "candidate_id",
     "job_id",
     "job_title",
@@ -63,9 +64,32 @@ SUPPORTED_PLACEHOLDERS = [
     "interview_date",
     "interview_time",
     "agency_name",
-    "interview_questions",
     "async_questions",
 ]
+
+PAYLOAD_ALIAS_MAP = {
+    "candidateName": "candidate_name",
+    "candidateEmail": "candidate_email",
+    "candidateId": "candidate_id",
+    "jobId": "job_id",
+    "jobTitle": "job_title",
+    "jobRole": "job_role",
+    "jobDescription": "job_description",
+    "resumeText": "resume_text",
+    "agencyName": "agency_name",
+    "meetingLink": "meeting_link",
+    "interviewDate": "interview_date",
+    "interviewTime": "interview_time",
+    "predefined_questions": "async_questions",
+    "predefinedQuestions": "async_questions",
+    "interview_questions": "async_questions",
+    "interviewQuestions": "async_questions",
+    "async_questions": "async_questions",
+    "interview_questions_text": "async_questions",
+    "predefined_questions_text": "async_questions",
+    "predefinedQuestionsText": "async_questions",
+    "interviewQuestionsText": "async_questions",
+}
 
 STAGE_TO_NOTIFICATION_STATUS = {
     CandidateStage.SHORTLISTED.value: "resume_shortlisted",
@@ -225,6 +249,52 @@ def _parse_questions(raw_questions) -> list:
     return [raw_questions]
 
 
+def compact_notification_payload(payload: Optional[dict]) -> dict:
+    compacted = {}
+    for key, value in (payload or {}).items():
+        canonical_key = PAYLOAD_ALIAS_MAP.get(key, key)
+        if canonical_key == "async_questions":
+            compacted[canonical_key] = _parse_questions(value)
+            continue
+        compacted[canonical_key] = value
+
+    if "async_questions" in compacted:
+        compacted["async_questions"] = _parse_questions(compacted["async_questions"])
+
+    return compacted
+
+
+def _payload_with_legacy_aliases(payload: dict) -> dict:
+    rendered_payload = dict(payload)
+    async_questions = _parse_questions(rendered_payload.get("async_questions"))
+    async_questions_text = json.dumps(async_questions, ensure_ascii=False) if async_questions else ""
+
+    rendered_payload["async_questions"] = async_questions
+    rendered_payload["predefined_questions"] = async_questions
+    rendered_payload["interview_questions"] = async_questions
+    rendered_payload["interview_questions_text"] = async_questions_text
+    rendered_payload["predefined_questions_text"] = async_questions_text
+
+    rendered_payload["candidateName"] = rendered_payload.get("candidate_name", "")
+    rendered_payload["candidateEmail"] = rendered_payload.get("candidate_email", "")
+    rendered_payload["candidateId"] = rendered_payload.get("candidate_id", "")
+    rendered_payload["jobId"] = rendered_payload.get("job_id", "")
+    rendered_payload["jobTitle"] = rendered_payload.get("job_title", "")
+    rendered_payload["jobRole"] = rendered_payload.get("job_role", "")
+    rendered_payload["jobDescription"] = rendered_payload.get("job_description", "")
+    rendered_payload["resumeText"] = rendered_payload.get("resume_text", "")
+    rendered_payload["meetingLink"] = rendered_payload.get("meeting_link", "")
+    rendered_payload["interviewDate"] = rendered_payload.get("interview_date", "")
+    rendered_payload["interviewTime"] = rendered_payload.get("interview_time", "")
+    rendered_payload["agencyName"] = rendered_payload.get("agency_name", "")
+    rendered_payload["predefinedQuestions"] = async_questions
+    rendered_payload["predefinedQuestionsText"] = async_questions_text
+    rendered_payload["interviewQuestions"] = async_questions
+    rendered_payload["interviewQuestionsText"] = async_questions_text
+
+    return rendered_payload
+
+
 def build_notification_payload(
     db: Session,
     *,
@@ -234,20 +304,17 @@ def build_notification_payload(
 ) -> dict:
     job = db.query(JobDescription).filter(JobDescription.id == candidate.job_id).first() if candidate.job_id else None
     agency = db.query(Agency).filter(Agency.id == candidate.agency_id).first() if candidate.agency_id else None
-    interview_questions = _parse_questions(candidate.predefined_questions) or _parse_questions(job.interview_questions if job else None)
-    interview_questions_text = json.dumps(interview_questions, ensure_ascii=False) if interview_questions else ""
-    resume_text = candidate.resume_text or ""
-    job_description = job.description if job else ""
-
+    async_questions = _parse_questions(candidate.predefined_questions) or _parse_questions(job.interview_questions if job else None)
     payload = {
         "candidate_name": candidate.name or "",
+        "candidate_email": candidate.email or "",
         "candidate_id": candidate.candidate_id or str(candidate.id),
         "job_id": job.job_id if job and job.job_id else (str(job.id) if job else ""),
         "job_title": job.title if job else "",
         "job_role": candidate.current_role or (job.title if job else ""),
-        "job_description": job_description,
+        "job_description": job.description if job else "",
         "skills": ", ".join(candidate.skills or (job.skills if job else []) or []),
-        "resume_text": resume_text,
+        "resume_text": candidate.resume_text or "",
         "agency_id": str(candidate.agency_id) if candidate.agency_id else "",
         "user_id": str(user_id or candidate.created_by) if (user_id or candidate.created_by) else "",
         "slot_link": "",
@@ -255,38 +322,18 @@ def build_notification_payload(
         "interview_date": "",
         "interview_time": "",
         "agency_name": agency.name if agency else "",
-        "interview_questions": interview_questions,
-        "async_questions": interview_questions,
-        "predefined_questions": interview_questions,
-        "interview_questions_text": interview_questions_text,
-        "predefined_questions_text": interview_questions_text,
-        # CamelCase aliases for interview bot consumers
-        "candidateName": candidate.name or "",
-        "candidateId": candidate.candidate_id or str(candidate.id),
-        "jobId": job.job_id if job and job.job_id else (str(job.id) if job else ""),
-        "jobTitle": job.title if job else "",
-        "jobRole": candidate.current_role or (job.title if job else ""),
-        "jobDescription": job_description,
-        "resumeText": resume_text,
-        "meetingLink": "",
-        "interviewDate": "",
-        "interviewTime": "",
-        "agencyName": agency.name if agency else "",
-        "predefinedQuestions": interview_questions,
-        "predefinedQuestionsText": interview_questions_text,
-        "interviewQuestions": interview_questions,
-        "interviewQuestionsText": interview_questions_text,
+        "async_questions": async_questions,
     }
 
     if extra_payload:
-        payload.update(extra_payload)
+        payload.update(compact_notification_payload(extra_payload))
 
-    return payload
+    return compact_notification_payload(payload)
 
 
 def render_template_content(content: str, payload: dict) -> str:
     rendered = content or ""
-    for placeholder, value in payload.items():
+    for placeholder, value in _payload_with_legacy_aliases(payload).items():
         replacement = value
         if isinstance(replacement, (dict, list)):
             replacement = json.dumps(replacement)

@@ -27,7 +27,7 @@ def _normalize_workflow_payload(payload: dict) -> dict:
 
     resume_text = normalized.get("resumeText") or normalized.get("resume_text") or ""
     job_description = normalized.get("jobDescription") or normalized.get("job_description") or ""
-    predefined_questions = (
+    async_questions = (
         normalized.get("predefinedQuestions")
         or normalized.get("predefined_questions")
         or normalized.get("interviewQuestions")
@@ -40,14 +40,41 @@ def _normalize_workflow_payload(payload: dict) -> dict:
     normalized["resumeText"] = resume_text
     normalized["job_description"] = job_description
     normalized["jobDescription"] = job_description
-    normalized["predefined_questions"] = predefined_questions
-    normalized["predefinedQuestions"] = predefined_questions
-    normalized["interview_questions"] = normalized.get("interview_questions") or predefined_questions
+    normalized["async_questions"] = async_questions
+    normalized["predefined_questions"] = async_questions
+    normalized["predefinedQuestions"] = async_questions
+    normalized["interview_questions"] = normalized.get("interview_questions") or async_questions
     normalized["interviewQuestions"] = normalized.get("interviewQuestions") or normalized["interview_questions"]
     normalized["meeting_link"] = normalized.get("meeting_link") or normalized.get("meetingLink") or ""
     normalized["meetingLink"] = normalized["meeting_link"]
 
     return normalized
+
+
+def _compact_workflow_payload(payload: dict) -> dict:
+    normalized = _normalize_workflow_payload(payload)
+    return {
+        "candidate_name": normalized.get("candidate_name") or normalized.get("candidateName") or "",
+        "candidate_email": normalized.get("candidate_email") or normalized.get("candidateEmail") or "",
+        "candidate_id": normalized.get("candidate_id") or normalized.get("candidateId") or "",
+        "job_id": normalized.get("job_id") or normalized.get("jobId") or "",
+        "job_title": normalized.get("job_title") or normalized.get("jobTitle") or "",
+        "job_role": normalized.get("job_role") or normalized.get("jobRole") or "",
+        "job_description": normalized.get("job_description") or normalized.get("jobDescription") or "",
+        "skills": normalized.get("skills") or "",
+        "resume_text": normalized.get("resume_text") or normalized.get("resumeText") or "",
+        "agency_id": normalized.get("agency_id") or "",
+        "user_id": normalized.get("user_id") or "",
+        "slot_link": normalized.get("slot_link") or normalized.get("slotLink") or "",
+        "meeting_link": normalized.get("meeting_link") or normalized.get("meetingLink") or "",
+        "interview_date": normalized.get("interview_date") or normalized.get("interviewDate") or "",
+        "interview_time": normalized.get("interview_time") or normalized.get("interviewTime") or "",
+        "agency_name": normalized.get("agency_name") or normalized.get("agencyName") or "",
+        "async_questions": normalized.get("async_questions") or [],
+        "timezone": normalized.get("timezone") or "",
+        "slot_selection_confirmed_at": normalized.get("slot_selection_confirmed_at") or "",
+        "slot_notes": normalized.get("slot_notes") or "",
+    }
 
 
 @router.post("/trigger", response_model=NotificationEventResponse)
@@ -116,16 +143,14 @@ def confirm_slot_selection(
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
 
-    slot_token.payload = {
-        **_normalize_workflow_payload(slot_token.payload),
+    slot_token.payload = _compact_workflow_payload({
+        **slot_token.payload,
         "interview_date": request.interview_date,
         "interview_time": request.interview_time,
-        "interviewDate": request.interview_date,
-        "interviewTime": request.interview_time,
         "timezone": request.timezone or "",
         "slot_selection_confirmed_at": datetime.utcnow().isoformat(),
         "slot_notes": request.notes or "",
-    }
+    })
     slot_token.consumed_at = datetime.utcnow()
 
     confirmation_result = queue_notification(
