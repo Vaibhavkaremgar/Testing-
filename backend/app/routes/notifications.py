@@ -8,7 +8,6 @@ from app.database import get_db
 from app.models import Candidate, CandidateStage, Interview, User
 from app.notification_service import (
     build_workflow_url,
-    compact_notification_payload,
     queue_notification,
     resolve_workflow_token,
     send_email_task,
@@ -117,14 +116,16 @@ def confirm_slot_selection(
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
 
-    slot_token.payload = compact_notification_payload({
-        **slot_token.payload,
+    slot_token.payload = {
+        **_normalize_workflow_payload(slot_token.payload),
         "interview_date": request.interview_date,
         "interview_time": request.interview_time,
+        "interviewDate": request.interview_date,
+        "interviewTime": request.interview_time,
         "timezone": request.timezone or "",
         "slot_selection_confirmed_at": datetime.utcnow().isoformat(),
         "slot_notes": request.notes or "",
-    })
+    }
     slot_token.consumed_at = datetime.utcnow()
 
     confirmation_result = queue_notification(
