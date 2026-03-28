@@ -16,6 +16,7 @@ from app.auth import get_current_active_user
 from app.auth import verify_token
 
 router = APIRouter(prefix="/interviews", tags=["Interviews"])
+recording_router = APIRouter(prefix="/recording", tags=["Interviews"])
 
 VIDEO_CHUNK_SIZE = 1024 * 1024
 
@@ -303,6 +304,36 @@ def _fetch_interview_recording(cursor, session_keys: List[str]):
     return recording_data, configured_media_type
 
 
+def _fetch_interview_session_row_by_session_token(cursor, session_token: str):
+    columns = _get_table_columns(cursor, "interview_sessions")
+    if "session_token" not in columns or "recording_data" not in columns:
+        raise HTTPException(status_code=404, detail="Interview recording not found")
+
+    select_fields = ["recording_data", "session_token"]
+    for candidate_column in ("mime_type", "content_type", "recording_mime_type", "video_format"):
+        if candidate_column in columns:
+            select_fields.append(candidate_column)
+            break
+
+    for candidate_column in ("interview_id", "async_token", "token", "session_id", "id"):
+        if candidate_column in columns:
+            select_fields.append(candidate_column)
+
+    query = f"""
+        SELECT {", ".join(select_fields)}
+        FROM interview_sessions
+        WHERE session_token = %s
+        LIMIT 1
+    """
+    cursor.execute(query, (session_token,))
+    row = cursor.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Interview recording not found")
+
+    field_names = select_fields
+    return dict(zip(field_names, row))
+
+
 def _fetch_recording_availability(interviews: List[Interview]) -> dict[str, bool]:
     if not interviews:
         return {}
@@ -486,6 +517,75 @@ def stream_interview_video(
 
     if not recording_data:
         raise HTTPException(status_code=404, detail="Interview recording not found")
+
+    video_bytes = bytes(recording_data)
+    media_type = _normalize_recording_media_type(configured_media_type, video_bytes)
+    return _build_video_stream_response(video_bytes, media_type, range_header)
+
+
+@recording_router.get("/{session_token}")
+def stream_candidate_recording(
+    session_token: str,
+    token: Optional[str] = Query(None),
+    range_header: Optional[str] = Header(None, alias="Range"),
+    authorization: Optional[str] = Header(None, alias="Authorization"),
+    db: Session = Depends(get_db),
+):
+    normalize_legacy_candidate_stages(db)
+
+    bearer_token = None
+    if authorization and authorization.lower().startswith("bearer "):
+        bearer_token = authorization.split(" ", 1)[1].strip()
+
+    current_user = _resolve_video_request_user(db, token or bearer_token, None)
+
+    connection = None
+    try:
+        connection = psycopg2.connect(settings.DATABASE_URL)
+        with connection:
+            with connection.cursor() as cursor:
+                session_row = _fetch_interview_session_row_by_session_token(cursor, session_token)
+
+        interview = None
+        for possible_key in (
+            session_row.get("interview_id"),
+            session_row.get("async_token"),
+            session_row.get("token"),
+            session_row.get("session_id"),
+            session_row.get("id"),
+        ):
+            if not possible_key:
+                continue
+            try:
+                query = db.query(Interview).filter(Interview.id == UUID(str(possible_key)))
+            except ValueError:
+                query = db.query(Interview).filter(Interview.async_token == str(possible_key))
+            interview = _apply_interview_scope(query, current_user).first()
+            if interview:
+                break
+
+        if not interview:
+            raise HTTPException(status_code=404, detail="Interview session not found")
+
+        recording_data = session_row.get("recording_data")
+        if not recording_data:
+            raise HTTPException(status_code=404, detail="Interview recording not found")
+
+        configured_media_type = None
+        for candidate_column in ("mime_type", "content_type", "recording_mime_type", "video_format"):
+            if session_row.get(candidate_column):
+                configured_media_type = session_row.get(candidate_column)
+                break
+    except HTTPException:
+        raise
+    except Exception as exc:
+        print(f"Candidate recording query failed for session_token {session_token}: {exc}")
+        raise HTTPException(status_code=500, detail="Failed to load interview recording")
+    finally:
+        try:
+            connection.close()
+        except Exception:
+            pass
 
     video_bytes = bytes(recording_data)
     media_type = _normalize_recording_media_type(configured_media_type, video_bytes)

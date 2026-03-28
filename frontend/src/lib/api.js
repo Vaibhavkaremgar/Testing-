@@ -233,10 +233,10 @@ class ApiClient {
     })
   }
 
-  async updateCandidateStage(id, stage) {
+  async updateCandidateStage(id, stage, options = {}) {
     return this.request(`/candidates/${id}/stage`, {
       method: 'PATCH',
-      body: JSON.stringify({ stage }),
+      body: JSON.stringify({ stage, ...options }),
     })
   }
 
@@ -692,6 +692,13 @@ class ApiClient {
 
   getInterviewRecordingUrl(sessionId) {
     return this.getInterviewVideoUrl(sessionId)
+  }
+
+  getDashboardRecordingUrl(sessionToken) {
+    const token = this.getToken()
+    const encodedSessionToken = encodeURIComponent(sessionToken)
+    const query = token ? `?token=${encodeURIComponent(token)}` : ''
+    return `${API_BASE}/recording/${encodedSessionToken}${query}`
   }
 
   // Extract job data from file

@@ -181,6 +181,7 @@ class CandidateResponse(CandidateBase):
 
 class CandidateStageUpdate(BaseModel):
     stage: CandidateStage
+    suppress_notification: bool = False
 
 # Interview Schemas
 class InterviewBase(BaseModel):

@@ -2006,7 +2006,8 @@ def update_candidate_stage(
     
     db.commit()
     db.refresh(db_candidate)
-    enqueue_stage_notification(background_tasks, db, db_candidate, db_candidate.stage.value, user_id=current_user.id)
+    if not stage_update.suppress_notification:
+        enqueue_stage_notification(background_tasks, db, db_candidate, db_candidate.stage.value, user_id=current_user.id)
     return db_candidate
 
 

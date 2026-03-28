@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func, case, extract
+from sqlalchemy import func, case, extract, text
 from typing import List, Optional
 from app.database import get_db
+from app.config import settings
 from app.models import (
     Candidate,
     Interview,
@@ -24,6 +25,110 @@ from datetime import datetime, timedelta
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/analytics", tags=["Analytics"])
+
+
+def _get_table_columns(db: Session, table_name: str) -> set[str]:
+    rows = db.execute(text(
+        """
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = :table_name
+        """
+    ), {"table_name": table_name}).fetchall()
+    return {row[0] for row in rows}
+
+
+def _fetch_interview_session_metadata(db: Session, interviews: List[Interview]) -> dict[str, dict]:
+    if not interviews:
+        return {}
+
+    columns = _get_table_columns(db, "interview_sessions")
+    if not columns:
+        return {}
+
+    lookup_columns = [
+        column_name
+        for column_name in ("session_token", "interview_id", "session_id", "async_token", "token", "id")
+        if column_name in columns
+    ]
+    if not lookup_columns:
+        return {}
+
+    metadata_columns = [
+        column_name
+        for column_name in (
+            "recording_path",
+            "recording_format",
+            "recording_duration_seconds",
+            "vapi_recording_url",
+            "session_token",
+            "recording_size_bytes",
+            "created_at",
+            "recording_data",
+        )
+        if column_name in columns
+    ]
+    if not metadata_columns:
+        return {}
+
+    interview_key_map: dict[str, set[str]] = {}
+    for interview in interviews:
+        interview_id = str(interview.id)
+        for key in {interview_id, interview.async_token}:
+            if key:
+                interview_key_map.setdefault(str(key), set()).add(interview_id)
+
+    all_keys = list(interview_key_map.keys())
+    if not all_keys:
+        return {}
+
+    where_clauses = []
+    params = {"keys": all_keys}
+    for index, column_name in enumerate(lookup_columns):
+        key_name = f"keys_{index}"
+        params[key_name] = all_keys
+        where_clauses.append(f"{column_name}::text = ANY(:{key_name})")
+
+    query = text(f"""
+        SELECT {", ".join([*(f"{column}::text AS {column}" for column in lookup_columns), *metadata_columns])}
+        FROM interview_sessions
+        WHERE {" OR ".join(where_clauses)}
+    """)
+
+    rows = db.execute(query, params).mappings().all()
+    if not rows:
+        return {}
+
+    interview_metadata: dict[str, dict] = {}
+    for row in rows:
+        matched_ids: set[str] = set()
+        for column_name in lookup_columns:
+            value = row.get(column_name)
+            if value and value in interview_key_map:
+                matched_ids.update(interview_key_map[value])
+
+        if not matched_ids:
+            continue
+
+        for interview_id in matched_ids:
+            current = interview_metadata.get(interview_id, {})
+            has_candidate_recording = bool(row.get("recording_path")) or row.get("recording_data") is not None
+            has_vapi_recording = bool(row.get("vapi_recording_url"))
+
+            if not current or (has_candidate_recording and not current.get("recording_path")) or (has_vapi_recording and not current.get("vapi_recording_url")):
+                interview_metadata[interview_id] = {
+                    "recording_path": row.get("recording_path"),
+                    "recording_format": row.get("recording_format"),
+                    "recording_duration_seconds": row.get("recording_duration_seconds"),
+                    "vapi_recording_url": row.get("vapi_recording_url"),
+                    "session_token": row.get("session_token"),
+                    "recording_size_bytes": row.get("recording_size_bytes"),
+                    "recording_created_at": row.get("created_at"),
+                    "has_candidate_recording": has_candidate_recording and bool(row.get("session_token")),
+                    "has_vapi_recording": has_vapi_recording,
+                }
+
+    return interview_metadata
 
 
 ANALYTICS_WIDGET_CATALOG = [
@@ -1231,16 +1336,27 @@ def get_upcoming_interviews(
         interview_query = _apply_candidate_visibility(interview_query, current_user)
     
     interviews = interview_query.order_by(Interview.scheduled_at).limit(10).all()
+    recording_metadata = _fetch_interview_session_metadata(db, interviews)
     
     result = []
     for interview in interviews:
+        recording = recording_metadata.get(str(interview.id), {})
         result.append({
             "id": interview.id,
             "candidate_name": interview.candidate.name if interview.candidate else "Unknown",
             "candidate_id": interview.candidate_id,
             "interview_type": interview.interview_type,
             "scheduled_at": interview.scheduled_at.isoformat() if interview.scheduled_at else None,
-            "duration_minutes": interview.duration_minutes
+            "duration_minutes": interview.duration_minutes,
+            "recording_path": recording.get("recording_path"),
+            "recording_format": recording.get("recording_format"),
+            "recording_duration_seconds": recording.get("recording_duration_seconds"),
+            "vapi_recording_url": recording.get("vapi_recording_url"),
+            "session_token": recording.get("session_token"),
+            "recording_size_bytes": recording.get("recording_size_bytes"),
+            "recording_created_at": recording.get("recording_created_at"),
+            "has_candidate_recording": recording.get("has_candidate_recording", False),
+            "has_vapi_recording": recording.get("has_vapi_recording", False),
         })
     
     return result

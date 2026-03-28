@@ -168,10 +168,10 @@ export default function Interviews({ superAdminAgencyId = null }) {
     if (!selectedInterview || selectedInterview.status !== 'completed') return;
     setDecisionLoading('approve')
     try {
-      await api.updateCandidateStage(selectedInterview.candidate_id, 'SELECTED');
+      await api.updateCandidateStage(selectedInterview.candidate_id, 'SELECTED', { suppress_notification: true });
       toast({
         title: 'Candidate Selected',
-        description: 'Selection email has been queued for the candidate.',
+        description: 'Candidate moved to Selected without sending an interview email.',
       })
       // Remove from interviews list and clear selection
       const updatedInterviews = interviews.filter(i => i.id !== selectedInterview.id);
@@ -193,10 +193,10 @@ export default function Interviews({ superAdminAgencyId = null }) {
     if (!selectedInterview || selectedInterview.status !== 'completed') return;
     setDecisionLoading('reject')
     try {
-      await api.updateCandidateStage(selectedInterview.candidate_id, 'REJECTED');
+      await api.updateCandidateStage(selectedInterview.candidate_id, 'REJECTED', { suppress_notification: true });
       toast({
         title: 'Candidate Rejected',
-        description: 'Rejection email has been queued for the candidate.',
+        description: 'Candidate moved to Rejected without sending an interview email.',
       })
       // Remove from interviews list and clear selection
       const updatedInterviews = interviews.filter(i => i.id !== selectedInterview.id);
