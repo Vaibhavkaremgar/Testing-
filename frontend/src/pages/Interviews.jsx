@@ -19,6 +19,27 @@ function getInterviewPlaybackUrl(interview) {
   return api.getInterviewVideoUrl(interview.async_token || interview.id)
 }
 
+function getInterviewResultMeta(interview) {
+  if (interview?.status === 'completed' && typeof interview?.interview_score === 'number') {
+    if (interview.interview_score >= 6) {
+      return {
+        label: 'Selected',
+        badgeClass: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
+      }
+    }
+
+    return {
+      label: 'Rejected',
+      badgeClass: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
+    }
+  }
+
+  return {
+    label: (interview?.status || 'Pending').replace('_', ' '),
+    badgeClass: 'bg-slate-100 text-slate-700 dark:bg-slate-900/30 dark:text-slate-300',
+  }
+}
+
 export default function Interviews({ superAdminAgencyId = null }) {
   const [searchParams] = useSearchParams()
   const selectedClient = searchParams.get('client')
@@ -56,7 +77,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
             playback_url: getInterviewPlaybackUrl(interview)
           }))
           .filter(interview =>
-            interview.status === 'completed' || interview.video_url || interview.transcript || interview.ai_summary
+            interview.has_recording || interview.video_url || interview.transcript || interview.ai_summary || interview.status === 'completed'
           )
         
         setInterviews(interviewsData)
@@ -210,24 +231,40 @@ export default function Interviews({ superAdminAgencyId = null }) {
                 <p className="text-sm">No interview recordings</p>
               </div>
             ) : (
-              <div className="flex flex-col">
-                {interviews.slice(0, visibleCount).map((interview) => (
+              <div className="flex flex-col gap-2 p-2">
+                {interviews.slice(0, visibleCount).map((interview) => {
+                  const resultMeta = getInterviewResultMeta(interview)
+                  return (
                   <button
                     key={interview.id}
                     onClick={() => setSelectedInterview(interview)}
                     className={cn(
-                      "px-4 py-3 text-left hover:bg-muted transition-colors border-l-2",
+                      "rounded-xl border p-3 text-left transition-colors",
                       selectedInterview?.id === interview.id
-                        ? "bg-muted border-primary font-medium"
-                        : "border-transparent"
+                        ? "bg-white border-primary shadow-sm dark:bg-slate-900"
+                        : "bg-white/70 border-transparent hover:bg-white dark:bg-slate-900/50 dark:hover:bg-slate-900"
                     )}
-                    >
-                      {interview.candidate_name}
-                      <p className="text-xs text-muted-foreground capitalize mt-1">
-                        {interview.status}
-                      </p>
-                    </button>
-                  ))}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="font-medium truncate">{interview.candidate_name}</p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {formatDateTime(interview.scheduled_at)}
+                        </p>
+                      </div>
+                      <Badge className={resultMeta.badgeClass}>
+                        {resultMeta.label}
+                      </Badge>
+                    </div>
+                    <div className="mt-3 flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground">Interview Score</span>
+                      <span className={cn('text-sm font-semibold', getScoreColor(interview.interview_score ?? 0))}>
+                        {typeof interview.interview_score === 'number' ? interview.interview_score : '-'}
+                      </span>
+                    </div>
+                  </button>
+                  )
+                })}
                 {visibleCount < interviews.length && (
                   <button
                     className="px-4 py-3 text-sm text-primary hover:bg-muted transition-colors text-center border-t"

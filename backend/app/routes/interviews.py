@@ -267,6 +267,74 @@ def _fetch_interview_recording(cursor, session_keys: List[str]):
     configured_media_type = row[1] if mime_column and len(row) > 1 else None
     return recording_data, configured_media_type
 
+
+def _fetch_recording_availability(interviews: List[Interview]) -> dict[str, bool]:
+    if not interviews:
+        return {}
+
+    connection = None
+    try:
+        connection = psycopg2.connect(settings.DATABASE_URL)
+        with connection:
+            with connection.cursor() as cursor:
+                columns = _get_table_columns(cursor, "interview_sessions")
+                if "recording_data" not in columns:
+                    return {}
+
+                lookup_columns = [
+                    column_name
+                    for column_name in ("id", "session_id", "interview_id", "async_token", "token")
+                    if column_name in columns
+                ]
+                if not lookup_columns:
+                    return {}
+
+                value_to_interview_ids: dict[str, set[str]] = {}
+                for interview in interviews:
+                    interview_id = str(interview.id)
+                    candidate_keys = {interview_id}
+                    if interview.async_token:
+                        candidate_keys.add(interview.async_token)
+
+                    for key in candidate_keys:
+                        value_to_interview_ids.setdefault(key, set()).add(interview_id)
+
+                all_keys = list(value_to_interview_ids.keys())
+                if not all_keys:
+                    return {}
+
+                where_clauses = []
+                params = []
+                for column_name in lookup_columns:
+                    placeholders = ", ".join(["%s"] * len(all_keys))
+                    where_clauses.append(
+                        f"({column_name} IS NOT NULL AND {column_name}::text IN ({placeholders}) AND recording_data IS NOT NULL)"
+                    )
+                    params.extend(all_keys)
+
+                query = f"""
+                    SELECT {", ".join(f"{column_name}::text" for column_name in lookup_columns)}
+                    FROM interview_sessions
+                    WHERE {" OR ".join(where_clauses)}
+                """
+                cursor.execute(query, params)
+
+                available_interview_ids: set[str] = set()
+                for row in cursor.fetchall():
+                    for value in row:
+                        if value and value in value_to_interview_ids:
+                            available_interview_ids.update(value_to_interview_ids[value])
+
+                return {str(interview.id): str(interview.id) in available_interview_ids for interview in interviews}
+    except Exception as exc:
+        print(f"Failed to fetch interview recording availability: {exc}")
+        return {}
+    finally:
+        try:
+            connection.close()
+        except Exception:
+            pass
+
 @router.get("/count")
 def get_interviews_count(
     candidate_id: Optional[UUID] = None,
@@ -310,6 +378,7 @@ def get_interviews(
         query = _apply_interview_scope(query, current_user)
     
     interviews = query.order_by(Interview.scheduled_at.desc()).offset((page - 1) * limit).limit(limit).all()
+    recording_availability = _fetch_recording_availability(interviews)
     
     result = []
     for interview in interviews:
@@ -323,6 +392,7 @@ def get_interviews(
             "duration_minutes": interview.duration_minutes,
             "meeting_link": interview.meeting_link,
             "status": interview.status,
+            "has_recording": recording_availability.get(str(interview.id), False),
             "video_url": interview.video_url,
             "transcript": interview.transcript,
             "ai_summary": interview.ai_summary,
@@ -392,6 +462,7 @@ def get_interview(
     interview = db.query(Interview).filter(Interview.id == interview_id).first()
     if not interview:
         raise HTTPException(status_code=404, detail="Interview not found")
+    recording_availability = _fetch_recording_availability([interview])
     
     interview_dict = {
         "id": interview.id,
@@ -403,6 +474,7 @@ def get_interview(
         "duration_minutes": interview.duration_minutes,
         "meeting_link": interview.meeting_link,
         "status": interview.status,
+        "has_recording": recording_availability.get(str(interview.id), False),
         "video_url": interview.video_url,
         "transcript": interview.transcript,
         "ai_summary": interview.ai_summary,
