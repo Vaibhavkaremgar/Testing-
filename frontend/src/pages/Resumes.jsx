@@ -22,6 +22,33 @@ import {
 
 const DEFAULT_LIST_LIMIT = 100
 
+function getResumeDisplayStatus(stage) {
+  if (stage === 'RESUME_REJECTED') {
+    return { key: 'RESUME_REJECTED', label: 'Resume Rejected', badgeClass: 'bg-red-500' }
+  }
+
+  if (stage === 'REVIEW') {
+    return { key: 'IN_REVIEW', label: 'In Review', badgeClass: 'bg-amber-500' }
+  }
+
+  if (stage === 'INTERVIEW_RESCHEDULED') {
+    return { key: 'INTERVIEW_RESCHEDULED', label: 'Interview Rescheduled', badgeClass: 'bg-yellow-500' }
+  }
+
+  if ([
+    'SHORTLISTED',
+    'INTERVIEW_SCHEDULED',
+    'INTERVIEWED',
+    'SELECTED',
+    'REJECTED',
+    'NO_SHOW',
+  ].includes(stage)) {
+    return { key: 'RESUME_SHORTLISTED', label: 'Resume Shortlisted', badgeClass: 'bg-green-500' }
+  }
+
+  return { key: 'IN_REVIEW', label: 'In Review', badgeClass: 'bg-amber-500' }
+}
+
 function formatCandidateDisplayName(name) {
   if (!name) return 'Unknown Candidate'
 
@@ -120,7 +147,7 @@ export default function Resumes() {
       }
       
       if (statusFilter.length > 0) {
-        filteredData = filteredData.filter(c => statusFilter.includes(c.stage))
+        filteredData = filteredData.filter(c => statusFilter.includes(getResumeDisplayStatus(c.stage).key))
       }
       
       setCandidates(filteredData)
@@ -824,14 +851,14 @@ export default function Resumes() {
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-40">
             <DropdownMenuCheckboxItem
-              checked={statusFilter.includes('SHORTLISTED')}
+              checked={statusFilter.includes('RESUME_SHORTLISTED')}
               onCheckedChange={(checked) => {
                 setStatusFilter(prev => 
-                  checked ? [...prev, 'SHORTLISTED'] : prev.filter(s => s !== 'SHORTLISTED')
+                  checked ? [...prev, 'RESUME_SHORTLISTED'] : prev.filter(s => s !== 'RESUME_SHORTLISTED')
                 )
               }}
             >
-              Shortlisted
+              Resume Shortlisted
             </DropdownMenuCheckboxItem>
             <DropdownMenuCheckboxItem
               checked={statusFilter.includes('RESUME_REJECTED')}
@@ -841,7 +868,27 @@ export default function Resumes() {
                 )
               }}
             >
-              Rejected
+              Resume Rejected
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem
+              checked={statusFilter.includes('IN_REVIEW')}
+              onCheckedChange={(checked) => {
+                setStatusFilter(prev => 
+                  checked ? [...prev, 'IN_REVIEW'] : prev.filter(s => s !== 'IN_REVIEW')
+                )
+              }}
+            >
+              In Review
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem
+              checked={statusFilter.includes('INTERVIEW_RESCHEDULED')}
+              onCheckedChange={(checked) => {
+                setStatusFilter(prev => 
+                  checked ? [...prev, 'INTERVIEW_RESCHEDULED'] : prev.filter(s => s !== 'INTERVIEW_RESCHEDULED')
+                )
+              }}
+            >
+              Interview Rescheduled
             </DropdownMenuCheckboxItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -889,7 +936,10 @@ export default function Resumes() {
                 </tr>
               </thead>
               <tbody>
-                {candidates.slice(0, visibleCount).map((candidate) => (
+                {candidates.slice(0, visibleCount).map((candidate) => {
+                  const resumeStatus = getResumeDisplayStatus(candidate.stage)
+
+                  return (
                   <tr key={candidate.id} className="border-b hover:bg-muted/50 transition-colors cursor-pointer" onClick={() => handleViewCandidate(candidate)}>
                     {currentUser?.role === 'admin' && (
                       <td className="p-4" onClick={(e) => e.stopPropagation()}>
@@ -965,19 +1015,8 @@ export default function Resumes() {
                       )}
                     </td>
                     <td className="p-4">
-                      <Badge className={
-                        candidate.stage === 'SHORTLISTED' ? 'bg-green-500' :
-                        candidate.stage === 'REVIEW' ? 'bg-amber-500' :
-                        candidate.stage === 'RESUME_REJECTED' ? 'bg-red-500' :
-                        candidate.stage === 'INTERVIEW_SCHEDULED' ? 'bg-blue-500' :
-                        candidate.stage === 'INTERVIEW_RESCHEDULED' ? 'bg-yellow-500' :
-                        candidate.stage === 'REJECTED' ? 'bg-red-600' :
-                        'bg-gray-500'
-                      }>
-                        {candidate.stage === 'SHORTLISTED' ? 'Resume Shortlisted' :
-                         candidate.stage === 'REVIEW' ? 'Review' :
-                         candidate.stage === 'RESUME_REJECTED' ? 'Resume Rejected' :
-                         '-'}
+                      <Badge className={resumeStatus.badgeClass}>
+                        {resumeStatus.label}
                       </Badge>
                     </td>
                     <td className="p-4">
@@ -1024,7 +1063,8 @@ export default function Resumes() {
                       </div>
                     </td>
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
             {candidates.length === 0 && (
