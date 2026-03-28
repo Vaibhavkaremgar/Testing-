@@ -7,6 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Progress } from '@/components/ui/progress'
 import { api } from '@/lib/api'
 import { cn, formatDateTime, getScoreColor } from '@/lib/utils'
+import { useToast } from '@/hooks/use-toast'
 import {
   Video, Calendar, Clock, User, FileText, Brain, Star, Send, X, Play, CheckCircle, RotateCcw, Plus, ExternalLink
 } from 'lucide-react'
@@ -52,6 +53,8 @@ export default function Interviews({ superAdminAgencyId = null }) {
   const [jobs, setJobs] = useState([])
   const [videoError, setVideoError] = useState('')
   const [mediaMode, setMediaMode] = useState('video')
+  const [decisionLoading, setDecisionLoading] = useState(null)
+  const { toast } = useToast()
   const [scheduleForm, setScheduleForm] = useState({
     name: '',
     email: '',
@@ -162,32 +165,52 @@ export default function Interviews({ superAdminAgencyId = null }) {
   }
 
   const handleApprove = async () => {
-    if (!selectedInterview) return;
+    if (!selectedInterview || selectedInterview.status !== 'completed') return;
+    setDecisionLoading('approve')
     try {
-      await api.updateCandidateStage(selectedInterview.candidate_id, 'selected');
-      alert('Candidate approved and moved to Selected stage!');
+      await api.updateCandidateStage(selectedInterview.candidate_id, 'SELECTED');
+      toast({
+        title: 'Candidate Selected',
+        description: 'Selection email has been queued for the candidate.',
+      })
       // Remove from interviews list and clear selection
       const updatedInterviews = interviews.filter(i => i.id !== selectedInterview.id);
       setInterviews(updatedInterviews);
       setSelectedInterview(updatedInterviews.length > 0 ? updatedInterviews[0] : null);
     } catch (error) {
       console.error('Failed to approve candidate:', error);
-      alert('Failed to approve candidate');
+      toast({
+        title: 'Failed to Select Candidate',
+        description: error.message || 'Could not queue the selection email.',
+        variant: 'destructive',
+      })
+    } finally {
+      setDecisionLoading(null)
     }
   }
 
   const handleReject = async () => {
-    if (!selectedInterview) return;
+    if (!selectedInterview || selectedInterview.status !== 'completed') return;
+    setDecisionLoading('reject')
     try {
-      await api.updateCandidateStage(selectedInterview.candidate_id, 'rejected');
-      alert('Candidate rejected and moved to Rejected stage!');
+      await api.updateCandidateStage(selectedInterview.candidate_id, 'REJECTED');
+      toast({
+        title: 'Candidate Rejected',
+        description: 'Rejection email has been queued for the candidate.',
+      })
       // Remove from interviews list and clear selection
       const updatedInterviews = interviews.filter(i => i.id !== selectedInterview.id);
       setInterviews(updatedInterviews);
       setSelectedInterview(updatedInterviews.length > 0 ? updatedInterviews[0] : null);
     } catch (error) {
       console.error('Failed to reject candidate:', error);
-      alert('Failed to reject candidate');
+      toast({
+        title: 'Failed to Reject Candidate',
+        description: error.message || 'Could not queue the rejection email.',
+        variant: 'destructive',
+      })
+    } finally {
+      setDecisionLoading(null)
     }
   }
 
@@ -291,14 +314,27 @@ export default function Interviews({ superAdminAgencyId = null }) {
                 </p>
               </div>
               <div className="flex gap-2">
-                <Button className="bg-green-600 hover:bg-green-700 text-white" onClick={handleApprove}>
-                  Approve
+                <Button
+                  className="bg-green-600 hover:bg-green-700 text-white"
+                  onClick={handleApprove}
+                  disabled={selectedInterview.status !== 'completed' || decisionLoading !== null}
+                >
+                  {decisionLoading === 'approve' ? 'Sending...' : 'Approve'}
                 </Button>
-                <Button className="bg-red-600 hover:bg-red-700 text-white" onClick={handleReject}>
-                  Reject
+                <Button
+                  className="bg-red-600 hover:bg-red-700 text-white"
+                  onClick={handleReject}
+                  disabled={selectedInterview.status !== 'completed' || decisionLoading !== null}
+                >
+                  {decisionLoading === 'reject' ? 'Sending...' : 'Reject'}
                 </Button>
               </div>
             </div>
+            {selectedInterview.status !== 'completed' && (
+              <p className="text-xs text-muted-foreground mt-2">
+                Decision emails can be sent only after the interview is completed.
+              </p>
+            )}
           </CardHeader>
           <CardContent className="flex-1 overflow-auto">
             <Tabs defaultValue="video" className="w-full">
