@@ -2,7 +2,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status, 
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, text
-from typing import List, Optional
+from typing import Dict, List, Optional
 from uuid import UUID
 import os
 import uuid
@@ -12,7 +12,7 @@ import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from app.database import SessionLocal, get_db
-from app.models import Candidate, CandidateStage, ParsingStatus, User, JobDescription
+from app.models import Candidate, CandidateStage, Interview, ParsingStatus, User, JobDescription
 from app.notification_service import queue_notification_for_stage, send_email_task
 from app.schemas import (
     CandidateCreate, CandidateUpdate, CandidateResponse, CandidateStageUpdate
@@ -93,6 +93,21 @@ def assign_resume_pipeline_stage(candidate: Candidate, score: Optional[float], t
         candidate.stage = CandidateStage.REVIEW
     else:
         candidate.stage = CandidateStage.RESUME_REJECTED
+
+    return candidate.stage
+
+
+def resolve_pipeline_display_stage(candidate: Candidate, latest_interview: Optional[Interview], today) -> CandidateStage:
+    """Derive the pipeline column from interview date without mutating persisted stage."""
+    if latest_interview and latest_interview.scheduled_at:
+        interview_date = latest_interview.scheduled_at.date()
+        if interview_date == today:
+            return CandidateStage.INTERVIEWED
+        if interview_date > today and candidate.stage in {
+            CandidateStage.INTERVIEW_SCHEDULED,
+            CandidateStage.INTERVIEWED,
+        }:
+            return CandidateStage.INTERVIEW_SCHEDULED
 
     return candidate.stage
 
@@ -2256,31 +2271,50 @@ def get_pipeline_stages(
     """Get candidates grouped by stage for Kanban board"""
     from app.models import JobDescription, UserRole
     normalize_legacy_candidate_stages(db)
-    stages = {}
-    for stage in CandidateStage:
-        query = db.query(Candidate).filter(Candidate.stage == stage)
-        if agency_id and current_user.role == UserRole.SUPER_ADMIN:
-            query = query.filter(Candidate.agency_id == agency_id)
-        else:
-            query = _apply_candidate_list_scope(query, current_user)
-        if client:
-            query = query.join(JobDescription).filter(JobDescription.company_name == client)
-        candidates = query.all()
-        stages[stage.value] = [
+    query = db.query(Candidate)
+    if agency_id and current_user.role == UserRole.SUPER_ADMIN:
+        query = query.filter(Candidate.agency_id == agency_id)
+    else:
+        query = _apply_candidate_list_scope(query, current_user)
+    if client:
+        query = query.join(JobDescription).filter(JobDescription.company_name == client)
+
+    candidates = query.all()
+    stages = {stage.value: [] for stage in CandidateStage}
+    candidate_ids = [candidate.id for candidate in candidates]
+    latest_interviews_by_candidate: Dict[UUID, Interview] = {}
+
+    if candidate_ids:
+        interviews = (
+            db.query(Interview)
+            .filter(Interview.candidate_id.in_(candidate_ids))
+            .order_by(Interview.candidate_id.asc(), Interview.scheduled_at.desc(), Interview.created_at.desc())
+            .all()
+        )
+        for interview in interviews:
+            latest_interviews_by_candidate.setdefault(interview.candidate_id, interview)
+
+    today = datetime.utcnow().date()
+    for candidate in candidates:
+        display_stage = resolve_pipeline_display_stage(
+            candidate,
+            latest_interviews_by_candidate.get(candidate.id),
+            today,
+        )
+        stages[display_stage.value].append(
             {
-                "id": c.id,
-                "name": c.name,
-                "current_role": c.current_role,
-                "current_company": c.current_company,
-                "resume_score": c.resume_score,
-                "job_title": c.job.title if c.job else None,
-                "company_name": c.job.company_name if c.job else None,
-                "stage": c.stage.value if c.stage else None,
-                "stage_entered_at": c.stage_entered_at.isoformat() if c.stage_entered_at else None,
-                "applied_at": c.applied_at.isoformat() if c.applied_at else None
+                "id": candidate.id,
+                "name": candidate.name,
+                "current_role": candidate.current_role,
+                "current_company": candidate.current_company,
+                "resume_score": candidate.resume_score,
+                "job_title": candidate.job.title if candidate.job else None,
+                "company_name": candidate.job.company_name if candidate.job else None,
+                "stage": display_stage.value if display_stage else None,
+                "stage_entered_at": candidate.stage_entered_at.isoformat() if candidate.stage_entered_at else None,
+                "applied_at": candidate.applied_at.isoformat() if candidate.applied_at else None
             }
-            for c in candidates
-        ]
+        )
     return stages
 
 @router.post("/bulk-assign")
