@@ -1,7 +1,7 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
+from sqlalchemy import or_, text
 from typing import List, Optional
 from datetime import datetime
 from uuid import UUID
@@ -48,6 +48,18 @@ SAMPLE_TRANSCRIPTS = """
 
 [20:10] Candidate: Yes, I'd love to learn more about the team structure and the technologies you're currently using.
 """
+
+
+def normalize_legacy_candidate_stages(db: Session) -> None:
+    """Self-heal stale candidate enum values before interview queries touch relationships."""
+    result = db.execute(text(
+        "UPDATE candidates "
+        "SET stage = 'INTERVIEWED' "
+        "WHERE stage::text = 'INTERVIEW_REVIEW'"
+    ))
+    if result.rowcount:
+        print(f"Normalized legacy candidate stages before interview query: rows_updated={result.rowcount}")
+        db.commit()
 
 
 def _derive_candidate_stage_from_interview(interview: Interview) -> Optional[CandidateStage]:
@@ -344,6 +356,7 @@ def get_interviews_count(
     current_user: User = Depends(get_current_active_user)
 ):
     from app.models import UserRole, JobDescription
+    normalize_legacy_candidate_stages(db)
     query = db.query(Interview)
     if candidate_id:
         query = query.filter(Interview.candidate_id == candidate_id)
@@ -366,6 +379,7 @@ def get_interviews(
     current_user: User = Depends(get_current_active_user)
 ):
     from app.models import UserRole, JobDescription
+    normalize_legacy_candidate_stages(db)
     query = db.query(Interview)
 
     if candidate_id:
@@ -416,6 +430,7 @@ def stream_interview_video(
     authorization: Optional[str] = Header(None, alias="Authorization"),
     db: Session = Depends(get_db),
 ):
+    normalize_legacy_candidate_stages(db)
     connection = None
     bearer_token = None
     if authorization and authorization.lower().startswith("bearer "):
@@ -459,6 +474,7 @@ def get_interview(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
+    normalize_legacy_candidate_stages(db)
     interview = db.query(Interview).filter(Interview.id == interview_id).first()
     if not interview:
         raise HTTPException(status_code=404, detail="Interview not found")
