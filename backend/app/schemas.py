@@ -184,9 +184,9 @@ class CandidateStageUpdate(BaseModel):
 
 # Interview Schemas
 class InterviewBase(BaseModel):
-    interview_type: str
-    scheduled_at: datetime
-    duration_minutes: int = 60
+    interview_type: Optional[str] = None
+    scheduled_at: Optional[datetime] = None
+    duration_minutes: Optional[int] = 60
     meeting_link: Optional[str] = None
 
 class InterviewCreate(InterviewBase):
