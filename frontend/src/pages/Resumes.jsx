@@ -22,7 +22,15 @@ import {
 
 const DEFAULT_LIST_LIMIT = 100
 
-function getResumeDisplayStatus(stage) {
+function getResumeDisplayStatus(candidate) {
+  const stage = candidate?.stage
+  const resumeScore = candidate?.resume_score
+  const threshold = candidate?.score_threshold || 60
+
+  if (typeof resumeScore === 'number' && resumeScore <= (threshold - 10)) {
+    return { key: 'RESUME_REJECTED', label: 'Resume Rejected', badgeClass: 'bg-red-500' }
+  }
+
   if (stage === 'RESUME_REJECTED') {
     return { key: 'RESUME_REJECTED', label: 'Resume Rejected', badgeClass: 'bg-red-500' }
   }
@@ -147,7 +155,7 @@ export default function Resumes() {
       }
       
       if (statusFilter.length > 0) {
-        filteredData = filteredData.filter(c => statusFilter.includes(getResumeDisplayStatus(c.stage).key))
+        filteredData = filteredData.filter(c => statusFilter.includes(getResumeDisplayStatus(c).key))
       }
       
       setCandidates(filteredData)
@@ -937,7 +945,7 @@ export default function Resumes() {
               </thead>
               <tbody>
                 {candidates.slice(0, visibleCount).map((candidate) => {
-                  const resumeStatus = getResumeDisplayStatus(candidate.stage)
+                  const resumeStatus = getResumeDisplayStatus(candidate)
 
                   return (
                   <tr key={candidate.id} className="border-b hover:bg-muted/50 transition-colors cursor-pointer" onClick={() => handleViewCandidate(candidate)}>
