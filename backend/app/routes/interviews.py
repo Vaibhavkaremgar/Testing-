@@ -334,7 +334,7 @@ def _fetch_interview_session_row_by_session_token(cursor, session_token: str):
     return dict(zip(field_names, row))
 
 
-def _fetch_recording_availability(interviews: List[Interview]) -> dict[str, bool]:
+def _fetch_recording_availability(interviews: List[Interview]) -> dict[str, dict]:
     if not interviews:
         return {}
 
@@ -385,13 +385,29 @@ def _fetch_recording_availability(interviews: List[Interview]) -> dict[str, bool
                 """
                 cursor.execute(query, params)
 
-                available_interview_ids: set[str] = set()
+                recording_metadata: dict[str, dict] = {}
                 for row in cursor.fetchall():
+                    matched_interview_ids: set[str] = set()
+                    session_token_index = lookup_columns.index("session_token") if "session_token" in lookup_columns else None
+                    session_token_value = row[session_token_index] if session_token_index is not None else None
                     for value in row:
                         if value and value in value_to_interview_ids:
-                            available_interview_ids.update(value_to_interview_ids[value])
+                            matched_interview_ids.update(value_to_interview_ids[value])
 
-                return {str(interview.id): str(interview.id) in available_interview_ids for interview in interviews}
+                    for interview_id in matched_interview_ids:
+                        existing = recording_metadata.get(interview_id, {})
+                        recording_metadata[interview_id] = {
+                            "has_recording": True,
+                            "session_token": existing.get("session_token") or session_token_value,
+                        }
+
+                return {
+                    str(interview.id): recording_metadata.get(
+                        str(interview.id),
+                        {"has_recording": False, "session_token": None},
+                    )
+                    for interview in interviews
+                }
     except Exception as exc:
         print(f"Failed to fetch interview recording availability: {exc}")
         return {}
@@ -455,12 +471,13 @@ def get_interviews(
             "candidate_id": interview.candidate_id,
             "candidate_name": interview.candidate.name if interview.candidate else None,
             "async_token": interview.async_token,
+            "session_token": recording_availability.get(str(interview.id), {}).get("session_token"),
             "interview_type": interview.interview_type or "General",
             "scheduled_at": interview.scheduled_at,
             "duration_minutes": interview.duration_minutes if interview.duration_minutes is not None else 60,
             "meeting_link": interview.meeting_link,
             "status": interview.status,
-            "has_recording": recording_availability.get(str(interview.id), False),
+            "has_recording": recording_availability.get(str(interview.id), {}).get("has_recording", False),
             "video_url": interview.video_url,
             "transcript": interview.transcript,
             "ai_summary": interview.ai_summary,
@@ -608,12 +625,13 @@ def get_interview(
         "candidate_id": interview.candidate_id,
         "candidate_name": interview.candidate.name if interview.candidate else None,
         "async_token": interview.async_token,
+        "session_token": recording_availability.get(str(interview.id), {}).get("session_token"),
         "interview_type": interview.interview_type or "General",
         "scheduled_at": interview.scheduled_at,
         "duration_minutes": interview.duration_minutes if interview.duration_minutes is not None else 60,
         "meeting_link": interview.meeting_link,
         "status": interview.status,
-        "has_recording": recording_availability.get(str(interview.id), False),
+        "has_recording": recording_availability.get(str(interview.id), {}).get("has_recording", False),
         "video_url": interview.video_url,
         "transcript": interview.transcript,
         "ai_summary": interview.ai_summary,

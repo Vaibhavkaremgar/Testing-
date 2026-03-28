@@ -16,7 +16,7 @@ const DEFAULT_LIST_LIMIT = 100
 
 function getInterviewPlaybackUrl(interview) {
   if (!interview) return ''
-  return api.getInterviewVideoUrl(interview.async_token || interview.id)
+  return api.getInterviewVideoUrl(interview.session_token || interview.async_token || interview.id)
 }
 
 function getInterviewResultMeta(interview) {
@@ -79,9 +79,6 @@ export default function Interviews({ superAdminAgencyId = null }) {
             ...interview,
             playback_url: getInterviewPlaybackUrl(interview)
           }))
-          .filter(interview =>
-            interview.has_recording || interview.video_url || interview.transcript || interview.ai_summary || interview.status === 'completed'
-          )
         
         setInterviews(interviewsData)
         if (interviewsData.length > 0) {
