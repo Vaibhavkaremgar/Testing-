@@ -99,15 +99,18 @@ def assign_resume_pipeline_stage(candidate: Candidate, score: Optional[float], t
 
 def resolve_pipeline_display_stage(candidate: Candidate, latest_interview: Optional[Interview], today) -> CandidateStage:
     """Derive the pipeline column from interview date without mutating persisted stage."""
-    if latest_interview and latest_interview.scheduled_at:
-        interview_date = latest_interview.scheduled_at.date()
-        if interview_date == today:
-            return CandidateStage.INTERVIEWED
-        if interview_date > today and candidate.stage in {
-            CandidateStage.INTERVIEW_SCHEDULED,
-            CandidateStage.INTERVIEWED,
-        }:
-            return CandidateStage.INTERVIEW_SCHEDULED
+    if latest_interview:
+        if latest_interview.interview_score is not None:
+            if latest_interview.interview_score >= 6:
+                return CandidateStage.SELECTED
+            return CandidateStage.REJECTED
+
+        if latest_interview.scheduled_at:
+            interview_date = latest_interview.scheduled_at.date()
+            if interview_date == today:
+                return CandidateStage.INTERVIEWED
+            if interview_date > today:
+                return CandidateStage.INTERVIEW_SCHEDULED
 
     return candidate.stage
 
