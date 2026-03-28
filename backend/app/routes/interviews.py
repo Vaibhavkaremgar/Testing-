@@ -50,6 +50,35 @@ SAMPLE_TRANSCRIPTS = """
 """
 
 
+def _derive_candidate_stage_from_interview(interview: Interview) -> Optional[CandidateStage]:
+    """Map the latest interview status to the candidate pipeline stage."""
+    interview_status = (interview.status or "").strip().lower()
+
+    if interview_status == "completed":
+        if interview.interview_score is None:
+            return CandidateStage.INTERVIEWED
+        return CandidateStage.SELECTED if interview.interview_score >= 6 else CandidateStage.REJECTED
+
+    status_to_stage = {
+        "scheduled": CandidateStage.INTERVIEW_SCHEDULED,
+        "rescheduled": CandidateStage.INTERVIEW_RESCHEDULED,
+        "ongoing": CandidateStage.INTERVIEWED,
+        "no_show": CandidateStage.NO_SHOW,
+    }
+    return status_to_stage.get(interview_status)
+
+
+def _sync_candidate_stage_from_interview(candidate: Candidate, interview: Interview) -> None:
+    target_stage = _derive_candidate_stage_from_interview(interview)
+    if not target_stage:
+        return
+
+    candidate.stage = target_stage
+    now = datetime.utcnow()
+    candidate.stage_updated_at = now
+    candidate.stage_entered_at = now
+
+
 def _apply_interview_scope(query, current_user):
     from app.models import JobDescription, UserRole
 
@@ -394,8 +423,7 @@ def create_interview_public(
 
     db_interview = Interview(**interview.model_dump())
     db.add(db_interview)
-    candidate.stage = CandidateStage.INTERVIEW_SCHEDULED
-    candidate.stage_updated_at = datetime.utcnow()
+    _sync_candidate_stage_from_interview(candidate, db_interview)
     db.commit()
     db.refresh(db_interview)
     try:
@@ -442,9 +470,8 @@ def create_interview(
     db_interview = Interview(**interview.model_dump())
     db.add(db_interview)
     
-    # Update candidate stage
-    candidate.stage = CandidateStage.INTERVIEW_SCHEDULED
-    candidate.stage_updated_at = datetime.utcnow()
+    # Keep candidate stage aligned with interview status.
+    _sync_candidate_stage_from_interview(candidate, db_interview)
     
     db.commit()
     db.refresh(db_interview)
@@ -500,12 +527,9 @@ def update_interview(
     for field, value in update_data.items():
         setattr(db_interview, field, value)
     
-    # If status changed to completed, update candidate stage
-    if update_data.get("status") == "completed":
-        candidate = db.query(Candidate).filter(Candidate.id == db_interview.candidate_id).first()
-        if candidate:
-            candidate.stage = CandidateStage.INTERVIEWED
-            candidate.stage_updated_at = datetime.utcnow()
+    candidate = db.query(Candidate).filter(Candidate.id == db_interview.candidate_id).first()
+    if candidate:
+        _sync_candidate_stage_from_interview(candidate, db_interview)
     
     db.commit()
     db.refresh(db_interview)
@@ -553,11 +577,9 @@ def complete_interview(
     db_interview.culture_fit_score = round(random.uniform(65, 95), 1)
     db_interview.video_url = "https://example.com/interview-recording.mp4"
     
-    # Update candidate stage
     candidate = db.query(Candidate).filter(Candidate.id == db_interview.candidate_id).first()
     if candidate:
-        candidate.stage = CandidateStage.INTERVIEWED
-        candidate.stage_updated_at = datetime.utcnow()
+        _sync_candidate_stage_from_interview(candidate, db_interview)
     
     # Deduct 1 credit from agency admin wallet
     from app.models import UserRole, WalletTransaction, TransactionType, JobDescription
@@ -602,8 +624,7 @@ def receive_interview_results(
 
     candidate = db.query(Candidate).filter(Candidate.id == db_interview.candidate_id).first()
     if candidate:
-        candidate.stage = CandidateStage.INTERVIEWED
-        candidate.stage_updated_at = datetime.utcnow()
+        _sync_candidate_stage_from_interview(candidate, db_interview)
 
     # Deduct 1 credit from agency admin wallet
     from app.models import UserRole, WalletTransaction, TransactionType, JobDescription

@@ -98,29 +98,31 @@ def assign_resume_pipeline_stage(candidate: Candidate, score: Optional[float], t
 
 
 def resolve_pipeline_display_stage(candidate: Candidate, latest_interview: Optional[Interview], today) -> CandidateStage:
-    """Derive the pipeline column from interview date without mutating persisted stage."""
-    # Respect final/manual stages so completed decisions do not get pulled back
-    # into interview columns just because an interview record still exists.
-    if candidate.stage in {
-        CandidateStage.SELECTED,
-        CandidateStage.REJECTED,
-        CandidateStage.RESUME_REJECTED,
-        CandidateStage.NO_SHOW,
-    }:
-        return candidate.stage
-
+    """Derive the pipeline column from the latest interview row when present."""
     if latest_interview:
-        if latest_interview.interview_score is not None:
-            if latest_interview.interview_score >= 6:
-                return CandidateStage.SELECTED
-            return CandidateStage.REJECTED
+        interview_status = (latest_interview.status or "").strip().lower()
 
-        if latest_interview.scheduled_at:
-            interview_date = latest_interview.scheduled_at.date()
-            if interview_date == today:
-                return CandidateStage.INTERVIEWED
-            if interview_date > today:
-                return CandidateStage.INTERVIEW_SCHEDULED
+        if interview_status == "completed":
+            if latest_interview.interview_score is not None:
+                if latest_interview.interview_score >= 6:
+                    return CandidateStage.SELECTED
+                return CandidateStage.REJECTED
+            return CandidateStage.INTERVIEWED
+
+        if interview_status == "ongoing":
+            return CandidateStage.INTERVIEWED
+
+        if interview_status == "rescheduled":
+            return CandidateStage.INTERVIEW_RESCHEDULED
+
+        if interview_status == "scheduled":
+            return CandidateStage.INTERVIEW_SCHEDULED
+
+        if interview_status == "no_show":
+            return CandidateStage.NO_SHOW
+
+        if latest_interview.scheduled_at and latest_interview.scheduled_at.date() >= today:
+            return CandidateStage.INTERVIEW_SCHEDULED
 
     return candidate.stage
 
