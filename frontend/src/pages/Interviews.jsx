@@ -15,8 +15,6 @@ const DEFAULT_LIST_LIMIT = 100
 
 function getInterviewPlaybackUrl(interview) {
   if (!interview) return ''
-  if (interview.video_url) return interview.video_url
-  if (interview.id) return api.getExternalInterviewRecordingUrl(interview.id)
   return api.getInterviewVideoUrl(interview.async_token || interview.id)
 }
 

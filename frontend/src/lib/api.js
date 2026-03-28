@@ -690,8 +690,8 @@ class ApiClient {
     return `${RECORDING_API_BASE}/recording/${encodedInterviewId}`
   }
 
-  getInterviewRecordingUrl(sessionToken) {
-    return this.getInterviewVideoUrl(sessionToken)
+  getInterviewRecordingUrl(sessionId) {
+    return this.getInterviewVideoUrl(sessionId)
   }
 
   // Extract job data from file
