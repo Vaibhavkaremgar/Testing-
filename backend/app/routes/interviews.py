@@ -269,7 +269,7 @@ def _fetch_interview_recording(cursor, session_keys: List[str]):
             break
 
     lookup_columns = []
-    for candidate_column in ("id", "session_id", "interview_id", "async_token", "token"):
+    for candidate_column in ("id", "session_id", "session_token", "interview_id", "async_token", "token"):
         if candidate_column in columns:
             lookup_columns.append(candidate_column)
 
@@ -318,7 +318,7 @@ def _fetch_recording_availability(interviews: List[Interview]) -> dict[str, bool
 
                 lookup_columns = [
                     column_name
-                    for column_name in ("id", "session_id", "interview_id", "async_token", "token")
+                    for column_name in ("id", "session_id", "session_token", "interview_id", "async_token", "token")
                     if column_name in columns
                 ]
                 if not lookup_columns:
