@@ -53,11 +53,16 @@ SAMPLE_TRANSCRIPTS = """
 def _derive_candidate_stage_from_interview(interview: Interview) -> Optional[CandidateStage]:
     """Map the latest interview status to the candidate pipeline stage."""
     interview_status = (interview.status or "").strip().lower()
+    interview_date = interview.scheduled_at.date() if interview.scheduled_at else None
+    today = datetime.now().date()
 
     if interview_status == "completed":
         if interview.interview_score is None:
             return CandidateStage.INTERVIEWED
         return CandidateStage.SELECTED if interview.interview_score >= 6 else CandidateStage.REJECTED
+
+    if interview_date == today and interview_status in {"scheduled", "rescheduled", "ongoing"}:
+        return CandidateStage.INTERVIEWED
 
     status_to_stage = {
         "scheduled": CandidateStage.INTERVIEW_SCHEDULED,

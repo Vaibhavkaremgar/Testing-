@@ -101,12 +101,16 @@ def resolve_pipeline_display_stage(candidate: Candidate, latest_interview: Optio
     """Derive the pipeline column from the latest interview row when present."""
     if latest_interview:
         interview_status = (latest_interview.status or "").strip().lower()
+        interview_date = latest_interview.scheduled_at.date() if latest_interview.scheduled_at else None
 
         if interview_status == "completed":
             if latest_interview.interview_score is not None:
                 if latest_interview.interview_score >= 6:
                     return CandidateStage.SELECTED
                 return CandidateStage.REJECTED
+            return CandidateStage.INTERVIEWED
+
+        if interview_date == today and interview_status in {"scheduled", "rescheduled", "ongoing"}:
             return CandidateStage.INTERVIEWED
 
         if interview_status == "ongoing":
