@@ -16,6 +16,7 @@ const DEFAULT_LIST_LIMIT = 100
 function getInterviewPlaybackUrl(interview) {
   if (!interview) return ''
   if (interview.video_url) return interview.video_url
+  if (interview.id) return api.getExternalInterviewRecordingUrl(interview.id)
   return api.getInterviewVideoUrl(interview.async_token || interview.id)
 }
 
@@ -52,6 +53,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
   const [candidates, setCandidates] = useState([])
   const [jobs, setJobs] = useState([])
   const [videoError, setVideoError] = useState('')
+  const [mediaMode, setMediaMode] = useState('video')
   const [scheduleForm, setScheduleForm] = useState({
     name: '',
     email: '',
@@ -193,6 +195,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
 
   useEffect(() => {
     setVideoError('')
+    setMediaMode('video')
   }, [selectedInterview?.id])
 
   if (loading) {
@@ -318,7 +321,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
 
               <TabsContent value="video" className="mt-4">
                 <div className="bg-muted rounded-xl aspect-video flex items-center justify-center">
-                  {selectedInterview.playback_url ? (
+                  {selectedInterview.playback_url && mediaMode === 'video' ? (
                     <video
                       key={selectedInterview.id}
                       controls
@@ -330,14 +333,36 @@ export default function Interviews({ superAdminAgencyId = null }) {
                       onLoadedMetadata={(e) => {
                         const element = e.currentTarget
                         if (element.videoWidth === 0 || element.videoHeight === 0) {
-                          setVideoError('This recording appears to contain audio only, or the stored media type is incorrect.')
+                          setMediaMode('audio')
+                          setVideoError('This recording does not include a video track. Playing audio instead.')
                         } else {
+                          setMediaMode('video')
                           setVideoError('')
                         }
                       }}
                     >
                       Your browser does not support the video tag.
                     </video>
+                  ) : selectedInterview.playback_url && mediaMode === 'audio' ? (
+                    <div className="w-full h-full flex flex-col items-center justify-center gap-4 p-6 text-center">
+                      <Video className="h-16 w-16 opacity-40" />
+                      <div>
+                        <p className="font-medium">Audio-Only Recording</p>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          This interview recording was saved without a video track.
+                        </p>
+                      </div>
+                      <audio
+                        key={`${selectedInterview.id}-audio`}
+                        controls
+                        preload="metadata"
+                        className="w-full max-w-lg"
+                        src={selectedInterview.playback_url}
+                        onError={() => setVideoError('Unable to load interview recording. The audio file may be missing or unsupported.')}
+                      >
+                        Your browser does not support the audio tag.
+                      </audio>
+                    </div>
                   ) : (
                     <div className="text-center text-muted-foreground">
                       <Video className="h-16 w-16 mx-auto mb-4 opacity-50" />
