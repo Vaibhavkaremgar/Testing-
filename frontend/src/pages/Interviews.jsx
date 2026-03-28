@@ -19,9 +19,31 @@ function getInterviewPlaybackUrl(interview) {
   return api.getInterviewVideoUrl(interview.session_token || interview.async_token || interview.id)
 }
 
+function getNumericInterviewScore(interview) {
+  const rawScore = interview?.interview_score
+  if (rawScore === null || rawScore === undefined || rawScore === '') return null
+  const numericScore = Number(rawScore)
+  return Number.isFinite(numericScore) ? numericScore : null
+}
+
+function getEffectiveInterviewStatus(interview) {
+  const normalizedStatus = (interview?.status || '').toLowerCase()
+  if (
+    normalizedStatus === 'completed' ||
+    getNumericInterviewScore(interview) !== null ||
+    interview?.transcript ||
+    interview?.ai_summary
+  ) {
+    return 'completed'
+  }
+
+  return normalizedStatus || 'pending'
+}
+
 function getInterviewResultMeta(interview) {
-  if (interview?.status === 'completed' && typeof interview?.interview_score === 'number') {
-    if (interview.interview_score >= 6) {
+  const interviewScore = getNumericInterviewScore(interview)
+  if (getEffectiveInterviewStatus(interview) === 'completed' && interviewScore !== null) {
+    if (interviewScore >= 6) {
       return {
         label: 'Selected',
         badgeClass: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
@@ -35,7 +57,7 @@ function getInterviewResultMeta(interview) {
   }
 
   return {
-    label: (interview?.status || 'Pending').replace('_', ' '),
+    label: getEffectiveInterviewStatus(interview).replace('_', ' '),
     badgeClass: 'bg-slate-100 text-slate-700 dark:bg-slate-900/30 dark:text-slate-300',
   }
 }
@@ -161,8 +183,10 @@ export default function Interviews({ superAdminAgencyId = null }) {
     }
   }
 
+  const isDecisionReady = selectedInterview && getEffectiveInterviewStatus(selectedInterview) === 'completed'
+
   const handleApprove = async () => {
-    if (!selectedInterview || selectedInterview.status !== 'completed') return;
+    if (!isDecisionReady) return;
     setDecisionLoading('approve')
     try {
       await api.updateCandidateStage(selectedInterview.candidate_id, 'SELECTED', { suppress_notification: true });
@@ -187,7 +211,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
   }
 
   const handleReject = async () => {
-    if (!selectedInterview || selectedInterview.status !== 'completed') return;
+    if (!isDecisionReady) return;
     setDecisionLoading('reject')
     try {
       await api.updateCandidateStage(selectedInterview.candidate_id, 'REJECTED', { suppress_notification: true });
@@ -255,6 +279,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
               <div className="flex flex-col gap-2 p-2">
                 {interviews.slice(0, visibleCount).map((interview) => {
                   const resultMeta = getInterviewResultMeta(interview)
+                  const interviewScore = getNumericInterviewScore(interview)
                   return (
                   <button
                     key={interview.id}
@@ -279,8 +304,8 @@ export default function Interviews({ superAdminAgencyId = null }) {
                     </div>
                     <div className="mt-3 flex items-center justify-between">
                       <span className="text-xs text-muted-foreground">Interview Score</span>
-                      <span className={cn('text-sm font-semibold', getScoreColor(interview.interview_score ?? 0))}>
-                        {typeof interview.interview_score === 'number' ? interview.interview_score : '-'}
+                      <span className={cn('text-sm font-semibold', getScoreColor(interviewScore ?? 0))}>
+                        {interviewScore !== null ? interviewScore : '-'}
                       </span>
                     </div>
                   </button>
@@ -314,20 +339,20 @@ export default function Interviews({ superAdminAgencyId = null }) {
                 <Button
                   className="bg-green-600 hover:bg-green-700 text-white"
                   onClick={handleApprove}
-                  disabled={selectedInterview.status !== 'completed' || decisionLoading !== null}
+                  disabled={!isDecisionReady || decisionLoading !== null}
                 >
                   {decisionLoading === 'approve' ? 'Sending...' : 'Approve'}
                 </Button>
                 <Button
                   className="bg-red-600 hover:bg-red-700 text-white"
                   onClick={handleReject}
-                  disabled={selectedInterview.status !== 'completed' || decisionLoading !== null}
+                  disabled={!isDecisionReady || decisionLoading !== null}
                 >
                   {decisionLoading === 'reject' ? 'Sending...' : 'Reject'}
                 </Button>
               </div>
             </div>
-            {selectedInterview.status !== 'completed' && (
+            {!isDecisionReady && (
               <p className="text-xs text-muted-foreground mt-2">
                 Decision emails can be sent only after the interview is completed.
               </p>
