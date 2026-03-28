@@ -151,6 +151,29 @@ def _detect_video_media_type(video_bytes: bytes, fallback: str = "video/webm") -
     return fallback
 
 
+def _normalize_recording_media_type(configured_media_type: Optional[str], video_bytes: bytes) -> str:
+    detected_media_type = _detect_video_media_type(video_bytes, fallback="video/webm")
+    if not configured_media_type:
+        return detected_media_type
+
+    normalized = configured_media_type.strip().lower()
+    shorthand_map = {
+        "mp4": "video/mp4",
+        "webm": "video/webm",
+        "ogg": "video/ogg",
+    }
+    if normalized in shorthand_map:
+        return shorthand_map[normalized]
+
+    # This endpoint always serves interview recordings for the video player.
+    # If the DB stores an audio-only MIME label for a WebM/MP4 container, prefer
+    # the detected video MIME so browsers render the picture track when present.
+    if normalized.startswith("audio/"):
+        return detected_media_type
+
+    return normalized
+
+
 def _iter_video_chunks(video_bytes: bytes, start: int = 0, end: Optional[int] = None):
     final_end = len(video_bytes) - 1 if end is None else end
     offset = start
@@ -465,7 +488,7 @@ def stream_interview_video(
         raise HTTPException(status_code=404, detail="Interview recording not found")
 
     video_bytes = bytes(recording_data)
-    media_type = configured_media_type or _detect_video_media_type(video_bytes, fallback="video/webm")
+    media_type = _normalize_recording_media_type(configured_media_type, video_bytes)
     return _build_video_stream_response(video_bytes, media_type, range_header)
 
 @router.get("/{interview_id}", response_model=InterviewResponse)

@@ -323,9 +323,18 @@ export default function Interviews({ superAdminAgencyId = null }) {
                       key={selectedInterview.id}
                       controls
                       preload="metadata"
+                      playsInline
                       className="w-full h-full rounded-xl"
                       src={selectedInterview.playback_url}
                       onError={() => setVideoError('Unable to load interview recording. The video may be missing or in an unsupported format.')}
+                      onLoadedMetadata={(e) => {
+                        const element = e.currentTarget
+                        if (element.videoWidth === 0 || element.videoHeight === 0) {
+                          setVideoError('This recording appears to contain audio only, or the stored media type is incorrect.')
+                        } else {
+                          setVideoError('')
+                        }
+                      }}
                     >
                       Your browser does not support the video tag.
                     </video>
