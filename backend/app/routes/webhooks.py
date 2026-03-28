@@ -6,6 +6,7 @@ from app.database import get_db
 from app.models import Candidate, EmailCommunication, CandidateStage
 from app.auth import get_current_user
 from pydantic import BaseModel
+from app.routes.candidates import assign_resume_pipeline_stage
 
 router = APIRouter(prefix="/webhook", tags=["N8N Webhooks"])
 
@@ -44,11 +45,7 @@ async def update_candidate_score(
     
     # Only update stage based on score if NO email has been sent (fallback)
     if not email_sent:
-        if candidate.score_threshold:
-            if request.score >= candidate.score_threshold:
-                candidate.stage = CandidateStage.SHORTLISTED
-            else:
-                candidate.stage = CandidateStage.REJECTED
+        assign_resume_pipeline_stage(candidate, request.score, candidate.score_threshold)
     
     
     db.commit()

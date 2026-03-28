@@ -78,6 +78,25 @@ def get_bulk_processing_workers(item_count: int) -> int:
     return max(2, min(8, cpu_count, item_count or 1))
 
 
+def assign_resume_pipeline_stage(candidate: Candidate, score: Optional[float], threshold: Optional[float]) -> CandidateStage:
+    """Apply the agreed resume stage bands: shortlisted, in review, or resume rejected."""
+    effective_threshold = threshold or candidate.score_threshold or 60
+    effective_score = score if score is not None else candidate.resume_score
+
+    if effective_score is None:
+        candidate.stage = CandidateStage.REVIEW if candidate.job_id else CandidateStage.APPLIED
+        return candidate.stage
+
+    if effective_score >= effective_threshold:
+        candidate.stage = CandidateStage.SHORTLISTED
+    elif effective_score > (effective_threshold - 10):
+        candidate.stage = CandidateStage.REVIEW
+    else:
+        candidate.stage = CandidateStage.RESUME_REJECTED
+
+    return candidate.stage
+
+
 def enqueue_stage_notification(
     background_tasks: BackgroundTasks,
     db: Session,
@@ -683,16 +702,10 @@ def apply_resume_analysis(
             except Exception as exc:
                 print(f"Question generation failed: {exc}")
 
-        threshold = candidate.score_threshold or 60
-        if score >= threshold:
-            candidate.stage = CandidateStage.SHORTLISTED
-        elif score > (threshold - 10):
-            candidate.stage = CandidateStage.REVIEW
-        else:
-            candidate.stage = CandidateStage.RESUME_REJECTED
+        assign_resume_pipeline_stage(candidate, score, candidate.score_threshold)
     else:
         candidate.resume_score = 40
-        candidate.stage = CandidateStage.REVIEW if candidate.job_id else CandidateStage.APPLIED
+        assign_resume_pipeline_stage(candidate, candidate.resume_score, candidate.score_threshold)
 
 
 def finalize_batch_notifications(
@@ -1455,19 +1468,15 @@ def simulate_resume_parsing(
             except Exception as e:
                 print(f"⚠️ Auto-email failed: {e}")
         
-        elif score > (threshold - 10):
-            # REVIEW: Score is less than 10 points below threshold
-            candidate.stage = CandidateStage.REVIEW
         else:
-            # RESUME_REJECTED: Score is 10 or more points below threshold
-            candidate.stage = CandidateStage.RESUME_REJECTED
+            assign_resume_pipeline_stage(candidate, score, threshold)
         
         print(f"✓ Candidate {candidate.name}: Score={candidate.resume_score}, Threshold={threshold}, Stage={candidate.stage.value}")
     else:
         # No AI analysis - set minimum score and move out of APPLIED
         candidate.resume_score = 40
         # If candidate has a job, put in REVIEW so they show in dashboard
-        candidate.stage = CandidateStage.REVIEW if candidate.job_id else CandidateStage.APPLIED
+        assign_resume_pipeline_stage(candidate, candidate.resume_score, candidate.score_threshold)
         print(f"⚠ Candidate {candidate.name}: No AI analysis, score=40")
     
     db.commit()
