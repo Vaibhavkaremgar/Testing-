@@ -128,6 +128,10 @@ def resolve_pipeline_display_stage(candidate: Candidate, latest_interview: Optio
         if latest_interview.scheduled_at and latest_interview.scheduled_at.date() >= today:
             return CandidateStage.INTERVIEW_SCHEDULED
 
+    effective_threshold = candidate.score_threshold or 60
+    if candidate.resume_score is not None and candidate.resume_score <= (effective_threshold - 10):
+        return CandidateStage.RESUME_REJECTED
+
     return candidate.stage
 
 
