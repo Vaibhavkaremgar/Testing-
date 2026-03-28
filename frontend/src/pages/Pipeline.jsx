@@ -10,14 +10,14 @@ import { DndContext, DragOverlay, closestCorners, PointerSensor, useSensor, useS
 import { useToast } from '@/hooks/use-toast'
 
 const STAGES = [
-  { id: 'APPLIED', label: 'Applied', color: 'bg-slate-500' },
+  //{ id: 'APPLIED', label: 'Applied', color: 'bg-slate-500' },
   { id: 'REVIEW', label: 'In Review', color: 'bg-amber-500' },
   { id: 'SHORTLISTED', label: 'Shortlisted', color: 'bg-green-500' },
   { id: 'RESUME_REJECTED', label: 'Resume Rejected', color: 'bg-red-400' },
   { id: 'INTERVIEW_SCHEDULED', label: 'Interview Scheduled', color: 'bg-blue-500' },
   { id: 'INTERVIEW_RESCHEDULED', label: 'Interview Rescheduled', color: 'bg-yellow-500' },
   { id: 'INTERVIEWED', label: 'Interview', color: 'bg-purple-500' },
-  { id: 'INTERVIEW_FAILED', label: 'Interview Failed', color: 'bg-rose-500' },
+  //{ id: 'INTERVIEW_FAILED', label: 'Interview Failed', color: 'bg-rose-500' },
   { id: 'NO_SHOW', label: 'No Show', color: 'bg-orange-500' },
   { id: 'SELECTED', label: 'Selected', color: 'bg-emerald-500' },
   { id: 'REJECTED', label: 'Rejected', color: 'bg-red-600' },
