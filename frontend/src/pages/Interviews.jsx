@@ -13,6 +13,12 @@ import {
 
 const DEFAULT_LIST_LIMIT = 100
 
+function getInterviewPlaybackUrl(interview) {
+  if (!interview) return ''
+  if (interview.video_url) return interview.video_url
+  return api.getInterviewVideoUrl(interview.async_token || interview.id)
+}
+
 export default function Interviews({ superAdminAgencyId = null }) {
   const [searchParams] = useSearchParams()
   const selectedClient = searchParams.get('client')
@@ -47,12 +53,10 @@ export default function Interviews({ superAdminAgencyId = null }) {
         const interviewsData = (interviewRows || [])
           .map(interview => ({
             ...interview,
-            playback_url:
-              interview.video_url ||
-              api.getInterviewVideoUrl(interview.async_token || interview.id)
+            playback_url: getInterviewPlaybackUrl(interview)
           }))
           .filter(interview =>
-            interview.playback_url || interview.transcript || interview.ai_summary || interview.status === 'completed'
+            interview.status === 'completed' || interview.video_url || interview.transcript || interview.ai_summary
           )
         
         setInterviews(interviewsData)
@@ -197,13 +201,13 @@ export default function Interviews({ superAdminAgencyId = null }) {
         {/* Candidate List - Left Side */}
         <Card className="w-64 flex-shrink-0 bg-blue-50 dark:bg-blue-950">
           <CardHeader className="py-4">
-            <CardTitle className="text-base">Completed Interviews</CardTitle>
+            <CardTitle className="text-base">Interview Recordings</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             {interviews.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground px-4">
                 <Video className="h-12 w-12 mx-auto mb-3 opacity-50" />
-                <p className="text-sm">No completed interviews</p>
+                <p className="text-sm">No interview recordings</p>
               </div>
             ) : (
               <div className="flex flex-col">
@@ -217,10 +221,13 @@ export default function Interviews({ superAdminAgencyId = null }) {
                         ? "bg-muted border-primary font-medium"
                         : "border-transparent"
                     )}
-                  >
-                    {interview.candidate_name}
-                  </button>
-                ))}
+                    >
+                      {interview.candidate_name}
+                      <p className="text-xs text-muted-foreground capitalize mt-1">
+                        {interview.status}
+                      </p>
+                    </button>
+                  ))}
                 {visibleCount < interviews.length && (
                   <button
                     className="px-4 py-3 text-sm text-primary hover:bg-muted transition-colors text-center border-t"
