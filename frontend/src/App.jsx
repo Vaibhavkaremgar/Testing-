@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { DashboardLayout } from '@/components/layout/DashboardLayout'
 import ErrorBoundary from '@/components/ErrorBoundary'
@@ -30,7 +30,6 @@ function getDefaultRouteForUser(user) {
 
 function ProtectedRoute({ children, superAdminOnly = false, userOnly = false, adminOnly = false }) {
   const { isAuthenticated, loading, user } = useAuth()
-  const location = useLocation()
 
   if (loading) {
     return (
@@ -44,14 +43,6 @@ function ProtectedRoute({ children, superAdminOnly = false, userOnly = false, ad
   if (superAdminOnly && user?.role !== 'super_admin') return <Navigate to={getDefaultRouteForUser(user)} replace />
   if (adminOnly && user?.role !== 'admin') return <Navigate to={getDefaultRouteForUser(user)} replace />
   if (userOnly && (user?.role === 'super_admin' || user?.role === 'admin')) return <Navigate to={getDefaultRouteForUser(user)} replace />
-  if (
-    user?.role === 'admin' &&
-    typeof user?.wallet_balance === 'number' &&
-    user.wallet_balance <= 10 &&
-    location.pathname !== '/wallet'
-  ) {
-    return <Navigate to="/wallet?lowCredits=1" replace />
-  }
 
   return <DashboardLayout>{children}</DashboardLayout>
 }

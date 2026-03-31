@@ -5,8 +5,9 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { api } from '@/lib/api'
 import { cn, getScoreColor, formatDate } from '@/lib/utils'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useToast } from '@/hooks/use-toast'
+import { useAuth } from '@/context/AuthContext'
 import MetricCard from '@/components/analytics/MetricCard'
 import ComparisonPanel from '@/components/analytics/ComparisonPanel'
 import PipelineTable from '@/components/analytics/PipelineTable'
@@ -36,7 +37,9 @@ const getDefaultView = () => ({
 })
 
 export default function Dashboard() {
+  const { user } = useAuth()
   const { toast } = useToast()
+  const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const selectedClient = searchParams.get('client')
   const [stats, setStats] = useState(null)
@@ -57,6 +60,7 @@ export default function Dashboard() {
   const [hiringMetrics, setHiringMetrics] = useState(null)
   const [departmentFilter, setDepartmentFilter] = useState('all')
   const [intelligence, setIntelligence] = useState(null)
+  const [showLowCreditModal, setShowLowCreditModal] = useState(false)
 
 
   // Force close modal on mount and prevent any stuck state
@@ -106,6 +110,14 @@ export default function Dashboard() {
     }
     fetchData()
   }, [selectedMonth, selectedDate, selectedClient])
+
+  useEffect(() => {
+    if (user?.role === 'admin' && typeof user?.wallet_balance === 'number' && user.wallet_balance <= 10) {
+      setShowLowCreditModal(true)
+    } else {
+      setShowLowCreditModal(false)
+    }
+  }, [user])
 
   const kpiCards = stats ? [
     { title: 'Total Candidates', value: stats.total_candidates || 0, icon: Users, color: 'text-blue-600', bg: 'bg-blue-100 dark:bg-blue-900/30', filter: {} },
@@ -585,6 +597,30 @@ export default function Dashboard() {
                 )}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {showLowCreditModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-card rounded-xl shadow-xl p-6 max-w-sm w-full mx-4">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="bg-yellow-100 p-2 rounded-full">
+                <DollarSign className="h-6 w-6 text-yellow-600" />
+              </div>
+              <h2 className="text-lg font-bold">Low Credits Warning</h2>
+            </div>
+            <p className="text-sm text-muted-foreground mb-4">
+              Your credits are low, to continue the service do recharge.
+            </p>
+            <div className="flex gap-3">
+              <Button variant="outline" className="flex-1" onClick={() => setShowLowCreditModal(false)}>
+                Cancel
+              </Button>
+              <Button className="flex-1" onClick={() => navigate('/wallet?lowCredits=1')}>
+                Proceed to Payment
+              </Button>
+            </div>
           </div>
         </div>
       )}
