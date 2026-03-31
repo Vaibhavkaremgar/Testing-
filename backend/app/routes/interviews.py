@@ -105,6 +105,83 @@ def _sync_candidate_stage_from_interview(candidate: Candidate, interview: Interv
     candidate.stage_entered_at = now
 
 
+def _resolve_agency_admin_for_candidate(db: Session, candidate: Optional[Candidate]) -> tuple[Optional[User], Optional[UUID]]:
+    from app.models import JobDescription, UserRole
+
+    if not candidate:
+        return None, None
+
+    agency_id = candidate.agency_id
+    if not agency_id and candidate.job_id:
+        job = db.query(JobDescription).filter(JobDescription.id == candidate.job_id).first()
+        agency_id = job.agency_id if job else None
+    if not agency_id:
+        return None, None
+
+    admin = db.query(User).filter(
+        User.role == UserRole.ADMIN,
+        User.agency_id == agency_id
+    ).first()
+    return admin, agency_id
+
+
+def _ensure_interview_scheduling_credits(db: Session, candidate: Candidate) -> None:
+    admin, _agency_id = _resolve_agency_admin_for_candidate(db, candidate)
+    if not admin or (admin.wallet_balance or 0) <= 0:
+        raise HTTPException(status_code=400, detail="Insufficient credits to schedule interviews")
+
+
+def _deduct_interview_completion_credit(db: Session, interview: Interview, candidate: Optional[Candidate]) -> Optional[int]:
+    from app.models import WalletTransaction, TransactionType
+
+    admin, agency_id = _resolve_agency_admin_for_candidate(db, candidate)
+    if not admin:
+        return None
+
+    transaction_description = f"Interview completed - Interview ID {interview.id}"
+    existing_transaction = db.query(WalletTransaction).filter(
+        WalletTransaction.user_id == admin.id,
+        WalletTransaction.description == transaction_description,
+    ).first()
+    if existing_transaction:
+        return admin.wallet_balance
+
+    admin.wallet_balance = max(0, (admin.wallet_balance or 0) - 1)
+    db.add(WalletTransaction(
+        user_id=admin.id,
+        agency_id=agency_id,
+        amount=1,
+        transaction_type=TransactionType.DEBIT,
+        description=transaction_description,
+        balance_after=admin.wallet_balance
+    ))
+    return admin.wallet_balance
+
+
+def _is_interview_completion_billable(interview: Interview, has_recording: bool = False) -> bool:
+    normalized_status = (interview.status or "").strip().lower()
+    return bool(
+        normalized_status == "completed"
+        or has_recording
+        or interview.transcript
+        or interview.ai_summary
+        or interview.interview_score is not None
+    )
+
+
+def _charge_completed_interview_if_needed(db: Session, interview: Interview, has_recording: bool = False) -> Optional[int]:
+    if not _is_interview_completion_billable(interview, has_recording=has_recording):
+        return None
+
+    candidate = interview.candidate
+    if not candidate:
+        candidate = db.query(Candidate).filter(Candidate.id == interview.candidate_id).first()
+    if not candidate:
+        return None
+
+    return _deduct_interview_completion_credit(db, interview, candidate)
+
+
 def _apply_interview_scope(query, current_user):
     from app.models import JobDescription, UserRole
 
@@ -669,6 +746,15 @@ def get_interviews(
     
     interviews = query.order_by(Interview.scheduled_at.desc()).offset((page - 1) * limit).limit(limit).all()
     recording_availability = _fetch_recording_availability(interviews)
+
+    credits_checked = False
+    for interview in interviews:
+        has_recording = recording_availability.get(str(interview.id), {}).get("has_recording", False)
+        new_balance = _charge_completed_interview_if_needed(db, interview, has_recording=has_recording)
+        if new_balance is not None:
+            credits_checked = True
+    if credits_checked:
+        db.commit()
     
     result = []
     for interview in interviews:
@@ -952,6 +1038,9 @@ def get_interview(
     if not interview:
         raise HTTPException(status_code=404, detail="Interview not found")
     recording_availability = _fetch_recording_availability([interview])
+    has_recording = recording_availability.get(str(interview.id), {}).get("has_recording", False)
+    if _charge_completed_interview_if_needed(db, interview, has_recording=has_recording) is not None:
+        db.commit()
     
     interview_dict = {
         "id": interview.id,
@@ -965,7 +1054,7 @@ def get_interview(
         "duration_minutes": interview.duration_minutes if interview.duration_minutes is not None else 60,
         "meeting_link": interview.meeting_link,
         "status": interview.status,
-        "has_recording": recording_availability.get(str(interview.id), {}).get("has_recording", False),
+        "has_recording": has_recording,
         "video_url": interview.video_url,
         "transcript": interview.transcript,
         "ai_summary": interview.ai_summary,
@@ -1035,6 +1124,8 @@ def create_interview(
     candidate = db.query(Candidate).filter(Candidate.id == interview.candidate_id).first()
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
+
+    _ensure_interview_scheduling_credits(db, candidate)
     
     db_interview = Interview(**interview.model_dump())
     db.add(db_interview)
@@ -1151,30 +1242,10 @@ def complete_interview(
     candidate = db.query(Candidate).filter(Candidate.id == db_interview.candidate_id).first()
     if candidate:
         _sync_candidate_stage_from_interview(candidate, db_interview)
-    
-    # Deduct 1 credit from agency admin wallet
-    from app.models import UserRole, WalletTransaction, TransactionType, JobDescription
-    agency_id = None
-    if candidate and candidate.job_id:
-        job = db.query(JobDescription).filter(JobDescription.id == candidate.job_id).first()
-        if job:
-            agency_id = job.agency_id
-    admin = db.query(User).filter(
-        User.role == UserRole.ADMIN,
-        User.agency_id == agency_id
-    ).first()
-    if admin:
-        admin.wallet_balance = max(0, (admin.wallet_balance or 0) - 1)
-        db.add(WalletTransaction(
-            user_id=admin.id,
-            agency_id=agency_id,
-            amount=1,
-            transaction_type=TransactionType.DEBIT,
-            description=f"Interview completed - Candidate ID {db_interview.candidate_id}",
-            balance_after=admin.wallet_balance
-        ))
+
+    wallet_balance = _deduct_interview_completion_credit(db, db_interview, candidate)
     db.commit()
-    return {"message": "Interview completed and analyzed", "interview_id": interview_id, "wallet_balance": admin.wallet_balance if admin else None}
+    return {"message": "Interview completed and analyzed", "interview_id": interview_id, "wallet_balance": wallet_balance}
 
 @router.post("/{interview_id}/results", response_model=InterviewResponse)
 def receive_interview_results(
@@ -1197,27 +1268,7 @@ def receive_interview_results(
     if candidate:
         _sync_candidate_stage_from_interview(candidate, db_interview)
 
-    # Deduct 1 credit from agency admin wallet
-    from app.models import UserRole, WalletTransaction, TransactionType, JobDescription
-    agency_id = None
-    if candidate and candidate.job_id:
-        job = db.query(JobDescription).filter(JobDescription.id == candidate.job_id).first()
-        if job:
-            agency_id = job.agency_id
-    admin = db.query(User).filter(
-        User.role == UserRole.ADMIN,
-        User.agency_id == agency_id
-    ).first()
-    if admin:
-        admin.wallet_balance = max(0, (admin.wallet_balance or 0) - 1)
-        db.add(WalletTransaction(
-            user_id=admin.id,
-            agency_id=agency_id,
-            amount=1,
-            transaction_type=TransactionType.DEBIT,
-            description=f"Interview completed - Candidate ID {db_interview.candidate_id}",
-            balance_after=admin.wallet_balance
-        ))
+    _deduct_interview_completion_credit(db, db_interview, candidate)
 
     db.commit()
     db.refresh(db_interview)
