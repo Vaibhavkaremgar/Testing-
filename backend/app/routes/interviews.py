@@ -1,10 +1,12 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Response
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, text
 from typing import List, Optional
 from datetime import datetime
 from uuid import UUID
+from pathlib import Path
+import mimetypes
 import random
 import psycopg2
 from app.database import get_db
@@ -152,6 +154,32 @@ def _detect_video_media_type(video_bytes: bytes, fallback: str = "video/webm") -
     return fallback
 
 
+def _normalize_recording_path(recording_path: Optional[str]) -> Optional[Path]:
+    if not recording_path:
+        return None
+
+    upload_root = Path(settings.UPLOAD_DIR).resolve()
+    candidate_path = Path(recording_path)
+    if not candidate_path.is_absolute():
+        candidate_path = upload_root / candidate_path
+
+    try:
+        resolved_path = candidate_path.resolve()
+        resolved_path.relative_to(upload_root)
+    except Exception:
+        raise HTTPException(status_code=404, detail="Interview recording not found")
+
+    if not resolved_path.is_file():
+        raise HTTPException(status_code=404, detail="Interview recording not found")
+
+    return resolved_path
+
+
+def _guess_recording_media_type(recording_path: Optional[str], fallback: str = "video/mp4") -> str:
+    guessed_media_type, _ = mimetypes.guess_type(recording_path or "")
+    return guessed_media_type or fallback
+
+
 def _normalize_recording_media_type(configured_media_type: Optional[str], video_bytes: bytes) -> str:
     detected_media_type = _detect_video_media_type(video_bytes, fallback="video/webm")
     if not configured_media_type:
@@ -258,10 +286,10 @@ def _get_table_columns(cursor, table_name: str) -> set[str]:
 
 def _fetch_interview_recording(cursor, session_keys: List[str]):
     columns = _get_table_columns(cursor, "interview_sessions")
-    if "recording_data" not in columns:
-        raise HTTPException(status_code=500, detail="interview_sessions.recording_data column is missing")
+    if "recording_path" not in columns:
+        raise HTTPException(status_code=500, detail="interview_sessions.recording_path column is missing")
 
-    select_fields = ["recording_data"]
+    select_fields = ["recording_path"]
     mime_column = None
     for candidate_column in ("mime_type", "content_type", "recording_mime_type", "video_format"):
         if candidate_column in columns:
@@ -299,17 +327,17 @@ def _fetch_interview_recording(cursor, session_keys: List[str]):
     if not row:
         return None, None
 
-    recording_data = row[0]
+    recording_path = row[0]
     configured_media_type = row[1] if mime_column and len(row) > 1 else None
-    return recording_data, configured_media_type
+    return recording_path, configured_media_type
 
 
 def _fetch_interview_session_row_by_session_token(cursor, session_token: str):
     columns = _get_table_columns(cursor, "interview_sessions")
-    if "session_token" not in columns or "recording_data" not in columns:
+    if "session_token" not in columns or "recording_path" not in columns:
         raise HTTPException(status_code=404, detail="Interview recording not found")
 
-    select_fields = ["recording_data", "session_token"]
+    select_fields = ["recording_path", "session_token"]
     for candidate_column in ("mime_type", "content_type", "recording_mime_type", "video_format"):
         if candidate_column in columns:
             select_fields.append(candidate_column)
@@ -344,7 +372,7 @@ def _fetch_recording_availability(interviews: List[Interview]) -> dict[str, dict
         with connection:
             with connection.cursor() as cursor:
                 columns = _get_table_columns(cursor, "interview_sessions")
-                if "recording_data" not in columns:
+                if "recording_path" not in columns:
                     return {}
 
                 lookup_columns = [
@@ -374,7 +402,7 @@ def _fetch_recording_availability(interviews: List[Interview]) -> dict[str, dict
                 for column_name in lookup_columns:
                     placeholders = ", ".join(["%s"] * len(all_keys))
                     where_clauses.append(
-                        f"({column_name} IS NOT NULL AND {column_name}::text IN ({placeholders}) AND recording_data IS NOT NULL)"
+                        f"({column_name} IS NOT NULL AND {column_name}::text IN ({placeholders}) AND recording_path IS NOT NULL)"
                     )
                     params.extend(all_keys)
 
@@ -386,9 +414,9 @@ def _fetch_recording_availability(interviews: List[Interview]) -> dict[str, dict
                 cursor.execute(query, params)
 
                 recording_metadata: dict[str, dict] = {}
+                session_token_index = lookup_columns.index("session_token") if "session_token" in lookup_columns else None
                 for row in cursor.fetchall():
                     matched_interview_ids: set[str] = set()
-                    session_token_index = lookup_columns.index("session_token") if "session_token" in lookup_columns else None
                     session_token_value = row[session_token_index] if session_token_index is not None else None
                     for value in row:
                         if value and value in value_to_interview_ids:
@@ -520,7 +548,7 @@ def stream_interview_video(
                 if interview.async_token:
                     session_keys.append(interview.async_token)
 
-                recording_data, configured_media_type = _fetch_interview_recording(cursor, session_keys)
+                recording_path, configured_media_type = _fetch_interview_recording(cursor, session_keys)
     except HTTPException:
         raise
     except Exception as exc:
@@ -532,12 +560,21 @@ def stream_interview_video(
         except Exception:
             pass
 
-    if not recording_data:
+    if not recording_path:
         raise HTTPException(status_code=404, detail="Interview recording not found")
 
-    video_bytes = bytes(recording_data)
-    media_type = _normalize_recording_media_type(configured_media_type, video_bytes)
-    return _build_video_stream_response(video_bytes, media_type, range_header)
+    resolved_path = _normalize_recording_path(recording_path)
+    media_type = configured_media_type or _guess_recording_media_type(str(resolved_path))
+    return FileResponse(
+        path=resolved_path,
+        media_type=media_type,
+        filename=resolved_path.name,
+        headers={
+            "Content-Disposition": f'inline; filename="{resolved_path.name}"',
+            "Cache-Control": "private, max-age=3600",
+            "Accept-Ranges": "bytes",
+        },
+    )
 
 
 @recording_router.get("/{session_token}")
@@ -584,8 +621,8 @@ def stream_candidate_recording(
         if not interview:
             raise HTTPException(status_code=404, detail="Interview session not found")
 
-        recording_data = session_row.get("recording_data")
-        if not recording_data:
+        recording_path = session_row.get("recording_path")
+        if not recording_path:
             raise HTTPException(status_code=404, detail="Interview recording not found")
 
         configured_media_type = None
@@ -604,9 +641,18 @@ def stream_candidate_recording(
         except Exception:
             pass
 
-    video_bytes = bytes(recording_data)
-    media_type = _normalize_recording_media_type(configured_media_type, video_bytes)
-    return _build_video_stream_response(video_bytes, media_type, range_header)
+    resolved_path = _normalize_recording_path(recording_path)
+    media_type = configured_media_type or _guess_recording_media_type(str(resolved_path))
+    return FileResponse(
+        path=resolved_path,
+        media_type=media_type,
+        filename=resolved_path.name,
+        headers={
+            "Content-Disposition": f'inline; filename="{resolved_path.name}"',
+            "Cache-Control": "private, max-age=3600",
+            "Accept-Ranges": "bytes",
+        },
+    )
 
 @router.get("/{interview_id}", response_model=InterviewResponse)
 def get_interview(

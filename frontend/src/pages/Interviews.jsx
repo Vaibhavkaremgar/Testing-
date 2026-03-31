@@ -16,7 +16,8 @@ const DEFAULT_LIST_LIMIT = 100
 
 function getInterviewPlaybackUrl(interview) {
   if (!interview) return ''
-  return api.getInterviewVideoUrl(interview.session_token || interview.async_token || interview.id)
+  if (interview.session_token) return api.getDashboardRecordingUrl(interview.session_token)
+  return api.getInterviewVideoUrl(interview.async_token || interview.id)
 }
 
 function getNumericInterviewScore(interview) {
@@ -30,6 +31,7 @@ function getEffectiveInterviewStatus(interview) {
   const normalizedStatus = (interview?.status || '').toLowerCase()
   if (
     normalizedStatus === 'completed' ||
+    interview?.has_recording ||
     getNumericInterviewScore(interview) !== null ||
     interview?.transcript ||
     interview?.ai_summary
@@ -60,6 +62,47 @@ function getInterviewResultMeta(interview) {
     label: getEffectiveInterviewStatus(interview).replace('_', ' '),
     badgeClass: 'bg-slate-100 text-slate-700 dark:bg-slate-900/30 dark:text-slate-300',
   }
+}
+
+function getInterviewPriority(interview) {
+  const effectiveStatus = getEffectiveInterviewStatus(interview)
+  const interviewScore = getNumericInterviewScore(interview)
+
+  if (interviewScore !== null) return 5
+  if (effectiveStatus === 'completed' && interview?.has_recording) return 4
+  if (effectiveStatus === 'completed') return 3
+  if (interview?.has_recording) return 2
+  return 1
+}
+
+function pickBestInterviewPerCandidate(interviews) {
+  const grouped = new Map()
+
+  for (const interview of interviews || []) {
+    const candidateKey = interview?.candidate_id || interview?.id
+    const current = grouped.get(candidateKey)
+    if (!current) {
+      grouped.set(candidateKey, interview)
+      continue
+    }
+
+    const currentPriority = getInterviewPriority(current)
+    const nextPriority = getInterviewPriority(interview)
+    const currentTime = current?.scheduled_at ? new Date(current.scheduled_at).getTime() : 0
+    const nextTime = interview?.scheduled_at ? new Date(interview.scheduled_at).getTime() : 0
+
+    if (nextPriority > currentPriority || (nextPriority === currentPriority && nextTime > currentTime)) {
+      grouped.set(candidateKey, interview)
+    }
+  }
+
+  return Array.from(grouped.values()).sort((a, b) => {
+    const priorityDiff = getInterviewPriority(b) - getInterviewPriority(a)
+    if (priorityDiff !== 0) return priorityDiff
+    const timeA = a?.scheduled_at ? new Date(a.scheduled_at).getTime() : 0
+    const timeB = b?.scheduled_at ? new Date(b.scheduled_at).getTime() : 0
+    return timeB - timeA
+  })
 }
 
 export default function Interviews({ superAdminAgencyId = null }) {
@@ -96,11 +139,11 @@ export default function Interviews({ superAdminAgencyId = null }) {
         if (selectedClient) params.client = selectedClient
         if (superAdminAgencyId) params.agency_id = superAdminAgencyId
         const interviewRows = await api.getInterviews({ ...params, limit: DEFAULT_LIST_LIMIT })
-        const interviewsData = (interviewRows || [])
+        const interviewsData = pickBestInterviewPerCandidate((interviewRows || [])
           .map(interview => ({
             ...interview,
             playback_url: getInterviewPlaybackUrl(interview)
-          }))
+          })))
         
         setInterviews(interviewsData)
         if (interviewsData.length > 0) {
