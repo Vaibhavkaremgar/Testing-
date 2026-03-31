@@ -455,6 +455,13 @@ def _fetch_interview_session_row_by_session_token(cursor, session_token: str):
     cursor.execute(query, tuple(params))
     row = cursor.fetchone()
     if not row:
+        _log_recording_debug(
+            "stream_candidate_recording.session_lookup_miss",
+            session_token=session_token,
+            where_clauses=len(where_clauses),
+            has_session_token_column="session_token" in columns,
+            has_recording_path_column="recording_path" in columns,
+        )
         raise HTTPException(status_code=404, detail="Interview recording not found")
 
     field_names = select_fields
