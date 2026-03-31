@@ -298,7 +298,6 @@ export default function Communications() {
                   <th className="p-3 text-left text-sm font-medium">Type</th>
                   <th className="p-3 text-left text-sm font-medium">Status</th>
                   <th className="p-3 text-left text-sm font-medium">Date</th>
-                  <th className="p-3 text-right text-sm font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -309,16 +308,6 @@ export default function Communications() {
                     <td className="p-3 text-sm">{comm.email_type}</td>
                     <td className="p-3 text-sm">{getStatusBadge(comm.status)}</td>
                     <td className="p-3 text-sm">{comm.sent_at ? new Date(comm.sent_at).toLocaleString() : new Date(comm.created_at).toLocaleString()}</td>
-                    <td className="p-3 text-right" onClick={(e) => e.stopPropagation()}>
-                      <Button 
-                        variant="ghost" 
-                        size="icon" 
-                        onClick={() => handleDelete(comm.id)}
-                        title="Delete email record"
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -411,7 +400,6 @@ export default function Communications() {
                         <th className="text-left p-3 font-medium">Type</th>
                         <th className="text-left p-3 font-medium">Status</th>
                         <th className="text-left p-3 font-medium">Date</th>
-                        <th className="text-right p-3 font-medium">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -422,16 +410,6 @@ export default function Communications() {
                           <td className="p-3 text-sm">{comm.email_type}</td>
                           <td className="p-3 text-sm">{getStatusBadge(comm.status)}</td>
                           <td className="p-3 text-sm">{comm.sent_at ? new Date(comm.sent_at).toLocaleString() : new Date(comm.created_at).toLocaleString()}</td>
-                          <td className="p-3 text-right" onClick={(e) => e.stopPropagation()}>
-                            <Button 
-                              variant="ghost" 
-                              size="icon" 
-                              onClick={() => handleDelete(comm.id)}
-                              title="Delete email record"
-                            >
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
-                          </td>
                         </tr>
                       ))}
                     </tbody>

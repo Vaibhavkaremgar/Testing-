@@ -25,6 +25,7 @@ export default function WalletPage({ superAdminAgencyId = null }) {
   const [showLowCreditModal, setShowLowCreditModal] = useState(false);
   const [discount, setDiscount] = useState(null);
   const [agencyWalletData, setAgencyWalletData] = useState(null);
+  const [historyFilter, setHistoryFilter] = useState('all');
 
   const getStats = () => {
     const totalCredits = transactions
@@ -39,6 +40,12 @@ export default function WalletPage({ superAdminAgencyId = null }) {
   };
 
   const { totalCredits, usedCredits, remainingCredits } = getStats();
+
+  const filteredTransactions = transactions.filter((txn) => {
+    if (historyFilter === 'credit') return txn.transaction_type === 'credit';
+    if (historyFilter === 'debit') return txn.transaction_type === 'debit';
+    return true;
+  });
 
   useEffect(() => {
     if (isSuperAdmin) {
@@ -412,12 +419,23 @@ Status: ${txn.status || 'completed'}
       {/* Transaction History */}
       <Card>
         <CardHeader>
-          <CardTitle>{isSuperAdmin ? 'Agency Admin Transaction History' : 'Credits History'}</CardTitle>
+          <div className="flex items-center justify-between gap-3">
+            <CardTitle>{isSuperAdmin ? 'Agency Admin Transaction History' : 'Credits History'}</CardTitle>
+            <select
+              className="h-10 rounded-lg border border-input bg-background px-3 py-2 text-sm"
+              value={historyFilter}
+              onChange={(e) => setHistoryFilter(e.target.value)}
+            >
+              <option value="all">All</option>
+              <option value="credit">Credit</option>
+              <option value="debit">Debit / Deduct</option>
+            </select>
+          </div>
         </CardHeader>
         <CardContent>
           {isSuperAdmin && !superAdminAgencyId ? (
             <p className="text-gray-500">Select an agency from the filter to view its admin wallet transactions.</p>
-          ) : transactions.length === 0 ? (
+          ) : filteredTransactions.length === 0 ? (
             <p className="text-gray-500">No transactions yet</p>
           ) : (
             <div className="overflow-x-auto">
@@ -434,7 +452,7 @@ Status: ${txn.status || 'completed'}
                   </tr>
                 </thead>
                 <tbody>
-                  {transactions.map((txn) => (
+                  {filteredTransactions.map((txn) => (
                     <tr key={txn.id} className="border-b hover:bg-gray-50">
                       <td className="py-3 px-4 text-sm">
                         {new Date(txn.created_at).toLocaleDateString()}
