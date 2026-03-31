@@ -75,15 +75,20 @@ def _derive_candidate_stage_from_interview(interview: Interview) -> Optional[Can
         interview_score = interview.interview_score if interview.interview_score is not None else 0
         return CandidateStage.SELECTED if interview_score >= 6 else CandidateStage.REJECTED
 
-    if interview_date == today and interview_status in {"scheduled", "rescheduled", "ongoing"}:
-        return CandidateStage.INTERVIEWED
-
     status_to_stage = {
-        "scheduled": CandidateStage.INTERVIEW_SCHEDULED,
-        "rescheduled": CandidateStage.INTERVIEW_RESCHEDULED,
         "ongoing": CandidateStage.INTERVIEWED,
         "no_show": CandidateStage.NO_SHOW,
     }
+    if interview_status == "scheduled":
+        if interview_date == today:
+            return CandidateStage.INTERVIEWED
+        return CandidateStage.INTERVIEW_SCHEDULED
+
+    if interview_status == "rescheduled":
+        if interview_date == today:
+            return CandidateStage.INTERVIEWED
+        return CandidateStage.INTERVIEW_RESCHEDULED
+
     return status_to_stage.get(interview_status)
 
 

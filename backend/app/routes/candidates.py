@@ -109,22 +109,23 @@ def resolve_pipeline_display_stage(candidate: Candidate, latest_interview: Optio
                 return CandidateStage.SELECTED
             return CandidateStage.REJECTED
 
-        if interview_date == today and interview_status in {"scheduled", "rescheduled", "ongoing"}:
-            return CandidateStage.INTERVIEWED
-
         if interview_status == "ongoing":
             return CandidateStage.INTERVIEWED
 
         if interview_status == "rescheduled":
+            if interview_date == today:
+                return CandidateStage.INTERVIEWED
             return CandidateStage.INTERVIEW_RESCHEDULED
 
         if interview_status == "scheduled":
+            if interview_date == today:
+                return CandidateStage.INTERVIEWED
             return CandidateStage.INTERVIEW_SCHEDULED
 
         if interview_status == "no_show":
             return CandidateStage.NO_SHOW
 
-        if latest_interview.scheduled_at and latest_interview.scheduled_at.date() >= today:
+        if latest_interview.scheduled_at and latest_interview.scheduled_at.date() > today:
             return CandidateStage.INTERVIEW_SCHEDULED
 
     effective_threshold = candidate.score_threshold or 60
@@ -2322,7 +2323,7 @@ def get_pipeline_stages(
         for interview in interviews:
             latest_interviews_by_candidate.setdefault(interview.candidate_id, interview)
 
-    today = datetime.utcnow().date()
+    today = datetime.now().date()
     for candidate in candidates:
         display_stage = resolve_pipeline_display_stage(
             candidate,
