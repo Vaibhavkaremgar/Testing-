@@ -2,6 +2,8 @@ import { createContext, useContext, useState, useEffect, useRef } from 'react'
 import { api } from '@/lib/api'
 
 const AuthContext = createContext(null)
+const INACTIVITY_LIMIT_MS = 30 * 60 * 1000
+const LAST_ACTIVITY_KEY = 'lastActivityAt'
 
 function parseJwt(token) {
   try {
@@ -39,6 +41,7 @@ export function AuthProvider({ children }) {
     return getInitialUser() === null
   })
   const backgroundFetchDone = useRef(false)
+  const inactivityTimeoutRef = useRef(null)
 
   useEffect(() => {
     const token = localStorage.getItem('token')
@@ -73,8 +76,75 @@ export function AuthProvider({ children }) {
 
   const logout = () => {
     api.logout()
+    localStorage.removeItem(LAST_ACTIVITY_KEY)
     setUser(null)
   }
+
+  useEffect(() => {
+    if (!user) {
+      if (inactivityTimeoutRef.current) {
+        clearTimeout(inactivityTimeoutRef.current)
+        inactivityTimeoutRef.current = null
+      }
+      return
+    }
+
+    const markActivity = () => {
+      localStorage.setItem(LAST_ACTIVITY_KEY, String(Date.now()))
+    }
+
+    const scheduleAutoLogout = () => {
+      const lastActivityAt = Number(localStorage.getItem(LAST_ACTIVITY_KEY) || Date.now())
+      const elapsed = Date.now() - lastActivityAt
+      const remaining = Math.max(INACTIVITY_LIMIT_MS - elapsed, 0)
+
+      if (inactivityTimeoutRef.current) {
+        clearTimeout(inactivityTimeoutRef.current)
+      }
+
+      inactivityTimeoutRef.current = setTimeout(() => {
+        api.logout()
+        localStorage.removeItem(LAST_ACTIVITY_KEY)
+        setUser(null)
+      }, remaining)
+    }
+
+    const handleActivity = () => {
+      markActivity()
+      scheduleAutoLogout()
+    }
+
+    const handleStorage = (event) => {
+      if (event.key === LAST_ACTIVITY_KEY) {
+        scheduleAutoLogout()
+      }
+      if (event.key === 'token' && !event.newValue) {
+        setUser(null)
+      }
+    }
+
+    if (!localStorage.getItem(LAST_ACTIVITY_KEY)) {
+      markActivity()
+    }
+    scheduleAutoLogout()
+
+    const activityEvents = ['mousedown', 'mousemove', 'keydown', 'scroll', 'touchstart', 'click']
+    activityEvents.forEach((eventName) => {
+      window.addEventListener(eventName, handleActivity, { passive: true })
+    })
+    window.addEventListener('storage', handleStorage)
+
+    return () => {
+      if (inactivityTimeoutRef.current) {
+        clearTimeout(inactivityTimeoutRef.current)
+        inactivityTimeoutRef.current = null
+      }
+      activityEvents.forEach((eventName) => {
+        window.removeEventListener(eventName, handleActivity)
+      })
+      window.removeEventListener('storage', handleStorage)
+    }
+  }, [user])
 
   const refreshUser = async () => {
     const userData = await api.getMe()
