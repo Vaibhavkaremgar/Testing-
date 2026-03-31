@@ -6,6 +6,8 @@ from typing import List, Optional
 from datetime import datetime
 from uuid import UUID
 from pathlib import Path
+import base64
+import binascii
 import mimetypes
 import random
 import psycopg2
@@ -156,6 +158,46 @@ def _detect_video_media_type(video_bytes: bytes, fallback: str = "video/webm") -
     if video_bytes.startswith(b"OggS"):
         return "video/ogg"
     return fallback
+
+
+def _coerce_recording_bytes(recording_data) -> bytes:
+    if recording_data is None:
+        return b""
+
+    if isinstance(recording_data, memoryview):
+        return recording_data.tobytes()
+
+    if isinstance(recording_data, (bytes, bytearray)):
+        return bytes(recording_data)
+
+    if isinstance(recording_data, str):
+        normalized = recording_data.strip()
+        if not normalized:
+            return b""
+
+        if normalized.startswith("data:") and "," in normalized:
+            normalized = normalized.split(",", 1)[1]
+
+        if normalized.startswith("\\x"):
+            try:
+                return bytes.fromhex(normalized[2:])
+            except ValueError:
+                pass
+
+        if normalized.startswith("0x"):
+            try:
+                return bytes.fromhex(normalized[2:])
+            except ValueError:
+                pass
+
+        compact = "".join(normalized.split())
+        padding = (-len(compact)) % 4
+        try:
+            return base64.b64decode(compact + ("=" * padding), validate=True)
+        except (binascii.Error, ValueError):
+            raise HTTPException(status_code=500, detail="Interview recording uses an unsupported binary format")
+
+    raise HTTPException(status_code=500, detail="Interview recording uses an unsupported binary format")
 
 
 def _normalize_recording_path(recording_path: Optional[str]) -> Optional[Path]:
@@ -618,7 +660,7 @@ def stream_interview_video(
     recording_data = recording_record.get("recording_data") if recording_record else None
 
     if recording_data:
-        video_bytes = bytes(recording_data)
+        video_bytes = _coerce_recording_bytes(recording_data)
         media_type = _normalize_recording_media_type(configured_media_type, video_bytes)
         return _build_video_stream_response(video_bytes, media_type, range_header)
 
@@ -705,7 +747,7 @@ def stream_candidate_recording(
             pass
 
     if recording_data:
-        video_bytes = bytes(recording_data)
+        video_bytes = _coerce_recording_bytes(recording_data)
         media_type = _normalize_recording_media_type(configured_media_type, video_bytes)
         return _build_video_stream_response(video_bytes, media_type, range_header)
 
