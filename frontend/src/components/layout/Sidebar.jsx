@@ -66,14 +66,12 @@ export function Sidebar() {
     
     // Regular users see My Assignments
     return [
-      { name: 'Dashboard', href: '/', icon: LayoutDashboard },
       { name: 'Resumes', href: '/my-assignments', icon: FileText },
       { name: 'Jobs', href: '/jobs', icon: Briefcase },
       { name: 'Candidates', href: '/pipeline', icon: Users },
       { name: 'Interviews', href: '/interviews', icon: Video },
       { name: 'Communications', href: '/communications', icon: MessageSquare },
       { name: 'Email Customization', href: '/email-templates', icon: Mail },
-      { name: 'Analytics', href: '/analytics', icon: BarChart3 },
       { name: 'Profile', href: '/profile', icon: UserIcon },
     ]
   }

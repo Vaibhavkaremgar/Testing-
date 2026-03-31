@@ -22,7 +22,13 @@ import Agencies from '@/pages/Agencies'
 import Pricing from '@/pages/Pricing'
 import SuperAdminDataPage from '@/pages/SuperAdminDataPage'
 
-function ProtectedRoute({ children, superAdminOnly = false, userOnly = false }) {
+function getDefaultRouteForUser(user) {
+  if (user?.role === 'super_admin') return '/super-admin'
+  if (user?.role === 'admin') return '/'
+  return '/resumes'
+}
+
+function ProtectedRoute({ children, superAdminOnly = false, userOnly = false, adminOnly = false }) {
   const { isAuthenticated, loading, user } = useAuth()
 
   if (loading) {
@@ -34,14 +40,15 @@ function ProtectedRoute({ children, superAdminOnly = false, userOnly = false }) 
   }
 
   if (!isAuthenticated) return <Navigate to="/login" replace />
-  if (superAdminOnly && user?.role !== 'super_admin') return <Navigate to="/" replace />
-  if (userOnly && (user?.role === 'super_admin' || user?.role === 'admin')) return <Navigate to="/" replace />
+  if (superAdminOnly && user?.role !== 'super_admin') return <Navigate to={getDefaultRouteForUser(user)} replace />
+  if (adminOnly && user?.role !== 'admin') return <Navigate to={getDefaultRouteForUser(user)} replace />
+  if (userOnly && (user?.role === 'super_admin' || user?.role === 'admin')) return <Navigate to={getDefaultRouteForUser(user)} replace />
 
   return <DashboardLayout>{children}</DashboardLayout>
 }
 
 function App() {
-  const { isAuthenticated, loading } = useAuth()
+  const { isAuthenticated, loading, user } = useAuth()
 
   if (loading) {
     return (
@@ -54,15 +61,15 @@ function App() {
   return (
     <ErrorBoundary>
       <Routes>
-        <Route path="/login" element={isAuthenticated ? <Navigate to="/" replace /> : <Login />} />
+        <Route path="/login" element={isAuthenticated ? <Navigate to={getDefaultRouteForUser(user)} replace /> : <Login />} />
 
         {/* Regular routes */}
-        <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+        <Route path="/" element={<ProtectedRoute>{user?.role === 'admin' ? <Dashboard /> : <Navigate to="/resumes" replace />}</ProtectedRoute>} />
         <Route path="/resumes" element={<ProtectedRoute><Resumes /></ProtectedRoute>} />
         <Route path="/my-assignments" element={<ProtectedRoute><Resumes /></ProtectedRoute>} />
         <Route path="/pipeline" element={<ProtectedRoute><Pipeline /></ProtectedRoute>} />
         <Route path="/interviews" element={<ProtectedRoute><Interviews /></ProtectedRoute>} />
-        <Route path="/analytics" element={<ProtectedRoute><Analytics /></ProtectedRoute>} />
+        <Route path="/analytics" element={<ProtectedRoute adminOnly><Analytics /></ProtectedRoute>} />
         <Route path="/jobs" element={<ProtectedRoute><Jobs /></ProtectedRoute>} />
         <Route path="/clients" element={<ProtectedRoute><Clients /></ProtectedRoute>} />
         <Route path="/communications" element={<ProtectedRoute><Communications /></ProtectedRoute>} />

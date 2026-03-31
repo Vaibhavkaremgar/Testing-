@@ -38,7 +38,13 @@ export default function Login() {
     setLoading(true)
     try {
       const userData = await login(email.trim(), password)
-      navigate(userData.role === 'super_admin' ? '/super-admin' : '/')
+      navigate(
+        userData.role === 'super_admin'
+          ? '/super-admin'
+          : userData.role === 'admin'
+            ? '/'
+            : '/resumes'
+      )
     } catch (err) {
       setError(err.message || 'Invalid email or password')
     } finally {
