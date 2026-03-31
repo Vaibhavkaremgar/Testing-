@@ -866,7 +866,7 @@ export default function Resumes() {
                 )
               }}
             >
-              Resume Shortlisted
+               Shortlisted
             </DropdownMenuCheckboxItem>
             <DropdownMenuCheckboxItem
               checked={statusFilter.includes('RESUME_REJECTED')}
@@ -876,7 +876,7 @@ export default function Resumes() {
                 )
               }}
             >
-              Resume Rejected
+               Rejected
             </DropdownMenuCheckboxItem>
             <DropdownMenuCheckboxItem
               checked={statusFilter.includes('IN_REVIEW')}
