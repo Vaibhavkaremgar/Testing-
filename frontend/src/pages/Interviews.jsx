@@ -227,11 +227,11 @@ export default function Interviews({ superAdminAgencyId = null }) {
     if (!isDecisionReady) return;
     setDecisionLoading('approve')
     try {
-      await api.updateCandidateStage(selectedInterview.candidate_id, 'SELECTED', { suppress_notification: true });
+      await api.updateCandidateStage(selectedInterview.candidate_id, 'SELECTED');
       setApproveModalOpen(false)
       toast({
         title: 'Candidate Selected',
-        description: 'Candidate moved to Selected without sending an interview email.',
+        description: 'Candidate moved to Selected and the selection email was queued.',
       })
       // Remove from interviews list and clear selection
       const updatedInterviews = interviews.filter(i => i.id !== selectedInterview.id);

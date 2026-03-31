@@ -54,6 +54,7 @@ SUPPORTED_PLACEHOLDERS = [
     "job_id",
     "job_title",
     "job_role",
+    "company_name",
     "job_description",
     "skills",
     "resume_text",
@@ -65,6 +66,10 @@ SUPPORTED_PLACEHOLDERS = [
     "interview_time",
     "agency_name",
     "async_questions",
+    "hr_name",
+    "contact_email",
+    "year",
+    "acceptance_link",
 ]
 
 PAYLOAD_ALIAS_MAP = {
@@ -74,9 +79,13 @@ PAYLOAD_ALIAS_MAP = {
     "jobId": "job_id",
     "jobTitle": "job_title",
     "jobRole": "job_role",
+    "companyName": "company_name",
     "jobDescription": "job_description",
     "resumeText": "resume_text",
     "agencyName": "agency_name",
+    "hrName": "hr_name",
+    "contactEmail": "contact_email",
+    "acceptanceLink": "acceptance_link",
     "meetingLink": "meeting_link",
     "interviewDate": "interview_date",
     "interviewTime": "interview_time",
@@ -176,10 +185,46 @@ DEFAULT_TEMPLATE_DEFINITIONS = {
     },
     "interview_selected": {
         "name": "Default Interview Selected",
-        "subject": "Congratulations on your interview result",
+        "subject": "Congratulations - You're Selected!",
         "body": (
-            "<p>Hi {{candidate_name}},</p>"
-            "<p>Congratulations. You have been selected after your interview for {{job_title}}.</p>"
+            "<!DOCTYPE html>"
+            "<html>"
+            "<head>"
+            "<meta charset=\"UTF-8\">"
+            "<title>Congratulations - You're Selected!</title>"
+            "</head>"
+            "<body style=\"margin:0; padding:0; font-family: Arial, sans-serif; background-color:#f4f4f4;\">"
+            "<table align=\"center\" width=\"600\" cellpadding=\"0\" cellspacing=\"0\" style=\"background-color:#ffffff; margin-top:30px; border-radius:8px; overflow:hidden;\">"
+            "<tr>"
+            "<td style=\"background-color:#4CAF50; color:#ffffff; text-align:center; padding:20px;\">"
+            "<h2 style=\"margin:0;\">Congratulations!</h2>"
+            "</td>"
+            "</tr>"
+            "<tr>"
+            "<td style=\"padding:30px; color:#333333;\">"
+            "<p>Dear <strong>{{candidate_name}}</strong>,</p>"
+            "<p>We are pleased to inform you that you have been successfully selected for the position of "
+            "<strong>{{job_role}}</strong> at <strong>{{company_name}}</strong>.</p>"
+            "<p>Your skills, experience, and performance during the interview process were impressive, and we believe you will be a valuable addition to our team.</p>"
+            "<p>Please confirm your acceptance by clicking the button below or replying to this email.</p>"
+            "<div style=\"text-align:center; margin:30px 0;\">"
+            "<a href=\"{{acceptance_link}}\" style=\"background-color:#4CAF50; color:#ffffff; padding:12px 25px; text-decoration:none; border-radius:5px; font-weight:bold;\">"
+            "Accept Offer"
+            "</a>"
+            "</div>"
+            "<p>If you have any questions, feel free to reach out to us.</p>"
+            "<p>We look forward to welcoming you to our team!</p>"
+            "<p>Best regards,<br><strong>{{hr_name}}</strong><br>{{company_name}}<br>{{contact_email}}</p>"
+            "</td>"
+            "</tr>"
+            "<tr>"
+            "<td style=\"background-color:#f4f4f4; text-align:center; padding:15px; font-size:12px; color:#777;\">"
+            "&copy; {{year}} {{company_name}}. All rights reserved."
+            "</td>"
+            "</tr>"
+            "</table>"
+            "</body>"
+            "</html>"
         ),
     },
     "interview_rejected": {
@@ -281,12 +326,16 @@ def _payload_with_legacy_aliases(payload: dict) -> dict:
     rendered_payload["jobId"] = rendered_payload.get("job_id", "")
     rendered_payload["jobTitle"] = rendered_payload.get("job_title", "")
     rendered_payload["jobRole"] = rendered_payload.get("job_role", "")
+    rendered_payload["companyName"] = rendered_payload.get("company_name", "")
     rendered_payload["jobDescription"] = rendered_payload.get("job_description", "")
     rendered_payload["resumeText"] = rendered_payload.get("resume_text", "")
     rendered_payload["meetingLink"] = rendered_payload.get("meeting_link", "")
     rendered_payload["interviewDate"] = rendered_payload.get("interview_date", "")
     rendered_payload["interviewTime"] = rendered_payload.get("interview_time", "")
     rendered_payload["agencyName"] = rendered_payload.get("agency_name", "")
+    rendered_payload["hrName"] = rendered_payload.get("hr_name", "")
+    rendered_payload["contactEmail"] = rendered_payload.get("contact_email", "")
+    rendered_payload["acceptanceLink"] = rendered_payload.get("acceptance_link", "")
     rendered_payload["predefinedQuestions"] = async_questions
     rendered_payload["predefinedQuestionsText"] = async_questions_text
     rendered_payload["interviewQuestions"] = async_questions
@@ -312,6 +361,7 @@ def build_notification_payload(
         "job_id": job.job_id if job and job.job_id else (str(job.id) if job else ""),
         "job_title": job.title if job else "",
         "job_role": candidate.current_role or (job.title if job else ""),
+        "company_name": (job.company_name if job and job.company_name else (agency.name if agency else "Our Company")),
         "job_description": job.description if job else "",
         "skills": ", ".join(candidate.skills or (job.skills if job else []) or []),
         "resume_text": candidate.resume_text or "",
@@ -323,6 +373,10 @@ def build_notification_payload(
         "interview_time": "",
         "agency_name": agency.name if agency else "",
         "async_questions": async_questions,
+        "hr_name": settings.FROM_NAME or "HR Team",
+        "contact_email": settings.FROM_EMAIL or "",
+        "year": str(datetime.utcnow().year),
+        "acceptance_link": settings.FRONTEND_URL,
     }
 
     if extra_payload:
