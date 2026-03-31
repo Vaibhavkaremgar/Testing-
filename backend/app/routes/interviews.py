@@ -72,9 +72,8 @@ def _derive_candidate_stage_from_interview(interview: Interview) -> Optional[Can
     today = datetime.now().date()
 
     if interview_status == "completed":
-        if interview.interview_score is None:
-            return CandidateStage.INTERVIEWED
-        return CandidateStage.SELECTED if interview.interview_score >= 6 else CandidateStage.REJECTED
+        interview_score = interview.interview_score if interview.interview_score is not None else 0
+        return CandidateStage.SELECTED if interview_score >= 6 else CandidateStage.REJECTED
 
     if interview_date == today and interview_status in {"scheduled", "rescheduled", "ongoing"}:
         return CandidateStage.INTERVIEWED
