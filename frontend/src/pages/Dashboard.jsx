@@ -35,30 +35,6 @@ const getDefaultView = () => ({
   selectedMonthNum: null
 })
 
-function formatRecordingDuration(seconds) {
-  if (!seconds && seconds !== 0) return '-'
-  const totalSeconds = Math.max(0, Math.round(Number(seconds)))
-  const minutes = Math.floor(totalSeconds / 60)
-  const remainingSeconds = totalSeconds % 60
-  return `${minutes}:${String(remainingSeconds).padStart(2, '0')}`
-}
-
-function formatRecordingSize(bytes) {
-  if (!bytes && bytes !== 0) return '-'
-  const numericBytes = Number(bytes)
-  if (Number.isNaN(numericBytes)) return '-'
-  if (numericBytes < 1024) return `${numericBytes} B`
-  if (numericBytes < 1024 * 1024) return `${(numericBytes / 1024).toFixed(1)} KB`
-  return `${(numericBytes / (1024 * 1024)).toFixed(1)} MB`
-}
-
-function getRecordingMimeType(format) {
-  const normalized = (format || '').toLowerCase()
-  if (normalized.includes('mp4')) return 'video/mp4'
-  if (normalized.includes('webm') || normalized.includes('vp9')) return 'video/webm'
-  return 'video/webm'
-}
-
 export default function Dashboard() {
   const { toast } = useToast()
   const [searchParams] = useSearchParams()
@@ -75,7 +51,6 @@ export default function Dashboard() {
   const [selectedMonthNum, setSelectedMonthNum] = useState(null)
   const [activeJobs, setActiveJobs] = useState([])
   const [upcomingInterviews, setUpcomingInterviews] = useState([])
-  const [recordingErrors, setRecordingErrors] = useState({})
   const [selectedCard, setSelectedCard] = useState(null)
   const [cardCandidates, setCardCandidates] = useState([])
   const [cardLoading, setCardLoading] = useState(false)
@@ -345,29 +320,31 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* KPI Cards */}
+      <div className="sticky top-0 z-20 -mx-2 bg-background/95 px-2 py-2 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+          {kpiCards.map((kpi) => (
+            <Card key={kpi.title} className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => handleCardClick(kpi)}>
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-muted-foreground">{kpi.title}</p>
+                    <p className="text-3xl font-bold mt-1">{kpi.value}</p>
+                  </div>
+                  <div className={cn('p-3 rounded-xl', kpi.bg)}>
+                    <kpi.icon className={cn('h-6 w-6', kpi.color)} />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+
       {/* Hiring Intelligence Card */}
       {intelligence && intelligence.insights && intelligence.insights.length > 0 && (
         <HiringIntelligence insights={intelligence.insights} />
       )}
-
-      {/* KPI Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
-        {kpiCards.map((kpi) => (
-          <Card key={kpi.title} className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => handleCardClick(kpi)}>
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground">{kpi.title}</p>
-                  <p className="text-3xl font-bold mt-1">{kpi.value}</p>
-                </div>
-                <div className={cn('p-3 rounded-xl', kpi.bg)}>
-                  <kpi.icon className={cn('h-6 w-6', kpi.color)} />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
 
       {/* Active Jobs & Upcoming Interviews */}
       <div className="grid gap-6 lg:grid-cols-2">
@@ -412,14 +389,17 @@ export default function Dashboard() {
             <div className="space-y-3 max-h-[300px] overflow-y-auto">
               {upcomingInterviews.length > 0 ? (
                 upcomingInterviews.map((interview) => (
-                  <div key={interview.id} className="p-3 border rounded-lg space-y-3">
+                  <div key={interview.id} className="p-3 border rounded-lg">
                     <div className="flex items-center gap-3">
                       <div className="p-2 rounded-lg bg-primary/10">
                         <Calendar className="h-5 w-5 text-primary" />
                       </div>
                       <div className="flex-1">
                         <p className="font-medium">{interview.candidate_name}</p>
-                        <p className="text-xs text-muted-foreground capitalize">{interview.interview_type}</p>
+                        <p className="text-xs text-muted-foreground capitalize">
+                          {interview.interview_type}
+                          {interview.job_title ? ` • ${interview.job_title}` : ''}
+                        </p>
                       </div>
                       <div className="text-right">
                         <p className="text-sm font-medium">
@@ -430,73 +410,6 @@ export default function Dashboard() {
                         </p>
                       </div>
                     </div>
-
-                    {(interview.has_candidate_recording || interview.has_vapi_recording) && (
-                      <div className="space-y-3 rounded-lg bg-muted/40 p-3">
-                        {interview.has_candidate_recording && interview.session_token && (
-                          <div className="space-y-2">
-                            <div className="flex items-center justify-between gap-2">
-                              <Badge variant="outline">Candidate Recording</Badge>
-                              <span className="text-xs text-muted-foreground">
-                                {interview.recording_format || 'webm'}
-                              </span>
-                            </div>
-                            <video
-                              controls
-                              preload="metadata"
-                              className="w-full rounded-lg bg-black"
-                              src={api.getDashboardRecordingUrl(interview.session_token)}
-                              onError={() => setRecordingErrors(prev => ({ ...prev, [`candidate-${interview.id}`]: 'Candidate recording failed to load.' }))}
-                            >
-                              <source
-                                src={api.getDashboardRecordingUrl(interview.session_token)}
-                                type={getRecordingMimeType(interview.recording_format)}
-                              />
-                            </video>
-                            <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-                              <p>Duration: {formatRecordingDuration(interview.recording_duration_seconds)}</p>
-                              <p>Size: {formatRecordingSize(interview.recording_size_bytes)}</p>
-                              <p>Format: {interview.recording_format || 'webm'}</p>
-                              <p>Created: {interview.recording_created_at ? formatDate(interview.recording_created_at) : '-'}</p>
-                            </div>
-                            {recordingErrors[`candidate-${interview.id}`] && (
-                              <p className="text-xs text-red-600">{recordingErrors[`candidate-${interview.id}`]}</p>
-                            )}
-                          </div>
-                        )}
-
-                        {interview.has_vapi_recording && interview.vapi_recording_url && (
-                          <div className="space-y-2">
-                            <div className="flex items-center justify-between gap-2">
-                              <Badge variant="outline">VAPI Recording</Badge>
-                              <span className="text-xs text-muted-foreground">External</span>
-                            </div>
-                            <video
-                              controls
-                              preload="metadata"
-                              className="w-full rounded-lg bg-black"
-                              src={interview.vapi_recording_url}
-                              onError={() => setRecordingErrors(prev => ({ ...prev, [`vapi-${interview.id}`]: 'VAPI recording failed to load.' }))}
-                            >
-                              <source src={interview.vapi_recording_url} type="video/mp4" />
-                            </video>
-                            <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-                              <p>Duration: {formatRecordingDuration(interview.recording_duration_seconds)}</p>
-                              <p>Size: {formatRecordingSize(interview.recording_size_bytes)}</p>
-                              <p>Format: {interview.recording_format || 'mp4'}</p>
-                              <p>Created: {interview.recording_created_at ? formatDate(interview.recording_created_at) : '-'}</p>
-                            </div>
-                            {recordingErrors[`vapi-${interview.id}`] && (
-                              <p className="text-xs text-red-600">{recordingErrors[`vapi-${interview.id}`]}</p>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {!interview.has_candidate_recording && !interview.has_vapi_recording && (
-                      <p className="text-xs text-muted-foreground">No recordings available yet.</p>
-                    )}
                   </div>
                 ))
               ) : (
