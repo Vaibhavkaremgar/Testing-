@@ -66,6 +66,7 @@ export function Sidebar() {
     
     // Regular users see My Assignments
     return [
+      { name: 'Dashboard', href: '/', icon: LayoutDashboard },
       { name: 'Resumes', href: '/my-assignments', icon: FileText },
       { name: 'Jobs', href: '/jobs', icon: Briefcase },
       { name: 'Candidates', href: '/pipeline', icon: Users },

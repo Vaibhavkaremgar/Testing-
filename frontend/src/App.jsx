@@ -64,7 +64,7 @@ function App() {
         <Route path="/login" element={isAuthenticated ? <Navigate to={getDefaultRouteForUser(user)} replace /> : <Login />} />
 
         {/* Regular routes */}
-        <Route path="/" element={<ProtectedRoute>{user?.role === 'admin' ? <Dashboard /> : <Navigate to="/resumes" replace />}</ProtectedRoute>} />
+        <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
         <Route path="/resumes" element={<ProtectedRoute><Resumes /></ProtectedRoute>} />
         <Route path="/my-assignments" element={<ProtectedRoute><Resumes /></ProtectedRoute>} />
         <Route path="/pipeline" element={<ProtectedRoute><Pipeline /></ProtectedRoute>} />
