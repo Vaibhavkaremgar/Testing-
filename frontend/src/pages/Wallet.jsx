@@ -446,7 +446,6 @@ Status: ${txn.status || 'completed'}
                     <th className="text-left py-3 px-4">Description</th>
                     <th className="text-left py-3 px-4">Credits</th>
                     <th className="text-left py-3 px-4">Amount</th>
-                    <th className="text-left py-3 px-4">Payment Method</th>
                     <th className="text-left py-3 px-4">Usage</th>
                     <th className="text-left py-3 px-4">Invoice</th>
                   </tr>
@@ -474,9 +473,6 @@ Status: ${txn.status || 'completed'}
                       </td>
                       <td className="py-3 px-4 text-sm">
                         {txn.price_paid ? `$${txn.price_paid}` : '-'}
-                      </td>
-                      <td className="py-3 px-4 text-sm capitalize">
-                        {txn.payment_method || '-'}
                       </td>
                       <td className="py-3 px-4">
                         <span className={`text-xs px-2 py-1 rounded ${
