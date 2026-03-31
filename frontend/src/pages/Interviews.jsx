@@ -64,47 +64,6 @@ function getInterviewResultMeta(interview) {
   }
 }
 
-function getInterviewPriority(interview) {
-  const effectiveStatus = getEffectiveInterviewStatus(interview)
-  const interviewScore = getNumericInterviewScore(interview)
-
-  if (interviewScore !== null) return 5
-  if (effectiveStatus === 'completed' && interview?.has_recording) return 4
-  if (effectiveStatus === 'completed') return 3
-  if (interview?.has_recording) return 2
-  return 1
-}
-
-function pickBestInterviewPerCandidate(interviews) {
-  const grouped = new Map()
-
-  for (const interview of interviews || []) {
-    const candidateKey = interview?.candidate_id || interview?.id
-    const current = grouped.get(candidateKey)
-    if (!current) {
-      grouped.set(candidateKey, interview)
-      continue
-    }
-
-    const currentPriority = getInterviewPriority(current)
-    const nextPriority = getInterviewPriority(interview)
-    const currentTime = current?.scheduled_at ? new Date(current.scheduled_at).getTime() : 0
-    const nextTime = interview?.scheduled_at ? new Date(interview.scheduled_at).getTime() : 0
-
-    if (nextPriority > currentPriority || (nextPriority === currentPriority && nextTime > currentTime)) {
-      grouped.set(candidateKey, interview)
-    }
-  }
-
-  return Array.from(grouped.values()).sort((a, b) => {
-    const priorityDiff = getInterviewPriority(b) - getInterviewPriority(a)
-    if (priorityDiff !== 0) return priorityDiff
-    const timeA = a?.scheduled_at ? new Date(a.scheduled_at).getTime() : 0
-    const timeB = b?.scheduled_at ? new Date(b.scheduled_at).getTime() : 0
-    return timeB - timeA
-  })
-}
-
 export default function Interviews({ superAdminAgencyId = null }) {
   const [searchParams] = useSearchParams()
   const selectedClient = searchParams.get('client')
@@ -139,11 +98,11 @@ export default function Interviews({ superAdminAgencyId = null }) {
         if (selectedClient) params.client = selectedClient
         if (superAdminAgencyId) params.agency_id = superAdminAgencyId
         const interviewRows = await api.getInterviews({ ...params, limit: DEFAULT_LIST_LIMIT })
-        const interviewsData = pickBestInterviewPerCandidate((interviewRows || [])
+        const interviewsData = (interviewRows || [])
           .map(interview => ({
             ...interview,
             playback_url: getInterviewPlaybackUrl(interview)
-          })))
+          }))
         
         setInterviews(interviewsData)
         if (interviewsData.length > 0) {
