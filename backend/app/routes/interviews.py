@@ -160,6 +160,19 @@ def _detect_video_media_type(video_bytes: bytes, fallback: str = "video/webm") -
     return fallback
 
 
+def _describe_recording_payload(recording_data) -> str:
+    if recording_data is None:
+        return "none"
+    if isinstance(recording_data, memoryview):
+        return f"memoryview(len={len(recording_data)})"
+    if isinstance(recording_data, (bytes, bytearray)):
+        return f"{type(recording_data).__name__}(len={len(recording_data)})"
+    if isinstance(recording_data, str):
+        preview = recording_data[:32].replace("\n", "\\n")
+        return f"str(len={len(recording_data)}, preview={preview!r})"
+    return type(recording_data).__name__
+
+
 def _coerce_recording_bytes(recording_data) -> bytes:
     if recording_data is None:
         return b""
@@ -198,6 +211,11 @@ def _coerce_recording_bytes(recording_data) -> bytes:
             raise HTTPException(status_code=500, detail="Interview recording uses an unsupported binary format")
 
     raise HTTPException(status_code=500, detail="Interview recording uses an unsupported binary format")
+
+
+def _log_recording_debug(context: str, **fields) -> None:
+    ordered_fields = ", ".join(f"{key}={value}" for key, value in fields.items())
+    print(f"[recording-debug] {context}: {ordered_fields}")
 
 
 def _normalize_recording_path(recording_path: Optional[str]) -> Optional[Path]:
@@ -632,6 +650,14 @@ def stream_interview_video(
         bearer_token = authorization.split(" ", 1)[1].strip()
 
     current_user = _resolve_video_request_user(db, token or bearer_token, None)
+    _log_recording_debug(
+        "stream_interview_video.request",
+        session_id=session_id,
+        has_query_token=bool(token),
+        has_bearer_token=bool(bearer_token),
+        range_header=bool(range_header),
+        user_id=current_user.id,
+    )
     interview = _get_scoped_interview_for_video(db, session_id, current_user)
     if not interview:
         raise HTTPException(status_code=404, detail="Interview session not found")
@@ -658,10 +684,25 @@ def stream_interview_video(
 
     recording_path = recording_record.get("recording_path") if recording_record else None
     recording_data = recording_record.get("recording_data") if recording_record else None
+    _log_recording_debug(
+        "stream_interview_video.lookup",
+        interview_id=interview.id,
+        async_token=interview.async_token,
+        recording_path=recording_path,
+        configured_media_type=configured_media_type,
+        payload=_describe_recording_payload(recording_data),
+    )
 
     if recording_data:
         video_bytes = _coerce_recording_bytes(recording_data)
         media_type = _normalize_recording_media_type(configured_media_type, video_bytes)
+        _log_recording_debug(
+            "stream_interview_video.bytes",
+            byte_length=len(video_bytes),
+            detected_media_type=_detect_video_media_type(video_bytes, fallback="unknown"),
+            response_media_type=media_type,
+            signature=video_bytes[:16].hex(),
+        )
         return _build_video_stream_response(video_bytes, media_type, range_header)
 
     if not recording_path:
@@ -669,6 +710,11 @@ def stream_interview_video(
 
     resolved_path = _normalize_recording_path(recording_path)
     media_type = configured_media_type or _guess_recording_media_type(str(resolved_path))
+    _log_recording_debug(
+        "stream_interview_video.file",
+        resolved_path=resolved_path,
+        response_media_type=media_type,
+    )
     return FileResponse(
         path=resolved_path,
         media_type=media_type,
@@ -696,6 +742,14 @@ def stream_candidate_recording(
         bearer_token = authorization.split(" ", 1)[1].strip()
 
     current_user = _resolve_video_request_user(db, token or bearer_token, None)
+    _log_recording_debug(
+        "stream_candidate_recording.request",
+        session_token=session_token,
+        has_query_token=bool(token),
+        has_bearer_token=bool(bearer_token),
+        range_header=bool(range_header),
+        user_id=current_user.id,
+    )
 
     connection = None
     try:
@@ -735,6 +789,14 @@ def stream_candidate_recording(
             if session_row.get(candidate_column):
                 configured_media_type = session_row.get(candidate_column)
                 break
+        _log_recording_debug(
+            "stream_candidate_recording.lookup",
+            interview_id=interview.id if interview else None,
+            async_token=interview.async_token if interview else None,
+            recording_path=recording_path,
+            configured_media_type=configured_media_type,
+            payload=_describe_recording_payload(recording_data),
+        )
     except HTTPException:
         raise
     except Exception as exc:
@@ -749,10 +811,22 @@ def stream_candidate_recording(
     if recording_data:
         video_bytes = _coerce_recording_bytes(recording_data)
         media_type = _normalize_recording_media_type(configured_media_type, video_bytes)
+        _log_recording_debug(
+            "stream_candidate_recording.bytes",
+            byte_length=len(video_bytes),
+            detected_media_type=_detect_video_media_type(video_bytes, fallback="unknown"),
+            response_media_type=media_type,
+            signature=video_bytes[:16].hex(),
+        )
         return _build_video_stream_response(video_bytes, media_type, range_header)
 
     resolved_path = _normalize_recording_path(recording_path)
     media_type = configured_media_type or _guess_recording_media_type(str(resolved_path))
+    _log_recording_debug(
+        "stream_candidate_recording.file",
+        resolved_path=resolved_path,
+        response_media_type=media_type,
+    )
     return FileResponse(
         path=resolved_path,
         media_type=media_type,
