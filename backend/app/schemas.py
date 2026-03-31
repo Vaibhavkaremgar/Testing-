@@ -225,6 +225,7 @@ class InterviewResponse(InterviewBase):
     candidate_name: Optional[str] = None
     async_token: Optional[str] = None
     session_token: Optional[str] = None
+    recording_path: Optional[str] = None
     status: str
     has_recording: bool = False
     video_url: Optional[str] = None

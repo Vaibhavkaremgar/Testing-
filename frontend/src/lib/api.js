@@ -1,6 +1,7 @@
 const API_BASE = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'https://ai-recruitment-dashboard-production.up.railway.app/api'
 const RECORDING_API_BASE = import.meta.env.VITE_RECORDING_API_URL || 'https://pontis-backend-production.up.railway.app/api'
 const DEFAULT_LIST_LIMIT = 100
+const APP_BASE = API_BASE.replace(/\/api$/, '')
 
 // Debug logging
 console.log('VITE_API_URL:', import.meta.env.VITE_API_URL)
@@ -699,6 +700,11 @@ class ApiClient {
     const encodedSessionToken = encodeURIComponent(sessionToken)
     const query = token ? `?token=${encodeURIComponent(token)}` : ''
     return `${API_BASE}/recording/${encodedSessionToken}${query}`
+  }
+
+  getUploadedRecordingUrl(recordingPath) {
+    const normalizedPath = String(recordingPath || '').replace(/^\/+/, '')
+    return normalizedPath ? `${APP_BASE}/uploads/${normalizedPath}` : ''
   }
 
   // Extract job data from file

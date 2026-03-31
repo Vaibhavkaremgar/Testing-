@@ -407,7 +407,7 @@ def _fetch_recording_availability(interviews: List[Interview]) -> dict[str, dict
                     params.extend(all_keys)
 
                 query = f"""
-                    SELECT {", ".join(f"{column_name}::text" for column_name in lookup_columns)}
+                    SELECT {", ".join([*(f"{column_name}::text" for column_name in lookup_columns), "recording_path::text AS recording_path"])}
                     FROM interview_sessions
                     WHERE {" OR ".join(where_clauses)}
                 """
@@ -418,7 +418,8 @@ def _fetch_recording_availability(interviews: List[Interview]) -> dict[str, dict
                 for row in cursor.fetchall():
                     matched_interview_ids: set[str] = set()
                     session_token_value = row[session_token_index] if session_token_index is not None else None
-                    for value in row:
+                    recording_path_value = row[-1]
+                    for value in row[:-1]:
                         if value and value in value_to_interview_ids:
                             matched_interview_ids.update(value_to_interview_ids[value])
 
@@ -427,12 +428,13 @@ def _fetch_recording_availability(interviews: List[Interview]) -> dict[str, dict
                         recording_metadata[interview_id] = {
                             "has_recording": True,
                             "session_token": existing.get("session_token") or session_token_value,
+                            "recording_path": existing.get("recording_path") or recording_path_value,
                         }
 
                 return {
                     str(interview.id): recording_metadata.get(
                         str(interview.id),
-                        {"has_recording": False, "session_token": None},
+                        {"has_recording": False, "session_token": None, "recording_path": None},
                     )
                     for interview in interviews
                 }
@@ -500,6 +502,7 @@ def get_interviews(
             "candidate_name": interview.candidate.name if interview.candidate else None,
             "async_token": interview.async_token,
             "session_token": recording_availability.get(str(interview.id), {}).get("session_token"),
+            "recording_path": recording_availability.get(str(interview.id), {}).get("recording_path"),
             "interview_type": interview.interview_type or "General",
             "scheduled_at": interview.scheduled_at,
             "duration_minutes": interview.duration_minutes if interview.duration_minutes is not None else 60,
@@ -672,6 +675,7 @@ def get_interview(
         "candidate_name": interview.candidate.name if interview.candidate else None,
         "async_token": interview.async_token,
         "session_token": recording_availability.get(str(interview.id), {}).get("session_token"),
+        "recording_path": recording_availability.get(str(interview.id), {}).get("recording_path"),
         "interview_type": interview.interview_type or "General",
         "scheduled_at": interview.scheduled_at,
         "duration_minutes": interview.duration_minutes if interview.duration_minutes is not None else 60,
@@ -719,6 +723,7 @@ def create_interview_public(
         candidate_id=db_interview.candidate_id,
         candidate_name=candidate.name,
         async_token=db_interview.async_token,
+        recording_path=None,
         interview_type=db_interview.interview_type,
         scheduled_at=db_interview.scheduled_at,
         duration_minutes=db_interview.duration_minutes,
@@ -774,6 +779,7 @@ def create_interview(
         "candidate_id": db_interview.candidate_id,
         "candidate_name": candidate.name,
         "async_token": db_interview.async_token,
+        "recording_path": None,
         "interview_type": db_interview.interview_type,
         "scheduled_at": db_interview.scheduled_at,
         "duration_minutes": db_interview.duration_minutes,
@@ -819,6 +825,7 @@ def update_interview(
         "candidate_id": db_interview.candidate_id,
         "candidate_name": db_interview.candidate.name if db_interview.candidate else None,
         "async_token": db_interview.async_token,
+        "recording_path": None,
         "interview_type": db_interview.interview_type,
         "scheduled_at": db_interview.scheduled_at,
         "duration_minutes": db_interview.duration_minutes,
