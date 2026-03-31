@@ -28,11 +28,11 @@ function getResumeDisplayStatus(candidate) {
   const threshold = candidate?.score_threshold || 60
 
   if (typeof resumeScore === 'number' && resumeScore <= (threshold - 10)) {
-    return { key: 'RESUME_REJECTED', label: 'Resume Rejected', badgeClass: 'bg-red-500' }
+    return { key: 'RESUME_REJECTED', label: 'Rejected', badgeClass: 'bg-red-500' }
   }
 
   if (stage === 'RESUME_REJECTED') {
-    return { key: 'RESUME_REJECTED', label: 'Resume Rejected', badgeClass: 'bg-red-500' }
+    return { key: 'RESUME_REJECTED', label: 'Rejected', badgeClass: 'bg-red-500' }
   }
 
   if (stage === 'REVIEW') {
@@ -51,7 +51,7 @@ function getResumeDisplayStatus(candidate) {
     'REJECTED',
     'NO_SHOW',
   ].includes(stage)) {
-    return { key: 'RESUME_SHORTLISTED', label: 'Resume Shortlisted', badgeClass: 'bg-green-500' }
+    return { key: 'RESUME_SHORTLISTED', label: 'Shortlisted', badgeClass: 'bg-green-500' }
   }
 
   return { key: 'IN_REVIEW', label: 'In Review', badgeClass: 'bg-amber-500' }
@@ -75,6 +75,7 @@ export default function Resumes() {
   const [searchParams] = useSearchParams()
   const selectedClient = searchParams.get('client')
   const { user: currentUser } = useAuth()
+  const canDeleteResumes = currentUser?.role === 'admin'
   const [candidates, setCandidates] = useState([])
   const [jobs, setJobs] = useState([])
   const [allJobs, setAllJobs] = useState([]) // Store all jobs for filter
@@ -416,6 +417,11 @@ export default function Resumes() {
   }
 
   const handleDelete = async (id) => {
+    if (!canDeleteResumes) {
+      setError('Only agency admins can delete resumes')
+      return
+    }
+
     if (confirm('Are you sure you want to delete this candidate?')) {
       try {
         await api.deleteCandidate(id)
@@ -1063,9 +1069,11 @@ export default function Resumes() {
                             <Button variant="ghost" size="icon" onClick={() => handleEdit(candidate)} title="Edit">
                               <Edit className="h-4 w-4" />
                             </Button>
-                            <Button variant="ghost" size="icon" onClick={() => handleDelete(candidate.id)} title="Delete">
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
+                            {canDeleteResumes && (
+                              <Button variant="ghost" size="icon" onClick={() => handleDelete(candidate.id)} title="Delete">
+                                <Trash2 className="h-4 w-4 text-destructive" />
+                              </Button>
+                            )}
                           </>
                         )}
                       </div>

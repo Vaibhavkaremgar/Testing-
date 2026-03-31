@@ -2022,7 +2022,12 @@ def delete_candidate(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
+    from app.models import UserRole
+
     try:
+        if current_user.role != UserRole.ADMIN:
+            raise HTTPException(status_code=403, detail="Only agency admins can delete resumes")
+
         db_candidate = db.query(Candidate).filter(Candidate.id == candidate_id).first()
         if not db_candidate:
             raise HTTPException(status_code=404, detail="Candidate not found")
