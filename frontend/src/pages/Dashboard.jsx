@@ -13,7 +13,7 @@ import PipelineTable from '@/components/analytics/PipelineTable'
 import OfferStatsCard from '@/components/analytics/OfferStatsCard'
 import HiringIntelligence from '@/components/HiringIntelligence'
 import {
-  Users, UserCheck, UserX, Calendar, Award, TrendingUp, FileText, X, CalendarIcon, Briefcase, Clock, CheckCircle, DollarSign, Target, TrendingDown
+  Users, UserCheck, UserX, Calendar, Award, FileText, X, CalendarIcon, Briefcase, Clock, CheckCircle, DollarSign, Target, TrendingDown
 } from 'lucide-react'
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -369,118 +369,6 @@ export default function Dashboard() {
         ))}
       </div>
 
-      {/* Score Card */}
-      <Card>
-        <CardContent className="p-6">
-          <div className="flex items-center gap-4">
-            <div className="p-3 rounded-xl bg-primary/10">
-              <TrendingUp className="h-6 w-6 text-primary" />
-            </div>
-            <div>
-              <p className="text-sm text-muted-foreground">Avg. Interview Score</p>
-              <p className={cn('text-3xl font-bold', getScoreColor(stats?.avg_interview_score))}>
-                {stats?.avg_interview_score?.toFixed(1)}
-              </p>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Charts Row */}
-      <div className="grid gap-6 lg:grid-cols-2">
-        {/* Resume Score Trend */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Resume Score Trend</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[250px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={resumeTrend}>
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                  <XAxis dataKey="month" className="text-xs" />
-                  <YAxis domain={[0, 100]} className="text-xs" />
-                  <Tooltip 
-                    contentStyle={{ 
-                      backgroundColor: 'hsl(var(--card))', 
-                      border: '1px solid hsl(var(--border))',
-                      borderRadius: '8px'
-                    }} 
-                  />
-                  <Line 
-                    type="monotone" 
-                    dataKey="avg_score" 
-                    stroke="hsl(var(--primary))" 
-                    strokeWidth={2}
-                    dot={{ fill: 'hsl(var(--primary))' }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Interview Score Trend */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Interview Scores Breakdown</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[250px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={interviewTrend}>
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                  <XAxis dataKey="month" className="text-xs" />
-                  <YAxis domain={[0, 100]} className="text-xs" />
-                  <Tooltip 
-                    contentStyle={{ 
-                      backgroundColor: 'hsl(var(--card))', 
-                      border: '1px solid hsl(var(--border))',
-                      borderRadius: '8px'
-                    }} 
-                  />
-                  <Bar dataKey="technical" fill="#3b82f6" name="Technical" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="communication" fill="#8b5cf6" name="Communication" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Hiring Funnel */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Hiring Funnel</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="h-[300px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <FunnelChart>
-                <Tooltip 
-                  contentStyle={{ 
-                    backgroundColor: 'hsl(var(--card))', 
-                    border: '1px solid hsl(var(--border))',
-                    borderRadius: '8px'
-                  }} 
-                />
-                <Funnel
-                  dataKey="count"
-                  data={funnel}
-                  isAnimationActive
-                >
-                  {funnel.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                  <LabelList position="right" fill="#888" stroke="none" dataKey="stage" />
-                  <LabelList position="center" fill="#fff" stroke="none" dataKey="count" />
-                </Funnel>
-              </FunnelChart>
-            </ResponsiveContainer>
-          </div>
-        </CardContent>
-      </Card>
-
       {/* Active Jobs & Upcoming Interviews */}
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Active Jobs */}
@@ -502,7 +390,6 @@ export default function Dashboard() {
                         <p className="text-sm font-medium">{job.candidates || 0} {job.candidates === 1 ? 'candidate' : 'candidates'}</p>
                         <p className="text-xs text-muted-foreground">{job.vacancies || 1} {(job.vacancies || 1) === 1 ? 'position' : 'positions'}</p>
                       </div>
-                      
                     </div>
                   </div>
                 ))
@@ -622,6 +509,101 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Charts Row */}
+      <div className="grid gap-6 lg:grid-cols-2">
+        {/* Resume Score Trend */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Resume Score Trend</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="h-[250px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={resumeTrend}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                  <XAxis dataKey="month" className="text-xs" />
+                  <YAxis domain={[0, 100]} className="text-xs" />
+                  <Tooltip 
+                    contentStyle={{ 
+                      backgroundColor: 'hsl(var(--card))', 
+                      border: '1px solid hsl(var(--border))',
+                      borderRadius: '8px'
+                    }} 
+                  />
+                  <Line 
+                    type="monotone" 
+                    dataKey="avg_score" 
+                    stroke="hsl(var(--primary))" 
+                    strokeWidth={2}
+                    dot={{ fill: 'hsl(var(--primary))' }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Interview Score Trend */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Interview Scores Breakdown</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="h-[250px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={interviewTrend}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                  <XAxis dataKey="month" className="text-xs" />
+                  <YAxis domain={[0, 100]} className="text-xs" />
+                  <Tooltip 
+                    contentStyle={{ 
+                      backgroundColor: 'hsl(var(--card))', 
+                      border: '1px solid hsl(var(--border))',
+                      borderRadius: '8px'
+                    }} 
+                  />
+                  <Bar dataKey="technical" fill="#3b82f6" name="Technical" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="communication" fill="#8b5cf6" name="Communication" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Hiring Funnel */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Hiring Funnel</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="h-[300px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <FunnelChart>
+                <Tooltip 
+                  contentStyle={{ 
+                    backgroundColor: 'hsl(var(--card))', 
+                    border: '1px solid hsl(var(--border))',
+                    borderRadius: '8px'
+                  }} 
+                />
+                <Funnel
+                  dataKey="count"
+                  data={funnel}
+                  isAnimationActive
+                >
+                  {funnel.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  ))}
+                  <LabelList position="right" fill="#888" stroke="none" dataKey="stage" />
+                  <LabelList position="center" fill="#fff" stroke="none" dataKey="count" />
+                </Funnel>
+              </FunnelChart>
+            </ResponsiveContainer>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Modal for Card Details */}
       {selectedCard && selectedCard.title && cardCandidates !== null && (
