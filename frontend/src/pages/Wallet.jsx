@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,6 +13,7 @@ const PAYMENT_METHODS = [
 ];
 
 export default function WalletPage({ superAdminAgencyId = null }) {
+  const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
   const isSuperAdmin = user?.role === 'super_admin';
   const isAdmin = user?.role === 'admin';
@@ -57,6 +59,13 @@ export default function WalletPage({ superAdminAgencyId = null }) {
     }
   }, [user, superAdminAgencyId]);
 
+  useEffect(() => {
+    if (isSuperAdmin || !isAdmin) return;
+    if (searchParams.get('lowCredits') === '1') {
+      setShowLowCreditModal(true);
+    }
+  }, [isAdmin, isSuperAdmin, searchParams]);
+
   const fetchDiscount = async () => {
     if (!user?.agency_id) return;
     try {
@@ -99,8 +108,7 @@ export default function WalletPage({ superAdminAgencyId = null }) {
       const response = await api.get('/wallet/balance');
       const bal = response.balance || 0;
       setBalance(bal);
-      if (isAdmin && bal <= 10 && !sessionStorage.getItem('lowCreditAlertShown')) {
-        sessionStorage.setItem('lowCreditAlertShown', 'true');
+      if (isAdmin && bal <= 10) {
         setShowLowCreditModal(true);
       }
     } catch (error) {
@@ -233,11 +241,31 @@ Status: ${txn.status || 'completed'}
               <h2 className="text-lg font-bold text-gray-900">Low Credits Warning</h2>
             </div>
             <p className="text-gray-600 text-sm mb-4">
-              Your wallet balance is only <span className="font-bold text-red-600">{balance} credits</span>. Please recharge to continue using interview services.
+              Your credits are low. To continue the service do recharge.
             </p>
             <div className="flex gap-3">
-              <Button variant="outline" className="flex-1" onClick={() => setShowLowCreditModal(false)}>Dismiss</Button>
-              <Button className="flex-1" onClick={() => { setShowLowCreditModal(false); document.getElementById('creditAmount')?.focus(); }}>Recharge Now</Button>
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => {
+                  setShowLowCreditModal(false);
+                  searchParams.delete('lowCredits');
+                  setSearchParams(searchParams);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                className="flex-1"
+                onClick={() => {
+                  setShowLowCreditModal(false);
+                  searchParams.delete('lowCredits');
+                  setSearchParams(searchParams);
+                  document.getElementById('creditAmount')?.focus();
+                }}
+              >
+                Proceed to Payment
+              </Button>
             </div>
           </div>
         </div>
