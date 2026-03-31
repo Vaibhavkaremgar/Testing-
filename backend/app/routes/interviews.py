@@ -468,6 +468,57 @@ def _fetch_interview_session_row_by_session_token(cursor, session_token: str):
     return dict(zip(field_names, row))
 
 
+def _fetch_interview_session_row_by_lookup_key(cursor, lookup_key: str):
+    columns = _get_table_columns(cursor, "interview_sessions")
+    if "recording_path" not in columns and "recording_data" not in columns:
+        raise HTTPException(status_code=404, detail="Interview recording not found")
+
+    select_fields = []
+    if "recording_path" in columns:
+        select_fields.append("recording_path")
+    if "recording_data" in columns:
+        select_fields.append("recording_data")
+    if "session_token" in columns:
+        select_fields.append("session_token")
+    for candidate_column in ("mime_type", "content_type", "recording_mime_type", "video_format"):
+        if candidate_column in columns:
+            select_fields.append(candidate_column)
+            break
+
+    lookup_columns = [
+        column_name
+        for column_name in ("id", "session_id", "session_token", "interview_id", "async_token", "token")
+        if column_name in columns
+    ]
+    for candidate_column in ("interview_id", "async_token", "token", "session_id", "id"):
+        if candidate_column in columns and candidate_column not in select_fields:
+            select_fields.append(candidate_column)
+
+    if not lookup_columns:
+        raise HTTPException(status_code=404, detail="Interview recording not found")
+
+    where_clauses = [f"{column_name}::text = %s" for column_name in lookup_columns]
+    params = [lookup_key] * len(lookup_columns)
+
+    query = f"""
+        SELECT {", ".join(select_fields)}
+        FROM interview_sessions
+        WHERE {" OR ".join(where_clauses)}
+        LIMIT 1
+    """
+    cursor.execute(query, tuple(params))
+    row = cursor.fetchone()
+    if not row:
+        _log_recording_debug(
+            "stream_interview_video.session_lookup_miss",
+            lookup_key=lookup_key,
+            lookup_columns="|".join(lookup_columns),
+        )
+        raise HTTPException(status_code=404, detail="Interview session not found")
+
+    return dict(zip(select_fields, row))
+
+
 def _fetch_recording_availability(interviews: List[Interview]) -> dict[str, dict]:
     if not interviews:
         return {}
@@ -666,13 +717,40 @@ def stream_interview_video(
         user_id=current_user.id,
     )
     interview = _get_scoped_interview_for_video(db, session_id, current_user)
-    if not interview:
-        raise HTTPException(status_code=404, detail="Interview session not found")
 
     try:
         connection = psycopg2.connect(settings.DATABASE_URL)
         with connection:
             with connection.cursor() as cursor:
+                if not interview:
+                    session_row = _fetch_interview_session_row_by_lookup_key(cursor, session_id)
+                    _log_recording_debug(
+                        "stream_interview_video.session_lookup_hit",
+                        session_id=session_id,
+                        session_token=session_row.get("session_token"),
+                        payload=_describe_recording_payload(session_row.get("recording_data")),
+                    )
+                    for possible_key in (
+                        session_row.get("interview_id"),
+                        session_row.get("async_token"),
+                        session_row.get("token"),
+                        session_row.get("session_id"),
+                        session_row.get("id"),
+                    ):
+                        if not possible_key:
+                            continue
+                        try:
+                            query = db.query(Interview).filter(Interview.id == UUID(str(possible_key)))
+                        except ValueError:
+                            query = db.query(Interview).filter(Interview.async_token == str(possible_key))
+                        interview = _apply_interview_scope(query, current_user).first()
+                        if interview:
+                            break
+
+                if not interview:
+                    _log_recording_debug("stream_interview_video.interview_lookup_miss", session_id=session_id)
+                    raise HTTPException(status_code=404, detail="Interview session not found")
+
                 session_keys = [session_id, str(interview.id)]
                 if interview.async_token:
                     session_keys.append(interview.async_token)
