@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -76,9 +76,11 @@ export default function Interviews({ superAdminAgencyId = null }) {
   const SHOW_MORE_STEP = 20
   const [candidates, setCandidates] = useState([])
   const [jobs, setJobs] = useState([])
+  const [selectedJobFilter, setSelectedJobFilter] = useState('all')
   const [videoError, setVideoError] = useState('')
   const [mediaMode, setMediaMode] = useState('video')
   const [decisionLoading, setDecisionLoading] = useState(null)
+  const [approveModalOpen, setApproveModalOpen] = useState(false)
   const { toast } = useToast()
   const [scheduleForm, setScheduleForm] = useState({
     name: '',
@@ -143,6 +145,39 @@ export default function Interviews({ superAdminAgencyId = null }) {
     fetchJobs()
   }, [selectedClient, superAdminAgencyId])
 
+  const activeJobs = useMemo(
+    () => (jobs || []).filter((job) => job.is_active),
+    [jobs]
+  )
+
+  const candidateJobMap = useMemo(() => {
+    const map = new Map()
+    ;(candidates || []).forEach((candidate) => {
+      map.set(String(candidate.id), candidate.job_id ? String(candidate.job_id) : '')
+    })
+    return map
+  }, [candidates])
+
+  const filteredInterviews = useMemo(() => {
+    if (selectedJobFilter === 'all') return interviews
+
+    return interviews.filter((interview) => (
+      candidateJobMap.get(String(interview.candidate_id)) === selectedJobFilter
+    ))
+  }, [candidateJobMap, interviews, selectedJobFilter])
+
+  useEffect(() => {
+    if (filteredInterviews.length === 0) {
+      setSelectedInterview(null)
+      return
+    }
+
+    const selectedStillVisible = filteredInterviews.some((interview) => interview.id === selectedInterview?.id)
+    if (!selectedStillVisible) {
+      setSelectedInterview(filteredInterviews[0])
+    }
+  }, [filteredInterviews, selectedInterview])
+
   const handleScheduleInterview = async () => {
     try {
       if (!scheduleForm.email) {
@@ -193,6 +228,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
     setDecisionLoading('approve')
     try {
       await api.updateCandidateStage(selectedInterview.candidate_id, 'SELECTED', { suppress_notification: true });
+      setApproveModalOpen(false)
       toast({
         title: 'Candidate Selected',
         description: 'Candidate moved to Selected without sending an interview email.',
@@ -259,10 +295,24 @@ export default function Interviews({ superAdminAgencyId = null }) {
           <h1 className="text-2xl font-bold">Interviews</h1>
           <p className="text-muted-foreground">Review interview recordings and AI analysis</p>
         </div>
-        <Button onClick={() => setShowScheduleModal(true)}>
-          <Plus className="h-4 w-4 mr-2" />
-          Schedule Interview
-        </Button>
+        <div className="flex items-center gap-3">
+          <select
+            className="h-10 min-w-56 rounded-lg border border-input bg-background px-3 py-2 text-sm"
+            value={selectedJobFilter}
+            onChange={(e) => setSelectedJobFilter(e.target.value)}
+          >
+            <option value="all">All Active Jobs</option>
+            {activeJobs.map((job) => (
+              <option key={job.id} value={job.id}>
+                {job.title}
+              </option>
+            ))}
+          </select>
+          <Button onClick={() => setShowScheduleModal(true)}>
+            <Plus className="h-4 w-4 mr-2" />
+            Schedule Interview
+          </Button>
+        </div>
       </div>
 
       {/* Main Content - Side by Side */}
@@ -273,14 +323,14 @@ export default function Interviews({ superAdminAgencyId = null }) {
             <CardTitle className="text-base">Interview Recordings</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
-            {interviews.length === 0 ? (
+            {filteredInterviews.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground px-4">
                 <Video className="h-12 w-12 mx-auto mb-3 opacity-50" />
                 <p className="text-sm">No interview recordings</p>
               </div>
             ) : (
               <div className="flex flex-col gap-2 p-2">
-                {interviews.slice(0, visibleCount).map((interview) => {
+                {filteredInterviews.slice(0, visibleCount).map((interview) => {
                   const resultMeta = getInterviewResultMeta(interview)
                   const interviewScore = getNumericInterviewScore(interview)
                   return (
@@ -314,12 +364,12 @@ export default function Interviews({ superAdminAgencyId = null }) {
                   </button>
                   )
                 })}
-                {visibleCount < interviews.length && (
+                {visibleCount < filteredInterviews.length && (
                   <button
                     className="px-4 py-3 text-sm text-primary hover:bg-muted transition-colors text-center border-t"
                     onClick={() => setVisibleCount(v => v + SHOW_MORE_STEP)}
                   >
-                    Show More ({interviews.length - visibleCount} remaining)
+                    Show More ({filteredInterviews.length - visibleCount} remaining)
                   </button>
                 )}
               </div>
@@ -341,7 +391,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
               <div className="flex gap-2">
                 <Button
                   className="bg-green-600 hover:bg-green-700 text-white"
-                  onClick={handleApprove}
+                  onClick={() => setApproveModalOpen(true)}
                   disabled={!isDecisionReady || decisionLoading !== null}
                 >
                   {decisionLoading === 'approve' ? 'Sending...' : 'Approve'}
@@ -517,7 +567,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
             </Tabs>
           </CardContent>
         </Card>
-        ) : interviews.length > 0 ? (
+        ) : filteredInterviews.length > 0 ? (
           <Card className="flex-1 flex items-center justify-center">
             <div className="text-center text-muted-foreground">
               <Video className="h-16 w-16 mx-auto mb-4 opacity-50" />
@@ -675,6 +725,36 @@ export default function Interviews({ superAdminAgencyId = null }) {
               <div className="pt-4">
                 <Button className="w-full" onClick={handleScheduleInterview}>
                   Send Email
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {approveModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setApproveModalOpen(false)}>
+          <div className="bg-card rounded-lg p-6 max-w-md w-full mx-4" onClick={(e) => e.stopPropagation()}>
+            <div className="space-y-4">
+              <div>
+                <h2 className="text-xl font-bold">Approve Candidate</h2>
+                <p className="text-sm text-muted-foreground mt-2">Are you sure to approve</p>
+              </div>
+              <div className="flex gap-3 pt-2">
+                <Button
+                  className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                  onClick={handleApprove}
+                  disabled={decisionLoading !== null}
+                >
+                  {decisionLoading === 'approve' ? 'Sending...' : 'Approve'}
+                </Button>
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => setApproveModalOpen(false)}
+                  disabled={decisionLoading !== null}
+                >
+                  Cancel
                 </Button>
               </div>
             </div>
