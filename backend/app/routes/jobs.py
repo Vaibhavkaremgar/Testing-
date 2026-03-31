@@ -182,7 +182,7 @@ def get_job(
 def create_job(
     job: JobDescriptionCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_admin_user)
 ):
     try:
         print(f"Creating job with data: {job.model_dump()}")
@@ -250,7 +250,7 @@ def update_job(
     job_id: UUID,
     job_update: JobDescriptionUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_admin_user)
 ):
     db_job = db.query(JobDescription).filter(JobDescription.id == job_id).first()
     if not db_job:

@@ -7,13 +7,16 @@ import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { api } from '@/lib/api'
+import { useAuth } from '@/context/AuthContext'
 import { formatDate } from '@/lib/utils'
 import { Plus, Briefcase, MapPin, Clock, Users, Edit, Trash2, Upload, FileText } from 'lucide-react'
 
 export default function Jobs({ superAdminAgencyId = null }) {
   const [searchParams] = useSearchParams()
   const selectedClient = searchParams.get('client')
+  const { user: currentUser } = useAuth()
   const isSuperAdminView = superAdminAgencyId !== null
+  const canManageJobs = currentUser?.role === 'admin' && !isSuperAdminView
   const [jobs, setJobs] = useState([])
   const [allJobs, setAllJobs] = useState([])
   const [loading, setLoading] = useState(true)
@@ -229,7 +232,7 @@ export default function Jobs({ superAdminAgencyId = null }) {
           <p className="text-muted-foreground">Manage open positions</p>
         </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          {!isSuperAdminView && (
+          {canManageJobs && (
           <DialogTrigger asChild>
             <Button onClick={() => {
               setEditingJob(null)
@@ -583,7 +586,7 @@ export default function Jobs({ superAdminAgencyId = null }) {
                 </div>
               )}
 
-              {!isSuperAdminView && (
+              {canManageJobs && (
                 <div className="flex items-center justify-between pt-2 border-t">
                   <div className="flex items-center gap-2">
                     <Switch 
