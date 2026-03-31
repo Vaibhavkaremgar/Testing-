@@ -218,6 +218,13 @@ def _log_recording_debug(context: str, **fields) -> None:
     print(f"[recording-debug] {context}: {ordered_fields}")
 
 
+def _extract_configured_media_type(row_dict: dict) -> Optional[str]:
+    for candidate_column in ("mime_type", "content_type", "recording_mime_type", "video_format"):
+        if row_dict.get(candidate_column):
+            return row_dict.get(candidate_column)
+    return None
+
+
 def _normalize_recording_path(recording_path: Optional[str]) -> Optional[Path]:
     if not recording_path:
         return None
@@ -717,6 +724,7 @@ def stream_interview_video(
         user_id=current_user.id,
     )
     interview = _get_scoped_interview_for_video(db, session_id, current_user)
+    session_row = None
 
     try:
         connection = psycopg2.connect(settings.DATABASE_URL)
@@ -748,14 +756,25 @@ def stream_interview_video(
                             break
 
                 if not interview:
-                    _log_recording_debug("stream_interview_video.interview_lookup_miss", session_id=session_id)
-                    raise HTTPException(status_code=404, detail="Interview session not found")
+                    _log_recording_debug(
+                        "stream_interview_video.interview_lookup_miss",
+                        session_id=session_id,
+                        fallback_to_session_row=bool(session_row),
+                    )
+                    if not session_row:
+                        raise HTTPException(status_code=404, detail="Interview session not found")
 
-                session_keys = [session_id, str(interview.id)]
-                if interview.async_token:
-                    session_keys.append(interview.async_token)
+                    recording_record = {
+                        "recording_path": session_row.get("recording_path"),
+                        "recording_data": session_row.get("recording_data"),
+                    }
+                    configured_media_type = _extract_configured_media_type(session_row)
+                else:
+                    session_keys = [session_id, str(interview.id)]
+                    if interview.async_token:
+                        session_keys.append(interview.async_token)
 
-                recording_record, configured_media_type = _fetch_interview_recording(cursor, session_keys)
+                    recording_record, configured_media_type = _fetch_interview_recording(cursor, session_keys)
     except HTTPException:
         raise
     except Exception as exc:
@@ -771,8 +790,8 @@ def stream_interview_video(
     recording_data = recording_record.get("recording_data") if recording_record else None
     _log_recording_debug(
         "stream_interview_video.lookup",
-        interview_id=interview.id,
-        async_token=interview.async_token,
+        interview_id=interview.id if interview else None,
+        async_token=interview.async_token if interview else None,
         recording_path=recording_path,
         configured_media_type=configured_media_type,
         payload=_describe_recording_payload(recording_data),
@@ -861,19 +880,18 @@ def stream_candidate_recording(
             if interview:
                 break
 
-        if not interview:
-            raise HTTPException(status_code=404, detail="Interview session not found")
-
         recording_path = session_row.get("recording_path")
         recording_data = session_row.get("recording_data")
         if not recording_path and not recording_data:
             raise HTTPException(status_code=404, detail="Interview recording not found")
 
-        configured_media_type = None
-        for candidate_column in ("mime_type", "content_type", "recording_mime_type", "video_format"):
-            if session_row.get(candidate_column):
-                configured_media_type = session_row.get(candidate_column)
-                break
+        configured_media_type = _extract_configured_media_type(session_row)
+        if not interview:
+            _log_recording_debug(
+                "stream_candidate_recording.interview_lookup_miss",
+                session_token=session_token,
+                fallback_to_session_row=True,
+            )
         _log_recording_debug(
             "stream_candidate_recording.lookup",
             interview_id=interview.id if interview else None,
