@@ -285,10 +285,14 @@ def _get_table_columns(cursor, table_name: str) -> set[str]:
 
 def _fetch_interview_recording(cursor, session_keys: List[str]):
     columns = _get_table_columns(cursor, "interview_sessions")
-    if "recording_path" not in columns:
-        raise HTTPException(status_code=500, detail="interview_sessions.recording_path column is missing")
+    if "recording_path" not in columns and "recording_data" not in columns:
+        raise HTTPException(status_code=500, detail="No interview recording columns found")
 
-    select_fields = ["recording_path"]
+    select_fields = []
+    if "recording_path" in columns:
+        select_fields.append("recording_path")
+    if "recording_data" in columns:
+        select_fields.append("recording_data")
     mime_column = None
     for candidate_column in ("mime_type", "content_type", "recording_mime_type", "video_format"):
         if candidate_column in columns:
@@ -326,17 +330,35 @@ def _fetch_interview_recording(cursor, session_keys: List[str]):
     if not row:
         return None, None
 
-    recording_path = row[0]
-    configured_media_type = row[1] if mime_column and len(row) > 1 else None
-    return recording_path, configured_media_type
+    row_index = 0
+    recording_path = None
+    recording_data = None
+    if "recording_path" in columns:
+        recording_path = row[row_index]
+        row_index += 1
+    if "recording_data" in columns:
+        recording_data = row[row_index]
+        row_index += 1
+
+    configured_media_type = row[row_index] if mime_column and len(row) > row_index else None
+    return {
+        "recording_path": recording_path,
+        "recording_data": recording_data,
+    }, configured_media_type
 
 
 def _fetch_interview_session_row_by_session_token(cursor, session_token: str):
     columns = _get_table_columns(cursor, "interview_sessions")
-    if "session_token" not in columns or "recording_path" not in columns:
+    if "recording_path" not in columns and "recording_data" not in columns:
         raise HTTPException(status_code=404, detail="Interview recording not found")
 
-    select_fields = ["recording_path", "session_token"]
+    select_fields = []
+    if "recording_path" in columns:
+        select_fields.append("recording_path")
+    if "recording_data" in columns:
+        select_fields.append("recording_data")
+    if "session_token" in columns:
+        select_fields.append("session_token")
     for candidate_column in ("mime_type", "content_type", "recording_mime_type", "video_format"):
         if candidate_column in columns:
             select_fields.append(candidate_column)
@@ -346,13 +368,26 @@ def _fetch_interview_session_row_by_session_token(cursor, session_token: str):
         if candidate_column in columns:
             select_fields.append(candidate_column)
 
+    where_clauses = []
+    params = []
+    if "session_token" in columns:
+        where_clauses.append("session_token = %s")
+        params.append(session_token)
+    if "recording_path" in columns:
+        where_clauses.append("recording_path = %s")
+        params.append(session_token)
+        where_clauses.append("recording_path = %s")
+        params.append(f"{session_token}.mp4")
+        where_clauses.append("regexp_replace(recording_path, '\\.[^.]+$', '') = %s")
+        params.append(session_token)
+
     query = f"""
         SELECT {", ".join(select_fields)}
         FROM interview_sessions
-        WHERE session_token = %s
+        WHERE {" OR ".join(where_clauses)}
         LIMIT 1
     """
-    cursor.execute(query, (session_token,))
+    cursor.execute(query, tuple(params))
     row = cursor.fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Interview recording not found")
@@ -371,7 +406,9 @@ def _fetch_recording_availability(interviews: List[Interview]) -> dict[str, dict
         with connection:
             with connection.cursor() as cursor:
                 columns = _get_table_columns(cursor, "interview_sessions")
-                if "recording_path" not in columns:
+                has_recording_path = "recording_path" in columns
+                has_recording_data = "recording_data" in columns
+                if not has_recording_path and not has_recording_data:
                     return {}
 
                 lookup_columns = [
@@ -398,15 +435,24 @@ def _fetch_recording_availability(interviews: List[Interview]) -> dict[str, dict
 
                 where_clauses = []
                 params = []
+                recording_clause_parts = []
+                if has_recording_path:
+                    recording_clause_parts.append("recording_path IS NOT NULL")
+                if has_recording_data:
+                    recording_clause_parts.append("recording_data IS NOT NULL")
+                recording_clause = " OR ".join(recording_clause_parts)
                 for column_name in lookup_columns:
                     placeholders = ", ".join(["%s"] * len(all_keys))
                     where_clauses.append(
-                        f"({column_name} IS NOT NULL AND {column_name}::text IN ({placeholders}) AND recording_path IS NOT NULL)"
+                        f"({column_name} IS NOT NULL AND {column_name}::text IN ({placeholders}) AND ({recording_clause}))"
                     )
                     params.extend(all_keys)
 
+                select_fields = [*(f"{column_name}::text" for column_name in lookup_columns)]
+                if has_recording_path:
+                    select_fields.append("recording_path::text AS recording_path")
                 query = f"""
-                    SELECT {", ".join([*(f"{column_name}::text" for column_name in lookup_columns), "recording_path::text AS recording_path"])}
+                    SELECT {", ".join(select_fields)}
                     FROM interview_sessions
                     WHERE {" OR ".join(where_clauses)}
                 """
@@ -417,8 +463,9 @@ def _fetch_recording_availability(interviews: List[Interview]) -> dict[str, dict
                 for row in cursor.fetchall():
                     matched_interview_ids: set[str] = set()
                     session_token_value = row[session_token_index] if session_token_index is not None else None
-                    recording_path_value = row[-1]
-                    for value in row[:-1]:
+                    recording_path_value = row[-1] if has_recording_path else None
+                    lookup_values = row[:-1] if has_recording_path else row
+                    for value in lookup_values:
                         if value and value in value_to_interview_ids:
                             matched_interview_ids.update(value_to_interview_ids[value])
 
@@ -550,7 +597,7 @@ def stream_interview_video(
                 if interview.async_token:
                     session_keys.append(interview.async_token)
 
-                recording_path, configured_media_type = _fetch_interview_recording(cursor, session_keys)
+                recording_record, configured_media_type = _fetch_interview_recording(cursor, session_keys)
     except HTTPException:
         raise
     except Exception as exc:
@@ -561,6 +608,14 @@ def stream_interview_video(
             connection.close()
         except Exception:
             pass
+
+    recording_path = recording_record.get("recording_path") if recording_record else None
+    recording_data = recording_record.get("recording_data") if recording_record else None
+
+    if recording_data:
+        video_bytes = bytes(recording_data)
+        media_type = _normalize_recording_media_type(configured_media_type, video_bytes)
+        return _build_video_stream_response(video_bytes, media_type, range_header)
 
     if not recording_path:
         raise HTTPException(status_code=404, detail="Interview recording not found")
@@ -624,7 +679,8 @@ def stream_candidate_recording(
             raise HTTPException(status_code=404, detail="Interview session not found")
 
         recording_path = session_row.get("recording_path")
-        if not recording_path:
+        recording_data = session_row.get("recording_data")
+        if not recording_path and not recording_data:
             raise HTTPException(status_code=404, detail="Interview recording not found")
 
         configured_media_type = None
@@ -642,6 +698,11 @@ def stream_candidate_recording(
             connection.close()
         except Exception:
             pass
+
+    if recording_data:
+        video_bytes = bytes(recording_data)
+        media_type = _normalize_recording_media_type(configured_media_type, video_bytes)
+        return _build_video_stream_response(video_bytes, media_type, range_header)
 
     resolved_path = _normalize_recording_path(recording_path)
     media_type = configured_media_type or _guess_recording_media_type(str(resolved_path))
