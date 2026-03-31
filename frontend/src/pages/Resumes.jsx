@@ -19,6 +19,14 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 
 const DEFAULT_LIST_LIMIT = 100
 
@@ -112,6 +120,7 @@ export default function Resumes() {
   const [sending, setSending] = useState(false)
   const [isEditingEmail, setIsEditingEmail] = useState(false)
   const [visibleCount, setVisibleCount] = useState(20)
+  const [deleteCandidateModal, setDeleteCandidateModal] = useState({ open: false, candidate: null })
   const SHOW_MORE_STEP = 20
 
   // Load job-specific minimum passing scores
@@ -422,21 +431,27 @@ export default function Resumes() {
       return
     }
 
-    if (confirm('Are you sure you want to delete this candidate?')) {
+    const candidate = candidates.find((item) => item.id === id) || null
+    setDeleteCandidateModal({ open: true, candidate })
+  }
+
+  const handleConfirmDelete = async () => {
+    const candidateId = deleteCandidateModal.candidate?.id
+    if (!candidateId) return
+
+    try {
+      await api.deleteCandidate(candidateId)
+      setDeleteCandidateModal({ open: false, candidate: null })
+      await fetchCandidates()
+
       try {
-        await api.deleteCandidate(id)
-        await fetchCandidates()
-        
-        // Auto-sync to sheets after delete
-        try {
-          await api.syncCandidatesToSheets()
-        } catch (syncError) {
-          console.error('Auto-sync to sheets failed:', syncError)
-        }
-      } catch (error) {
-        console.error('Delete failed:', error)
-        setError(`Delete failed: ${error.message}`)
+        await api.syncCandidatesToSheets()
+      } catch (syncError) {
+        console.error('Auto-sync to sheets failed:', syncError)
       }
+    } catch (error) {
+      console.error('Delete failed:', error)
+      setError(`Delete failed: ${error.message}`)
     }
   }
 
@@ -1461,6 +1476,34 @@ export default function Resumes() {
           </div>
         </div>
       )}
+
+      <Dialog
+        open={deleteCandidateModal.open}
+        onOpenChange={(open) => setDeleteCandidateModal({ open, candidate: open ? deleteCandidateModal.candidate : null })}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete Candidate</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete the candidate{deleteCandidateModal.candidate?.name ? ` "${deleteCandidateModal.candidate.name}"` : ''}?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setDeleteCandidateModal({ open: false, candidate: null })}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="bg-red-600 text-white hover:bg-red-700"
+              onClick={handleConfirmDelete}
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

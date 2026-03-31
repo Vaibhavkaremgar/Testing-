@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { api } from '@/lib/api'
 import { useAuth } from '@/context/AuthContext'
 import { formatDate } from '@/lib/utils'
@@ -49,6 +49,7 @@ export default function Jobs({ superAdminAgencyId = null }) {
   const [uploadedFile, setUploadedFile] = useState(null)
   const [extracting, setExtracting] = useState(false)
   const [currentQuestion, setCurrentQuestion] = useState('')
+  const [deleteJobModal, setDeleteJobModal] = useState({ open: false, job: null })
 
   const fetchJobs = async () => {
     try {
@@ -140,13 +141,20 @@ export default function Jobs({ superAdminAgencyId = null }) {
   }
 
   const handleDelete = async (id) => {
-    if (confirm('Are you sure you want to delete this job?')) {
-      try {
-        await api.deleteJob(id)
-        await fetchJobs()
-      } catch (error) {
-        console.error('Failed to delete job:', error)
-      }
+    const job = jobs.find((item) => item.id === id) || null
+    setDeleteJobModal({ open: true, job })
+  }
+
+  const handleConfirmDelete = async () => {
+    const jobId = deleteJobModal.job?.id
+    if (!jobId) return
+
+    try {
+      await api.deleteJob(jobId)
+      setDeleteJobModal({ open: false, job: null })
+      await fetchJobs()
+    } catch (error) {
+      console.error('Failed to delete job:', error)
     }
   }
 
@@ -620,6 +628,32 @@ export default function Jobs({ superAdminAgencyId = null }) {
           </Button>
         </div>
       )}
+
+      <Dialog
+        open={deleteJobModal.open}
+        onOpenChange={(open) => setDeleteJobModal({ open, job: open ? deleteJobModal.job : null })}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete Job</DialogTitle>
+            <DialogDescription>Are you sure to delete</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setDeleteJobModal({ open: false, job: null })}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="bg-red-600 text-white hover:bg-red-700"
+              onClick={handleConfirmDelete}
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

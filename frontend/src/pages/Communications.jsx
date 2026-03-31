@@ -14,6 +14,14 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 
 export default function Communications() {
   const [searchParams] = useSearchParams()
@@ -27,6 +35,7 @@ export default function Communications() {
   const [filteredEmails, setFilteredEmails] = useState([])
   const [selectedEmail, setSelectedEmail] = useState(null)
   const [visibleCount, setVisibleCount] = useState(20)
+  const [deleteCommunicationModal, setDeleteCommunicationModal] = useState({ open: false, communicationId: null })
   const SHOW_MORE_STEP = 20
 
   useEffect(() => { setVisibleCount(20) }, [searchTerm, typeFilter, statusFilter])
@@ -74,15 +83,25 @@ export default function Communications() {
   }, [selectedClient])
 
   const handleDelete = async (id) => {
-    if (confirm('Are you sure you want to delete this email record?')) {
-      try {
-        await api.deleteEmailCommunication(id)
-        setCommunications(prev => prev.filter(c => c.id !== id))
-        alert('Email record deleted successfully')
-      } catch (error) {
-        console.error('Failed to delete email:', error)
-        alert('Failed to delete email record')
+    setDeleteCommunicationModal({ open: true, communicationId: id })
+  }
+
+  const handleConfirmDelete = async () => {
+    const communicationId = deleteCommunicationModal.communicationId
+    if (!communicationId) return
+
+    try {
+      await api.deleteEmailCommunication(communicationId)
+      setCommunications(prev => prev.filter(c => c.id !== communicationId))
+      setFilteredEmails(prev => prev.filter(c => c.id !== communicationId))
+      if (selectedEmail?.id === communicationId) {
+        setSelectedEmail(null)
       }
+      setDeleteCommunicationModal({ open: false, communicationId: null })
+      alert('Email record deleted successfully')
+    } catch (error) {
+      console.error('Failed to delete email:', error)
+      alert('Failed to delete email record')
     }
   }
 
@@ -427,6 +446,32 @@ export default function Communications() {
           </div>
         </div>
       )}
+
+      <Dialog
+        open={deleteCommunicationModal.open}
+        onOpenChange={(open) => setDeleteCommunicationModal({ open, communicationId: open ? deleteCommunicationModal.communicationId : null })}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete Communication</DialogTitle>
+            <DialogDescription>Are you sure to delete</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setDeleteCommunicationModal({ open: false, communicationId: null })}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="bg-red-600 text-white hover:bg-red-700"
+              onClick={handleConfirmDelete}
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
