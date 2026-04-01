@@ -1444,7 +1444,7 @@ export default function Resumes() {
           <div className="bg-card rounded-lg p-6 max-w-md w-full mx-4">
             <h3 className="text-lg font-semibold mb-4">
               {uploadProgress.status === 'completed'
-                ? 'Upload Complete'
+                ? 'Resume analyzed and Upload Complete'
                 : uploadProgress.status === 'error'
                   ? 'Upload Failed'
                   : 'Uploading Resumes...'}
