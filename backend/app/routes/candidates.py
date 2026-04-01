@@ -99,6 +99,20 @@ def assign_resume_pipeline_stage(candidate: Candidate, score: Optional[float], t
 
 def resolve_pipeline_display_stage(candidate: Candidate, latest_interview: Optional[Interview], today) -> CandidateStage:
     """Derive the pipeline column using candidate-owned and interview-owned stages."""
+    candidate_owned_stages = {
+        CandidateStage.REVIEW,
+        CandidateStage.SHORTLISTED,
+        CandidateStage.RESUME_REJECTED,
+        CandidateStage.INTERVIEW_RESCHEDULED,
+        CandidateStage.NO_SHOW,
+    }
+    interview_owned_stages = {
+        CandidateStage.INTERVIEW_SCHEDULED,
+        CandidateStage.INTERVIEWED,
+        CandidateStage.SELECTED,
+        CandidateStage.REJECTED,
+    }
+
     if candidate.stage in {CandidateStage.INTERVIEW_RESCHEDULED, CandidateStage.NO_SHOW}:
         return candidate.stage
 
@@ -120,6 +134,13 @@ def resolve_pipeline_display_stage(candidate: Candidate, latest_interview: Optio
     effective_threshold = candidate.score_threshold or 60
     if candidate.resume_score is not None and candidate.resume_score <= (effective_threshold - 10):
         return CandidateStage.RESUME_REJECTED
+
+    if candidate.stage in candidate_owned_stages:
+        return candidate.stage
+
+    if candidate.stage in interview_owned_stages:
+        # Keep stale candidate-stage values from inflating interview-driven columns.
+        return CandidateStage.SHORTLISTED
 
     return candidate.stage
 
