@@ -21,7 +21,7 @@ from app.schemas import (
 from app.auth import get_current_active_user
 from collections import Counter
 import random
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/analytics", tags=["Analytics"])
@@ -380,7 +380,7 @@ def _resolve_period_windows(
     start_date: Optional[str],
     end_date: Optional[str],
 ):
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     if date_range == "last_7_days":
         current_start = now - timedelta(days=7)
@@ -743,7 +743,7 @@ def get_recruitment_funnel(
         department=department,
     )
     candidates = query.all()
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     def _avg_days(rows):
         if not rows:
@@ -753,7 +753,10 @@ def get_recruitment_funnel(
             start = c.stage_entered_at or c.stage_updated_at or c.created_at
             if not start:
                 continue
-            durations.append(max(0, (now - start).days))
+            normalized_start = start
+            if normalized_start.tzinfo is None:
+                normalized_start = normalized_start.replace(tzinfo=timezone.utc)
+            durations.append(max(0, (now - normalized_start).days))
         return round(sum(durations) / len(durations), 1) if durations else 0.0
 
     applied_rows = list(candidates)
