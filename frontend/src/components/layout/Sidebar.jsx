@@ -117,14 +117,14 @@ export function Sidebar() {
       </nav>
 
       {/* Footer */}
-      <div className="border-t p-4">
+      {/*<div className="border-t p-4">
         <div className="rounded-lg bg-muted p-3">
           <p className="text-xs font-medium">Need help?</p>
           <p className="text-xs text-muted-foreground mt-1">
             Check our documentation or contact support.
           </p>
         </div>
-      </div>
+      </div>*/}
     </div>
   )
 }
