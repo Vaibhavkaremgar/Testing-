@@ -28,6 +28,7 @@ import {
 
 const COLORS = ['#3b82f6', '#8b5cf6', '#06b6d4', '#10b981', '#f59e0b']
 const SAVED_DASHBOARD_VIEWS_KEY = 'dashboardSavedViews'
+const LOW_CREDIT_MODAL_DISMISSED_KEY = 'dashboardLowCreditModalDismissed'
 const INTERVIEW_REJECTION_SCORE_THRESHOLD = 6
 const CANDIDATE_OWNED_STAGES = new Set(['REVIEW', 'SHORTLISTED', 'RESUME_REJECTED', 'INTERVIEW_RESCHEDULED', 'NO_SHOW'])
 const INTERVIEW_OWNED_STAGES = new Set(['INTERVIEW_SCHEDULED', 'INTERVIEWED', 'SELECTED', 'REJECTED'])
@@ -105,6 +106,10 @@ export default function Dashboard() {
   const [departmentFilter, setDepartmentFilter] = useState('all')
   const [intelligence, setIntelligence] = useState(null)
   const [showLowCreditModal, setShowLowCreditModal] = useState(false)
+  const [lowCreditDismissed, setLowCreditDismissed] = useState(() => {
+    if (typeof window === 'undefined') return false
+    return window.sessionStorage.getItem(LOW_CREDIT_MODAL_DISMISSED_KEY) === 'true'
+  })
 
 
   // Force close modal on mount and prevent any stuck state
@@ -215,11 +220,25 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (user?.role === 'admin' && typeof user?.wallet_balance === 'number' && user.wallet_balance <= 10) {
-      setShowLowCreditModal(true)
+      setShowLowCreditModal(!lowCreditDismissed)
     } else {
       setShowLowCreditModal(false)
+      if (typeof window !== 'undefined') {
+        window.sessionStorage.removeItem(LOW_CREDIT_MODAL_DISMISSED_KEY)
+      }
+      if (lowCreditDismissed) {
+        setLowCreditDismissed(false)
+      }
     }
-  }, [user])
+  }, [lowCreditDismissed, user])
+
+  const dismissLowCreditModal = () => {
+    setShowLowCreditModal(false)
+    setLowCreditDismissed(true)
+    if (typeof window !== 'undefined') {
+      window.sessionStorage.setItem(LOW_CREDIT_MODAL_DISMISSED_KEY, 'true')
+    }
+  }
 
   const kpiCards = stats ? [
     { title: 'Total Candidates', value: stats.total_candidates || 0, icon: Users, color: 'text-blue-600', bg: 'bg-blue-100 dark:bg-blue-900/30', filter: {} },
@@ -737,7 +756,7 @@ export default function Dashboard() {
               Your credits are low, to continue the service do recharge.
             </p>
             <div className="flex gap-3">
-              <Button variant="outline" className="flex-1" onClick={() => setShowLowCreditModal(false)}>
+              <Button variant="outline" className="flex-1" onClick={dismissLowCreditModal}>
                 Cancel
               </Button>
               <Button className="flex-1" onClick={() => navigate('/wallet?lowCredits=1')}>
