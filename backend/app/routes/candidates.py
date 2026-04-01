@@ -707,7 +707,10 @@ def build_batch_candidate_id(name: str, job_id: Optional[UUID]) -> str:
 
 def process_saved_resume(file_path: str, original_filename: str, job_data: dict) -> dict:
     """Run extraction and scoring for one saved resume file."""
+    from app.balanced_scoring import extract_years_experience
+
     resume_data = extract_resume_data(file_path, original_filename)
+    resume_data["experience_years"] = extract_years_experience(resume_data.get("full_text", ""))
     analysis_data = {
         'name': resume_data['name'],
         'email': resume_data['email'],
@@ -820,6 +823,7 @@ def process_single_resume_upload(
             name=resume_data['name'],
             email=resume_data['email'],
             phone=resume_data['phone'],
+            experience_years=resume_data.get('experience_years'),
             skills=resume_data['skills'],
             resume_file_path=file_path,
             resume_text=resume_data['full_text'],
@@ -902,6 +906,7 @@ def process_bulk_upload_batch(
                         name=resume_data['name'],
                         email=resume_data['email'],
                         phone=resume_data['phone'],
+                        experience_years=resume_data.get('experience_years'),
                         skills=resume_data['skills'],
                         resume_file_path=item["file_path"],
                         resume_text=resume_data['full_text'],
@@ -1017,6 +1022,7 @@ def process_zip_upload_batch(
                         name=resume_data['name'],
                         email=resume_data['email'],
                         phone=resume_data['phone'],
+                        experience_years=resume_data.get('experience_years'),
                         skills=resume_data['skills'],
                         resume_file_path=item["file_path"],
                         resume_text=resume_data['full_text'],
@@ -1243,6 +1249,21 @@ JOB_SKILL_MAPS = {
         "transferable": ["communication", "persuasion", "networking"],
         "ignore": ["programming", "coding", "software development", "hr", "recruitment"]
     },
+    "finance analyst": {
+        "core": ["finance", "financial analysis", "accounting", "budgeting", "forecasting", "excel", "reporting", "variance analysis", "erp", "tally", "tax", "gst"],
+        "transferable": ["analytical thinking", "attention to detail", "communication"],
+        "ignore": ["programming", "coding", "software development", "javascript", "python", "react", "node", "api"]
+    },
+    "financial analyst": {
+        "core": ["finance", "financial analysis", "accounting", "budgeting", "forecasting", "excel", "reporting", "variance analysis", "erp", "tally", "tax", "gst"],
+        "transferable": ["analytical thinking", "attention to detail", "communication"],
+        "ignore": ["programming", "coding", "software development", "javascript", "python", "react", "node", "api"]
+    },
+    "accountant": {
+        "core": ["accounting", "bookkeeping", "tally", "gst", "tax", "reconciliation", "ledger", "accounts payable", "accounts receivable", "excel"],
+        "transferable": ["attention to detail", "organization", "compliance"],
+        "ignore": ["programming", "coding", "software development", "javascript", "python", "react", "node", "api"]
+    },
     "default": {"core": [], "transferable": ["communication", "teamwork"], "ignore": []}
 }
 
@@ -1256,10 +1277,19 @@ def enhanced_fallback_evaluation(resume_text: str, job_title: str, job_descripti
     # Extract years of experience
     years_exp = extract_years_experience(resume_text)
     
-    # FIX: Use JD skills from database instead of hardcoded map
+    role_map = JOB_SKILL_MAPS.get(job_title.lower().strip())
+    jd_extracted_skills = extract_skills_from_job_text(f"{job_title}\n{job_description}\n{job_requirements}")
+
+    # Prefer explicit JD skills, then role map, then extracted JD keywords.
     if job_skills and len(job_skills) > 0:
         required_skills = job_skills[:10]
         print(f"   Using JD skills: {required_skills}")
+    elif role_map:
+        required_skills = role_map.get("core", [])[:10]
+        print(f"   Using role map skills: {required_skills}")
+    elif jd_extracted_skills:
+        required_skills = jd_extracted_skills[:10]
+        print(f"   Extracted JD skills: {required_skills}")
     else:
         skill_map = JOB_SKILL_MAPS.get(job_title.lower().strip(), JOB_SKILL_MAPS["default"])
         required_skills = skill_map.get("core", [])[:10]
@@ -1295,6 +1325,14 @@ def enhanced_fallback_evaluation(resume_text: str, job_title: str, job_descripti
     # Extract components
     components = result['components']
     final_score = result['total_score']
+
+    ignored_role_terms = role_map.get("ignore", []) if role_map else []
+    ignore_hits = sum(1 for term in ignored_role_terms if term in resume_text.lower())
+    matched_required_count = len(components['skills']['matched_skills'])
+    if required_skills and matched_required_count == 0 and ignore_hits >= 2:
+        final_score = min(final_score, 35)
+    elif required_skills and matched_required_count <= 1 and ignore_hits >= 3:
+        final_score = min(final_score, 45)
     
     print(f"   Experience: {components['experience']['score']}/35")
     print(f"   Skills: {components['skills']['score']}/30")
@@ -1386,7 +1424,8 @@ def extract_skills_from_job_text(job_text: str) -> list:
         r'\b(?:MySQL|PostgreSQL|MongoDB|Redis|SQLite|Oracle|SQL Server|Cassandra|DynamoDB)\b',
         r'\b(?:AWS|Azure|GCP|Docker|Kubernetes|Jenkins|Git|CI/CD|Terraform|Ansible)\b',
         r'\b(?:Machine Learning|Deep Learning|TensorFlow|PyTorch|Pandas|NumPy|Scikit-learn|AI)\b',
-        r'\b(?:REST API|GraphQL|Microservices|Agile|Scrum|DevOps|Linux|Windows|macOS)\b'
+        r'\b(?:REST API|GraphQL|Microservices|Agile|Scrum|DevOps|Linux|Windows|macOS)\b',
+        r'\b(?:Finance|Financial Analysis|Accounting|Budgeting|Forecasting|Bookkeeping|Reconciliation|Ledger|ERP|Tally|GST|Taxation|Accounts Payable|Accounts Receivable|Audit|Bank Reconciliation|Variance Analysis|MIS Reporting|Excel)\b'
     ]
     
     skills = set()

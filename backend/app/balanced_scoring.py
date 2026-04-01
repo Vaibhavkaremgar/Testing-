@@ -4,6 +4,7 @@ Total: 100 points (Experience:35, Skills:30, Projects:20, Education:10, Soft Ski
 """
 
 import re
+from datetime import datetime
 from typing import Dict, List, Tuple
 
 # Import spaCy NLP helpers (REQUIRED - no fallback)
@@ -26,6 +27,9 @@ def calculate_skills_score(resume_text: str, required_skills: List[str], project
     from app.skill_normalizer import normalize_skill
     
     resume_lower = resume_text.lower()
+
+    if re.search(r'\b(fresher|fresh graduate|recent graduate|entry level|no experience|0\s*\+?\s*years?)\b', resume_lower):
+        return 0.0
     nlp_signals = nlp_cache if nlp_cache else get_nlp_signals(resume_text)
     declared_skills = extract_declared_skills(resume_text)
     
@@ -387,6 +391,71 @@ def calculate_soft_skills_score(resume_text: str, experience_years: float, max_p
 
 
 # Helper function
+def _extract_experience_section(resume_text: str) -> str:
+    patterns = [
+        r'(?:work\s+)?experience\s*:?\s*(.*?)(?=\n\s*(?:education|skills|projects?|certifications?|achievements|summary)\b|\Z)',
+        r'(?:professional|employment)\s+(?:experience|history)\s*:?\s*(.*?)(?=\n\s*(?:education|skills|projects?|certifications?|achievements|summary)\b|\Z)',
+        r'internships?\s*:?\s*(.*?)(?=\n\s*(?:education|skills|projects?|certifications?|achievements|summary)\b|\Z)',
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, resume_text, re.IGNORECASE | re.MULTILINE | re.DOTALL)
+        if match:
+            return match.group(1).strip()
+
+    return ""
+
+
+def _parse_month_year(token: str, current_year: int) -> Tuple[int, int] | None:
+    if not token:
+        return None
+
+    token = token.strip().lower()
+    month_map = {
+        'jan': 1, 'january': 1,
+        'feb': 2, 'february': 2,
+        'mar': 3, 'march': 3,
+        'apr': 4, 'april': 4,
+        'may': 5,
+        'jun': 6, 'june': 6,
+        'jul': 7, 'july': 7,
+        'aug': 8, 'august': 8,
+        'sep': 9, 'sept': 9, 'september': 9,
+        'oct': 10, 'october': 10,
+        'nov': 11, 'november': 11,
+        'dec': 12, 'december': 12,
+    }
+
+    if token in {'present', 'current', 'now'}:
+        now = datetime.utcnow()
+        return (now.year, now.month)
+
+    match = re.match(r'(?:(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\s+)?(\d{4})', token)
+    if not match:
+        return None
+
+    month_token, year_token = match.groups()
+    year = int(year_token)
+    if year < 1990 or year > current_year:
+        return None
+
+    return (year, month_map.get(month_token, 1) if month_token else 1)
+
+
+def _merge_intervals(intervals: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
+    if not intervals:
+        return []
+
+    merged = [intervals[0]]
+    for start, end in intervals[1:]:
+        last_start, last_end = merged[-1]
+        if start <= last_end + 1:
+            merged[-1] = (last_start, max(last_end, end))
+        else:
+            merged.append((start, end))
+    return merged
+
+
 def extract_years_experience(resume_text: str) -> float:
     """
     Extract years of experience from resume text.
@@ -400,7 +469,10 @@ def extract_years_experience(resume_text: str) -> float:
         return 0.0
     
     resume_lower = resume_text.lower()
-    
+
+    if re.search(r'\b(fresher|fresh graduate|recent graduate|entry level|no experience|0\s*\+?\s*years?)\b', resume_lower):
+        return 0.0
+
     # Pattern 1 & 2: "X years" or "X+ years"
     year_patterns = [
         r'(\d+)\s*\+?\s*years?\s+of\s+experience',
@@ -413,19 +485,27 @@ def extract_years_experience(resume_text: str) -> float:
         if match:
             return float(match.group(1))
     
-    # Pattern 3: Date ranges
-    current_year = 2024
+    # Pattern 3: Date ranges, limited to experience sections and merged to avoid double counting.
+    experience_text = _extract_experience_section(resume_text)
+    if not experience_text:
+        return 0.0
+    current_year = datetime.utcnow().year
     date_pattern = r'(\d{4})\s*[-–]\s*(?:(\d{4})|present|current)'
-    matches = re.findall(date_pattern, resume_lower, re.IGNORECASE)
+    matches = re.findall(date_pattern, experience_text, re.IGNORECASE)
     
     if matches:
-        total_years = 0
+        intervals: List[Tuple[int, int]] = []
         for match in matches:
             start_year = int(match[0])
             end_year = int(match[1]) if match[1] else current_year
-            years = max(0, end_year - start_year)
-            total_years += years
-        return float(total_years)
+            if end_year < start_year:
+                continue
+            intervals.append((start_year, end_year))
+
+        merged_intervals = _merge_intervals(sorted(intervals))
+        total_years = sum(end - start for start, end in merged_intervals)
+        if total_years <= 40:
+            return float(total_years)
     
     return 0.0
 

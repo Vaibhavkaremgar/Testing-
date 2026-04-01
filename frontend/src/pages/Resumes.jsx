@@ -35,11 +35,19 @@ function getResumeDisplayStatus(candidate) {
   const resumeScore = candidate?.resume_score
   const threshold = candidate?.score_threshold || 60
 
+  if (stage === 'SELECTED') {
+    return { key: 'RESUME_SHORTLISTED', label: 'Selected', badgeClass: 'bg-emerald-600' }
+  }
+
   if (typeof resumeScore === 'number' && resumeScore <= (threshold - 10)) {
     return { key: 'RESUME_REJECTED', label: 'Rejected', badgeClass: 'bg-red-500' }
   }
 
   if (stage === 'RESUME_REJECTED') {
+    return { key: 'RESUME_REJECTED', label: 'Rejected', badgeClass: 'bg-red-500' }
+  }
+
+  if (stage === 'REJECTED') {
     return { key: 'RESUME_REJECTED', label: 'Rejected', badgeClass: 'bg-red-500' }
   }
 
@@ -55,8 +63,6 @@ function getResumeDisplayStatus(candidate) {
     'SHORTLISTED',
     'INTERVIEW_SCHEDULED',
     'INTERVIEWED',
-    'SELECTED',
-    'REJECTED',
     'NO_SHOW',
   ].includes(stage)) {
     return { key: 'RESUME_SHORTLISTED', label: 'Shortlisted', badgeClass: 'bg-green-500' }
@@ -122,6 +128,7 @@ export default function Resumes() {
   const [visibleCount, setVisibleCount] = useState(20)
   const [deleteCandidateModal, setDeleteCandidateModal] = useState({ open: false, candidate: null })
   const SHOW_MORE_STEP = 20
+  const selectedCandidateStatus = selectedCandidate ? getResumeDisplayStatus(selectedCandidate) : null
 
   // Load job-specific minimum passing scores
   useEffect(() => {
@@ -1154,7 +1161,7 @@ export default function Resumes() {
               </div>
 
               {/* Professional Info */}
-              {(selectedCandidate.current_company || selectedCandidate.current_role || selectedCandidate.experience_years) && (
+              {(selectedCandidate.current_company || selectedCandidate.current_role || selectedCandidate.experience_years !== null && selectedCandidate.experience_years !== undefined) && (
                 <div>
                   <h3 className="font-semibold mb-3">Professional Information</h3>
                   <div className="grid grid-cols-2 gap-4">
@@ -1170,13 +1177,22 @@ export default function Resumes() {
                         <p>{selectedCandidate.current_role}</p>
                       </div>
                     )}
-                    {selectedCandidate.experience_years && (
+                    {(selectedCandidate.experience_years !== null && selectedCandidate.experience_years !== undefined) && (
                       <div>
                         <p className="text-sm text-muted-foreground">Experience</p>
                         <p>{selectedCandidate.experience_years} years</p>
                       </div>
                     )}
                   </div>
+                </div>
+              )}
+
+              {selectedCandidateStatus && (
+                <div>
+                  <h3 className="font-semibold mb-3">Resume Status</h3>
+                  <Badge className={selectedCandidateStatus.badgeClass}>
+                    {selectedCandidateStatus.label}
+                  </Badge>
                 </div>
               )}
 
@@ -1248,9 +1264,11 @@ export default function Resumes() {
                     <div className="bg-muted p-4 rounded-lg">
                       <div className="flex items-center justify-between mb-2">
                         <span className="text-sm font-medium">Resume Score</span>
-                        <Badge className={aiAnalysis.match_score >= 80 ? 'bg-green-500' : aiAnalysis.match_score >= 60 ? 'bg-yellow-500' : 'bg-red-500'}>
-                          {aiAnalysis.match_score >= 80 ? 'Strong Fit' : aiAnalysis.match_score >= 60 ? 'Good Fit' : 'Needs Review'}
-                        </Badge>
+                        {selectedCandidateStatus && (
+                          <Badge className={selectedCandidateStatus.badgeClass}>
+                            {selectedCandidateStatus.label}
+                          </Badge>
+                        )}
                       </div>
                       <div className="flex items-center gap-3">
                         <span className="text-2xl font-bold">{aiAnalysis.match_score}</span>
@@ -1444,7 +1462,7 @@ export default function Resumes() {
           <div className="bg-card rounded-lg p-6 max-w-md w-full mx-4">
             <h3 className="text-lg font-semibold mb-4">
               {uploadProgress.status === 'completed'
-                ? 'Resume analyzed and Upload Complete'
+                ? 'Resume Uploaded and Analyzed successfully'
                 : uploadProgress.status === 'error'
                   ? 'Upload Failed'
                   : 'Uploading Resumes...'}
