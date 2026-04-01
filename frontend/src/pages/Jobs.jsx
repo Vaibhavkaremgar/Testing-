@@ -523,13 +523,12 @@ export default function Jobs({ superAdminAgencyId = null }) {
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium">Responsibilities *</label>
+                <label className="text-sm font-medium">Responsibilities </label>
                 <textarea
                   className="flex min-h-[100px] w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
                   value={formData.responsibilities}
                   onChange={(e) => setFormData({ ...formData, responsibilities: e.target.value })}
                   disabled={inputMethod === 'upload'}
-                  required
                 />
               </div>
               <div className="space-y-2">
