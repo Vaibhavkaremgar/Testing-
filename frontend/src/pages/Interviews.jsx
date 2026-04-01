@@ -6,7 +6,6 @@ import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Progress } from '@/components/ui/progress'
 import { api } from '@/lib/api'
-import { useAuth } from '@/context/AuthContext'
 import { cn, formatDateTime, getScoreColor } from '@/lib/utils'
 import { useToast } from '@/hooks/use-toast'
 import {
@@ -83,7 +82,6 @@ function getInterviewResultMeta(interview, candidateStage) {
 }
 
 export default function Interviews({ superAdminAgencyId = null }) {
-  const { user } = useAuth()
   const [searchParams] = useSearchParams()
   const selectedClient = searchParams.get('client')
   const [interviews, setInterviews] = useState([])
@@ -95,7 +93,6 @@ export default function Interviews({ superAdminAgencyId = null }) {
   const [candidates, setCandidates] = useState([])
   const [jobs, setJobs] = useState([])
   const [selectedJobFilter, setSelectedJobFilter] = useState('all')
-  const [selectedStatusFilter, setSelectedStatusFilter] = useState('all')
   const [videoError, setVideoError] = useState('')
   const [mediaMode, setMediaMode] = useState('video')
   const [decisionLoading, setDecisionLoading] = useState(null)
@@ -197,19 +194,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
     ))
   }, [candidateJobMap, interviews, selectedJobFilter])
 
-  const filteredInterviews = useMemo(() => (
-    jobFilteredInterviews.filter((interview) => {
-      if (selectedStatusFilter === 'all') return true
-      return getEffectiveInterviewStatus(interview) === selectedStatusFilter
-    })
-  ), [jobFilteredInterviews, selectedStatusFilter])
-
-  const interviewStatusCounts = useMemo(() => ({
-    all: jobFilteredInterviews.length,
-    scheduled: jobFilteredInterviews.filter((interview) => getEffectiveInterviewStatus(interview) === 'scheduled').length,
-    ongoing: jobFilteredInterviews.filter((interview) => getEffectiveInterviewStatus(interview) === 'ongoing').length,
-    completed: jobFilteredInterviews.filter((interview) => getEffectiveInterviewStatus(interview) === 'completed').length,
-  }), [jobFilteredInterviews])
+  const filteredInterviews = jobFilteredInterviews
 
   useEffect(() => {
     if (filteredInterviews.length === 0) {
@@ -225,19 +210,10 @@ export default function Interviews({ superAdminAgencyId = null }) {
 
   useEffect(() => {
     setVisibleCount(20)
-  }, [selectedJobFilter, selectedStatusFilter])
+  }, [selectedJobFilter])
 
   const handleScheduleInterview = async () => {
     try {
-      if (!canScheduleInterview) {
-        toast({
-          title: 'Insufficient Credits',
-          description: 'Wallet balance is 0. Please recharge before scheduling interviews.',
-          variant: 'destructive',
-        })
-        setShowScheduleModal(false)
-        return
-      }
       if (!scheduleForm.email) {
         alert('Please select a candidate first');
         return;
@@ -303,10 +279,16 @@ export default function Interviews({ superAdminAgencyId = null }) {
     ? getInterviewResultMeta(selectedInterview, selectedInterviewStage)
     : null
   const isDecisionFinalized = selectedInterviewResultMeta?.label === 'Selected' || selectedInterviewResultMeta?.label === 'Rejected'
-  const canScheduleInterview = user?.role !== 'admin' || (user?.wallet_balance ?? 0) > 0
-
   const handleApprove = async () => {
-    if (!isDecisionReady) return;
+    if (!selectedInterview) return;
+    if (!isDecisionReady) {
+      toast({
+        title: 'Interview Not Completed',
+        description: 'Complete the interview first, then approve or reject the candidate.',
+        variant: 'destructive',
+      })
+      return
+    }
     setDecisionLoading('approve')
     try {
       await api.updateCandidateStage(selectedInterview.candidate_id, 'SELECTED');
@@ -332,8 +314,29 @@ export default function Interviews({ superAdminAgencyId = null }) {
     }
   }
 
+  const openApproveModal = () => {
+    if (!selectedInterview) return
+    if (!isDecisionReady) {
+      toast({
+        title: 'Interview Not Completed',
+        description: 'Complete the interview first, then approve or reject the candidate.',
+        variant: 'destructive',
+      })
+      return
+    }
+    setApproveModalOpen(true)
+  }
+
   const handleReject = async () => {
-    if (!isDecisionReady) return;
+    if (!selectedInterview) return;
+    if (!isDecisionReady) {
+      toast({
+        title: 'Interview Not Completed',
+        description: 'Complete the interview first, then approve or reject the candidate.',
+        variant: 'destructive',
+      })
+      return
+    }
     setDecisionLoading('reject')
     try {
       await api.updateCandidateStage(selectedInterview.candidate_id, 'REJECTED', { suppress_notification: true });
@@ -364,14 +367,6 @@ export default function Interviews({ superAdminAgencyId = null }) {
   }, [selectedInterview?.id])
 
   const openScheduleModal = () => {
-    if (!canScheduleInterview) {
-      toast({
-        title: 'Insufficient Credits',
-        description: 'Wallet balance is 0. Please recharge before scheduling interviews.',
-        variant: 'destructive',
-      })
-      return
-    }
     setShowScheduleModal(true)
   }
 
@@ -404,7 +399,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
               </option>
             ))}
           </select>
-          <Button onClick={openScheduleModal} disabled={!canScheduleInterview}>
+          <Button onClick={openScheduleModal}>
             <Plus className="h-4 w-4 mr-2" />
             Schedule Interview
           </Button>
@@ -416,25 +411,13 @@ export default function Interviews({ superAdminAgencyId = null }) {
         {/* Candidate List - Left Side */}
         <Card className="w-64 flex-shrink-0 bg-blue-50 dark:bg-blue-950">
           <CardHeader className="py-4">
-            <div className="space-y-3">
-              <CardTitle className="text-base">Interview Queue</CardTitle>
-              <Tabs value={selectedStatusFilter} onValueChange={setSelectedStatusFilter} className="w-full">
-                <TabsList className="grid w-full grid-cols-2 h-auto">
-                  <TabsTrigger value="all" className="text-xs">All ({interviewStatusCounts.all})</TabsTrigger>
-                  <TabsTrigger value="completed" className="text-xs">Done ({interviewStatusCounts.completed})</TabsTrigger>
-                  <TabsTrigger value="scheduled" className="text-xs">Scheduled ({interviewStatusCounts.scheduled})</TabsTrigger>
-                  <TabsTrigger value="ongoing" className="text-xs">Live ({interviewStatusCounts.ongoing})</TabsTrigger>
-                </TabsList>
-              </Tabs>
-            </div>
+            <CardTitle className="text-base">Interview Queue</CardTitle>
           </CardHeader>
           <CardContent className="p-0">
             {filteredInterviews.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground px-4">
                 <Video className="h-12 w-12 mx-auto mb-3 opacity-50" />
-                <p className="text-sm">
-                  {selectedStatusFilter === 'completed' ? 'No completed interviews' : 'No interviews in this view'}
-                </p>
+                <p className="text-sm">No interviews found</p>
               </div>
             ) : (
               <div className="flex flex-col gap-2 p-2">
@@ -512,15 +495,15 @@ export default function Interviews({ superAdminAgencyId = null }) {
                 )}
                 <Button
                   className="bg-green-600 hover:bg-green-700 text-white"
-                  onClick={() => setApproveModalOpen(true)}
-                  disabled={!isDecisionReady || isDecisionFinalized || decisionLoading !== null}
+                  onClick={openApproveModal}
+                  disabled={decisionLoading !== null}
                 >
                   {decisionLoading === 'approve' ? 'Sending...' : 'Approve'}
                 </Button>
                 <Button
                   className="bg-red-600 hover:bg-red-700 text-white"
                   onClick={handleReject}
-                  disabled={!isDecisionReady || isDecisionFinalized || decisionLoading !== null}
+                  disabled={decisionLoading !== null}
                 >
                   {decisionLoading === 'reject' ? 'Sending...' : 'Reject'}
                 </Button>
