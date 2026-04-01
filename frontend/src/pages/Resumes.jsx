@@ -667,12 +667,12 @@ export default function Resumes() {
         </CardHeader>
         <CardContent>
           <div className="flex gap-4 mb-4">
-            <select
+            <select required
               className="flex h-10 rounded-lg border border-input bg-background px-3 py-2 text-sm"
               value={selectedJobForUpload}
               onChange={(e) => setSelectedJobForUpload(e.target.value)}
             >
-              <option value="">Select Job (Optional)</option>
+              <option value="">Select Job </option>
               {jobs.map((job) => (
                 <option key={job.id} value={job.id}>
                   {job.company_name ? `${job.company_name} - ${job.title}` : job.title}
