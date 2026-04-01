@@ -58,6 +58,8 @@ export default function Dashboard() {
   const [selectedCard, setSelectedCard] = useState(null)
   const [cardCandidates, setCardCandidates] = useState([])
   const [cardLoading, setCardLoading] = useState(false)
+  const [interviewCandidates, setInterviewCandidates] = useState([])
+  const [selectedInterviewCandidates, setSelectedInterviewCandidates] = useState([])
   const [interviewRejectedCandidates, setInterviewRejectedCandidates] = useState([])
   const [hiringMetrics, setHiringMetrics] = useState(null)
   const [departmentFilter, setDepartmentFilter] = useState('all')
@@ -84,7 +86,7 @@ export default function Dashboard() {
         } else if (selectedMonth !== 'all') {
           params.month = selectedMonth
         }
-        const [statsData, funnelData, resumeData, interviewData, jobs, interviews, metrics, intel, candidatesData, completedInterviews] = await Promise.all([
+        const [statsData, funnelData, resumeData, interviewData, jobs, interviews, metrics, intel, candidatesData, interviewRows] = await Promise.all([
           api.getDashboardStats(params).catch(e => { console.error('Stats error:', e); return null; }),
           api.getHiringFunnel(params).catch(e => { console.error('Funnel error:', e); return []; }),
           api.getResumeScoresTrend().catch(e => { console.error('Resume trend error:', e); return []; }),
@@ -94,35 +96,50 @@ export default function Dashboard() {
           api.getHiringMetrics().catch(e => { console.error('Metrics error:', e); return null; }),
           api.getHiringIntelligence().catch(e => { console.error('Intelligence error:', e); return null; }),
           api.getCandidates({ ...params, limit: 500 }).catch(e => { console.error('Candidates error:', e); return []; }),
-          api.getInterviews({ status: 'completed', limit: 500 }).catch(e => { console.error('Completed interviews error:', e); return []; })
+          api.getInterviews({ limit: 500 }).catch(e => { console.error('Interviews list error:', e); return []; })
         ])
-        const latestRejectedInterviewsByCandidate = new Map()
-        for (const interview of completedInterviews || []) {
-          const interviewScore = Number(interview?.interview_score)
-          if (!Number.isFinite(interviewScore) || interviewScore >= INTERVIEW_REJECTION_SCORE_THRESHOLD || !interview?.candidate_id) {
-            continue
-          }
-
-          const previousInterview = latestRejectedInterviewsByCandidate.get(interview.candidate_id)
+        const candidateMap = new Map((candidatesData || []).map(candidate => [candidate.id, candidate]))
+        const latestInterviewsByCandidate = new Map()
+        for (const interview of interviewRows || []) {
+          if (!interview?.candidate_id) continue
+          const previousInterview = latestInterviewsByCandidate.get(interview.candidate_id)
           const previousDate = previousInterview?.scheduled_at || previousInterview?.created_at || ''
           const currentDate = interview.scheduled_at || interview.created_at || ''
           if (!previousInterview || new Date(currentDate) > new Date(previousDate)) {
-            latestRejectedInterviewsByCandidate.set(interview.candidate_id, interview)
+            latestInterviewsByCandidate.set(interview.candidate_id, interview)
           }
         }
 
-        const rejectedCandidates = (candidatesData || [])
-          .filter(candidate => latestRejectedInterviewsByCandidate.has(candidate.id))
-          .map(candidate => {
-            const rejectedInterview = latestRejectedInterviewsByCandidate.get(candidate.id)
+        const mapInterviewCandidates = (predicate, getDisplayStage) => Array.from(latestInterviewsByCandidate.values())
+          .filter(predicate)
+          .map(interview => {
+            const candidate = candidateMap.get(interview.candidate_id)
+            if (!candidate) return null
+
             return {
               ...candidate,
-              display_score: rejectedInterview?.interview_score,
-              display_stage: 'INTERVIEW_REJECTED',
-              rejected_at: rejectedInterview?.scheduled_at || rejectedInterview?.created_at || candidate.created_at
+              display_score: interview?.interview_score,
+              display_stage: getDisplayStage(interview),
+              rejected_at: interview?.scheduled_at || interview?.created_at || candidate.created_at
             }
           })
+          .filter(Boolean)
           .sort((a, b) => new Date(b.rejected_at) - new Date(a.rejected_at))
+
+        const activeInterviewCandidates = mapInterviewCandidates((interview) => {
+          const status = (interview?.status || '').toLowerCase()
+          return status === 'scheduled' || status === 'ongoing'
+        }, (interview) => ((interview?.status || '').toLowerCase() === 'scheduled' ? 'INTERVIEW_SCHEDULED' : 'INTERVIEW'))
+
+        const selectedCandidates = mapInterviewCandidates((interview) => {
+          const status = (interview?.status || '').toLowerCase()
+          return status === 'completed' && Number(interview?.interview_score) >= INTERVIEW_REJECTION_SCORE_THRESHOLD
+        }, () => 'SELECTED')
+
+        const rejectedCandidates = mapInterviewCandidates((interview) => {
+          const status = (interview?.status || '').toLowerCase()
+          return status === 'completed' && Number(interview?.interview_score) < INTERVIEW_REJECTION_SCORE_THRESHOLD
+        }, () => 'REJECTED')
         console.log('📊 Dashboard Stats:', statsData)
         console.log('📈 Funnel Data:', funnelData)
         setStats(statsData)
@@ -131,6 +148,8 @@ export default function Dashboard() {
         setInterviewTrend(interviewData)
         setActiveJobs(jobs)
         setUpcomingInterviews(interviews)
+        setInterviewCandidates(activeInterviewCandidates)
+        setSelectedInterviewCandidates(selectedCandidates)
         setInterviewRejectedCandidates(rejectedCandidates)
         setHiringMetrics(metrics)
         setIntelligence(intel)
@@ -154,14 +173,14 @@ export default function Dashboard() {
   const kpiCards = stats ? [
     { title: 'Total Candidates', value: stats.total_candidates || 0, icon: Users, color: 'text-blue-600', bg: 'bg-blue-100 dark:bg-blue-900/30', filter: {} },
     { title: 'Shortlisted', value: stats.shortlisted || 0, icon: UserCheck, color: 'text-purple-600', bg: 'bg-purple-100 dark:bg-purple-900/30', filter: { stage: 'SHORTLISTED' } },
-    { title: 'Interviews', value: stats.interviews_scheduled || 0, icon: Calendar, color: 'text-orange-600', bg: 'bg-orange-100 dark:bg-orange-900/30', filter: { stages: ['INTERVIEW_SCHEDULED', 'INTERVIEW_RESCHEDULED', 'INTERVIEWED'] } },
-    { title: 'Selected', value: stats.selected || 0, icon: Award, color: 'text-green-600', bg: 'bg-green-100 dark:bg-green-900/30', filter: { stage: 'SELECTED' } },
+    { title: 'Interviews', value: interviewCandidates.length, icon: Calendar, color: 'text-orange-600', bg: 'bg-orange-100 dark:bg-orange-900/30', filter: { type: 'interview_active' } },
+    { title: 'Selected', value: selectedInterviewCandidates.length, icon: Award, color: 'text-green-600', bg: 'bg-green-100 dark:bg-green-900/30', filter: { type: 'interview_selected' } },
     { title: 'Rejected', value: interviewRejectedCandidates.length, icon: UserX, color: 'text-red-600', bg: 'bg-red-100 dark:bg-red-900/30', filter: { type: 'interview_rejected' } },
   ] : [
     { title: 'Total Candidates', value: 0, icon: Users, color: 'text-blue-600', bg: 'bg-blue-100 dark:bg-blue-900/30', filter: {} },
     { title: 'Shortlisted', value: 0, icon: UserCheck, color: 'text-purple-600', bg: 'bg-purple-100 dark:bg-purple-900/30', filter: { stage: 'SHORTLISTED' } },
-    { title: 'Interviews', value: 0, icon: Calendar, color: 'text-orange-600', bg: 'bg-orange-100 dark:bg-orange-900/30', filter: { stages: ['INTERVIEW_SCHEDULED', 'INTERVIEW_RESCHEDULED', 'INTERVIEWED'] } },
-    { title: 'Selected', value: 0, icon: Award, color: 'text-green-600', bg: 'bg-green-100 dark:bg-green-900/30', filter: { stage: 'SELECTED' } },
+    { title: 'Interviews', value: 0, icon: Calendar, color: 'text-orange-600', bg: 'bg-orange-100 dark:bg-orange-900/30', filter: { type: 'interview_active' } },
+    { title: 'Selected', value: 0, icon: Award, color: 'text-green-600', bg: 'bg-green-100 dark:bg-green-900/30', filter: { type: 'interview_selected' } },
     { title: 'Rejected', value: 0, icon: UserX, color: 'text-red-600', bg: 'bg-red-100 dark:bg-red-900/30', filter: { type: 'interview_rejected' } },
   ]
 
@@ -170,6 +189,16 @@ export default function Dashboard() {
     setSelectedCard(card)
     setCardLoading(true)
     try {
+      if (card.filter?.type === 'interview_active') {
+        setCardCandidates(interviewCandidates)
+        return
+      }
+
+      if (card.filter?.type === 'interview_selected') {
+        setCardCandidates(selectedInterviewCandidates)
+        return
+      }
+
       if (card.filter?.type === 'interview_rejected') {
         setCardCandidates(interviewRejectedCandidates)
         return

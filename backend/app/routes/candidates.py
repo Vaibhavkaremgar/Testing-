@@ -98,10 +98,12 @@ def assign_resume_pipeline_stage(candidate: Candidate, score: Optional[float], t
 
 
 def resolve_pipeline_display_stage(candidate: Candidate, latest_interview: Optional[Interview], today) -> CandidateStage:
-    """Derive the pipeline column from the latest interview row when present."""
+    """Derive the pipeline column using candidate-owned and interview-owned stages."""
+    if candidate.stage in {CandidateStage.INTERVIEW_RESCHEDULED, CandidateStage.NO_SHOW}:
+        return candidate.stage
+
     if latest_interview:
         interview_status = (latest_interview.status or "").strip().lower()
-        interview_date = latest_interview.scheduled_at.date() if latest_interview.scheduled_at else None
 
         if interview_status == "completed":
             interview_score = latest_interview.interview_score if latest_interview.interview_score is not None else 0
@@ -112,20 +114,7 @@ def resolve_pipeline_display_stage(candidate: Candidate, latest_interview: Optio
         if interview_status == "ongoing":
             return CandidateStage.INTERVIEWED
 
-        if interview_status == "rescheduled":
-            if interview_date == today:
-                return CandidateStage.INTERVIEWED
-            return CandidateStage.INTERVIEW_RESCHEDULED
-
         if interview_status == "scheduled":
-            if interview_date == today:
-                return CandidateStage.INTERVIEWED
-            return CandidateStage.INTERVIEW_SCHEDULED
-
-        if interview_status == "no_show":
-            return CandidateStage.NO_SHOW
-
-        if latest_interview.scheduled_at and latest_interview.scheduled_at.date() > today:
             return CandidateStage.INTERVIEW_SCHEDULED
 
     effective_threshold = candidate.score_threshold or 60

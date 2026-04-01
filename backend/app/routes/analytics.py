@@ -26,6 +26,100 @@ from pydantic import BaseModel
 
 router = APIRouter(prefix="/analytics", tags=["Analytics"])
 
+INTERVIEW_RESULT_THRESHOLD = 6
+CANDIDATE_PIPELINE_STAGES = {
+    CandidateStage.REVIEW,
+    CandidateStage.SHORTLISTED,
+    CandidateStage.RESUME_REJECTED,
+    CandidateStage.INTERVIEW_RESCHEDULED,
+    CandidateStage.NO_SHOW,
+}
+INTERVIEW_PIPELINE_STAGES = {
+    CandidateStage.INTERVIEW_SCHEDULED,
+    CandidateStage.INTERVIEWED,
+    CandidateStage.SELECTED,
+    CandidateStage.REJECTED,
+}
+
+
+def _apply_candidate_dashboard_filters(
+    query,
+    db: Session,
+    current_user: User,
+    client: Optional[str] = None,
+    month: Optional[str] = None,
+    date: Optional[str] = None,
+):
+    query = _apply_candidate_visibility(query, current_user)
+    role_name = _role_name(current_user)
+
+    if client and role_name == UserRole.ADMIN.value:
+        job_ids = db.query(JobDescription.id).filter(JobDescription.company_name == client).all()
+        job_ids = [job_id[0] for job_id in job_ids]
+        if job_ids:
+            query = query.filter(Candidate.job_id.in_(job_ids))
+        else:
+            return query.filter(False)
+
+    if date:
+        query = query.filter(func.date(Candidate.created_at) == date)
+    elif month:
+        year, month_num = map(int, month.split('-'))
+        query = query.filter(
+            extract('year', Candidate.created_at) == year,
+            extract('month', Candidate.created_at) == month_num
+        )
+
+    return query
+
+
+def _map_interview_to_pipeline_stage(interview: Interview) -> Optional[CandidateStage]:
+    if not interview:
+        return None
+
+    interview_status = (interview.status or '').strip().lower()
+    if interview_status == 'completed':
+        interview_score = interview.interview_score if interview.interview_score is not None else 0
+        return CandidateStage.SELECTED if interview_score >= INTERVIEW_RESULT_THRESHOLD else CandidateStage.REJECTED
+    if interview_status == 'ongoing':
+        return CandidateStage.INTERVIEWED
+    if interview_status == 'scheduled':
+        return CandidateStage.INTERVIEW_SCHEDULED
+
+    return None
+
+
+def _get_latest_filtered_interviews_by_candidate(
+    db: Session,
+    candidate_ids: List,
+    month: Optional[str] = None,
+    date: Optional[str] = None,
+):
+    latest_interviews_by_candidate = {}
+    if not candidate_ids:
+        return latest_interviews_by_candidate
+
+    interview_query = db.query(Interview).filter(Interview.candidate_id.in_(candidate_ids))
+    interview_date_field = func.coalesce(Interview.scheduled_at, Interview.created_at)
+    if date:
+        interview_query = interview_query.filter(func.date(interview_date_field) == date)
+    elif month:
+        year, month_num = map(int, month.split('-'))
+        interview_query = interview_query.filter(
+            extract('year', interview_date_field) == year,
+            extract('month', interview_date_field) == month_num
+        )
+
+    interviews = (
+        interview_query
+        .order_by(Interview.candidate_id.asc(), Interview.scheduled_at.desc(), Interview.created_at.desc())
+        .all()
+    )
+    for interview in interviews:
+        latest_interviews_by_candidate.setdefault(interview.candidate_id, interview)
+
+    return latest_interviews_by_candidate
+
 
 def _get_table_columns(db: Session, table_name: str) -> set[str]:
     rows = db.execute(text(
@@ -482,77 +576,53 @@ def get_dashboard_stats(
     current_user: User = Depends(get_current_active_user)
 ):
     try:
-        query = _apply_candidate_visibility(db.query(Candidate), current_user)
-        role_name = _role_name(current_user)
-        
-        # Apply client filter if provided
-        if client and role_name == UserRole.ADMIN.value:
-            job_ids = db.query(JobDescription.id).filter(JobDescription.company_name == client).all()
-            job_ids = [j[0] for j in job_ids]
-            if job_ids:
-                query = query.filter(Candidate.job_id.in_(job_ids))
-            else:
-                # No jobs for this client, return zeros
-                return DashboardStats(
-                    total_candidates=0,
-                    shortlisted=0,
-                    resume_rejected=0,
-                    rejected=0,
-                    interviews_scheduled=0,
-                    selected=0,
-                    avg_resume_score=0.0,
-                    avg_interview_score=0.0
-                )
-        
-        # Apply date filter if provided (specific date)
-        if date:
-            query = query.filter(func.date(Candidate.created_at) == date)
-        # Apply month filter if provided
-        elif month:
-            year, month_num = map(int, month.split('-'))
-            query = query.filter(
-                extract('year', Candidate.created_at) == year,
-                extract('month', Candidate.created_at) == month_num
-            )
-        
-        # Count all candidates EXCLUDING APPLIED stage
+        query = _apply_candidate_dashboard_filters(
+            db.query(Candidate),
+            db,
+            current_user,
+            client=client,
+            month=month,
+            date=date,
+        )
+
         all_candidates = query.all()
         active_candidates = [c for c in all_candidates if c.stage != CandidateStage.APPLIED]
         total = len(active_candidates)
-        
+
         shortlisted = sum(1 for c in active_candidates if c.stage == CandidateStage.SHORTLISTED)
         resume_rejected = sum(1 for c in active_candidates if c.stage == CandidateStage.RESUME_REJECTED)
-        rejected = sum(1 for c in active_candidates if c.stage == CandidateStage.REJECTED)
-        interview_scheduled = sum(1 for c in active_candidates if c.stage in [
-            CandidateStage.INTERVIEW_SCHEDULED, CandidateStage.INTERVIEW_RESCHEDULED, CandidateStage.INTERVIEWED
-        ])
-        selected = sum(1 for c in active_candidates if c.stage == CandidateStage.SELECTED)
-        
+
+        latest_interviews_by_candidate = _get_latest_filtered_interviews_by_candidate(
+            db,
+            [candidate.id for candidate in active_candidates],
+            month=month,
+            date=date,
+        )
+        interview_stages = {
+            candidate_id: _map_interview_to_pipeline_stage(interview)
+            for candidate_id, interview in latest_interviews_by_candidate.items()
+        }
+
+        interview_scheduled = sum(
+            1
+            for stage in interview_stages.values()
+            if stage in {CandidateStage.INTERVIEW_SCHEDULED, CandidateStage.INTERVIEWED}
+        )
+        selected = sum(1 for stage in interview_stages.values() if stage == CandidateStage.SELECTED)
+        rejected = sum(1 for stage in interview_stages.values() if stage == CandidateStage.REJECTED)
+
         candidate_ids = [c.id for c in active_candidates]
         avg_resume = db.query(func.avg(Candidate.resume_score)).filter(
             Candidate.id.in_(candidate_ids) if candidate_ids else False
         ).scalar() or 0
-        
-        # Calculate avg interview score from candidates in SELECTED/REJECTED stages
-        interviewed_candidates = [c for c in active_candidates if c.stage in [CandidateStage.SELECTED, CandidateStage.REJECTED]]
-        if interviewed_candidates:
-            total_score = 0
-            count = 0
-            for c in interviewed_candidates:
-                try:
-                    tech = getattr(c, 'interview_technical_score', None)
-                    comm = getattr(c, 'interview_communication_score', None)
-                    cult = getattr(c, 'interview_culture_fit_score', None)
-                    if tech and comm and cult:
-                        avg = (tech + comm + cult) / 3
-                        total_score += avg
-                        count += 1
-                except AttributeError:
-                    continue
-            avg_interview = total_score / count if count > 0 else 0
-        else:
-            avg_interview = 0
-        
+
+        interview_scores = [
+            interview.interview_score
+            for interview in latest_interviews_by_candidate.values()
+            if interview and interview.interview_score is not None
+        ]
+        avg_interview = (sum(interview_scores) / len(interview_scores)) if interview_scores else 0
+
         return DashboardStats(
             total_candidates=total,
             shortlisted=shortlisted,
@@ -601,34 +671,35 @@ def get_hiring_funnel(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    query = _apply_candidate_visibility(db.query(Candidate), current_user)
-    role_name = _role_name(current_user)
-    
-    # Apply client filter if provided
-    if client and role_name == UserRole.ADMIN.value:
-        job_ids = db.query(JobDescription.id).filter(JobDescription.company_name == client).all()
-        job_ids = [j[0] for j in job_ids]
-        if job_ids:
-            query = query.filter(Candidate.job_id.in_(job_ids))
-        else:
-            return []
-    
-    # Apply date filter if provided (specific date)
-    if date:
-        query = query.filter(func.date(Candidate.created_at) == date)
-    # Apply month filter if provided
-    elif month:
-        year, month_num = map(int, month.split('-'))
-        query = query.filter(
-            extract('year', Candidate.created_at) == year,
-            extract('month', Candidate.created_at) == month_num
-        )
-    
-    total = query.count() or 1
-    shortlisted = query.filter(Candidate.stage == CandidateStage.SHORTLISTED).count() or 0
-    interview_scheduled = query.filter(Candidate.stage == CandidateStage.INTERVIEW_SCHEDULED).count() or 0
-    selected = query.filter(Candidate.stage == CandidateStage.SELECTED).count() or 0
-    rejected = query.filter(Candidate.stage.in_([CandidateStage.REJECTED, CandidateStage.RESUME_REJECTED])).count() or 0
+    query = _apply_candidate_dashboard_filters(
+        db.query(Candidate),
+        db,
+        current_user,
+        client=client,
+        month=month,
+        date=date,
+    )
+
+    candidates = query.all()
+    active_candidates = [candidate for candidate in candidates if candidate.stage != CandidateStage.APPLIED]
+    total = len(active_candidates) or 1
+    shortlisted = sum(1 for candidate in active_candidates if candidate.stage == CandidateStage.SHORTLISTED)
+
+    latest_interviews_by_candidate = _get_latest_filtered_interviews_by_candidate(
+        db,
+        [candidate.id for candidate in active_candidates],
+        month=month,
+        date=date,
+    )
+    interview_stages = [
+        _map_interview_to_pipeline_stage(interview)
+        for interview in latest_interviews_by_candidate.values()
+    ]
+    interview_scheduled = sum(
+        1 for stage in interview_stages if stage in {CandidateStage.INTERVIEW_SCHEDULED, CandidateStage.INTERVIEWED}
+    )
+    selected = sum(1 for stage in interview_stages if stage == CandidateStage.SELECTED)
+    rejected = sum(1 for stage in interview_stages if stage == CandidateStage.REJECTED)
     
     funnel_stages = [
         ("Total Candidates", total),
