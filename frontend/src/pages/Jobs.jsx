@@ -51,6 +51,24 @@ export default function Jobs({ superAdminAgencyId = null }) {
   const [currentQuestion, setCurrentQuestion] = useState('')
   const [deleteJobModal, setDeleteJobModal] = useState({ open: false, job: null })
 
+  const parseSkillsInput = (value) => {
+    const normalized = String(value || '').trim()
+    if (!normalized) return []
+
+    const explicitSeparators = /[,;\n/|]+/
+    if (explicitSeparators.test(normalized)) {
+      return normalized
+        .split(explicitSeparators)
+        .map((skill) => skill.trim())
+        .filter(Boolean)
+    }
+
+    return normalized
+      .split(/\s{2,}/)
+      .map((skill) => skill.trim())
+      .filter(Boolean)
+  }
+
   const fetchJobs = async () => {
     try {
       const params = {}
@@ -89,7 +107,7 @@ export default function Jobs({ superAdminAgencyId = null }) {
       const jobData = {
         ...formData,
         company_name: formData.company_name || null,
-        skills: formData.skills.split(',').map(s => s.trim()).filter(Boolean),
+        skills: parseSkillsInput(formData.skills),
         interview_questions: formData.interview_questions
       }
       console.log('Sending job data:', jobData)
@@ -224,6 +242,16 @@ export default function Jobs({ superAdminAgencyId = null }) {
     })
   }
 
+  const handleFormKeyDown = (e) => {
+    if (e.key !== 'Enter') return
+
+    const tagName = e.target.tagName
+    const allowEnter = e.target.dataset.allowEnter === 'true'
+    if (tagName === 'TEXTAREA' || allowEnter) return
+
+    e.preventDefault()
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -237,7 +265,7 @@ export default function Jobs({ superAdminAgencyId = null }) {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Job Descriptions</h1>
-          <p className="text-muted-foreground">Manage open positions</p>
+          <p className="text-muted-foreground">Manage your positions</p>
         </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           {canManageJobs && (
@@ -255,7 +283,7 @@ export default function Jobs({ superAdminAgencyId = null }) {
             <DialogHeader>
               <DialogTitle>{editingJob ? 'Edit Job' : 'Create New Job'}</DialogTitle>
             </DialogHeader>
-            <form onSubmit={handleSubmit} className="space-y-4 mt-4">
+            <form onSubmit={handleSubmit} onKeyDown={handleFormKeyDown} className="space-y-4 mt-4">
               {/* Mandatory Fields - Always First */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -277,7 +305,7 @@ export default function Jobs({ superAdminAgencyId = null }) {
                 </div>
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium">Company Name</label>
+                <label className="text-sm font-medium">Company Name *</label>
                 {!showOtherCompany ? (
                   <div className="relative">
                     <Input
@@ -293,6 +321,7 @@ export default function Jobs({ superAdminAgencyId = null }) {
                         setShowCompanyDropdown(true)
                       }}
                       onBlur={() => setTimeout(() => setShowCompanyDropdown(false), 150)}
+                      required
                     />
                     {showCompanyDropdown && (
                       <div className="absolute z-50 w-full mt-1 bg-background border border-input rounded-lg shadow-lg max-h-48 overflow-y-auto">
@@ -334,6 +363,7 @@ export default function Jobs({ superAdminAgencyId = null }) {
                       onChange={(e) => setFormData({ ...formData, company_name: e.target.value })}
                       placeholder="Enter company name"
                       autoFocus
+                      required
                     />
                     <Button
                       type="button"
@@ -396,28 +426,31 @@ export default function Jobs({ superAdminAgencyId = null }) {
               {/* Other Fields */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Department</label>
+                  <label className="text-sm font-medium">Department *</label>
                   <Input
                     value={formData.department}
                     onChange={(e) => setFormData({ ...formData, department: e.target.value })}
                     disabled={inputMethod === 'upload'}
+                    required
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Location</label>
+                  <label className="text-sm font-medium">Location *</label>
                   <Input
                     value={formData.location}
                     onChange={(e) => setFormData({ ...formData, location: e.target.value })}
                     disabled={inputMethod === 'upload'}
+                    required
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Employment Type</label>
+                  <label className="text-sm font-medium">Employment Type *</label>
                   <select
                     className="flex h-10 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
                     value={formData.employment_type}
                     onChange={(e) => setFormData({ ...formData, employment_type: e.target.value })}
                     disabled={inputMethod === 'upload'}
+                    required
                   >
                     <option>Full-time</option>
                     <option>Part-time</option>
@@ -426,35 +459,38 @@ export default function Jobs({ superAdminAgencyId = null }) {
                   </select>
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Experience Required</label>
+                  <label className="text-sm font-medium">Experience Required *</label>
                   <Input
                     value={formData.experience_required}
                     onChange={(e) => setFormData({ ...formData, experience_required: e.target.value })}
                     placeholder="e.g., 3-5 years"
                     disabled={inputMethod === 'upload'}
+                    required
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Salary Range</label>
+                  <label className="text-sm font-medium">Salary Range *</label>
                   <Input
                     value={formData.salary_range}
                     onChange={(e) => setFormData({ ...formData, salary_range: e.target.value })}
                     placeholder="e.g., $100k - $150k"
                     disabled={inputMethod === 'upload'}
+                    required
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Vacancies</label>
+                  <label className="text-sm font-medium">Vacancies *</label>
                   <Input
                     type="number"
                     min="1"
                     value={formData.vacancies}
                     onChange={(e) => setFormData({ ...formData, vacancies: parseInt(e.target.value) || 1 })}
                     placeholder="Number of positions"
+                    required
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Minimum Passing Score</label>
+                  <label className="text-sm font-medium">Minimum Passing Score *</label>
                   <Input
                     type="number"
                     min="0"
@@ -462,34 +498,48 @@ export default function Jobs({ superAdminAgencyId = null }) {
                     value={formData.min_passing_score}
                     onChange={(e) => setFormData({ ...formData, min_passing_score: parseInt(e.target.value) || 60 })}
                     placeholder="Resume score threshold"
+                    required
                   />
                 </div>
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium">Description</label>
+                <label className="text-sm font-medium">Description *</label>
                 <textarea
                   className="flex min-h-[100px] w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                   disabled={inputMethod === 'upload'}
+                  required
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium">Requirements</label>
+                <label className="text-sm font-medium">Requirements *</label>
                 <textarea
                   className="flex min-h-[100px] w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
                   value={formData.requirements}
                   onChange={(e) => setFormData({ ...formData, requirements: e.target.value })}
                   disabled={inputMethod === 'upload'}
+                  required
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium">Skills (comma-separated)</label>
+                <label className="text-sm font-medium">Responsibilities *</label>
+                <textarea
+                  className="flex min-h-[100px] w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                  value={formData.responsibilities}
+                  onChange={(e) => setFormData({ ...formData, responsibilities: e.target.value })}
+                  disabled={inputMethod === 'upload'}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Skills *</label>
                 <Input
                   value={formData.skills}
                   onChange={(e) => setFormData({ ...formData, skills: e.target.value })}
-                  placeholder="Python, React, AWS"
+                  placeholder="Python React AWS or Python, React, AWS"
                   disabled={inputMethod === 'upload'}
+                  required
                 />
               </div>
 
@@ -501,7 +551,13 @@ export default function Jobs({ superAdminAgencyId = null }) {
                     placeholder="Enter question"
                     value={currentQuestion}
                     onChange={(e) => setCurrentQuestion(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addQuestion())}
+                    data-allow-enter="true"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        addQuestion()
+                      }
+                    }}
                   />
                   <Button type="button" onClick={addQuestion}>
                     Add

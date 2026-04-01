@@ -473,7 +473,21 @@ def extract_years_experience(resume_text: str) -> float:
     if re.search(r'\b(fresher|fresh graduate|recent graduate|entry level|no experience|0\s*\+?\s*years?)\b', resume_lower):
         return 0.0
 
-    # Pattern 1 & 2: "X years" or "X+ years"
+    # Pattern 1 & 2: explicit ranges like "1-2 years" / "1 to 2 years"
+    range_patterns = [
+        r'(\d+)\s*(?:-|to)\s*(\d+)\s*years?\s+of\s+experience',
+        r'(\d+)\s*(?:-|to)\s*(\d+)\s*years?\s+experience',
+        r'experience\s+(?:of\s+)?(\d+)\s*(?:-|to)\s*(\d+)\s*years?'
+    ]
+
+    for pattern in range_patterns:
+        match = re.search(pattern, resume_lower)
+        if match:
+            start_year = float(match.group(1))
+            end_year = float(match.group(2))
+            return min(start_year, end_year)
+
+    # Pattern 3 & 4: "X years" or "X+ years"
     year_patterns = [
         r'(\d+)\s*\+?\s*years?\s+of\s+experience',
         r'(\d+)\s*\+?\s*years?\s+experience',
