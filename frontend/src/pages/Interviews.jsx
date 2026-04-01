@@ -87,9 +87,13 @@ export default function Interviews({ superAdminAgencyId = null }) {
   const [scheduleForm, setScheduleForm] = useState({
     name: '',
     email: '',
+    candidateId: '',
     jobId: '',
     jobTitle: '',
     slot: '',
+    interviewType: 'General',
+    scheduledAt: '',
+    durationMinutes: 60,
     resumeText: '',
     jdText: '',
     meetingLink: '',
@@ -161,7 +165,11 @@ export default function Interviews({ superAdminAgencyId = null }) {
   }, [candidates])
 
   const completedInterviews = useMemo(() => (
-    interviews.filter((interview) => getEffectiveInterviewStatus(interview) === 'completed')
+    interviews.filter((interview) => {
+      const effectiveStatus = getEffectiveInterviewStatus(interview)
+      const resultMeta = getInterviewResultMeta(interview)
+      return effectiveStatus === 'completed' || resultMeta.label === 'Selected' || resultMeta.label === 'Rejected'
+    })
   ), [interviews])
 
   const filteredInterviews = useMemo(() => {
@@ -199,40 +207,56 @@ export default function Interviews({ superAdminAgencyId = null }) {
         alert('Please select a candidate first');
         return;
       }
+      if (!scheduleForm.candidateId) {
+        alert('Please select a candidate first');
+        return;
+      }
       if (!scheduleForm.meetingLink) {
         alert('Please enter a meeting link');
         return;
       }
-      
-      // Compose email with meeting link
-      const subject = encodeURIComponent(`Interview Invitation - ${scheduleForm.name}`);
-      const body = encodeURIComponent(
-        `Dear ${scheduleForm.name},\n\n` +
-        `We are pleased to invite you for an interview.\n\n` +
-        `Meeting Link: ${scheduleForm.meetingLink}\n\n` +
-        `Please join the meeting at the scheduled time.\n\n` +
-        `Best regards,\nHR Team`
-      );
-      
-      // Open default email client with pre-filled content
-      window.location.href = `mailto:${scheduleForm.email}?subject=${subject}&body=${body}`;
-      
-      alert(`Email client opened for ${scheduleForm.email}`);
+      if (!scheduleForm.scheduledAt) {
+        alert('Please select interview date and time');
+        return;
+      }
+
+      const createdInterview = await api.createInterview({
+        candidate_id: scheduleForm.candidateId,
+        interview_type: scheduleForm.interviewType || 'General',
+        scheduled_at: new Date(scheduleForm.scheduledAt).toISOString(),
+        duration_minutes: Number(scheduleForm.durationMinutes) || 60,
+        meeting_link: scheduleForm.meetingLink,
+      })
+
+      const interviewWithPlayback = {
+        ...createdInterview,
+        playback_url: getInterviewPlaybackUrl(createdInterview)
+      }
+
+      setInterviews((prev) => [interviewWithPlayback, ...prev])
+      toast({
+        title: 'Interview Scheduled',
+        description: `Interview created for ${scheduleForm.name}.`,
+      })
       setShowScheduleModal(false);
       setScheduleForm({
         name: '',
         email: '',
+        candidateId: '',
         jobId: '',
         jobTitle: '',
         slot: '',
+        interviewType: 'General',
+        scheduledAt: '',
+        durationMinutes: 60,
         resumeText: '',
         jdText: '',
         meetingLink: '',
         predefinedQuestions: ''
       });
     } catch (error) {
-      console.error('Failed to send interview email:', error)
-      alert('Failed to open email client')
+      console.error('Failed to schedule interview:', error)
+      alert(error.message || 'Failed to schedule interview')
     }
   }
 
@@ -632,13 +656,14 @@ export default function Interviews({ superAdminAgencyId = null }) {
                       }
                     }
                     
-                    setScheduleForm({
-                      ...scheduleForm, 
-                      name: candidateName,
-                      email: selectedCandidate?.email || '',
-                      jobId: job?.job_id || job?.id || '',
-                      jobTitle: job?.title || '',
-                      resumeText: selectedCandidate?.resume_text || 'No resume text available',
+                     setScheduleForm({
+                        ...scheduleForm, 
+                        name: candidateName,
+                        email: selectedCandidate?.email || '',
+                        candidateId: selectedCandidate?.id || '',
+                        jobId: job?.job_id || job?.id || '',
+                        jobTitle: job?.title || '',
+                        resumeText: selectedCandidate?.resume_text || 'No resume text available',
                       jdText: job?.description || 'No job description available',
                       predefinedQuestions: predefinedQuestions
                     })
@@ -653,8 +678,8 @@ export default function Interviews({ superAdminAgencyId = null }) {
                 </select>
               </div>
               
-              <div>
-                <label className="text-sm font-medium mb-1 block">Email</label>
+               <div>
+                  <label className="text-sm font-medium mb-1 block">Email</label>
                 <input
                   type="email"
                   className="w-full h-10 rounded-lg border border-input bg-background px-3 py-2 text-sm"
@@ -664,8 +689,41 @@ export default function Interviews({ superAdminAgencyId = null }) {
                 />
               </div>
               
-              {scheduleForm.name && (
-                <>
+               {scheduleForm.name && (
+                 <>
+                  <div>
+                    <label className="text-sm font-medium mb-1 block">Interview Type</label>
+                    <input
+                      type="text"
+                      className="w-full h-10 rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                      value={scheduleForm.interviewType}
+                      onChange={(e) => setScheduleForm({...scheduleForm, interviewType: e.target.value})}
+                      placeholder="General"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-medium mb-1 block">Interview Date & Time</label>
+                    <input
+                      type="datetime-local"
+                      className="w-full h-10 rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                      value={scheduleForm.scheduledAt}
+                      onChange={(e) => setScheduleForm({...scheduleForm, scheduledAt: e.target.value})}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-sm font-medium mb-1 block">Duration (Minutes)</label>
+                    <input
+                      type="number"
+                      min="15"
+                      step="15"
+                      className="w-full h-10 rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                      value={scheduleForm.durationMinutes}
+                      onChange={(e) => setScheduleForm({...scheduleForm, durationMinutes: e.target.value})}
+                    />
+                  </div>
+
                   <div>
                     <label className="text-sm font-medium mb-1 block">Job ID</label>
                     <input

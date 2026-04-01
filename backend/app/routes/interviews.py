@@ -188,13 +188,15 @@ def _apply_interview_scope(query, current_user):
     if current_user.role == UserRole.SUPER_ADMIN:
         return query
 
-    if current_user.role == UserRole.ADMIN and current_user.agency_id:
-        return query.join(Candidate).outerjoin(JobDescription, Candidate.job_id == JobDescription.id).filter(
-            or_(
-                Candidate.agency_id == current_user.agency_id,
-                JobDescription.agency_id == current_user.agency_id,
+    if current_user.role == UserRole.ADMIN:
+        if current_user.agency_id:
+            return query.join(Candidate).outerjoin(JobDescription, Candidate.job_id == JobDescription.id).filter(
+                or_(
+                    Candidate.agency_id == current_user.agency_id,
+                    JobDescription.agency_id == current_user.agency_id,
+                )
             )
-        )
+        return query
 
     return query.join(Candidate).filter(Candidate.assigned_to_user_id == current_user.id)
 
