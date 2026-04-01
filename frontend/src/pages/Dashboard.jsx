@@ -28,6 +28,7 @@ import {
 
 const COLORS = ['#3b82f6', '#8b5cf6', '#06b6d4', '#10b981', '#f59e0b']
 const SAVED_DASHBOARD_VIEWS_KEY = 'dashboardSavedViews'
+const INTERVIEW_REJECTION_SCORE_THRESHOLD = 6
 
 const getDefaultView = () => ({
   selectedMonth: 'all',
@@ -57,6 +58,7 @@ export default function Dashboard() {
   const [selectedCard, setSelectedCard] = useState(null)
   const [cardCandidates, setCardCandidates] = useState([])
   const [cardLoading, setCardLoading] = useState(false)
+  const [interviewRejectedCandidates, setInterviewRejectedCandidates] = useState([])
   const [hiringMetrics, setHiringMetrics] = useState(null)
   const [departmentFilter, setDepartmentFilter] = useState('all')
   const [intelligence, setIntelligence] = useState(null)
@@ -82,7 +84,7 @@ export default function Dashboard() {
         } else if (selectedMonth !== 'all') {
           params.month = selectedMonth
         }
-        const [statsData, funnelData, resumeData, interviewData, jobs, interviews, metrics, intel] = await Promise.all([
+        const [statsData, funnelData, resumeData, interviewData, jobs, interviews, metrics, intel, candidatesData, completedInterviews] = await Promise.all([
           api.getDashboardStats(params).catch(e => { console.error('Stats error:', e); return null; }),
           api.getHiringFunnel(params).catch(e => { console.error('Funnel error:', e); return []; }),
           api.getResumeScoresTrend().catch(e => { console.error('Resume trend error:', e); return []; }),
@@ -90,8 +92,37 @@ export default function Dashboard() {
           api.getActiveJobs().catch(e => { console.error('Jobs error:', e); return []; }),
           api.getUpcomingInterviews().catch(e => { console.error('Interviews error:', e); return []; }),
           api.getHiringMetrics().catch(e => { console.error('Metrics error:', e); return null; }),
-          api.getHiringIntelligence().catch(e => { console.error('Intelligence error:', e); return null; })
+          api.getHiringIntelligence().catch(e => { console.error('Intelligence error:', e); return null; }),
+          api.getCandidates({ ...params, limit: 500 }).catch(e => { console.error('Candidates error:', e); return []; }),
+          api.getInterviews({ status: 'completed', limit: 500 }).catch(e => { console.error('Completed interviews error:', e); return []; })
         ])
+        const latestRejectedInterviewsByCandidate = new Map()
+        for (const interview of completedInterviews || []) {
+          const interviewScore = Number(interview?.interview_score)
+          if (!Number.isFinite(interviewScore) || interviewScore >= INTERVIEW_REJECTION_SCORE_THRESHOLD || !interview?.candidate_id) {
+            continue
+          }
+
+          const previousInterview = latestRejectedInterviewsByCandidate.get(interview.candidate_id)
+          const previousDate = previousInterview?.scheduled_at || previousInterview?.created_at || ''
+          const currentDate = interview.scheduled_at || interview.created_at || ''
+          if (!previousInterview || new Date(currentDate) > new Date(previousDate)) {
+            latestRejectedInterviewsByCandidate.set(interview.candidate_id, interview)
+          }
+        }
+
+        const rejectedCandidates = (candidatesData || [])
+          .filter(candidate => latestRejectedInterviewsByCandidate.has(candidate.id))
+          .map(candidate => {
+            const rejectedInterview = latestRejectedInterviewsByCandidate.get(candidate.id)
+            return {
+              ...candidate,
+              display_score: rejectedInterview?.interview_score,
+              display_stage: 'INTERVIEW_REJECTED',
+              rejected_at: rejectedInterview?.scheduled_at || rejectedInterview?.created_at || candidate.created_at
+            }
+          })
+          .sort((a, b) => new Date(b.rejected_at) - new Date(a.rejected_at))
         console.log('📊 Dashboard Stats:', statsData)
         console.log('📈 Funnel Data:', funnelData)
         setStats(statsData)
@@ -100,6 +131,7 @@ export default function Dashboard() {
         setInterviewTrend(interviewData)
         setActiveJobs(jobs)
         setUpcomingInterviews(interviews)
+        setInterviewRejectedCandidates(rejectedCandidates)
         setHiringMetrics(metrics)
         setIntelligence(intel)
       } catch (error) {
@@ -124,13 +156,13 @@ export default function Dashboard() {
     { title: 'Shortlisted', value: stats.shortlisted || 0, icon: UserCheck, color: 'text-purple-600', bg: 'bg-purple-100 dark:bg-purple-900/30', filter: { stage: 'SHORTLISTED' } },
     { title: 'Interviews', value: stats.interviews_scheduled || 0, icon: Calendar, color: 'text-orange-600', bg: 'bg-orange-100 dark:bg-orange-900/30', filter: { stages: ['INTERVIEW_SCHEDULED', 'INTERVIEW_RESCHEDULED', 'INTERVIEWED'] } },
     { title: 'Selected', value: stats.selected || 0, icon: Award, color: 'text-green-600', bg: 'bg-green-100 dark:bg-green-900/30', filter: { stage: 'SELECTED' } },
-    { title: 'Rejected', value: stats.rejected || 0, icon: UserX, color: 'text-red-600', bg: 'bg-red-100 dark:bg-red-900/30', filter: { stage: 'REJECTED' } },
+    { title: 'Rejected', value: interviewRejectedCandidates.length, icon: UserX, color: 'text-red-600', bg: 'bg-red-100 dark:bg-red-900/30', filter: { type: 'interview_rejected' } },
   ] : [
     { title: 'Total Candidates', value: 0, icon: Users, color: 'text-blue-600', bg: 'bg-blue-100 dark:bg-blue-900/30', filter: {} },
     { title: 'Shortlisted', value: 0, icon: UserCheck, color: 'text-purple-600', bg: 'bg-purple-100 dark:bg-purple-900/30', filter: { stage: 'SHORTLISTED' } },
     { title: 'Interviews', value: 0, icon: Calendar, color: 'text-orange-600', bg: 'bg-orange-100 dark:bg-orange-900/30', filter: { stages: ['INTERVIEW_SCHEDULED', 'INTERVIEW_RESCHEDULED', 'INTERVIEWED'] } },
     { title: 'Selected', value: 0, icon: Award, color: 'text-green-600', bg: 'bg-green-100 dark:bg-green-900/30', filter: { stage: 'SELECTED' } },
-    { title: 'Rejected', value: 0, icon: UserX, color: 'text-red-600', bg: 'bg-red-100 dark:bg-red-900/30', filter: { stage: 'REJECTED' } },
+    { title: 'Rejected', value: 0, icon: UserX, color: 'text-red-600', bg: 'bg-red-100 dark:bg-red-900/30', filter: { type: 'interview_rejected' } },
   ]
 
   const handleCardClick = async (card) => {
@@ -138,6 +170,11 @@ export default function Dashboard() {
     setSelectedCard(card)
     setCardLoading(true)
     try {
+      if (card.filter?.type === 'interview_rejected') {
+        setCardCandidates(interviewRejectedCandidates)
+        return
+      }
+
       const filter = { ...card.filter }
       if (selectedDate) {
         filter.date = selectedDate
@@ -569,9 +606,10 @@ export default function Dashboard() {
                             <td className="p-3 text-sm text-muted-foreground">{candidate.email}</td>
                             <td className="p-3 text-sm">{candidate.job_title || '-'}</td>
                             <td className="p-3">
-                              {candidate.resume_score ? (
-                                <span className={cn('font-semibold', getScoreColor(candidate.resume_score))}>
-                                  {candidate.resume_score}
+                              {((candidate.display_score !== undefined && candidate.display_score !== null)
+                                || (candidate.resume_score !== undefined && candidate.resume_score !== null)) ? (
+                                <span className={cn('font-semibold', getScoreColor(candidate.display_score ?? candidate.resume_score))}>
+                                  {candidate.display_score ?? candidate.resume_score}
                                 </span>
                               ) : (
                                 <span className="text-muted-foreground">-</span>
@@ -579,11 +617,11 @@ export default function Dashboard() {
                             </td>
                             <td className="p-3">
                               <Badge variant="outline" className="capitalize">
-                                {candidate.stage.replace('_', ' ')}
+                                {(candidate.display_stage || candidate.stage).replaceAll('_', ' ')}
                               </Badge>
                             </td>
                             <td className="p-3 text-sm text-muted-foreground">
-                              {formatDate(candidate.created_at)}
+                              {formatDate(candidate.rejected_at || candidate.created_at)}
                             </td>
                           </tr>
                         ))}
