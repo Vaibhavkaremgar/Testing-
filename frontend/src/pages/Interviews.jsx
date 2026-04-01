@@ -13,7 +13,7 @@ import {
   Video, Calendar, Clock, User, FileText, Brain, Star, Send, X, Play, CheckCircle, RotateCcw, Plus, ExternalLink
 } from 'lucide-react'
 
-const DEFAULT_LIST_LIMIT = 100
+const DEFAULT_LIST_LIMIT = 500
 
 function getInterviewPlaybackUrl(interview) {
   if (!interview) return ''
@@ -160,13 +160,17 @@ export default function Interviews({ superAdminAgencyId = null }) {
     return map
   }, [candidates])
 
-  const filteredInterviews = useMemo(() => {
-    if (selectedJobFilter === 'all') return interviews
+  const completedInterviews = useMemo(() => (
+    interviews.filter((interview) => getEffectiveInterviewStatus(interview) === 'completed')
+  ), [interviews])
 
-    return interviews.filter((interview) => (
+  const filteredInterviews = useMemo(() => {
+    if (selectedJobFilter === 'all') return completedInterviews
+
+    return completedInterviews.filter((interview) => (
       candidateJobMap.get(String(interview.candidate_id)) === selectedJobFilter
     ))
-  }, [candidateJobMap, interviews, selectedJobFilter])
+  }, [candidateJobMap, completedInterviews, selectedJobFilter])
 
   useEffect(() => {
     if (filteredInterviews.length === 0) {
@@ -245,10 +249,6 @@ export default function Interviews({ superAdminAgencyId = null }) {
         title: 'Candidate Selected',
         description: 'Candidate moved to Selected and the selection email was queued.',
       })
-      // Remove from interviews list and clear selection
-      const updatedInterviews = interviews.filter(i => i.id !== selectedInterview.id);
-      setInterviews(updatedInterviews);
-      setSelectedInterview(updatedInterviews.length > 0 ? updatedInterviews[0] : null);
     } catch (error) {
       console.error('Failed to approve candidate:', error);
       toast({
@@ -270,10 +270,6 @@ export default function Interviews({ superAdminAgencyId = null }) {
         title: 'Candidate Rejected',
         description: 'Candidate moved to Rejected without sending an interview email.',
       })
-      // Remove from interviews list and clear selection
-      const updatedInterviews = interviews.filter(i => i.id !== selectedInterview.id);
-      setInterviews(updatedInterviews);
-      setSelectedInterview(updatedInterviews.length > 0 ? updatedInterviews[0] : null);
     } catch (error) {
       console.error('Failed to reject candidate:', error);
       toast({
