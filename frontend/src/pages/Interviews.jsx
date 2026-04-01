@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 
 const DEFAULT_LIST_LIMIT = 500
+const INTERVIEW_REJECTION_SCORE_THRESHOLD = 6
 
 function getInterviewPlaybackUrl(interview) {
   if (!interview) return ''
@@ -44,10 +45,25 @@ function getEffectiveInterviewStatus(interview) {
   return normalizedStatus || 'pending'
 }
 
-function getInterviewResultMeta(interview) {
+function getInterviewResultMeta(interview, candidateStage) {
+  const normalizedCandidateStage = String(candidateStage || '').toUpperCase()
+  if (normalizedCandidateStage === 'SELECTED') {
+    return {
+      label: 'Selected',
+      badgeClass: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
+    }
+  }
+
+  if (normalizedCandidateStage === 'REJECTED') {
+    return {
+      label: 'Rejected',
+      badgeClass: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
+    }
+  }
+
   const interviewScore = getNumericInterviewScore(interview)
   if (getEffectiveInterviewStatus(interview) === 'completed' && interviewScore !== null) {
-    if (interviewScore >= 6) {
+    if (interviewScore >= INTERVIEW_REJECTION_SCORE_THRESHOLD) {
       return {
         label: 'Selected',
         badgeClass: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
@@ -79,6 +95,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
   const [candidates, setCandidates] = useState([])
   const [jobs, setJobs] = useState([])
   const [selectedJobFilter, setSelectedJobFilter] = useState('all')
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState('all')
   const [videoError, setVideoError] = useState('')
   const [mediaMode, setMediaMode] = useState('video')
   const [decisionLoading, setDecisionLoading] = useState(null)
@@ -164,21 +181,35 @@ export default function Interviews({ superAdminAgencyId = null }) {
     return map
   }, [candidates])
 
-  const completedInterviews = useMemo(() => (
-    interviews.filter((interview) => {
-      const effectiveStatus = getEffectiveInterviewStatus(interview)
-      const resultMeta = getInterviewResultMeta(interview)
-      return effectiveStatus === 'completed' || resultMeta.label === 'Selected' || resultMeta.label === 'Rejected'
+  const candidateStageMap = useMemo(() => {
+    const map = new Map()
+    ;(candidates || []).forEach((candidate) => {
+      map.set(String(candidate.id), candidate.stage || '')
     })
-  ), [interviews])
+    return map
+  }, [candidates])
 
-  const filteredInterviews = useMemo(() => {
-    if (selectedJobFilter === 'all') return completedInterviews
+  const jobFilteredInterviews = useMemo(() => {
+    if (selectedJobFilter === 'all') return interviews
 
-    return completedInterviews.filter((interview) => (
+    return interviews.filter((interview) => (
       candidateJobMap.get(String(interview.candidate_id)) === selectedJobFilter
     ))
-  }, [candidateJobMap, completedInterviews, selectedJobFilter])
+  }, [candidateJobMap, interviews, selectedJobFilter])
+
+  const filteredInterviews = useMemo(() => (
+    jobFilteredInterviews.filter((interview) => {
+      if (selectedStatusFilter === 'all') return true
+      return getEffectiveInterviewStatus(interview) === selectedStatusFilter
+    })
+  ), [jobFilteredInterviews, selectedStatusFilter])
+
+  const interviewStatusCounts = useMemo(() => ({
+    all: jobFilteredInterviews.length,
+    scheduled: jobFilteredInterviews.filter((interview) => getEffectiveInterviewStatus(interview) === 'scheduled').length,
+    ongoing: jobFilteredInterviews.filter((interview) => getEffectiveInterviewStatus(interview) === 'ongoing').length,
+    completed: jobFilteredInterviews.filter((interview) => getEffectiveInterviewStatus(interview) === 'completed').length,
+  }), [jobFilteredInterviews])
 
   useEffect(() => {
     if (filteredInterviews.length === 0) {
@@ -191,6 +222,10 @@ export default function Interviews({ superAdminAgencyId = null }) {
       setSelectedInterview(filteredInterviews[0])
     }
   }, [filteredInterviews, selectedInterview])
+
+  useEffect(() => {
+    setVisibleCount(20)
+  }, [selectedJobFilter, selectedStatusFilter])
 
   const handleScheduleInterview = async () => {
     try {
@@ -261,6 +296,13 @@ export default function Interviews({ superAdminAgencyId = null }) {
   }
 
   const isDecisionReady = selectedInterview && getEffectiveInterviewStatus(selectedInterview) === 'completed'
+  const selectedInterviewStage = selectedInterview
+    ? candidateStageMap.get(String(selectedInterview.candidate_id))
+    : ''
+  const selectedInterviewResultMeta = selectedInterview
+    ? getInterviewResultMeta(selectedInterview, selectedInterviewStage)
+    : null
+  const isDecisionFinalized = selectedInterviewResultMeta?.label === 'Selected' || selectedInterviewResultMeta?.label === 'Rejected'
   const canScheduleInterview = user?.role !== 'admin' || (user?.wallet_balance ?? 0) > 0
 
   const handleApprove = async () => {
@@ -268,6 +310,11 @@ export default function Interviews({ superAdminAgencyId = null }) {
     setDecisionLoading('approve')
     try {
       await api.updateCandidateStage(selectedInterview.candidate_id, 'SELECTED');
+      setCandidates((prev) => prev.map((candidate) => (
+        String(candidate.id) === String(selectedInterview.candidate_id)
+          ? { ...candidate, stage: 'SELECTED' }
+          : candidate
+      )))
       setApproveModalOpen(false)
       toast({
         title: 'Candidate Selected',
@@ -290,6 +337,11 @@ export default function Interviews({ superAdminAgencyId = null }) {
     setDecisionLoading('reject')
     try {
       await api.updateCandidateStage(selectedInterview.candidate_id, 'REJECTED', { suppress_notification: true });
+      setCandidates((prev) => prev.map((candidate) => (
+        String(candidate.id) === String(selectedInterview.candidate_id)
+          ? { ...candidate, stage: 'REJECTED' }
+          : candidate
+      )))
       toast({
         title: 'Candidate Rejected',
         description: 'Candidate moved to Rejected without sending an interview email.',
@@ -360,22 +412,34 @@ export default function Interviews({ superAdminAgencyId = null }) {
       </div>
 
       {/* Main Content - Side by Side */}
-      <div className="flex gap-4 flex-1 overflow-hidden">
+        <div className="flex gap-4 flex-1 overflow-hidden">
         {/* Candidate List - Left Side */}
         <Card className="w-64 flex-shrink-0 bg-blue-50 dark:bg-blue-950">
           <CardHeader className="py-4">
-            <CardTitle className="text-base">Interview Recordings</CardTitle>
+            <div className="space-y-3">
+              <CardTitle className="text-base">Interview Queue</CardTitle>
+              <Tabs value={selectedStatusFilter} onValueChange={setSelectedStatusFilter} className="w-full">
+                <TabsList className="grid w-full grid-cols-2 h-auto">
+                  <TabsTrigger value="all" className="text-xs">All ({interviewStatusCounts.all})</TabsTrigger>
+                  <TabsTrigger value="completed" className="text-xs">Done ({interviewStatusCounts.completed})</TabsTrigger>
+                  <TabsTrigger value="scheduled" className="text-xs">Scheduled ({interviewStatusCounts.scheduled})</TabsTrigger>
+                  <TabsTrigger value="ongoing" className="text-xs">Live ({interviewStatusCounts.ongoing})</TabsTrigger>
+                </TabsList>
+              </Tabs>
+            </div>
           </CardHeader>
           <CardContent className="p-0">
             {filteredInterviews.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground px-4">
                 <Video className="h-12 w-12 mx-auto mb-3 opacity-50" />
-                <p className="text-sm">No interview recordings</p>
+                <p className="text-sm">
+                  {selectedStatusFilter === 'completed' ? 'No completed interviews' : 'No interviews in this view'}
+                </p>
               </div>
             ) : (
               <div className="flex flex-col gap-2 p-2">
                 {filteredInterviews.slice(0, visibleCount).map((interview) => {
-                  const resultMeta = getInterviewResultMeta(interview)
+                  const resultMeta = getInterviewResultMeta(interview, candidateStageMap.get(String(interview.candidate_id)))
                   const interviewScore = getNumericInterviewScore(interview)
                   return (
                   <button
@@ -400,10 +464,18 @@ export default function Interviews({ superAdminAgencyId = null }) {
                       </Badge>
                     </div>
                     <div className="mt-3 flex items-center justify-between">
-                      <span className="text-xs text-muted-foreground">Interview Score</span>
-                      <span className={cn('text-sm font-semibold', getScoreColor(interviewScore ?? 0))}>
-                        {interviewScore !== null ? interviewScore : '-'}
+                      <span className="text-xs text-muted-foreground">
+                        {getEffectiveInterviewStatus(interview) === 'completed' ? 'Interview Score' : 'Status'}
                       </span>
+                      {getEffectiveInterviewStatus(interview) === 'completed' ? (
+                        <span className={cn('text-sm font-semibold', getScoreColor(interviewScore ?? 0))}>
+                          {interviewScore !== null ? interviewScore : '-'}
+                        </span>
+                      ) : (
+                        <span className="text-xs font-medium capitalize text-muted-foreground">
+                          {getEffectiveInterviewStatus(interview)}
+                        </span>
+                      )}
                     </div>
                   </button>
                   )
@@ -432,18 +504,23 @@ export default function Interviews({ superAdminAgencyId = null }) {
                   {selectedInterview.interview_type} Interview • {formatDateTime(selectedInterview.scheduled_at)}
                 </p>
               </div>
-              <div className="flex gap-2">
+              <div className="flex items-center gap-2">
+                {selectedInterviewResultMeta && (
+                  <Badge className={selectedInterviewResultMeta.badgeClass}>
+                    {selectedInterviewResultMeta.label}
+                  </Badge>
+                )}
                 <Button
                   className="bg-green-600 hover:bg-green-700 text-white"
                   onClick={() => setApproveModalOpen(true)}
-                  disabled={!isDecisionReady || decisionLoading !== null}
+                  disabled={!isDecisionReady || isDecisionFinalized || decisionLoading !== null}
                 >
                   {decisionLoading === 'approve' ? 'Sending...' : 'Approve'}
                 </Button>
                 <Button
                   className="bg-red-600 hover:bg-red-700 text-white"
                   onClick={handleReject}
-                  disabled={!isDecisionReady || decisionLoading !== null}
+                  disabled={!isDecisionReady || isDecisionFinalized || decisionLoading !== null}
                 >
                   {decisionLoading === 'reject' ? 'Sending...' : 'Reject'}
                 </Button>
@@ -452,6 +529,11 @@ export default function Interviews({ superAdminAgencyId = null }) {
             {!isDecisionReady && (
               <p className="text-xs text-muted-foreground mt-2">
                 Decision emails can be sent only after the interview is completed.
+              </p>
+            )}
+            {isDecisionReady && isDecisionFinalized && (
+              <p className="text-xs text-muted-foreground mt-2">
+                Final decision already recorded for this interview.
               </p>
             )}
           </CardHeader>
