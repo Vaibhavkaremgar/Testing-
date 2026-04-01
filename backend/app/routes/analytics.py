@@ -1466,11 +1466,16 @@ def get_hiring_intelligence(
     if ready_candidates > 0:
         insights.append(f"{ready_candidates} high-scoring candidate{'s' if ready_candidates > 1 else ''} (85+) ready for interview scheduling")
     
+    visible_candidates = _apply_candidate_visibility(db.query(Candidate), current_user).all()
+    visible_candidate_ids = [candidate.id for candidate in visible_candidates]
+    latest_interviews_by_candidate = _get_latest_filtered_interviews_by_candidate(db, visible_candidate_ids)
+
     # 3. Interviews completed awaiting decision
-    interviewed_query = db.query(Candidate).filter(
-        Candidate.stage == CandidateStage.INTERVIEWED
+    interviewed = sum(
+        1
+        for interview in latest_interviews_by_candidate.values()
+        if interview and (interview.status or '').strip().lower() == 'completed'
     )
-    interviewed = _apply_candidate_visibility(interviewed_query, current_user).count()
     
     if interviewed > 0:
         insights.append(f"{interviewed} interview{'s' if interviewed > 1 else ''} completed - pending hiring decision")
@@ -1495,11 +1500,15 @@ def get_hiring_intelligence(
         insights.append(f"{len(stale_jobs)} role{'s' if len(stale_jobs) > 1 else ''} with no applications in 14 days - review job posting")
     
     # 5. Offer-ready candidates
-    offer_ready_query = db.query(Candidate).filter(
-        Candidate.stage == CandidateStage.INTERVIEWED,
-        Candidate.resume_score >= 80
+    candidate_map = {candidate.id: candidate for candidate in visible_candidates}
+    offer_ready = sum(
+        1
+        for candidate_id, interview in latest_interviews_by_candidate.items()
+        if interview
+        and (interview.status or '').strip().lower() == 'completed'
+        and (interview.interview_score or 0) >= INTERVIEW_RESULT_THRESHOLD
+        and (candidate_map.get(candidate_id).resume_score or 0) >= 80
     )
-    offer_ready = _apply_candidate_visibility(offer_ready_query, current_user).count()
     
     if offer_ready > 0:
         insights.append(f"{offer_ready} strong candidate{'s' if offer_ready > 1 else ''} ready for offer - don't lose them to competitors")
