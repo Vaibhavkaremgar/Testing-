@@ -27,6 +27,7 @@ from ats.extraction.information_extraction import (
     extract_resume_information,
     extract_skill_keywords,
 )
+from ats.extraction.summary_generator import generate_summary
 from ats.features import build_feature_vector
 from ats.matching import compute_matching_signals
 from ats.preprocessing.section_segmentation import segment_resume_sections
@@ -714,6 +715,11 @@ def get_job_data(db: Session, job_id: Optional[UUID]) -> dict:
         'skills': job.skills or [],
         'location': job.location or '',
     }
+
+
+def build_jd_text(job_title: str = "", job_description: str = "", job_requirements: str = "") -> str:
+    """Build a single JD string for matching and summarization."""
+    return "\n".join(part.strip() for part in [job_title, job_description, job_requirements] if part and part.strip())
 
 
 def generate_unique_candidate_id(db: Session, name: str, job_id: Optional[UUID]) -> str:
@@ -1450,7 +1456,7 @@ def enhanced_fallback_evaluation(
     job_location: str = "",
     experience_years: float = 0.0,
 ) -> dict:
-    """ATS workflow scoring with feature engineering and custom ranking."""
+    """ATS workflow scoring with feature engineering, extractive summarization, and custom ranking."""
     from app.balanced_scoring import evaluate_resume_balanced, extract_years_experience
     
     print("\nBalanced Scoring System:")
@@ -1503,6 +1509,7 @@ def enhanced_fallback_evaluation(
     
     # Evaluate using balanced scoring
     result = evaluate_resume_balanced(resume_data, job_requirements_data)
+    jd_text = build_jd_text(job_title, job_description, job_requirements)
     matching_signals = compute_matching_signals(
         resume_text=resume_text,
         job_title=job_title,
@@ -1519,6 +1526,7 @@ def enhanced_fallback_evaluation(
     education_weighted = round((components['education']['score'] / max(components['education']['max'], 1)) * 5.0, 2)
     location_weighted = round(calculate_location_score(candidate_location, job_location, resume_text), 2)
     feature_vector = build_feature_vector(components, matching_signals)
+    candidate_summary = generate_summary(resume_text=resume_text, jd_text=jd_text)
     ranking_result = compute_ranking_result(feature_vector)
     final_score = ranking_result['ranking_score_percent']
 
@@ -1589,11 +1597,8 @@ def enhanced_fallback_evaluation(
     if not gaps:
         gaps.append("No significant gaps identified")
     
-    # Use the generated summary from balanced scoring
-    candidate_summary = result['summary']
-    
     # AI analysis
-    ai_analysis = f"Workflow: ingestion -> extraction -> cleaning -> segmentation -> information extraction -> skill intelligence -> matching -> features -> ranking. "
+    ai_analysis = f"Workflow: ingestion -> extraction -> cleaning -> segmentation -> information extraction -> skill intelligence -> matching -> features -> summary -> ranking. "
     ai_analysis += f"Feature vector: skill {feature_vector['skill_score']}, "
     ai_analysis += f"experience {feature_vector['experience_score']}, "
     ai_analysis += f"tfidf {feature_vector['tfidf_score']}, "
@@ -1623,6 +1628,7 @@ def enhanced_fallback_evaluation(
             'Skill Intelligence Layer',
             'Matching Engine',
             'Feature Engineering',
+            'Summary Generator',
             'Ranking Engine',
         ],
         'weighted_breakdown': {
@@ -2537,28 +2543,14 @@ def get_resume_summary(
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
     
-    # Generate AI summary based on candidate data
-    summary_parts = []
-    
-    if candidate.current_role and candidate.current_company:
-        summary_parts.append(f"Currently working as {candidate.current_role} at {candidate.current_company}")
-    
-    if candidate.experience_years:
-        summary_parts.append(f"with {candidate.experience_years} years of professional experience")
-    
-    if candidate.skills and len(candidate.skills) > 0:
-        top_skills = candidate.skills[:5]  # Top 5 skills
-        summary_parts.append(f"Skilled in {', '.join(top_skills)}")
-    
-    if candidate.resume_score:
-        score_desc = "excellent" if candidate.resume_score >= 80 else "good" if candidate.resume_score >= 60 else "average"
-        summary_parts.append(f"Resume shows {score_desc} alignment with job requirements (score: {candidate.resume_score})")
-    
-    if not summary_parts:
-        summary = "Limited information available. Resume parsing may be incomplete."
-    else:
-        summary = ". ".join(summary_parts) + "."
-    
+    job_title = candidate.job.title if candidate.job else ""
+    job_description = candidate.job.description if candidate.job else ""
+    job_requirements = candidate.job.requirements if candidate.job else ""
+    summary = generate_summary(
+        resume_text=candidate.resume_text or "",
+        jd_text=build_jd_text(job_title, job_description, job_requirements),
+    )
+
     return {"summary": summary}
 
 @router.get("/pipeline/stages")

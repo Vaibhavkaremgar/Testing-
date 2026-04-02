@@ -545,79 +545,6 @@ def extract_years_experience(resume_text: str) -> float:
     return 0.0
 
 
-# Helper function
-def generate_summary(components: Dict, total_score: float, label: str, job_title: str = "") -> str:
-    """Generate a professional multi-line candidate summary from resume-vs-JD evidence."""
-
-    skills = components['skills']
-    experience = components['experience']
-    projects = components['projects']
-    education = components['education']
-    soft_skills = components['soft_skills']
-
-    years = experience.get('years', 0)
-    matched_skills = skills.get('matched_skills', [])
-    match_percentage = skills.get('match_percentage', 0)
-    exp_score = experience.get('score', 0)
-    proj_score = projects.get('score', 0)
-    education_relevance = education.get('relevance', 'Not clearly established')
-    leadership_count = soft_skills.get('leadership', 0)
-    collaboration_count = soft_skills.get('collaboration', 0)
-    impact_count = soft_skills.get('metrics', 0)
-
-    top_skills = matched_skills[:4]
-    if len(top_skills) >= 4:
-        skills_line = f"Key strengths include {', '.join(top_skills[:3])}, and {top_skills[3]}."
-    elif len(top_skills) >= 2:
-        skills_line = f"Key strengths include {' and '.join(top_skills[:2])}."
-    elif len(top_skills) == 1:
-        skills_line = f"Relevant highlight from the resume includes hands-on work with {top_skills[0]}."
-    else:
-        skills_line = "The resume reflects foundational technical capability, with limited direct overlap against the current job requirements."
-
-    if years >= 5:
-        experience_line = f"The profile shows approximately {years}+ years of professional experience with sustained delivery across real-world work environments."
-    elif years >= 2:
-        experience_line = f"The candidate brings around {years}+ years of practical experience, indicating exposure to hands-on execution and production-oriented responsibilities."
-    elif years > 0:
-        experience_line = f"The resume indicates early-career experience of about {years} year(s), supported by applied work, internships, or project-based exposure."
-    else:
-        experience_line = "The profile appears to be early stage, with experience evidenced primarily through projects, internships, or foundational assignments."
-
-    if match_percentage >= 75:
-        alignment_line = f"Against the job description, the profile demonstrates strong alignment with the required skill set and relevant resume evidence."
-    elif match_percentage >= 50:
-        alignment_line = f"Against the job description, the profile shows moderate alignment, with several relevant capabilities already demonstrated in the resume."
-    else:
-        alignment_line = f"Against the job description, the profile shows partial alignment and may require upskilling in some core requirement areas."
-
-    if proj_score >= 15 and exp_score >= 25:
-        delivery_line = "The resume also highlights strong execution depth, suggesting the candidate has delivered meaningful work with ownership and measurable contribution."
-    elif proj_score >= 10 or exp_score >= 20:
-        delivery_line = "The work history and projects indicate practical execution ability, with evidence of contributing to delivery in structured team settings."
-    else:
-        delivery_line = "Project and work evidence is present, though the overall delivery depth appears to be at a developing stage."
-
-    if leadership_count >= 2 or collaboration_count >= 2 or impact_count >= 2:
-        professionalism_line = "Professional highlights include collaboration, communication, and impact-oriented contribution signals visible in the resume."
-    else:
-        professionalism_line = "The profile presents as professional and dependable, with baseline collaboration and team contribution signals."
-
-    closing_line = (
-        f"Educational background appears {education_relevance.lower()}, and overall this profile is assessed as "
-        f"{label.lower()} based on the current resume-to-job comparison."
-    )
-
-    return "\n".join([
-        experience_line,
-        skills_line,
-        alignment_line,
-        delivery_line,
-        professionalism_line,
-        closing_line,
-    ])
-
-
 # Main evaluation function
 def evaluate_resume_balanced(resume_data: Dict, job_requirements: Dict) -> Dict:
     """
@@ -637,7 +564,7 @@ def evaluate_resume_balanced(resume_data: Dict, job_requirements: Dict) -> Dict:
         }
     
     Returns:
-        Complete evaluation with scores, components, and summary
+        Complete evaluation with scores and components
     """
     # Extract data
     resume_text = resume_data.get('full_text', '')
@@ -697,15 +624,11 @@ def evaluate_resume_balanced(resume_data: Dict, job_requirements: Dict) -> Dict:
         'soft_skills': soft_skills_result
     }
     
-    # Generate summary
-    summary = generate_summary(components, total_score, label, job_title=job_title)
-    
     return {
         'total_score': round(total_score, 2),
         'label': label,
         'status': status,
         'components': components,
-        'summary': summary
     }
 
 
@@ -761,5 +684,4 @@ if __name__ == "__main__":
     print(f"  Projects: {result['components']['projects']['score']}/20")
     print(f"  Education: {result['components']['education']['score']}/10")
     print(f"  Soft Skills: {result['components']['soft_skills']['score']}/5")
-    print(f"\nSummary: {result['summary']}")
     print("="*80)
