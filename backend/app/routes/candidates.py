@@ -294,13 +294,14 @@ def extract_resume_data(file_path: str, original_filename: str = None) -> dict:
             location = location or extracted_info.get("location") or None
             
             # Extract projects
-            projects = extract_projects_from_text(raw_text)
+            projects = extracted_info.get("projects") or extract_projects_from_text(raw_text)
             
             # Extract experience text for matching
             work_experience = parsed_resume.get("experience_entries") or extracted_info["experience"]
             experience_text = extracted_info["experience_text"] or clean_text_pipeline(extract_experience_text(raw_text))
             current_role = current_role or extracted_info.get("designation") or (work_experience[0].get("title") if work_experience else None)
             current_company = current_company or extracted_info.get("current_company") or (work_experience[0].get("company") if work_experience else None)
+            experience_level = experience_level or extracted_info.get("experience_level") or None
             education_text = extracted_info["education_text"] or clean_text_pipeline(sections.get("education", ""))
             education = extracted_info["education"]
 
@@ -334,7 +335,11 @@ def extract_resume_data(file_path: str, original_filename: str = None) -> dict:
         'education_text': education_text,
         'education': education,
         'languages': languages,
-        'experience_years': parsed_resume.get('total_experience_years') if raw_text.strip() else None,
+        'experience_years': (
+            parsed_resume.get('total_experience_years')
+            if raw_text.strip() and parsed_resume.get('total_experience_years') is not None
+            else (extracted_info.get('total_experience_years') if raw_text.strip() else None)
+        ),
         'experience_level': experience_level,
         'full_text': cleaned_text  # Store cleaned text for downstream ATS processing
     }

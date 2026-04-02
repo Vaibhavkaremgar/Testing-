@@ -33,9 +33,16 @@ SECTION_ALIASES = {
         "projects",
         "project",
         "personal projects",
+        "work projects",
+        "professional projects",
         "academic projects",
         "side projects",
         "open source projects",
+    ],
+    "languages": [
+        "languages",
+        "language",
+        "language proficiency",
     ],
 }
 
