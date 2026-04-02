@@ -13,7 +13,11 @@ pytest==7.4.4
 pytest-asyncio==0.23.2
 pdfplumber==0.10.3
 PyPDF2==3.0.1
+pypdf
 python-docx==1.1.0
+python-magic
+regex
+nltk
 requests==2.31.0
 gunicorn
 psycopg2-binary
@@ -24,5 +28,10 @@ google-auth-oauthlib
 python-dotenv==1.0.0
 
 spacy==3.7.2
+flashtext
+pandas
+numpy
+scikit-learn
+rank-bm25
 Pillow==10.2.0
 sendgrid==6.11.0
