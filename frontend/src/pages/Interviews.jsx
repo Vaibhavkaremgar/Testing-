@@ -388,7 +388,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
         </div>
         <div className="flex items-center gap-3">
           <select
-            className="h-10 min-w-56 rounded-lg border border-input bg-background px-3 py-2 text-sm"
+            className="h-10 min-w-56 rounded-lg border border-input bg-background pl-3 pr-8 py-2 text-sm"
             value={selectedJobFilter}
             onChange={(e) => setSelectedJobFilter(e.target.value)}
           >
@@ -691,7 +691,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowScheduleModal(false)}>
           <div className="bg-card rounded-lg p-6 max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold">Schedule Interview</h2>
+              <h2 className="text-xl font-bold">ReSchedule Interview</h2>
               <Button variant="ghost" size="icon" onClick={() => setShowScheduleModal(false)}>
                 <X className="h-4 w-4" />
               </Button>
@@ -847,13 +847,14 @@ export default function Interviews({ superAdminAgencyId = null }) {
                   className="w-full" 
                   variant="outline"
                   onClick={() => {
-                    window.open('https://calendly.com', '_blank')
+                   // window.open('https://calendly.com', '_blank')
+                    window.open('https://pontis-backend-production.up.railway.app/booking.html', '_blank')
                   }}
                 >
                   Book Interview Slot
                 </Button>
               </div>
-              
+              {/*
               <div>
                 <label className="text-sm font-medium mb-1 block">Meeting Link</label>
                 <input
@@ -870,6 +871,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
                   Send Email
                 </Button>
               </div>
+              */}
             </div>
           </div>
         </div>
