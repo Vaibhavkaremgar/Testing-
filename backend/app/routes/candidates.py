@@ -559,6 +559,8 @@ def analyze_resume_with_ai(candidate_data: dict, job_description: dict) -> dict:
     candidate_location = candidate_data.get('location', '')
     experience_years = candidate_data.get('experience_years', 0.0)
     skills = candidate_data.get('skills', [])
+    candidate_roles = candidate_data.get('candidate_roles', [])
+    candidate_industries = candidate_data.get('candidate_industries', [])
     experience_text = candidate_data.get('experience_text', '')
     projects = candidate_data.get('projects', [])
     full_text = candidate_data.get('full_text', '')
@@ -569,6 +571,8 @@ def analyze_resume_with_ai(candidate_data: dict, job_description: dict) -> dict:
     job_requirements = job_description.get('requirements', '')
     job_skills = job_description.get('skills', [])
     job_location = job_description.get('location', '')
+    job_experience_required = job_description.get('experience_required', '')
+    industry = job_description.get('industry', '')
     
     # Perform contextual analysis
     evaluation = evaluate_candidate_contextually(
@@ -583,6 +587,10 @@ def analyze_resume_with_ai(candidate_data: dict, job_description: dict) -> dict:
         candidate_location=candidate_location,
         job_location=job_location,
         experience_years=experience_years,
+        candidate_roles=candidate_roles,
+        candidate_industries=candidate_industries,
+        job_experience_required=job_experience_required,
+        industry=industry,
     )
     
     return {
@@ -611,6 +619,8 @@ def get_job_data(db: Session, job_id: Optional[UUID]) -> dict:
             'requirements': '',
             'skills': [],
             'location': '',
+            'experience_required': '',
+            'industry': '',
         }
 
     job = db.query(JobDescription).filter(JobDescription.id == job_id).first()
@@ -621,6 +631,8 @@ def get_job_data(db: Session, job_id: Optional[UUID]) -> dict:
             'requirements': '',
             'skills': [],
             'location': '',
+            'experience_required': '',
+            'industry': '',
         }
 
     return {
@@ -629,13 +641,9 @@ def get_job_data(db: Session, job_id: Optional[UUID]) -> dict:
         'requirements': job.requirements or '',
         'skills': job.skills or [],
         'location': job.location or '',
+        'experience_required': job.experience_required or '',
+        'industry': job.department or '',
     }
-
-
-def build_jd_text(job_title: str = "", job_description: str = "", job_requirements: str = "") -> str:
-    """Build a single JD string for matching and summarization."""
-    return "\n".join(part.strip() for part in [job_title, job_description, job_requirements] if part and part.strip())
-
 
 def generate_unique_candidate_id(db: Session, name: str, job_id: Optional[UUID]) -> str:
     """Generate a unique candidate ID for bulk operations."""
@@ -745,6 +753,11 @@ def process_saved_resume(file_path: str, original_filename: str, job_data: dict)
         'location': resume_data.get('location', ''),
         'experience_years': resume_data.get('experience_years', 0.0),
         'skills': resume_data['skills'],
+        'candidate_roles': [
+            entry.get('title') for entry in (resume_data.get('work_experience') or [])
+            if (entry or {}).get('title')
+        ] or ([resume_data.get('current_role')] if resume_data.get('current_role') else []),
+        'candidate_industries': [],
         'experience_text': resume_data['experience_text'],
         'projects': resume_data['projects'],
         'full_text': resume_data['full_text']
@@ -1141,6 +1154,10 @@ def evaluate_candidate_contextually(
     candidate_location: str = "",
     job_location: str = "",
     experience_years: float = 0.0,
+    candidate_roles: list | None = None,
+    candidate_industries: list | None = None,
+    job_experience_required: str = "",
+    industry: str = "",
 ) -> dict:
     """Evidence-based AI evaluation using LLM with structured scoring"""
     from app.config import settings
@@ -1212,6 +1229,10 @@ def evaluate_candidate_contextually(
         candidate_location=candidate_location,
         job_location=job_location,
         experience_years=experience_years,
+        candidate_roles=candidate_roles,
+        candidate_industries=candidate_industries,
+        job_experience_required=job_experience_required,
+        industry=industry,
     )
 
 def call_groq_llm(prompt: str, api_key: str) -> str:
@@ -1370,6 +1391,10 @@ def enhanced_fallback_evaluation(
     candidate_location: str = "",
     job_location: str = "",
     experience_years: float = 0.0,
+    candidate_roles: list | None = None,
+    candidate_industries: list | None = None,
+    job_experience_required: str = "",
+    industry: str = "",
 ) -> dict:
     """ATS workflow scoring with feature engineering, extractive summarization, and custom ranking."""
     from app.balanced_scoring import evaluate_resume_balanced, extract_years_experience
@@ -1400,6 +1425,12 @@ def enhanced_fallback_evaluation(
     
     print(f"   Required skills for {job_title}: {required_skills}")
     
+    preferred_skills = []
+    if job_skills and len(job_skills) > 10:
+        preferred_skills = job_skills[10:15]
+    elif role_map:
+        preferred_skills = role_map.get("transferable", [])[:5]
+
     # Prepare data for balanced scoring
     resume_data = {
         'full_text': resume_text,
@@ -1424,7 +1455,6 @@ def enhanced_fallback_evaluation(
     
     # Evaluate using balanced scoring
     result = evaluate_resume_balanced(resume_data, job_requirements_data)
-    jd_text = build_jd_text(job_title, job_description, job_requirements)
     matching_signals = compute_matching_signals(
         resume_text=resume_text,
         job_title=job_title,
@@ -1441,7 +1471,17 @@ def enhanced_fallback_evaluation(
     education_weighted = round((components['education']['score'] / max(components['education']['max'], 1)) * 5.0, 2)
     location_weighted = round(calculate_location_score(candidate_location, job_location, resume_text), 2)
     feature_vector = build_feature_vector(components, matching_signals)
-    candidate_summary = generate_summary(resume_text=resume_text, jd_text=jd_text)
+    candidate_summary = generate_summary(
+        required_skills=required_skills,
+        preferred_skills=preferred_skills,
+        required_experience=job_experience_required or f"{exp_min}-{exp_max} years",
+        role_title=job_title,
+        industry=industry,
+        candidate_skills=candidate_skills,
+        candidate_experience=years_exp,
+        candidate_industries=candidate_industries or [],
+        candidate_roles=candidate_roles or [],
+    )
     ranking_result = compute_ranking_result(feature_vector)
     final_score = ranking_result['ranking_score_percent']
 
@@ -2459,11 +2499,23 @@ def get_resume_summary(
         raise HTTPException(status_code=404, detail="Candidate not found")
     
     job_title = candidate.job.title if candidate.job else ""
-    job_description = candidate.job.description if candidate.job else ""
-    job_requirements = candidate.job.requirements if candidate.job else ""
+    job_skills = candidate.job.skills if candidate.job else []
+    job_experience_required = candidate.job.experience_required if candidate.job else ""
+    industry = candidate.job.department if candidate.job else ""
+    candidate_roles = [
+        entry.get("title") for entry in (candidate.work_experience or [])
+        if (entry or {}).get("title")
+    ] or ([candidate.current_role] if candidate.current_role else [])
     summary = generate_summary(
-        resume_text=candidate.resume_text or "",
-        jd_text=build_jd_text(job_title, job_description, job_requirements),
+        required_skills=job_skills or [],
+        preferred_skills=[],
+        required_experience=job_experience_required,
+        role_title=job_title,
+        industry=industry,
+        candidate_skills=candidate.skills or [],
+        candidate_experience=candidate.experience_years or 0.0,
+        candidate_industries=[],
+        candidate_roles=candidate_roles,
     )
 
     return {"summary": summary}
