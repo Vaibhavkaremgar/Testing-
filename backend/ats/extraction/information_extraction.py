@@ -56,33 +56,25 @@ TECHNICAL_SKILLS = [
     "deep learning", "tensorflow", "pytorch", "pandas", "numpy", "scikit-learn",
     "nlp", "opencv", "power bi", "tableau", "excel", "tailwind css", "bootstrap",
 ]
-SALES_SKILLS = [
-    "sales", "negotiation", "customer relationship management", "lead generation",
-    "cold calling", "leadership", "account management", "business development",
-    "pipeline management", "stakeholder management", "customer retention",
-    "inside sales", "outside sales", "consultative selling", "prospecting",
-    "client acquisition", "revenue growth", "team management", "presentation skills",
+DOMAIN_SKILLS = [
+    "sales", "customer relationship management", "lead generation", "cold calling",
+    "account management", "business development", "pipeline management", "b2b sales",
+    "b2c sales", "saas", "fmcg", "retail", "banking", "recruitment", "talent acquisition",
+    "financial analysis", "accounting", "budgeting", "bookkeeping", "payroll",
+    "digital marketing", "seo", "sem", "google analytics", "figma", "graphic design",
+    "patient care", "medical coding", "healthcare administration", "office administration",
+    "document management", "data entry",
 ]
-SOFT_SKILLS = [
-    "communication", "teamwork", "problem solving", "time management", "adaptability",
-]
-SKILL_KEYWORDS = TECHNICAL_SKILLS + SALES_SKILLS + SOFT_SKILLS
+SKILL_KEYWORDS = TECHNICAL_SKILLS + DOMAIN_SKILLS
 
 RESPONSIBILITY_SKILL_PHRASES = {
     "cold calling": ["cold calling", "cold outreach", "outbound calling"],
     "lead generation": ["lead generation", "generated leads", "prospecting"],
     "sales": ["sales", "sales target", "revenue growth", "inside sales", "outside sales"],
-    "negotiation": ["negotiation", "negotiated", "deal closure", "closing deals"],
     "customer relationship management": ["crm", "salesforce", "hubspot", "zoho crm", "customer relationship", "client relationship"],
-    "leadership": ["leadership", "led team", "managed team", "team lead", "mentored"],
     "account management": ["account management", "account handling", "key accounts"],
     "business development": ["business development", "market expansion", "new business"],
     "pipeline management": ["pipeline management", "sales pipeline", "pipeline tracking"],
-    "stakeholder management": ["stakeholder management", "stakeholder communication"],
-    "presentation skills": ["presentation", "presented", "demoed"],
-    "communication": ["communication", "communicate", "client interaction"],
-    "teamwork": ["team player", "worked with teams", "collaborated", "cross-functional"],
-    "problem solving": ["problem solving", "resolved issues", "troubleshooting", "debugged"],
     "rest api": ["rest api", "restful api", "api development"],
     "sql": ["sql", "mysql", "postgresql", "database queries"],
     "fastapi": ["fastapi"],
@@ -90,6 +82,10 @@ RESPONSIBILITY_SKILL_PHRASES = {
     "java": ["java"],
     "html": ["html"],
     "css": ["css"],
+    "saas": ["saas"],
+    "fmcg": ["fmcg"],
+    "retail": ["retail"],
+    "banking": ["banking"],
 }
 
 DEGREE_PATTERNS = [

@@ -11,9 +11,11 @@ from app.schemas import (
     JobDescriptionCreate, JobDescriptionUpdate, JobDescriptionResponse
 )
 from app.auth import get_current_active_user, get_current_admin_user
+from ats.extraction.skill_intelligence import SkillIntelligence
 from ats.preprocessing.text_cleaning import clean_text
 
 router = APIRouter(prefix="/jobs", tags=["Job Descriptions"])
+_skill_intelligence = SkillIntelligence()
 
 
 def _apply_job_list_scope(query, current_user, db: Session):
@@ -522,21 +524,8 @@ def extract_section(text, keywords):
     return ''
 
 def extract_skills(text):
-    """Extract skills from text"""
-    common_skills = [
-        'Python', 'Java', 'JavaScript', 'React', 'Node.js', 'SQL', 'AWS', 'Docker',
-        'Kubernetes', 'Git', 'HTML', 'CSS', 'TypeScript', 'Angular', 'Vue.js',
-        'MongoDB', 'PostgreSQL', 'Redis', 'Linux', 'Agile', 'Scrum'
-    ]
-    
-    found_skills = []
-    text_upper = text.upper()
-    
-    for skill in common_skills:
-        if skill.upper() in text_upper:
-            found_skills.append(skill)
-    
-    return found_skills[:10]  # Limit to 10 skills
+    """Extract job skills using the shared ATS skill extraction pipeline."""
+    return _skill_intelligence.extract_skills(text)[:10]
 
 @router.delete("/{job_id}")
 def delete_job(

@@ -28,6 +28,7 @@ from ats.extraction.information_extraction import (
     extract_skill_keywords,
 )
 from ats.extraction.resume_parser import parse_resume
+from ats.extraction.skill_intelligence import SkillIntelligence
 from ats.extraction.summary_generator import generate_summary
 from ats.features import build_feature_vector
 from ats.matching import compute_matching_signals
@@ -43,6 +44,7 @@ ALLOWED_RESUME_CONTENT_TYPES = {
     "application/msword",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 }
+_skill_intelligence = SkillIntelligence()
 LOCATION_NOISE_PATTERN = re.compile(
     r"(?i)\b(?:managing|managed|operations|including|across|responsible|experience|years|sales|development|engineer|developer|manager|executive|specialist|lead|worked|work|support|project|projects|regional)\b"
 )
@@ -367,115 +369,14 @@ def extract_resume_data(file_path: str, original_filename: str = None) -> dict:
     }
 
 def extract_skills_from_text(text: str) -> list:
-    """Extract technical skills from resume text - Enhanced version with case normalization"""
-    import re
-    
-    # Skill aliases - map variations to canonical form
-    SKILL_ALIASES = {
-        'js': 'javascript',
-        'ts': 'typescript',
-        'py': 'python',
-        'node': 'node.js',
-        'nodejs': 'node.js',
-        'react.js': 'react',
-        'reactjs': 'react',
-        'vue.js': 'vue',
-        'vuejs': 'vue',
-        'angular.js': 'angular',
-        'angularjs': 'angular',
-        'next': 'next.js',
-        'nextjs': 'next.js',
-        'express.js': 'express',
-        'expressjs': 'express',
-        'mongo': 'mongodb',
-        'postgres': 'postgresql',
-        'k8s': 'kubernetes',
-        'docker-compose': 'docker',
-        'git': 'git',
-        'github': 'git',
-        'gitlab': 'git'
-    }
-    
-    def normalize_skill(skill: str) -> str:
-        """Normalize skill name using aliases"""
-        skill_lower = skill.lower().strip()
-        return SKILL_ALIASES.get(skill_lower, skill_lower)
-    
-    skill_set = set()  # Use set to avoid duplicates
-
+    """Extract resume skills using the shared ATS skill extraction pipeline."""
     skills_text = segment_resume_sections(text).get("skills", "")
     extracted_skills = extract_skill_keywords(text, skills_text)
     if extracted_skills:
         return extracted_skills
-
-    if not skills_text:
-        print("   No SKILLS section found, using pattern matching...")
-        # Fallback to pattern matching
-        skill_patterns = [
-            r'\b(?:Python|Java|JavaScript|TypeScript|C\+\+|C#|PHP|Ruby|Go|Rust|Swift|Kotlin|Scala|R|MATLAB|Perl|Dart)\b',
-            r'\b(?:React|Angular|Vue|Node\.js|Express|Django|Flask|Spring|Laravel|Rails|HTML5?|CSS3?|Bootstrap|Tailwind|jQuery|Next\.js|Nuxt|FastAPI|Spring Boot)\b',
-            r'\b(?:MySQL|PostgreSQL|MongoDB|Redis|SQLite|Oracle|SQL|SQL Server|Cassandra|DynamoDB|Firebase|MariaDB|Elasticsearch)\b',
-            r'\b(?:AWS|Azure|GCP|Docker|Kubernetes|Jenkins|Git|GitHub|GitLab|CI/CD|Terraform|Ansible|Heroku|Netlify)\b',
-            r'\b(?:Machine Learning|Deep Learning|TensorFlow|PyTorch|Pandas|NumPy|Scikit-learn|Data Analysis|AI|NLP|Keras|OpenCV)\b',
-            r'\b(?:REST API|GraphQL|Microservices|Linux|Unix|Bash|Shell|PowerShell|API|RESTful)\b',
-            r'\b(?:Jira|Confluence|Slack|Postman|VS Code|IntelliJ|Eclipse|Figma|Photoshop)\b'
-        ]
-        
-        for pattern in skill_patterns:
-            matches = re.findall(pattern, text, re.IGNORECASE)
-            for match in matches:
-                skill_set.add(match.strip())  # Keep original casing
-        
-        skills = list(skill_set)[:30]
-        print(f"   Found {len(skills)} skills via pattern matching")
-        return skills
-
-    print(f"   Found SKILLS section: {skills_text[:100]}...")
-    
-    # Filter out section headers
-    section_headers = [
-        'work experience', 'experience', 'education', 'projects', 'certifications',
-        'professional experience', 'employment history', 'work history'
-    ]
-    
-    # Parse all lines in skills section
-    lines = skills_text.split('\n')
-    
-    for line in lines:
-        line = line.strip()
-        if not line or len(line) < 2:
-            continue
-        
-        # Skip section headers
-        if any(header in line.lower() for header in section_headers):
-            break
-            
-        # Check if line has "Category: item1, item2, item3" format
-        if ':' in line:
-            parts = line.split(':', 1)
-            if len(parts) == 2:
-                category = parts[0].strip()
-                items_str = parts[1].strip()
-                
-                # Skip if category is a section header
-                if any(header in category.lower() for header in section_headers):
-                    break
-                
-                # Split by comma and add each skill (keep original)
-                items = [item.strip() for item in items_str.split(',')]
-                for item in items:
-                    if item and len(item) >= 2 and not any(header in item.lower() for header in section_headers):
-                        skill_set.add(item)  # Keep original
-        else:
-            # Simple comma-separated list
-            items = [item.strip() for item in line.split(',')]
-            for item in items:
-                if item and len(item) >= 2 and not any(header in item.lower() for header in section_headers):
-                    skill_set.add(item)  # Keep original
-    
-    skills = list(skill_set)[:30]
-    print(f"   Extracted {len(skills)} skills: {skills}")
-    return skills
+    extracted_skills = _skill_intelligence.extract_skills(text)[:30]
+    print(f"   Extracted {len(extracted_skills)} skills via shared extractor: {extracted_skills[:10]}")
+    return extracted_skills
 
 def extract_projects_from_text(text: str) -> list:
     """Extract project information from resume text"""
@@ -1624,26 +1525,8 @@ def enhanced_fallback_evaluation(
     }
 
 def extract_skills_from_job_text(job_text: str) -> list:
-    """Extract skills from job description text"""
-    import re
-    
-    # Technical skills patterns
-    skill_patterns = [
-        r'\b(?:Python|Java|JavaScript|TypeScript|C\+\+|C#|PHP|Ruby|Go|Rust|Swift|Kotlin|Scala|HTML|CSS)\b',
-        r'\b(?:React|Angular|Vue|Node\.js|Express|Django|Flask|Spring|Laravel|Rails|jQuery)\b',
-        r'\b(?:MySQL|PostgreSQL|MongoDB|Redis|SQLite|Oracle|SQL Server|Cassandra|DynamoDB)\b',
-        r'\b(?:AWS|Azure|GCP|Docker|Kubernetes|Jenkins|Git|CI/CD|Terraform|Ansible)\b',
-        r'\b(?:Machine Learning|Deep Learning|TensorFlow|PyTorch|Pandas|NumPy|Scikit-learn|AI)\b',
-        r'\b(?:REST API|GraphQL|Microservices|Agile|Scrum|DevOps|Linux|Windows|macOS)\b',
-        r'\b(?:Finance|Financial Analysis|Accounting|Budgeting|Forecasting|Bookkeeping|Reconciliation|Ledger|ERP|Tally|GST|Taxation|Accounts Payable|Accounts Receivable|Audit|Bank Reconciliation|Variance Analysis|MIS Reporting|Excel)\b'
-    ]
-    
-    skills = set()
-    for pattern in skill_patterns:
-        matches = re.findall(pattern, job_text, re.IGNORECASE)
-        skills.update([match.strip() for match in matches])
-    
-    return list(skills)
+    """Extract JD skills using the same shared ATS skill extraction pipeline."""
+    return _skill_intelligence.extract_skills(job_text)[:30]
 
 def simulate_resume_parsing(
     candidate: Candidate,

@@ -4,6 +4,19 @@ import re
 from typing import Dict, List
 
 SECTION_ALIASES = {
+    "header": [
+        "contact",
+        "contact information",
+        "personal details",
+        "profile summary",
+    ],
+    "summary": [
+        "summary",
+        "professional summary",
+        "profile",
+        "career summary",
+        "objective",
+    ],
     "skills": [
         "skills",
         "technical skills",
@@ -47,10 +60,6 @@ SECTION_ALIASES = {
 }
 
 BOUNDARY_ONLY_ALIASES = {
-    "summary",
-    "professional summary",
-    "profile",
-    "objective",
     "certifications",
     "certification",
     "achievements",
@@ -123,13 +132,17 @@ def segment_resume_sections(text: str) -> Dict[str, str]:
     lines = text.replace("\r", "\n").split("\n")
     current_section: str | None = None
     buffers = {name: [] for name in SECTION_ALIASES}
+    header_lines: List[str] = []
 
-    for raw_line in lines:
+    for index, raw_line in enumerate(lines):
         line = raw_line.strip()
         if not line:
             if current_section:
                 buffers[current_section].append("")
             continue
+
+        if index < 12 and not current_section:
+            header_lines.append(line)
 
         inline_match = INLINE_HEADER_PATTERN.match(line)
         if inline_match:
@@ -156,6 +169,8 @@ def segment_resume_sections(text: str) -> Dict[str, str]:
 
     for section, collected_lines in buffers.items():
         sections[section] = _clean_section_content(collected_lines)
+
+    sections["header"] = _clean_section_content(header_lines[:10])
 
     return sections
 
