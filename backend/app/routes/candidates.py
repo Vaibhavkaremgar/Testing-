@@ -382,11 +382,12 @@ def extract_resume_data(file_path: str, original_filename: str = None) -> dict:
             # Extract experience text for matching
             experience_text = extracted_info["experience_text"] or clean_text_pipeline(extract_experience_text(raw_text))
             work_experience = extracted_info["experience"]
-            if work_experience:
-                current_role = work_experience[0].get("title") or None
-                current_company = work_experience[0].get("company") or None
+            current_role = extracted_info.get("designation") or (work_experience[0].get("title") if work_experience else None)
+            current_company = extracted_info.get("current_company") or (work_experience[0].get("company") if work_experience else None)
             education_text = extracted_info["education_text"] or clean_text_pipeline(sections.get("education", ""))
             education = extracted_info["education"]
+            if extracted_info.get("experience_years") is not None:
+                experience_text = extracted_info["experience_text"] or experience_text
 
         if not email:
             email = extract_email_from_raw_file(file_path)
@@ -417,6 +418,8 @@ def extract_resume_data(file_path: str, original_filename: str = None) -> dict:
         'work_experience': work_experience,
         'education_text': education_text,
         'education': education,
+        'languages': extracted_info.get('languages', []) if raw_text.strip() else [],
+        'experience_years': extracted_info.get('experience_years') if raw_text.strip() else None,
         'full_text': cleaned_text  # Store cleaned text for downstream ATS processing
     }
 
@@ -810,8 +813,10 @@ def process_saved_resume(file_path: str, original_filename: str, job_data: dict)
     from app.balanced_scoring import extract_years_experience
 
     resume_data = extract_resume_data(file_path, original_filename)
-    estimated_years = estimate_experience_years_from_entries(resume_data.get("work_experience", []))
-    resume_data["experience_years"] = estimated_years if estimated_years > 0 else extract_years_experience(resume_data.get("full_text", ""))
+    estimated_years = resume_data.get("experience_years")
+    if estimated_years is None or estimated_years <= 0:
+        estimated_years = estimate_experience_years_from_entries(resume_data.get("work_experience", []))
+    resume_data["experience_years"] = estimated_years if estimated_years and estimated_years > 0 else extract_years_experience(resume_data.get("full_text", ""))
     analysis_data = {
         'name': resume_data['name'],
         'email': resume_data['email'],

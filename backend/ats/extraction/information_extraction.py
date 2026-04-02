@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from typing import Dict, List
+from datetime import datetime
 
 from flashtext import KeywordProcessor
 
@@ -77,6 +78,36 @@ LOCATION_LINE_PATTERN = re.compile(
 )
 EMAIL_PATTERN = re.compile(r"\b[A-Za-z0-9._%+-]+\s*@\s*[A-Za-z0-9.-]+\s*\.\s*[A-Za-z]{2,}\b")
 NON_LOCATION_PATTERN = re.compile(r"[@:/\\]|(?:\b(?:java|python|html|css|sql|fastapi|react|angular|git)\b)", re.IGNORECASE)
+LANGUAGE_TERMS = [
+    "english", "hindi", "telugu", "tamil", "kannada", "malayalam", "marathi",
+    "gujarati", "punjabi", "bengali", "urdu", "french", "german", "spanish",
+    "arabic", "japanese", "mandarin", "chinese",
+]
+LANGUAGE_LINE_PATTERN = re.compile(r"(?i)^\s*languages?\s*[:\-]?\s*(?P<value>.+)$")
+SOFT_SKILL_PHRASES = {
+    "communication": ["communication", "communicate", "client interaction", "stakeholder communication"],
+    "teamwork": ["team player", "worked with teams", "collaborated", "cross-functional", "team collaboration"],
+    "leadership": ["led", "leadership", "managed team", "mentored", "supervised", "ownership"],
+    "problem solving": ["problem solving", "resolved issues", "debugged", "troubleshooting", "root cause analysis"],
+    "time management": ["time management", "met deadlines", "prioritized tasks"],
+    "adaptability": ["adapt", "adaptability", "flexible", "fast-paced"],
+}
+RESPONSIBILITY_SKILL_PHRASES = {
+    "cold calling": ["cold calling"],
+    "lead generation": ["lead generation", "generated leads"],
+    "sales": ["sales", "sales target", "revenue growth"],
+    "negotiation": ["negotiation", "negotiated"],
+    "crm": ["crm", "salesforce", "hubspot", "zoho crm"],
+    "customer relationship management": ["customer relationship", "client relationship", "account management"],
+    "presentation": ["presentation", "presented", "demoed"],
+    "rest api": ["rest api", "restful api", "api development"],
+    "sql": ["sql", "mysql", "postgresql", "database queries"],
+    "fastapi": ["fastapi"],
+    "python": ["python"],
+    "java": ["java"],
+    "html": ["html"],
+    "css": ["css"],
+}
 
 _skill_keyword_processor = KeywordProcessor(case_sensitive=False)
 for canonical_skill in SKILL_KEYWORDS:
@@ -183,6 +214,116 @@ def _extract_experience_headline_fields(headline: str) -> Dict[str, str]:
             title = normalized_headline
 
     return {"title": title[:120], "company": company[:120]}
+
+
+def _parse_date_token(token: str) -> tuple[int, int] | None:
+    if not token:
+        return None
+
+    token = token.strip().lower()
+    month_map = {
+        "jan": 1, "january": 1,
+        "feb": 2, "february": 2,
+        "mar": 3, "march": 3,
+        "apr": 4, "april": 4,
+        "may": 5,
+        "jun": 6, "june": 6,
+        "jul": 7, "july": 7,
+        "aug": 8, "august": 8,
+        "sep": 9, "sept": 9, "september": 9,
+        "oct": 10, "october": 10,
+        "nov": 11, "november": 11,
+        "dec": 12, "december": 12,
+    }
+
+    if token in {"present", "current", "now"}:
+        now = datetime.utcnow()
+        return (now.year, now.month)
+
+    match = re.match(
+        r"(?:(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\s+)?(\d{4})",
+        token,
+    )
+    if not match:
+        return None
+
+    month_token, year_token = match.groups()
+    return (int(year_token), month_map.get(month_token, 1) if month_token else 1)
+
+
+def estimate_total_experience_years(entries: List[Dict]) -> float | None:
+    intervals: List[tuple[tuple[int, int], tuple[int, int]]] = []
+    for entry in entries:
+        start = _parse_date_token(entry.get("start_date", ""))
+        end = _parse_date_token(entry.get("end_date", ""))
+        if not start or not end:
+            continue
+        if end < start:
+            continue
+        intervals.append((start, end))
+
+    if not intervals:
+        return None
+
+    intervals.sort(key=lambda item: item[0])
+    merged: List[list[tuple[int, int]]] = [[intervals[0][0], intervals[0][1]]]
+    for start, end in intervals[1:]:
+        last_start, last_end = merged[-1]
+        if start <= last_end:
+            if end > last_end:
+                merged[-1][1] = end
+        else:
+            merged.append([start, end])
+
+    total_months = 0
+    for start, end in merged:
+        total_months += max(0, (end[0] - start[0]) * 12 + (end[1] - start[1]))
+
+    return round(total_months / 12.0, 1)
+
+
+def extract_languages(text: str, languages_section: str = "") -> List[str]:
+    if not text and not languages_section:
+        return []
+
+    matches: List[str] = []
+    section_source = languages_section or ""
+    if section_source:
+        for chunk in re.split(r"[\n,;|/]", section_source):
+            normalized = chunk.strip().lower()
+            if normalized in LANGUAGE_TERMS:
+                matches.append(normalized.title())
+
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    for line in lines[:30]:
+        header_match = LANGUAGE_LINE_PATTERN.match(line)
+        if header_match:
+            for chunk in re.split(r"[,;|/]", header_match.group("value")):
+                normalized = chunk.strip().lower()
+                if normalized in LANGUAGE_TERMS:
+                    matches.append(normalized.title())
+
+    lowered_text = text.lower()
+    for language in LANGUAGE_TERMS:
+        if re.search(rf"\b{re.escape(language)}\b", lowered_text):
+            matches.append(language.title())
+
+    return _unique_in_order(matches)[:10]
+
+
+def infer_responsibility_skills(text: str) -> List[str]:
+    lowered_text = text.lower()
+    matches: List[str] = []
+
+    for skill, phrases in RESPONSIBILITY_SKILL_PHRASES.items():
+        if any(phrase in lowered_text for phrase in phrases):
+            matches.append(skill)
+
+    for skill, phrases in SOFT_SKILL_PHRASES.items():
+        if any(phrase in lowered_text for phrase in phrases):
+            matches.append(skill)
+
+    return _unique_in_order(matches)
 
 
 def extract_experience_entries(text: str, experience_section: str = "") -> List[Dict]:
@@ -337,9 +478,23 @@ def extract_resume_information(text: str) -> Dict:
     - Flashtext for fast skill lookup
     """
     sections = segment_resume_sections(text)
-    skills = extract_skill_keywords(text, sections.get("skills", ""))
+    explicit_skills = extract_skill_keywords(text, sections.get("skills", ""))
+    inferred_skills = infer_responsibility_skills(
+        "\n".join(
+            section for section in [
+                sections.get("skills", ""),
+                sections.get("experience", ""),
+                sections.get("projects", ""),
+            ] if section
+        ) or text
+    )
+    skills = _unique_in_order(explicit_skills + inferred_skills)
     experience_entries = extract_experience_entries(text, sections.get("experience", ""))
     education_entries = extract_education_entries(text, sections.get("education", ""))
+    languages = extract_languages(text, sections.get("languages", ""))
+    experience_years = estimate_total_experience_years(experience_entries)
+    current_company = experience_entries[0].get("company") if experience_entries else None
+    designation = experience_entries[0].get("title") if experience_entries else None
 
     return {
         "sections": sections,
@@ -347,6 +502,10 @@ def extract_resume_information(text: str) -> Dict:
         "experience": experience_entries,
         "education": education_entries,
         "location": extract_location(text),
+        "current_company": current_company,
+        "designation": designation,
+        "experience_years": experience_years,
+        "languages": languages,
         "experience_text": clean_text_pipeline(sections.get("experience", "")),
         "education_text": clean_text_pipeline(sections.get("education", "")),
         "projects_text": clean_text_pipeline(sections.get("projects", "")),
