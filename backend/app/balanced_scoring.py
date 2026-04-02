@@ -7,6 +7,8 @@ import re
 from datetime import datetime
 from typing import Dict, List, Tuple
 
+from ats.preprocessing.section_segmentation import get_section_content
+
 # Import spaCy NLP helpers (REQUIRED - no fallback)
 from app.spacy_nlp import get_nlp_signals, SPACY_AVAILABLE
 
@@ -442,6 +444,25 @@ def _parse_month_year(token: str, current_year: int) -> Tuple[int, int] | None:
     return (year, month_map.get(month_token, 1) if month_token else 1)
 
 
+def extract_declared_skills(resume_text: str) -> List[str]:
+    """Extract skills from the segmented skills section only."""
+    skills_section = get_section_content(resume_text, "skills")
+    if not skills_section:
+        return []
+
+    skills: List[str] = []
+    for line in skills_section.split('\n'):
+        if line.strip():
+            cleaned = re.sub(r'^[-•*]\s*', '', line)
+            skill_items = re.split(r'[,;|]', cleaned)
+            skills.extend([item.strip() for item in skill_items if item.strip()])
+    return skills
+
+
+def _extract_experience_section(resume_text: str) -> str:
+    return get_section_content(resume_text, "experience").strip()
+
+
 def _merge_intervals(intervals: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
     if not intervals:
         return []
@@ -525,7 +546,7 @@ def extract_years_experience(resume_text: str) -> float:
 
 
 # Helper function
-def generate_summary(components: Dict, total_score: float, label: str) -> str:
+def generate_summary(components: Dict, total_score: float, label: str, job_title: str = "") -> str:
     """Generate professional 3-4 sentence resume summary."""
     import random
     
@@ -538,9 +559,9 @@ def generate_summary(components: Dict, total_score: float, label: str) -> str:
     # Extract key data
     years = experience.get('years', 0)
     matched_skills = skills.get('matched_skills', [])
-    skill_score = skills.get('score', 0)
     exp_score = experience.get('score', 0)
     proj_score = projects.get('score', 0)
+    role_phrase = job_title.strip() if job_title else "their field"
     
     # Opening phrases based on experience level
     if years >= 5:
@@ -560,7 +581,7 @@ def generate_summary(components: Dict, total_score: float, label: str) -> str:
     else:
         openings = [
             "Emerging professional with foundational experience",
-            "Entry-level professional with strong technical foundation",
+            "Entry-level professional with a strong foundation",
             "Motivated professional with growing expertise",
             "Aspiring professional with solid academic background"
         ]
@@ -571,29 +592,29 @@ def generate_summary(components: Dict, total_score: float, label: str) -> str:
     elif len(matched_skills) >= 2:
         skills_desc = f"Proficient in {' and '.join(matched_skills[:2])}"
     else:
-        skills_desc = "Developing technical competencies"
+        skills_desc = "Developing role-relevant competencies"
     
     # Project/Experience description
     if proj_score >= 15 and exp_score >= 25:
         work_desc = random.choice([
-            "Proven track record in delivering scalable solutions and optimizing system performance",
-            "Demonstrated ability to design, develop, and deploy production-grade applications",
-            "Hands-on experience building robust systems and implementing best practices",
-            "Strong background in developing high-performance applications and database optimization"
+            "Proven track record of delivering high-quality work with measurable impact",
+            "Demonstrated ability to manage complex responsibilities and produce strong outcomes",
+            "Hands-on experience executing end-to-end work with consistency and ownership",
+            "Strong background in turning requirements into polished, practical results"
         ])
     elif proj_score >= 10 or exp_score >= 20:
         work_desc = random.choice([
-            "Experience in developing functional applications and working with modern frameworks",
-            "Practical experience in building applications and collaborating with development teams",
-            "Hands-on experience with software development and system implementation",
-            "Background in application development and technical problem-solving"
+            "Practical experience handling day-to-day responsibilities in professional settings",
+            "Hands-on experience contributing to projects and collaborating across teams",
+            "Background in delivering work that supports business and customer needs",
+            "Experience applying domain knowledge to solve real-world problems"
         ])
     else:
         work_desc = random.choice([
-            "Foundational experience in software development and technical projects",
-            "Growing expertise in application development and coding practices",
-            "Academic and project-based experience in software engineering",
-            "Developing skills in software development and system design"
+            "Foundational experience through academic, freelance, internship, or project work",
+            "Growing expertise through practical assignments and applied learning",
+            "Early-stage experience supported by projects and transferable strengths",
+            "Developing professional capability through hands-on learning and guided practice"
         ])
     
     # Soft skills/collaboration
@@ -613,7 +634,7 @@ def generate_summary(components: Dict, total_score: float, label: str) -> str:
         ])
     
     # Combine into professional summary
-    summary = f"{random.choice(openings)} in software development and engineering. {skills_desc}. {work_desc}. {collab_desc}"
+    summary = f"{random.choice(openings)} in {role_phrase}. {skills_desc}. {work_desc}. {collab_desc}"
     
     return summary
 
@@ -655,7 +676,7 @@ def evaluate_resume_balanced(resume_data: Dict, job_requirements: Dict) -> Dict:
     
     # FIX: Cache NLP signals ONCE to ensure deterministic scoring
     nlp_cache = get_nlp_signals(resume_text) if resume_text else {}
-    print(f"   🔒 NLP Cache created with {nlp_cache.get('action_verb_count', 0)} action verbs (DETERMINISTIC MODE)")
+    print(f"   NLP Cache created with {nlp_cache.get('action_verb_count', 0)} action verbs (DETERMINISTIC MODE)")
     
     # Calculate all components (projects first for skills bonus) - pass nlp_cache
     projects_result = calculate_projects_score(resume_text, job_desc, years_exp, job_title, nlp_cache=nlp_cache)
@@ -698,7 +719,7 @@ def evaluate_resume_balanced(resume_data: Dict, job_requirements: Dict) -> Dict:
     }
     
     # Generate summary
-    summary = generate_summary(components, total_score, label)
+    summary = generate_summary(components, total_score, label, job_title=job_title)
     
     return {
         'total_score': round(total_score, 2),

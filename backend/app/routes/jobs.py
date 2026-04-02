@@ -11,6 +11,7 @@ from app.schemas import (
     JobDescriptionCreate, JobDescriptionUpdate, JobDescriptionResponse
 )
 from app.auth import get_current_active_user, get_current_admin_user
+from ats.preprocessing.text_cleaning import clean_text
 
 router = APIRouter(prefix="/jobs", tags=["Job Descriptions"])
 
@@ -325,17 +326,20 @@ async def extract_job_data(
             except:
                 text = content.decode('utf-8', errors='ignore')
         
+        raw_text = text
+        cleaned_text = clean_text(raw_text) if raw_text.strip() else ""
+
         # Extract job information using improved regex patterns
         extracted_data = {
-            'department': extract_field(text, ['department', 'team', 'division']),
-            'location': extract_field(text, ['location', 'office', 'city', 'remote']),
-            'employment_type': extract_employment_type(text),
-            'experience_required': extract_experience(text) or extract_field(text, ['experience', 'years', 'minimum', 'exp']),
-            'salary_range': extract_salary(text),
-            'description': extract_description(text),
-            'requirements': extract_section(text, ['requirements', 'qualifications', 'must have', 'required']),
-            'responsibilities': extract_responsibilities(text),
-            'skills': extract_skills(text)
+            'department': extract_field(cleaned_text, ['department', 'team', 'division']),
+            'location': extract_field(cleaned_text, ['location', 'office', 'city', 'remote']),
+            'employment_type': extract_employment_type(cleaned_text),
+            'experience_required': extract_experience(cleaned_text) or extract_field(cleaned_text, ['experience', 'years', 'minimum', 'exp']),
+            'salary_range': extract_salary(cleaned_text),
+            'description': extract_description(raw_text),
+            'requirements': extract_section(raw_text, ['requirements', 'qualifications', 'must have', 'required']),
+            'responsibilities': extract_responsibilities(raw_text),
+            'skills': extract_skills(cleaned_text)
         }
         
         return extracted_data

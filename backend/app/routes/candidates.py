@@ -5,6 +5,7 @@ from sqlalchemy import or_, text
 from typing import Dict, List, Optional
 from uuid import UUID
 import os
+import re
 import uuid
 import random
 import tempfile
@@ -19,6 +20,17 @@ from app.schemas import (
 )
 from app.auth import get_current_active_user
 from app.config import settings
+from ats.extraction.information_extraction import (
+    extract_education_entries,
+    extract_experience_entries,
+    extract_resume_information,
+    extract_skill_keywords,
+)
+from ats.features import build_feature_vector
+from ats.matching import compute_matching_signals
+from ats.preprocessing.section_segmentation import segment_resume_sections
+from ats.preprocessing.text_cleaning import clean_text, clean_text_pipeline
+from ats.ranking import compute_ranking_result
 
 router = APIRouter(prefix="/candidates", tags=["Candidates"])
 upload_progress_store = {}
@@ -244,9 +256,14 @@ def extract_resume_data(file_path: str, original_filename: str = None) -> dict:
     email = None
     phone = None
     name = None
+    location = None
     skills = []
     projects = []
     experience_text = ""
+    work_experience = []
+    education_text = ""
+    education = []
+    cleaned_text = ""
     
     try:
         text = ""
@@ -288,10 +305,16 @@ def extract_resume_data(file_path: str, original_filename: str = None) -> dict:
             except Exception as e:
                 print(f"Word document extraction failed: {e}")
         
-        if text.strip():
+        raw_text = text
+        cleaned_text = clean_text(raw_text) if raw_text.strip() else ""
+
+        if raw_text.strip():
+            extracted_info = extract_resume_information(raw_text)
+            sections = extracted_info["sections"]
+
             # Extract email
             email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
-            emails = re.findall(email_pattern, text, re.IGNORECASE)
+            emails = re.findall(email_pattern, cleaned_text, re.IGNORECASE)
             email = emails[0] if emails else None
             
             # Extract phone
@@ -303,13 +326,13 @@ def extract_resume_data(file_path: str, original_filename: str = None) -> dict:
                 r'\(?\d{3}\)?[-\s]?\d{3}[-\s]?\d{4}',  # US format without country code
             ]
             for pattern in phone_patterns:
-                matches = re.findall(pattern, text)
+                matches = re.findall(pattern, cleaned_text)
                 if matches:
                     phone = matches[0].strip()
                     break
             
             # Extract name from document content
-            lines = [line.strip() for line in text.split('\n') if line.strip()]
+            lines = [line.strip() for line in raw_text.split('\n') if line.strip()]
             
             # Look for name in first few lines
             for line in lines[:20]:
@@ -349,13 +372,17 @@ def extract_resume_data(file_path: str, original_filename: str = None) -> dict:
                     break
             
             # Extract skills (normalized to lowercase)
-            skills = extract_skills_from_text(text)
+            skills = extracted_info["skills"] or extract_skills_from_text(raw_text)
+            location = extracted_info.get("location") or location
             
             # Extract projects
-            projects = extract_projects_from_text(text)
+            projects = extract_projects_from_text(raw_text)
             
             # Extract experience text for matching
-            experience_text = extract_experience_text(text)
+            experience_text = extracted_info["experience_text"] or clean_text_pipeline(extract_experience_text(raw_text))
+            work_experience = extracted_info["experience"]
+            education_text = extracted_info["education_text"] or clean_text_pipeline(sections.get("education", ""))
+            education = extracted_info["education"]
 
         if not email:
             email = extract_email_from_raw_file(file_path)
@@ -377,10 +404,14 @@ def extract_resume_data(file_path: str, original_filename: str = None) -> dict:
         'name': name,
         'email': email,
         'phone': phone,
+        'location': location,
         'skills': skills,
         'projects': projects,
         'experience_text': experience_text,
-        'full_text': text  # Add full extracted text
+        'work_experience': work_experience,
+        'education_text': education_text,
+        'education': education,
+        'full_text': cleaned_text  # Store cleaned text for downstream ATS processing
     }
 
 def extract_skills_from_text(text: str) -> list:
@@ -418,13 +449,14 @@ def extract_skills_from_text(text: str) -> list:
         skill_lower = skill.lower().strip()
         return SKILL_ALIASES.get(skill_lower, skill_lower)
     
-    skills = []
     skill_set = set()  # Use set to avoid duplicates
-    
-    # Find SKILLS section - stop at next major section
-    skills_match = re.search(r'(?:TECHNICAL\s+)?SKILLS?\s*:?\s*[\n\r]+(.*?)(?=\n\s*(?:WORK\s+EXPERIENCE|EXPERIENCE|EDUCATION|PROJECTS?|CERTIFICATIONS?|REFERENCES)\s*:?\s*$|\Z)', text, re.IGNORECASE | re.MULTILINE | re.DOTALL)
-    
-    if not skills_match:
+
+    skills_text = segment_resume_sections(text).get("skills", "")
+    extracted_skills = extract_skill_keywords(text, skills_text)
+    if extracted_skills:
+        return extracted_skills
+
+    if not skills_text:
         print("   No SKILLS section found, using pattern matching...")
         # Fallback to pattern matching
         skill_patterns = [
@@ -445,8 +477,7 @@ def extract_skills_from_text(text: str) -> list:
         skills = list(skill_set)[:30]
         print(f"   Found {len(skills)} skills via pattern matching")
         return skills
-    
-    skills_text = skills_match.group(1).strip()
+
     print(f"   Found SKILLS section: {skills_text[:100]}...")
     
     # Filter out section headers
@@ -497,39 +528,36 @@ def extract_skills_from_text(text: str) -> list:
 def extract_projects_from_text(text: str) -> list:
     """Extract project information from resume text"""
     import re
-    
+
+    project_text = segment_resume_sections(text).get("projects", "")
     projects = []
-    
-    # Look for project sections
-    project_patterns = [
-        r'(?:PROJECT|PROJECTS?)\s*:?\s*([^\n]+(?:\n(?!\b(?:EXPERIENCE|EDUCATION|SKILLS|WORK)\b)[^\n]*)*)',
-        r'(?:Personal|Side|Open Source)\s+Project[s]?\s*:?\s*([^\n]+)',
-    ]
-    
-    for pattern in project_patterns:
-        matches = re.findall(pattern, text, re.IGNORECASE | re.MULTILINE)
-        for match in matches:
-            if len(match.strip()) > 20:  # Only meaningful project descriptions
-                projects.append(match.strip()[:200])  # Limit length
-    
+
+    if not project_text:
+        return projects
+
+    blocks = [block.strip() for block in re.split(r'\n\s*\n', project_text) if block.strip()]
+    if not blocks:
+        blocks = [line.strip() for line in project_text.split('\n') if line.strip()]
+
+    for block in blocks:
+        if len(block) > 20:
+            projects.append(block[:200])
+
     return projects[:5]  # Limit to 5 projects
 
 def extract_experience_text(text: str) -> str:
     """Extract work experience section from resume"""
-    import re
-    
-    # Look for experience section
-    exp_patterns = [
-        r'(?:WORK\s+)?EXPERIENCE\s*:?\s*([^\n]+(?:\n(?!\b(?:EDUCATION|SKILLS|PROJECTS?)\b)[^\n]*)*)',
-        r'(?:PROFESSIONAL|EMPLOYMENT)\s+(?:EXPERIENCE|HISTORY)\s*:?\s*([^\n]+(?:\n(?!\b(?:EDUCATION|SKILLS|PROJECTS?)\b)[^\n]*)*)',
-    ]
-    
-    for pattern in exp_patterns:
-        match = re.search(pattern, text, re.IGNORECASE | re.MULTILINE)
-        if match:
-            return match.group(1).strip()[:1000]  # Limit to 1000 chars
-    
-    return ""
+    return segment_resume_sections(text).get("experience", "").strip()[:1000]
+
+
+def extract_work_experience_from_text(text: str) -> list:
+    """Extract structured work experience entries from resume text."""
+    return extract_experience_entries(text, segment_resume_sections(text).get("experience", ""))
+
+
+def extract_education_from_text(text: str) -> list:
+    """Extract structured education entries from resume text."""
+    return extract_education_entries(text, segment_resume_sections(text).get("education", ""))
 
 # Job Configuration (role-specific scoring)
 JOB_CONFIG = {
@@ -603,6 +631,8 @@ def analyze_resume_with_ai(candidate_data: dict, job_description: dict) -> dict:
     name = candidate_data.get('name', 'Unknown')
     email = candidate_data.get('email', '')
     phone = candidate_data.get('phone', '')
+    candidate_location = candidate_data.get('location', '')
+    experience_years = candidate_data.get('experience_years', 0.0)
     skills = candidate_data.get('skills', [])
     experience_text = candidate_data.get('experience_text', '')
     projects = candidate_data.get('projects', [])
@@ -613,9 +643,22 @@ def analyze_resume_with_ai(candidate_data: dict, job_description: dict) -> dict:
     job_desc = job_description.get('description', '')
     job_requirements = job_description.get('requirements', '')
     job_skills = job_description.get('skills', [])
+    job_location = job_description.get('location', '')
     
     # Perform contextual analysis
-    evaluation = evaluate_candidate_contextually(resume_text=full_text, job_title=job_title, job_description=job_desc, job_requirements=job_requirements, candidate_skills=skills, experience_text=experience_text, projects=projects, job_skills=job_skills)
+    evaluation = evaluate_candidate_contextually(
+        resume_text=full_text,
+        job_title=job_title,
+        job_description=job_desc,
+        job_requirements=job_requirements,
+        candidate_skills=skills,
+        experience_text=experience_text,
+        projects=projects,
+        job_skills=job_skills,
+        candidate_location=candidate_location,
+        job_location=job_location,
+        experience_years=experience_years,
+    )
     
     return {
         "candidate_name": name,
@@ -641,7 +684,8 @@ def get_job_data(db: Session, job_id: Optional[UUID]) -> dict:
             'title': 'General Position',
             'description': '',
             'requirements': '',
-            'skills': []
+            'skills': [],
+            'location': '',
         }
 
     job = db.query(JobDescription).filter(JobDescription.id == job_id).first()
@@ -650,14 +694,16 @@ def get_job_data(db: Session, job_id: Optional[UUID]) -> dict:
             'title': 'General Position',
             'description': '',
             'requirements': '',
-            'skills': []
+            'skills': [],
+            'location': '',
         }
 
     return {
         'title': job.title,
         'description': job.description or '',
         'requirements': job.requirements or '',
-        'skills': job.skills or []
+        'skills': job.skills or [],
+        'location': job.location or '',
     }
 
 
@@ -694,7 +740,8 @@ def get_default_job_data() -> dict:
         'title': 'General Position',
         'description': 'General professional role',
         'requirements': 'Professional experience with relevant skills',
-        'skills': ['communication', 'teamwork', 'problem solving']
+        'skills': ['communication', 'teamwork', 'problem solving'],
+        'location': '',
     }
 
 
@@ -705,16 +752,66 @@ def build_batch_candidate_id(name: str, job_id: Optional[UUID]) -> str:
     return f"{name_prefix}{job_token}{uuid.uuid4().hex[:8].upper()}"
 
 
+def estimate_experience_years_from_entries(entries: list) -> float:
+    """Estimate total experience from structured work-experience entries."""
+    from datetime import datetime
+
+    if not entries:
+        return 0.0
+
+    current_year = datetime.utcnow().year
+    intervals = []
+
+    for entry in entries:
+        start_value = str((entry or {}).get("start_date", "")).strip().lower()
+        end_value = str((entry or {}).get("end_date", "")).strip().lower()
+
+        start_match = re.search(r"(19|20)\d{2}", start_value)
+        end_match = re.search(r"(19|20)\d{2}", end_value)
+
+        if not start_match:
+            continue
+
+        start_year = int(start_match.group(0))
+        end_year = int(end_match.group(0)) if end_match else current_year
+
+        if end_value in {"present", "current", "now"}:
+            end_year = current_year
+
+        if end_year < start_year:
+            continue
+
+        intervals.append((start_year, end_year))
+
+    if not intervals:
+        return 0.0
+
+    intervals.sort()
+    merged = [intervals[0]]
+    for start_year, end_year in intervals[1:]:
+        last_start, last_end = merged[-1]
+        if start_year <= last_end + 1:
+            merged[-1] = (last_start, max(last_end, end_year))
+        else:
+            merged.append((start_year, end_year))
+
+    total_years = sum(end_year - start_year for start_year, end_year in merged)
+    return float(max(total_years, 0))
+
+
 def process_saved_resume(file_path: str, original_filename: str, job_data: dict) -> dict:
     """Run extraction and scoring for one saved resume file."""
     from app.balanced_scoring import extract_years_experience
 
     resume_data = extract_resume_data(file_path, original_filename)
-    resume_data["experience_years"] = extract_years_experience(resume_data.get("full_text", ""))
+    estimated_years = estimate_experience_years_from_entries(resume_data.get("work_experience", []))
+    resume_data["experience_years"] = estimated_years if estimated_years > 0 else extract_years_experience(resume_data.get("full_text", ""))
     analysis_data = {
         'name': resume_data['name'],
         'email': resume_data['email'],
         'phone': resume_data['phone'],
+        'location': resume_data.get('location', ''),
+        'experience_years': resume_data.get('experience_years', 0.0),
         'skills': resume_data['skills'],
         'experience_text': resume_data['experience_text'],
         'projects': resume_data['projects'],
@@ -823,8 +920,11 @@ def process_single_resume_upload(
             name=resume_data['name'],
             email=resume_data['email'],
             phone=resume_data['phone'],
+            location=resume_data.get('location'),
             experience_years=resume_data.get('experience_years'),
             skills=resume_data['skills'],
+            education=resume_data.get('education'),
+            work_experience=resume_data.get('work_experience'),
             resume_file_path=file_path,
             resume_text=resume_data['full_text'],
             candidate_id=build_batch_candidate_id(resume_data['name'], job_id),
@@ -906,8 +1006,11 @@ def process_bulk_upload_batch(
                         name=resume_data['name'],
                         email=resume_data['email'],
                         phone=resume_data['phone'],
+                        location=resume_data.get('location'),
                         experience_years=resume_data.get('experience_years'),
                         skills=resume_data['skills'],
+                        education=resume_data.get('education'),
+                        work_experience=resume_data.get('work_experience'),
                         resume_file_path=item["file_path"],
                         resume_text=resume_data['full_text'],
                         candidate_id=build_batch_candidate_id(resume_data['name'], job_id),
@@ -1022,8 +1125,11 @@ def process_zip_upload_batch(
                         name=resume_data['name'],
                         email=resume_data['email'],
                         phone=resume_data['phone'],
+                        location=resume_data.get('location'),
                         experience_years=resume_data.get('experience_years'),
                         skills=resume_data['skills'],
+                        education=resume_data.get('education'),
+                        work_experience=resume_data.get('work_experience'),
                         resume_file_path=item["file_path"],
                         resume_text=resume_data['full_text'],
                         candidate_id=build_batch_candidate_id(resume_data['name'], job_id),
@@ -1085,7 +1191,19 @@ def process_zip_upload_batch(
         finally:
             db.close()
 
-def evaluate_candidate_contextually(resume_text: str, job_title: str, job_description: str, job_requirements: str, candidate_skills: list, experience_text: str, projects: list, job_skills: list = None) -> dict:
+def evaluate_candidate_contextually(
+    resume_text: str,
+    job_title: str,
+    job_description: str,
+    job_requirements: str,
+    candidate_skills: list,
+    experience_text: str,
+    projects: list,
+    job_skills: list = None,
+    candidate_location: str = "",
+    job_location: str = "",
+    experience_years: float = 0.0,
+) -> dict:
     """Evidence-based AI evaluation using LLM with structured scoring"""
     from app.config import settings
     import json
@@ -1144,7 +1262,19 @@ def evaluate_candidate_contextually(resume_text: str, job_title: str, job_descri
     #     return enhanced_fallback_evaluation(resume_text, job_title, job_description, job_requirements, candidate_skills, experience_text, projects, job_skills)
     
     # Always use enhanced fallback evaluation
-    return enhanced_fallback_evaluation(resume_text, job_title, job_description, job_requirements, candidate_skills, experience_text, projects, job_skills)
+    return enhanced_fallback_evaluation(
+        resume_text,
+        job_title,
+        job_description,
+        job_requirements,
+        candidate_skills,
+        experience_text,
+        projects,
+        job_skills,
+        candidate_location=candidate_location,
+        job_location=job_location,
+        experience_years=experience_years,
+    )
 
 def call_groq_llm(prompt: str, api_key: str) -> str:
     """Call Groq LLM API"""
@@ -1267,15 +1397,50 @@ JOB_SKILL_MAPS = {
     "default": {"core": [], "transferable": ["communication", "teamwork"], "ignore": []}
 }
 
-def enhanced_fallback_evaluation(resume_text: str, job_title: str, job_description: str, job_requirements: str, candidate_skills: list, experience_text: str, projects: list, job_skills: list = None) -> dict:
-    """Balanced scoring system using 5 components (Experience:35, Skills:30, Projects:20, Education:10, Soft Skills:5)"""
+
+def calculate_location_score(candidate_location: str, job_location: str, resume_text: str = "") -> float:
+    """Return a 0-5 score based on candidate/job location alignment."""
+    candidate_value = (candidate_location or "").strip().lower()
+    job_value = (job_location or "").strip().lower()
+    resume_value = (resume_text or "").strip().lower()
+
+    if not job_value:
+        return 2.5
+
+    search_space = " ".join(part for part in [candidate_value, resume_value] if part)
+    if not search_space:
+        return 0.0
+
+    job_parts = [part.strip() for part in re.split(r"[,/|-]", job_value) if part.strip()]
+    if any(part and part in search_space for part in job_parts):
+        return 5.0
+
+    if job_value in search_space or search_space in job_value:
+        return 5.0
+
+    return 0.0
+
+def enhanced_fallback_evaluation(
+    resume_text: str,
+    job_title: str,
+    job_description: str,
+    job_requirements: str,
+    candidate_skills: list,
+    experience_text: str,
+    projects: list,
+    job_skills: list = None,
+    candidate_location: str = "",
+    job_location: str = "",
+    experience_years: float = 0.0,
+) -> dict:
+    """ATS workflow scoring with feature engineering and custom ranking."""
     from app.balanced_scoring import evaluate_resume_balanced, extract_years_experience
     
-    print(f"\n📄 Balanced Scoring System:")
+    print("\nBalanced Scoring System:")
     print(f"   Job: {job_title}")
     
     # Extract years of experience
-    years_exp = extract_years_experience(resume_text)
+    years_exp = experience_years if experience_years and experience_years > 0 else extract_years_experience(resume_text)
     
     role_map = JOB_SKILL_MAPS.get(job_title.lower().strip())
     jd_extracted_skills = extract_skills_from_job_text(f"{job_title}\n{job_description}\n{job_requirements}")
@@ -1321,10 +1486,24 @@ def enhanced_fallback_evaluation(resume_text: str, job_title: str, job_descripti
     
     # Evaluate using balanced scoring
     result = evaluate_resume_balanced(resume_data, job_requirements_data)
+    matching_signals = compute_matching_signals(
+        resume_text=resume_text,
+        job_title=job_title,
+        job_description=job_description,
+        job_requirements=job_requirements,
+    )
     
-    # Extract components
+    # Step 8: feature engineering inputs.
     components = result['components']
-    final_score = result['total_score']
+    skills_weighted = round((components['skills']['match_percentage'] / 100.0) * 35.0, 2)
+    experience_weighted = round((components['experience']['score'] / max(components['experience']['max'], 1)) * 20.0, 2)
+    tfidf_weighted = round((matching_signals['tfidf_score'] / 100.0) * 20.0, 2)
+    bm25_weighted = round((matching_signals['bm25_score'] / 100.0) * 15.0, 2)
+    education_weighted = round((components['education']['score'] / max(components['education']['max'], 1)) * 5.0, 2)
+    location_weighted = round(calculate_location_score(candidate_location, job_location, resume_text), 2)
+    feature_vector = build_feature_vector(components, matching_signals)
+    ranking_result = compute_ranking_result(feature_vector)
+    final_score = ranking_result['ranking_score_percent']
 
     ignored_role_terms = role_map.get("ignore", []) if role_map else []
     ignore_hits = sum(1 for term in ignored_role_terms if term in resume_text.lower())
@@ -1334,11 +1513,13 @@ def enhanced_fallback_evaluation(resume_text: str, job_title: str, job_descripti
     elif required_skills and matched_required_count <= 1 and ignore_hits >= 3:
         final_score = min(final_score, 45)
     
-    print(f"   Experience: {components['experience']['score']}/35")
-    print(f"   Skills: {components['skills']['score']}/30")
-    print(f"   Projects: {components['projects']['score']}/20")
-    print(f"   Education: {components['education']['score']}/10")
-    print(f"   Soft Skills: {components['soft_skills']['score']}/5")
+    print(f"   Skills Match: {skills_weighted}/35")
+    print(f"   Experience: {experience_weighted}/20")
+    print(f"   TF-IDF Match: {tfidf_weighted}/20")
+    print(f"   BM25 Match: {bm25_weighted}/15")
+    print(f"   Education: {education_weighted}/5")
+    print(f"   Location: {location_weighted}/5")
+    print(f"   Ranking Score: {ranking_result['ranking_score']}")
     print(f"   TOTAL: {final_score}/100")
     
     # Determine match label and status
@@ -1358,17 +1539,17 @@ def enhanced_fallback_evaluation(resume_text: str, job_title: str, job_descripti
     elif components['skills']['match_percentage'] >= 50:
         strengths.append(f"Good skills match: {components['skills']['match_percentage']}%")
     
-    if components['experience']['score'] >= 20:
+    if experience_weighted >= 12:
         strengths.append(f"{years_exp} years experience - {components['experience']['assessment']}")
-    
-    if components['projects']['score'] >= 15:
-        strengths.append("Strong project portfolio with relevant complexity")
-    
-    if components['education']['score'] >= 8:
+
+    if education_weighted >= 4:
         strengths.append(f"Education: {components['education']['relevance']}")
-    
-    if components['soft_skills']['leadership'] > 0 or components['soft_skills']['collaboration'] > 0:
-        strengths.append(f"Leadership/collaboration: {components['soft_skills']['leadership']} + {components['soft_skills']['collaboration']} signals")
+
+    if matching_signals['combined_score'] >= 60:
+        strengths.append(f"Strong resume-to-JD similarity: {matching_signals['combined_score']}%")
+
+    if location_weighted >= 5:
+        strengths.append("Location aligns with job requirement")
     
     if not strengths:
         strengths.append("Basic qualifications present")
@@ -1379,14 +1560,14 @@ def enhanced_fallback_evaluation(resume_text: str, job_title: str, job_descripti
         missing_count = len(required_skills) - len(components['skills']['matched_skills'])
         gaps.append(f"Missing {missing_count} key skills from requirements")
     
-    if components['experience']['score'] < 15:
+    if experience_weighted < 8:
         gaps.append(f"Experience mismatch: {components['experience']['assessment']}")
-    
-    if components['projects']['score'] < 10:
-        gaps.append("Limited project complexity or relevance")
-    
-    if components['education']['score'] < 5:
+
+    if education_weighted < 2.5:
         gaps.append("Education background not clearly relevant")
+
+    if job_location and location_weighted == 0:
+        gaps.append("Location does not align with job requirement")
     
     if not gaps:
         gaps.append("No significant gaps identified")
@@ -1395,11 +1576,13 @@ def enhanced_fallback_evaluation(resume_text: str, job_title: str, job_descripti
     candidate_summary = result['summary']
     
     # AI analysis
-    ai_analysis = f"Balanced evaluation: Experience {components['experience']['score']}/35, "
-    ai_analysis += f"Skills {components['skills']['score']}/30, "
-    ai_analysis += f"Projects {components['projects']['score']}/20, "
-    ai_analysis += f"Education {components['education']['score']}/10, "
-    ai_analysis += f"Soft Skills {components['soft_skills']['score']}/5. "
+    ai_analysis = f"Workflow: ingestion -> extraction -> cleaning -> segmentation -> information extraction -> skill intelligence -> matching -> features -> ranking. "
+    ai_analysis += f"Feature vector: skill {feature_vector['skill_score']}, "
+    ai_analysis += f"experience {feature_vector['experience_score']}, "
+    ai_analysis += f"tfidf {feature_vector['tfidf_score']}, "
+    ai_analysis += f"bm25 {feature_vector['bm25_score']}, "
+    ai_analysis += f"education {feature_vector['education_score']}. "
+    ai_analysis += f"Ranking score: {ranking_result['ranking_score']}. "
     ai_analysis += f"Overall: {match_label} ({final_score}/100)."
     
     return {
@@ -1410,7 +1593,29 @@ def enhanced_fallback_evaluation(resume_text: str, job_title: str, job_descripti
         'skill_gaps': gaps[:5],
         'ai_analysis': ai_analysis,
         'status': status,
-        'components': components  # Include detailed breakdown
+        'components': components,
+        'matching_signals': matching_signals,
+        'feature_vector': feature_vector,
+        'ranking_result': ranking_result,
+        'workflow_steps': [
+            'Document Ingestion',
+            'Text Extraction',
+            'Text Cleaning & Normalization',
+            'Section Segmentation',
+            'Information Extraction',
+            'Skill Intelligence Layer',
+            'Matching Engine',
+            'Feature Engineering',
+            'Ranking Engine',
+        ],
+        'weighted_breakdown': {
+            'skills_match': skills_weighted,
+            'experience': experience_weighted,
+            'tfidf_similarity': tfidf_weighted,
+            'bm25_score': bm25_weighted,
+            'education': education_weighted,
+            'location': location_weighted,
+        },
     }
 
 def extract_skills_from_job_text(job_text: str) -> list:

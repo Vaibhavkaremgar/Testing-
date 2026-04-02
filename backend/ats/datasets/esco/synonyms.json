@@ -1,0 +1,7 @@
+{
+  "js": "javascript",
+  "react.js": "react",
+  "nodejs": "node.js",
+  "postgres": "postgresql",
+  "k8s": "kubernetes"
+}

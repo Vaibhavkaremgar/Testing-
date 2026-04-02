@@ -1,0 +1,6 @@
+{
+  "python": ["django", "fastapi", "flask"],
+  "javascript": ["react", "node.js", "typescript"],
+  "sql": ["postgresql", "mysql"],
+  "docker": ["kubernetes", "ci/cd"]
+}
