@@ -1448,7 +1448,7 @@ def enhanced_fallback_evaluation(
         strengths.append(f"Good skills match: {components['skills']['match_percentage']}%")
     
     if experience_weighted >= 12:
-        strengths.append(f"{years_exp} years experience - {components['experience']['assessment']}")
+        strengths.append(f"{years_exp} years of relevant experience")
 
     if education_weighted >= 4:
         strengths.append(f"Education: {components['education']['relevance']}")
@@ -1469,7 +1469,7 @@ def enhanced_fallback_evaluation(
         gaps.append(f"Missing {missing_count} key skills from requirements")
     
     if experience_weighted < 8:
-        gaps.append(f"Experience mismatch: {components['experience']['assessment']}")
+        gaps.append("Experience level appears below the role expectation")
 
     if education_weighted < 2.5:
         gaps.append("Education background not clearly relevant")

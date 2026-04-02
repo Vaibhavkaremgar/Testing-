@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import calendar
+import logging
 import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -9,7 +10,10 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 from ats.preprocessing.section_segmentation import segment_resume_sections
 from app.spacy_nlp import SPACY_AVAILABLE, nlp
 
+logger = logging.getLogger(__name__)
+
 MONTH_PATTERN = r"(?:jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)"
+MONTH_NAME_REGEX = r"(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4}"
 PRESENT_PATTERN = r"(?:present|current|now|today|till date|till now)"
 DATE_SEPARATOR_PATTERN = r"(?:\-|–|—|―|to|until|through|thru)"
 
@@ -46,9 +50,12 @@ COMPANY_HINT_PATTERN = re.compile(
 ROLE_HINT_PATTERN = re.compile(
     r"(?i)\b(?:engineer|developer|manager|lead|analyst|consultant|architect|specialist|administrator|designer|executive|director|officer|intern)\b"
 )
-HEADER_PATTERN = re.compile(r"^[A-Za-z][A-Za-z\s/&,-]{0,60}:?$")
+HEADER_PATTERN = re.compile(r"^[A-Za-z][A-Za-z\s/&,\-|()]{0,60}:?$")
 DATE_CONTEXT_BLACKLIST = re.compile(
     r"(?i)\b(?:education|bachelor|master|b\.?tech|m\.?tech|bca|mca|degree|diploma|certification|certificate|project|projects|thesis|coursework|cgpa|gpa)\b"
+)
+LOCATION_LINE_PATTERN = re.compile(
+    r"(?i)^(?:[A-Za-z][A-Za-z.\s]+,\s*)?[A-Za-z][A-Za-z.\s]+(?:,\s*[A-Za-z][A-Za-z.\s]+)?$"
 )
 MONTH_MAP = {
     "jan": 1, "january": 1,
@@ -108,23 +115,31 @@ def _normalize_text(value: str) -> str:
         "\u2013": "-",
         "\u2014": "-",
         "\u2015": "-",
+        "\u2022": "|",
+        "\u00b7": "|",
+        "·": "|",
+        "\u00a0": " ",
         "â€“": "-",
         "â€”": "-",
-        "\u00a0": " ",
     }
     for source, target in replacements.items():
         normalized = normalized.replace(source, target)
-    return normalized
+    normalized = re.sub(r"━{2,}", " ", normalized)
+    normalized = re.sub(r"[ \t]+", " ", normalized)
+    normalized = re.sub(r"\n{3,}", "\n\n", normalized)
+    return normalized.strip()
 
 
 def _normalize_header(line: str) -> str:
     normalized = _normalize_text(line).strip().lower().rstrip(":")
-    normalized = re.sub(r"[^a-z\s/&,-]", " ", normalized)
+    normalized = re.sub(r"^[^a-z]+", "", normalized)
+    normalized = re.sub(r"[^a-z\s/&,\-|()]", " ", normalized)
     return _normalize_whitespace(normalized)
 
 
 def _is_probable_section_header(line: str) -> bool:
-    return bool(HEADER_PATTERN.match((_normalize_text(line) or "").strip()))
+    cleaned = _normalize_header(line)
+    return bool(cleaned and HEADER_PATTERN.match(cleaned.title()))
 
 
 def _is_ignored_header(line: str) -> bool:
@@ -147,6 +162,10 @@ def _normalize_company_name(company: str) -> str:
     return company[:160]
 
 
+def _normalize_role_name(role: str) -> str:
+    return _normalize_whitespace((role or "").strip(" ,-|\t"))[:160]
+
+
 def _line_looks_like_date_range(line: str) -> bool:
     return bool(DATE_RANGE_REGEX.search(_normalize_text(line)))
 
@@ -158,13 +177,44 @@ def _contains_blacklisted_context(value: str) -> bool:
 def _looks_like_employment_context(line: str) -> bool:
     normalized = _normalize_text(line)
     lowered = normalized.lower()
-    return bool(COMPANY_HINT_PATTERN.search(normalized) or ROLE_HINT_PATTERN.search(normalized) or " at " in lowered)
+    return bool(COMPANY_HINT_PATTERN.search(normalized) or ROLE_HINT_PATTERN.search(normalized) or " at " in lowered or "|" in normalized)
 
 
 def _extract_neighbor_window(lines: Sequence[str], index: int, radius: int = 2) -> List[str]:
     start = max(0, index - radius)
     end = min(len(lines), index + radius + 1)
     return [lines[position] for position in range(start, end) if lines[position].strip()]
+
+
+def _extract_date_anchored_block(lines: Sequence[str], index: int) -> List[str]:
+    start = index
+    end = index
+
+    while start - 1 >= 0:
+        candidate = lines[start - 1].strip()
+        if not candidate or _is_ignored_header(candidate):
+            break
+        if _contains_blacklisted_context(candidate):
+            break
+        if _is_probable_section_header(candidate) and not _looks_like_employment_context(candidate):
+            break
+        start -= 1
+        if index - start >= 2:
+            break
+
+    while end + 1 < len(lines):
+        candidate = lines[end + 1].strip()
+        if not candidate or _is_ignored_header(candidate):
+            break
+        if _contains_blacklisted_context(candidate):
+            break
+        if _is_probable_section_header(candidate) and not _looks_like_employment_context(candidate):
+            break
+        end += 1
+        if end - index >= 2:
+            break
+
+    return [lines[position].strip() for position in range(start, end + 1) if lines[position].strip()]
 
 
 def _parse_year_token(year: int, is_end: bool) -> datetime:
@@ -243,7 +293,7 @@ def merge_overlapping_ranges(
 
     merged: List[List[datetime]] = [[normalized[0][0], normalized[0][1]]]
     for start, end in normalized[1:]:
-        last_start, last_end = merged[-1]
+        _, last_end = merged[-1]
         if start <= (last_end + timedelta(days=1)):
             if end > last_end:
                 merged[-1][1] = end
@@ -266,6 +316,7 @@ def extract_experience_section(text: str) -> str:
     sections = segment_resume_sections(normalized_text)
     experience_section = sections.get("experience", "").strip()
     if experience_section:
+        logger.debug("Extracted experience section:\n%s", experience_section)
         return experience_section
 
     lines = [line.rstrip() for line in normalized_text.split("\n")]
@@ -289,7 +340,9 @@ def extract_experience_section(text: str) -> str:
         if capture:
             collected.append(line)
 
-    return "\n".join(collected).strip()
+    section = "\n".join(collected).strip()
+    logger.debug("Extracted experience section:\n%s", section)
+    return section
 
 
 def extract_date_ranges(text: str) -> List[Dict[str, Any]]:
@@ -316,19 +369,31 @@ def extract_date_ranges(text: str) -> List[Dict[str, Any]]:
             }
         )
 
+    logger.debug("Detected date ranges: %s", [match["matched_text"] for match in matches])
     return matches
 
 
-def _line_has_experience_signal(line: str) -> bool:
-    lowered = line.lower()
-    return any(
-        token in lowered
-        for token in ("experience", "employment", "worked", "developer", "engineer", "manager", "analyst", "consultant")
-    )
+def _preprocess_section_lines(section_text: str) -> List[str]:
+    normalized = _normalize_text(section_text)
+    lines = [line.strip(" \t|-") for line in normalized.split("\n")]
+    cleaned: List[str] = []
+    previous_blank = False
+    for line in lines:
+        line = _normalize_whitespace(line)
+        if not line:
+            if not previous_blank:
+                cleaned.append("")
+            previous_blank = True
+            continue
+        previous_blank = False
+        cleaned.append(line)
+    while cleaned and cleaned[-1] == "":
+        cleaned.pop()
+    return cleaned
 
 
 def _split_experience_blocks(section_text: str) -> List[List[str]]:
-    lines = [line.strip() for line in _normalize_text(section_text).split("\n")]
+    lines = _preprocess_section_lines(section_text)
     blocks: List[List[str]] = []
     current: List[str] = []
 
@@ -339,7 +404,7 @@ def _split_experience_blocks(section_text: str) -> List[List[str]]:
             blocks.append(cleaned)
         current = []
 
-    for line in lines:
+    for index, line in enumerate(lines):
         if not line:
             flush()
             continue
@@ -348,7 +413,22 @@ def _split_experience_blocks(section_text: str) -> List[List[str]]:
             flush()
             break
 
-        if _is_probable_section_header(line) and current and not _line_looks_like_date_range(line):
+        if _line_looks_like_date_range(line) and current:
+            current.append(line)
+            next_line = lines[index + 1] if index + 1 < len(lines) else ""
+            if not next_line or _line_looks_like_date_range(next_line):
+                flush()
+            continue
+
+        if current and _looks_like_employment_context(line) and any(_line_looks_like_date_range(item) for item in current):
+            flush()
+
+        normalized_header = _normalize_header(line)
+        if (
+            current
+            and not _line_looks_like_date_range(line)
+            and (normalized_header in EXPERIENCE_SECTION_ALIASES or normalized_header in IGNORE_SECTION_KEYWORDS)
+        ):
             flush()
 
         current.append(line)
@@ -371,37 +451,73 @@ def _find_best_date_range(block_lines: Sequence[str]) -> Optional[Dict[str, Any]
     return ranges[0] if ranges else None
 
 
+def _extract_date_line_index(block_lines: Sequence[str]) -> int:
+    for index, line in enumerate(block_lines):
+        if _line_looks_like_date_range(line):
+            return index
+    return -1
+
+
+def _is_location_line(line: str) -> bool:
+    if not line or _line_looks_like_date_range(line):
+        return False
+    if "|" in line or " at " in line.lower():
+        return False
+    if COMPANY_HINT_PATTERN.search(line) or ROLE_HINT_PATTERN.search(line):
+        return False
+    return bool(LOCATION_LINE_PATTERN.match(line))
+
+
+def _extract_role_company_from_block(block_lines: Sequence[str], date_text: str) -> Tuple[str, str]:
+    date_index = _extract_date_line_index(block_lines)
+    lines_before_date = [line for line in block_lines[:date_index] if line.strip()] if date_index > 0 else []
+    candidate_lines = lines_before_date or [line for line in block_lines[:3] if not _line_looks_like_date_range(line)]
+
+    if not candidate_lines:
+        return "", ""
+
+    first_line = _normalize_whitespace(candidate_lines[0].replace(date_text, ""))
+    if " at " in first_line.lower():
+        parts = re.split(r"\bat\b", first_line, maxsplit=1, flags=re.IGNORECASE)
+        if len(parts) == 2:
+            return _normalize_role_name(parts[0]), _normalize_company_name(parts[1])
+
+    if "|" in first_line:
+        parts = [part.strip() for part in first_line.split("|") if part.strip()]
+        if len(parts) >= 2:
+            return _normalize_role_name(parts[0]), _normalize_company_name(parts[1])
+
+    if len(candidate_lines) >= 2:
+        role = _normalize_role_name(candidate_lines[0])
+        company = _normalize_company_name(candidate_lines[1])
+        return role, company
+
+    if SPACY_AVAILABLE and nlp is not None:
+        try:
+            doc = nlp(first_line[:200])
+            org_entities = [ent.text.strip() for ent in doc.ents if ent.label_ == "ORG"]
+            if org_entities:
+                company = _normalize_company_name(org_entities[0])
+                role = _normalize_role_name(first_line.replace(org_entities[0], "").strip(" |-"))
+                return role, company
+        except Exception:
+            pass
+
+    return _normalize_role_name(first_line), ""
+
+
 def _extract_company_from_lines(block_lines: Sequence[str], date_text: str) -> str:
+    role, company = _extract_role_company_from_block(block_lines, date_text)
+    if company:
+        return company
+
     candidates: List[str] = []
     prioritized_lines = list(block_lines[:4])
     for line in prioritized_lines:
         cleaned = _normalize_whitespace(_normalize_text(line).replace(date_text, "").strip(" ,-|\t"))
-        if not cleaned:
+        if not cleaned or _is_location_line(cleaned):
             continue
-
-        if " at " in cleaned.lower():
-            parts = re.split(r"\bat\b", cleaned, maxsplit=1, flags=re.IGNORECASE)
-            if len(parts) == 2:
-                return _normalize_company_name(parts[1])
-
-        split_parts = [part.strip(" ,-|\t") for part in re.split(r"\s+\|\s+|\s+-\s+", cleaned) if part.strip(" ,-|\t")]
-        if len(split_parts) >= 2:
-            for part in split_parts[1:]:
-                normalized = _normalize_company_name(part)
-                if normalized:
-                    return normalized
-
         candidates.append(cleaned)
-
-    if SPACY_AVAILABLE and nlp is not None:
-        joined = "\n".join(prioritized_lines)[:400]
-        try:
-            doc = nlp(joined)
-            org_entities = [ent.text.strip() for ent in doc.ents if ent.label_ == "ORG"]
-            if org_entities:
-                return _normalize_company_name(org_entities[0])
-        except Exception:
-            pass
 
     for candidate in candidates:
         if COMPANY_HINT_PATTERN.search(candidate):
@@ -413,21 +529,26 @@ def _extract_company_from_lines(block_lines: Sequence[str], date_text: str) -> s
 
 
 def _extract_title_from_lines(block_lines: Sequence[str], date_text: str, company: str) -> str:
+    role, inferred_company = _extract_role_company_from_block(block_lines, date_text)
+    if role:
+        return role
+
+    fallback_company = company or inferred_company
     for line in block_lines[:4]:
         cleaned = _normalize_whitespace(_normalize_text(line).replace(date_text, "").strip(" ,-|\t"))
-        if not cleaned:
+        if not cleaned or _is_location_line(cleaned):
             continue
 
         if " at " in cleaned.lower():
             parts = re.split(r"\bat\b", cleaned, maxsplit=1, flags=re.IGNORECASE)
-            return _normalize_whitespace(parts[0])[:120]
+            return _normalize_role_name(parts[0])
 
         split_parts = [part.strip(" ,-|\t") for part in re.split(r"\s+\|\s+|\s+-\s+", cleaned) if part.strip(" ,-|\t")]
         if split_parts:
-            if company and len(split_parts) >= 2:
-                return _normalize_whitespace(split_parts[0])[:120]
+            if fallback_company and len(split_parts) >= 2:
+                return _normalize_role_name(split_parts[0])
             if not COMPANY_HINT_PATTERN.search(split_parts[0]):
-                return _normalize_whitespace(split_parts[0])[:120]
+                return _normalize_role_name(split_parts[0])
 
     return ""
 
@@ -435,7 +556,9 @@ def _extract_title_from_lines(block_lines: Sequence[str], date_text: str, compan
 def _infer_company_from_context(block_lines: Sequence[str], company: str) -> str:
     if company:
         return company
-    for line in block_lines[1:4]:
+    for line in block_lines[1:5]:
+        if _is_location_line(line):
+            continue
         cleaned = _normalize_company_name(line)
         if COMPANY_HINT_PATTERN.search(cleaned):
             return cleaned
@@ -443,7 +566,7 @@ def _infer_company_from_context(block_lines: Sequence[str], company: str) -> str
 
 
 def _block_should_be_ignored(block_lines: Sequence[str], ignore_internships: bool) -> bool:
-    joined = " ".join(block_lines[:4])
+    joined = " ".join(block_lines[:5])
     if _contains_blacklisted_context(joined):
         return True
     if ignore_internships and INTERNSHIP_PATTERN.search(joined):
@@ -467,14 +590,15 @@ def _experience_entry_from_block(block_lines: Sequence[str], ignore_internships:
 
     company = _extract_company_from_lines(block_lines, best_range["matched_text"])
     company = _infer_company_from_context(block_lines, company)
-    title = _extract_title_from_lines(block_lines, best_range["matched_text"], company)
+    role = _extract_title_from_lines(block_lines, best_range["matched_text"], company)
 
     start_date = best_range["start_date"]
     end_date = best_range["end_date"]
     duration_years = calculate_duration(start_date, end_date)
 
     return {
-        "title": title or None,
+        "role": role or None,
+        "title": role or None,
         "company": company or None,
         "start_date": _serialize_year_month(start_date),
         "end_date": _serialize_year_month(end_date),
@@ -491,7 +615,7 @@ def _fallback_experience_candidates(text: str) -> Iterable[List[str]]:
         if not _line_looks_like_date_range(line):
             continue
 
-        candidate_block = _extract_neighbor_window(lines, index, radius=2)
+        candidate_block = _extract_date_anchored_block(lines, index)
         joined = " ".join(candidate_block[:4])
         if _contains_blacklisted_context(joined):
             continue
@@ -520,7 +644,7 @@ def extract_experience_entries(text: str, ignore_internships: bool = False) -> L
     seen = set()
     for entry in entries:
         key = (
-            (entry.get("title") or "").lower(),
+            (entry.get("role") or "").lower(),
             (entry.get("company") or "").lower(),
             entry["start_date"],
             entry["end_date"],
@@ -531,6 +655,7 @@ def extract_experience_entries(text: str, ignore_internships: bool = False) -> L
         deduped.append(entry)
 
     deduped.sort(key=lambda item: item["end_date"], reverse=True)
+    logger.debug("Parsed jobs: %s", deduped)
     return deduped
 
 
@@ -547,7 +672,17 @@ def extract_total_experience(
         if not start or not end or end < start:
             continue
         ranges.append((start, end))
-        normalized_entries.append(entry)
+        normalized_entries.append(
+            {
+                "role": entry.get("role"),
+                "company": entry.get("company"),
+                "start_date": entry["start_date"],
+                "end_date": entry["end_date"],
+                "duration_years": entry["duration_years"],
+                "title": entry.get("title"),
+                "raw_text": entry.get("raw_text"),
+            }
+        )
 
     return {
         "total_experience_years": compute_total_experience(ranges),

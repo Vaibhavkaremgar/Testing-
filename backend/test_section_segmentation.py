@@ -49,6 +49,24 @@ Education: B.Tech in Computer Science
         self.assertIn("Senior Engineer at Acme Corp", sections["experience"])
         self.assertIn("B.Tech in Computer Science", sections["education"])
 
+    def test_styled_experience_header_is_detected(self):
+        resume_text = """
+Alex Johnson
+
+━━ Experience
+Senior Software Engineer · Bright Software
+May 2022 – Present
+Bengaluru, India
+
+Skills
+Python, FastAPI, PostgreSQL
+        """
+
+        sections = segment_resume_sections(resume_text)
+        self.assertIn("Senior Software Engineer", sections["experience"])
+        self.assertNotIn("Python", sections["experience"])
+        self.assertIn("Python", sections["skills"])
+
     def test_internship_header_does_not_pollute_experience(self):
         resume_text = """
 Internship

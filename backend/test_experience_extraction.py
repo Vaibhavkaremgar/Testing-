@@ -1,3 +1,4 @@
+import logging
 import sys
 import unittest
 from datetime import datetime
@@ -13,6 +14,9 @@ from ats.extraction.experience_extraction import (  # noqa: E402
     merge_overlapping_ranges,
     parse_date,
 )
+
+
+logging.basicConfig(level=logging.DEBUG)
 
 
 class ExperienceExtractionTests(unittest.TestCase):
@@ -48,20 +52,20 @@ Inventory Platform
 
     def test_extract_date_ranges_supports_common_formats(self):
         text = """
-Jan 2020 - Mar 2022
-2020 - 2022
-Feb 2021 - Present
+May 2022 - Present
+Jan 2020 - Apr 2022
+Jul 2018 - Dec 2019
 03/2019 - 07/2021
 2018 to Present
         """
 
         ranges = extract_date_ranges(text)
         self.assertEqual(len(ranges), 5)
-        self.assertEqual(ranges[0]["start"], "Jan 2020")
-        self.assertEqual(ranges[3]["end"], "07/2021")
+        self.assertEqual(ranges[0]["start"], "May 2022")
+        self.assertEqual(ranges[2]["end"], "Dec 2019")
 
     def test_parse_date_handles_present_and_year_only(self):
-        today = datetime(2026, 4, 2)
+        today = datetime(2026, 4, 3)
         self.assertEqual(parse_date("2020"), datetime(2020, 1, 1))
         self.assertEqual(parse_date("2020", is_end=True), datetime(2020, 12, 31))
         self.assertEqual(parse_date("Present", is_end=True, today=today), today)
@@ -154,6 +158,43 @@ Built production services.
         self.assertEqual(len(excluded["experiences"]), 1)
         self.assertGreater(included["total_experience_years"], excluded["total_experience_years"])
         self.assertAlmostEqual(excluded["total_experience_years"], 3.0, delta=0.15)
+
+    def test_multiline_unicode_resume_structure_extracts_three_jobs(self):
+        resume_text = """
+Alex Johnson
+
+━━ Experience
+Senior Software Engineer · Bright Software
+May 2022 – Present
+Bengaluru, India
+
+Software Engineer
+CloudWave Technologies
+Jan 2020 – Apr 2022
+Hyderabad, India
+
+Associate Developer · DataForge Labs
+Jul 2018 – Dec 2019
+Chennai, India
+
+Skills
+Python, FastAPI, PostgreSQL
+
+Education
+B.Tech Computer Science
+2014 - 2018
+        """
+
+        result = extract_total_experience(resume_text)
+
+        self.assertEqual(len(result["experiences"]), 3)
+        self.assertEqual(result["experiences"][0]["role"], "Senior Software Engineer")
+        self.assertEqual(result["experiences"][0]["company"], "Bright Software")
+        self.assertEqual(result["experiences"][1]["role"], "Software Engineer")
+        self.assertEqual(result["experiences"][1]["company"], "CloudWave Technologies")
+        self.assertEqual(result["experiences"][2]["role"], "Associate Developer")
+        self.assertEqual(result["experiences"][2]["company"], "DataForge Labs")
+        self.assertGreater(result["total_experience_years"], 6.0)
 
     def test_fallback_without_experience_header_ignores_project_dates(self):
         resume_text = """

@@ -85,9 +85,10 @@ BOUNDARY_ONLY_ALIASES = {
     "activities",
 }
 
+DECORATION_PATTERN = re.compile(r"[━•·■◆▪◦●○\-\_=~*#|]+")
 HEADER_PATTERN = re.compile(r"^[A-Za-z][A-Za-z\s/&,\-()]{0,50}:?$")
 INLINE_HEADER_PATTERN = re.compile(
-    r"^(?P<header>[A-Za-z][A-Za-z\s/&,\-()]{1,50}?):\s*(?P<content>.+)$"
+    r"^(?P<header>[^:]{1,60}?):\s*(?P<content>.+)$"
 )
 WHITESPACE_PATTERN = re.compile(r"\s+")
 
@@ -98,17 +99,31 @@ def _normalize_text(value: str) -> str:
         "\u2013": "-",
         "\u2014": "-",
         "\u2015": "-",
+        "\u2022": "|",
+        "\u00b7": "|",
+        "·": "|",
+        "\u00a0": " ",
         "â€“": "-",
         "â€”": "-",
-        "\u00a0": " ",
     }
     for source, target in replacements.items():
         normalized = normalized.replace(source, target)
+    normalized = re.sub(r"━{2,}", " ", normalized)
+    normalized = re.sub(r"[ \t]+", " ", normalized)
+    normalized = re.sub(r"\n{3,}", "\n\n", normalized)
     return normalized
 
 
+def _strip_decorations(value: str) -> str:
+    cleaned = _normalize_text(value).strip()
+    cleaned = re.sub(r"^[^A-Za-z]+", "", cleaned)
+    cleaned = re.sub(r"[^A-Za-z:]+$", "", cleaned)
+    cleaned = DECORATION_PATTERN.sub(" ", cleaned)
+    return WHITESPACE_PATTERN.sub(" ", cleaned).strip()
+
+
 def _normalize_header(value: str) -> str:
-    value = _normalize_text(value).strip().lower().rstrip(":")
+    value = _strip_decorations(value).lower().rstrip(":")
     value = re.sub(r"[^a-z\s/&,\-()]", " ", value)
     return WHITESPACE_PATTERN.sub(" ", value).strip()
 
@@ -135,7 +150,7 @@ def _is_boundary_header(line: str) -> bool:
 
 
 def _looks_like_header(line: str) -> bool:
-    stripped = _normalize_text(line).strip()
+    stripped = _strip_decorations(line)
     if not stripped:
         return False
     if not HEADER_PATTERN.match(stripped):
@@ -165,7 +180,8 @@ def _clean_section_content(lines: List[str]) -> str:
 
 def segment_resume_sections(text: str) -> Dict[str, str]:
     """
-    Detect major resume sections using header aliases and conservative boundary heuristics.
+    Detect major resume sections using header aliases, styled-header cleanup,
+    and conservative boundary heuristics.
     """
     sections = {name: "" for name in SECTION_ALIASES}
     if not text or not text.strip():
