@@ -1045,7 +1045,7 @@ export default function Resumes() {
                     {selectedCandidate.summary && (
                       <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg border border-blue-200 dark:border-blue-800">
                         <p className="text-sm font-medium mb-2 text-blue-900 dark:text-blue-100">📋 Candidate Summary</p>
-                        <p className="text-sm text-blue-800 dark:text-blue-200 leading-relaxed">{selectedCandidate.summary}</p>
+                        <p className="text-sm text-blue-800 dark:text-blue-200 leading-relaxed whitespace-pre-line">{selectedCandidate.summary}</p>
                       </div>
                     )}
 

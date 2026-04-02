@@ -547,96 +547,75 @@ def extract_years_experience(resume_text: str) -> float:
 
 # Helper function
 def generate_summary(components: Dict, total_score: float, label: str, job_title: str = "") -> str:
-    """Generate professional 3-4 sentence resume summary."""
-    import random
-    
+    """Generate a professional multi-line candidate summary from resume-vs-JD evidence."""
+
     skills = components['skills']
     experience = components['experience']
     projects = components['projects']
     education = components['education']
     soft_skills = components['soft_skills']
-    
-    # Extract key data
+
     years = experience.get('years', 0)
     matched_skills = skills.get('matched_skills', [])
+    match_percentage = skills.get('match_percentage', 0)
     exp_score = experience.get('score', 0)
     proj_score = projects.get('score', 0)
-    role_phrase = job_title.strip() if job_title else "their field"
-    
-    # Opening phrases based on experience level
+    education_relevance = education.get('relevance', 'Not clearly established')
+    leadership_count = soft_skills.get('leadership', 0)
+    collaboration_count = soft_skills.get('collaboration', 0)
+    impact_count = soft_skills.get('metrics', 0)
+
+    top_skills = matched_skills[:4]
+    if len(top_skills) >= 4:
+        skills_line = f"Key strengths include {', '.join(top_skills[:3])}, and {top_skills[3]}."
+    elif len(top_skills) >= 2:
+        skills_line = f"Key strengths include {' and '.join(top_skills[:2])}."
+    elif len(top_skills) == 1:
+        skills_line = f"Relevant highlight from the resume includes hands-on work with {top_skills[0]}."
+    else:
+        skills_line = "The resume reflects foundational technical capability, with limited direct overlap against the current job requirements."
+
     if years >= 5:
-        openings = [
-            f"Results-driven professional with {years}+ years of experience",
-            f"Seasoned professional with {years}+ years of proven expertise",
-            f"Accomplished professional bringing {years}+ years of experience",
-            f"Experienced professional with {years}+ years in the field"
-        ]
+        experience_line = f"The profile shows approximately {years}+ years of professional experience with sustained delivery across real-world work environments."
     elif years >= 2:
-        openings = [
-            f"Skilled professional with {years}+ years of hands-on experience",
-            f"Dedicated professional with {years}+ years of practical experience",
-            f"Motivated professional with {years}+ years of industry experience",
-            f"Dynamic professional with {years}+ years of relevant experience"
-        ]
+        experience_line = f"The candidate brings around {years}+ years of practical experience, indicating exposure to hands-on execution and production-oriented responsibilities."
+    elif years > 0:
+        experience_line = f"The resume indicates early-career experience of about {years} year(s), supported by applied work, internships, or project-based exposure."
     else:
-        openings = [
-            "Emerging professional with foundational experience",
-            "Entry-level professional with a strong foundation",
-            "Motivated professional with growing expertise",
-            "Aspiring professional with solid academic background"
-        ]
-    
-    # Skills description
-    if len(matched_skills) >= 4:
-        skills_desc = f"Strong expertise in {', '.join(matched_skills[:3])}, and {matched_skills[3]}"
-    elif len(matched_skills) >= 2:
-        skills_desc = f"Proficient in {' and '.join(matched_skills[:2])}"
+        experience_line = "The profile appears to be early stage, with experience evidenced primarily through projects, internships, or foundational assignments."
+
+    if match_percentage >= 75:
+        alignment_line = f"Against the job description, the profile demonstrates strong alignment with the required skill set and relevant resume evidence."
+    elif match_percentage >= 50:
+        alignment_line = f"Against the job description, the profile shows moderate alignment, with several relevant capabilities already demonstrated in the resume."
     else:
-        skills_desc = "Developing role-relevant competencies"
-    
-    # Project/Experience description
+        alignment_line = f"Against the job description, the profile shows partial alignment and may require upskilling in some core requirement areas."
+
     if proj_score >= 15 and exp_score >= 25:
-        work_desc = random.choice([
-            "Proven track record of delivering high-quality work with measurable impact",
-            "Demonstrated ability to manage complex responsibilities and produce strong outcomes",
-            "Hands-on experience executing end-to-end work with consistency and ownership",
-            "Strong background in turning requirements into polished, practical results"
-        ])
+        delivery_line = "The resume also highlights strong execution depth, suggesting the candidate has delivered meaningful work with ownership and measurable contribution."
     elif proj_score >= 10 or exp_score >= 20:
-        work_desc = random.choice([
-            "Practical experience handling day-to-day responsibilities in professional settings",
-            "Hands-on experience contributing to projects and collaborating across teams",
-            "Background in delivering work that supports business and customer needs",
-            "Experience applying domain knowledge to solve real-world problems"
-        ])
+        delivery_line = "The work history and projects indicate practical execution ability, with evidence of contributing to delivery in structured team settings."
     else:
-        work_desc = random.choice([
-            "Foundational experience through academic, freelance, internship, or project work",
-            "Growing expertise through practical assignments and applied learning",
-            "Early-stage experience supported by projects and transferable strengths",
-            "Developing professional capability through hands-on learning and guided practice"
-        ])
-    
-    # Soft skills/collaboration
-    if soft_skills.get('leadership', 0) >= 2 or soft_skills.get('collaboration', 0) >= 2:
-        collab_desc = random.choice([
-            "Proven ability to lead technical initiatives and collaborate effectively in cross-functional teams",
-            "Strong team player with demonstrated leadership in fast-paced engineering environments",
-            "Excellent collaboration skills with experience mentoring junior developers and driving projects",
-            "Effective communicator with track record of successful team collaboration and project delivery"
-        ])
+        delivery_line = "Project and work evidence is present, though the overall delivery depth appears to be at a developing stage."
+
+    if leadership_count >= 2 or collaboration_count >= 2 or impact_count >= 2:
+        professionalism_line = "Professional highlights include collaboration, communication, and impact-oriented contribution signals visible in the resume."
     else:
-        collab_desc = random.choice([
-            "Ability to work effectively in team environments and contribute to project success",
-            "Team-oriented approach with good communication and collaboration skills",
-            "Collaborative mindset with focus on delivering quality results",
-            "Strong work ethic with ability to adapt in dynamic team settings"
-        ])
-    
-    # Combine into professional summary
-    summary = f"{random.choice(openings)} in {role_phrase}. {skills_desc}. {work_desc}. {collab_desc}"
-    
-    return summary
+        professionalism_line = "The profile presents as professional and dependable, with baseline collaboration and team contribution signals."
+
+    closing_line = (
+        f"Educational background appears {education_relevance.lower()}, and overall this profile is assessed as "
+        f"{label.lower()} based on the current resume-to-job comparison."
+    )
+
+    return "\n".join([
+        experience_line,
+        skills_line,
+        alignment_line,
+        delivery_line,
+        professionalism_line,
+        closing_line,
+    ])
 
 
 # Main evaluation function
