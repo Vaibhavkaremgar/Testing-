@@ -54,6 +54,9 @@ LOCATION_HINTS = (
 EXPERIENCE_SECTION_KEYS = ("experience", "professional experience", "employment history", "work history", "internship")
 HEADER_SPLIT_PATTERN = re.compile(r"\s+[|\-–—]\s+")
 NON_LOCATION_PATTERN = re.compile(r"[@:/\\]|(?:\b(?:java|python|html|css|sql|fastapi|react|angular|git)\b)", re.IGNORECASE)
+LOCATION_NOISE_PATTERN = re.compile(
+    r"(?i)\b(?:managing|managed|operations|including|across|responsible|experience|years|sales|development|engineer|developer|manager|executive|specialist|lead|worked|work|support|project|projects|regional|south|north|east|west)\b"
+)
 
 SKILL_ONTOLOGY: Dict[str, List[str]] = {
     "sales": ["sales", "sales target", "sales strategy", "revenue growth", "inside sales", "b2b sales"],
@@ -438,26 +441,49 @@ def extract_location(text: str) -> str:
     if not text:
         return ""
 
+    def normalize_location_candidate(value: str) -> str:
+        candidate = re.sub(r"\s+", " ", (value or "").strip(" ,.-"))[:80]
+        if not candidate:
+            return ""
+        if NON_LOCATION_PATTERN.search(candidate) or LOCATION_NOISE_PATTERN.search(candidate):
+            return ""
+        if any(char.isdigit() for char in candidate) or len(candidate.split()) > 5:
+            return ""
+        if re.match(r"^[A-Z][a-zA-Z]+(?:[\s-][A-Z][a-zA-Z]+)*(?:,\s*[A-Z][a-zA-Z]+(?:[\s-][A-Z][a-zA-Z]+)*)?$", candidate):
+            return candidate
+        fragments = [fragment.strip(" ,.-") for fragment in candidate.split(",") if fragment.strip(" ,.-")]
+        if 1 <= len(fragments) <= 3 and all(
+            re.match(r"^[A-Z][a-zA-Z]+(?:[\s-][A-Z][a-zA-Z]+)*$", fragment) for fragment in fragments
+        ):
+            return ", ".join(fragments)
+        return ""
+
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     for line in lines[:30]:
         match = LOCATION_PATTERN.search(line)
         if match:
-            value = match.group("value").strip(" ,.-")
-            if value and not NON_LOCATION_PATTERN.search(value):
+            value = normalize_location_candidate(match.group("value"))
+            if value:
                 return value
 
     for line in lines[:20]:
         lowered = line.lower()
-        if any(hint in lowered for hint in LOCATION_HINTS) and not NON_LOCATION_PATTERN.search(line):
-            return line.strip(" ,.-")[:80]
+        if not any(hint in lowered for hint in LOCATION_HINTS):
+            continue
+        candidate = normalize_location_candidate(line)
+        if candidate:
+            return candidate
 
     if SPACY_AVAILABLE and nlp is not None:
-        doc = nlp(text[:4000])
-        for ent in doc.ents:
-            if ent.label_ in {"GPE", "LOC"}:
-                candidate = ent.text.strip()
-                if candidate and not NON_LOCATION_PATTERN.search(candidate):
-                    return candidate[:80]
+        for line in lines[:20]:
+            if len(line) > 60 or LOCATION_NOISE_PATTERN.search(line):
+                continue
+            doc = nlp(line[:200])
+            for ent in doc.ents:
+                if ent.label_ in {"GPE", "LOC"}:
+                    candidate = normalize_location_candidate(ent.text)
+                    if candidate:
+                        return candidate
     return ""
 
 

@@ -130,6 +130,9 @@ LOCATION_LINE_PATTERN = re.compile(
 CITY_STATE_PATTERN = re.compile(r"^[A-Z][a-zA-Z]+(?:[\s-][A-Z][a-zA-Z]+)*(?:,\s*[A-Z][a-zA-Z]+(?:[\s-][A-Z][a-zA-Z]+)*)?$")
 EMAIL_PATTERN = re.compile(r"\b[A-Za-z0-9._%+-]+\s*@\s*[A-Za-z0-9.-]+\s*\.\s*[A-Za-z]{2,}\b")
 NON_LOCATION_PATTERN = re.compile(r"[@:/\\]|(?:\b(?:java|python|html|css|sql|fastapi|react|angular|git)\b)", re.IGNORECASE)
+LOCATION_NOISE_PATTERN = re.compile(
+    r"(?i)\b(?:managing|managed|operations|including|across|responsible|experience|years|sales|development|engineer|developer|manager|executive|specialist|lead|worked|work|support|project|projects|regional|south|north|east|west)\b"
+)
 LANGUAGE_TERMS = [
     "english", "hindi", "telugu", "tamil", "kannada", "malayalam", "marathi",
     "gujarati", "punjabi", "bengali", "urdu", "french", "german", "spanish",
@@ -243,11 +246,34 @@ def _looks_like_location(value: str) -> bool:
         return False
     if NON_LOCATION_PATTERN.search(cleaned):
         return False
+    if LOCATION_NOISE_PATTERN.search(cleaned):
+        return False
     if any(char.isdigit() for char in cleaned):
         return False
     if len(cleaned.split()) > 5:
         return False
     return bool(CITY_STATE_PATTERN.match(cleaned))
+
+
+def _normalize_location_candidate(value: str) -> str:
+    if not value:
+        return ""
+
+    candidate = WHITESPACE_PATTERN.sub(" ", value.strip(" ,.-"))[:80]
+    if not candidate:
+        return ""
+
+    if _looks_like_location(candidate):
+        return candidate
+
+    if len(candidate) > 50 or LOCATION_NOISE_PATTERN.search(candidate):
+        return ""
+
+    fragments = [fragment.strip(" ,.-") for fragment in candidate.split(",") if fragment.strip(" ,.-")]
+    if 1 <= len(fragments) <= 3 and all(_looks_like_location(fragment) for fragment in fragments):
+        return ", ".join(fragments)
+
+    return ""
 
 
 def _normalize_email_match(value: str) -> str:
@@ -580,21 +606,30 @@ def extract_location(text: str) -> str:
     for line in lines[:30]:
         explicit_match = LOCATION_LINE_PATTERN.search(line)
         if explicit_match:
-            candidate = explicit_match.group("value").strip(" ,.-")
-            if _looks_like_location(candidate):
+            candidate = _normalize_location_candidate(explicit_match.group("value"))
+            if candidate:
                 return candidate
 
     for line in lines[:20]:
-        if _looks_like_location(line) and any(hint in line.lower() for hint in LOCATION_HINTS):
-            return line.strip(" ,.-")[:80]
+        if not any(hint in line.lower() for hint in LOCATION_HINTS):
+            continue
+        candidate = _normalize_location_candidate(line)
+        if candidate:
+            return candidate
 
     if SPACY_AVAILABLE and nlp is not None:
-        doc = nlp(text[:4000])
-        for ent in doc.ents:
-            if ent.label_ in {"GPE", "LOC"}:
-                candidate = ent.text.strip()
-                if _looks_like_location(candidate):
-                    return candidate[:80]
+        for line in lines[:20]:
+            if len(line) > 60 or LOCATION_NOISE_PATTERN.search(line):
+                continue
+            doc = nlp(line[:200])
+            location_entities = []
+            for ent in doc.ents:
+                if ent.label_ in {"GPE", "LOC"}:
+                    candidate = _normalize_location_candidate(ent.text)
+                    if candidate:
+                        location_entities.append(candidate)
+            if location_entities:
+                return ", ".join(_unique_in_order(location_entities[:2]))
     return ""
 
 

@@ -43,6 +43,9 @@ ALLOWED_RESUME_CONTENT_TYPES = {
     "application/msword",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 }
+LOCATION_NOISE_PATTERN = re.compile(
+    r"(?i)\b(?:managing|managed|operations|including|across|responsible|experience|years|sales|development|engineer|developer|manager|executive|specialist|lead|worked|work|support|project|projects|regional)\b"
+)
 
 
 def normalize_legacy_candidate_stages(db: Session) -> None:
@@ -91,6 +94,25 @@ def get_bulk_processing_workers(item_count: int) -> int:
     """Keep worker count bounded so batch uploads scale without exhausting the host."""
     cpu_count = os.cpu_count() or 4
     return max(2, min(8, cpu_count, item_count or 1))
+
+
+def sanitize_candidate_location(value: Optional[str]) -> Optional[str]:
+    """Keep only compact location strings so resume narrative text never leaks into UI fields."""
+    if not value:
+        return None
+
+    cleaned = re.sub(r"\s+", " ", value).strip(" ,.-")
+    if not cleaned:
+        return None
+    if len(cleaned) > 80 or LOCATION_NOISE_PATTERN.search(cleaned):
+        return None
+    if any(char.isdigit() for char in cleaned):
+        return None
+    if len(cleaned.split()) > 5:
+        return None
+    if re.match(r"^[A-Za-z]+(?:[\s-][A-Za-z]+)*(?:,\s*[A-Za-z]+(?:[\s-][A-Za-z]+)*){0,2}$", cleaned):
+        return cleaned
+    return None
 
 
 def assign_resume_pipeline_stage(candidate: Candidate, score: Optional[float], threshold: Optional[float]) -> CandidateStage:
@@ -278,7 +300,7 @@ def extract_resume_data(file_path: str, original_filename: str = None) -> dict:
         email = parsed_resume.get("email") or None
         phone = parsed_resume.get("phone") or None
         name = parsed_resume.get("name") or None
-        location = parsed_resume.get("location") or None
+        location = sanitize_candidate_location(parsed_resume.get("location")) or None
         skills = parsed_resume.get("skills") or []
         current_role = parsed_resume.get("designation") or None
         current_company = parsed_resume.get("current_company") or None
@@ -291,7 +313,7 @@ def extract_resume_data(file_path: str, original_filename: str = None) -> dict:
             
             # Keep parser-first fields, but preserve extraction fallbacks when parser returns nothing.
             skills = skills or extracted_info["skills"] or extract_skills_from_text(raw_text)
-            location = location or extracted_info.get("location") or None
+            location = location or sanitize_candidate_location(extracted_info.get("location")) or None
             
             # Extract projects
             projects = extracted_info.get("projects") or extract_projects_from_text(raw_text)
@@ -1921,7 +1943,7 @@ def get_candidates(
             "current_company": c.current_company,
             "current_role": c.current_role,
             "experience_years": c.experience_years,
-            "location": c.location,
+            "location": sanitize_candidate_location(c.location),
             "linkedin_url": c.linkedin_url,
             "resume_file_path": c.resume_file_path,
             "resume_text": c.resume_text,
@@ -1963,7 +1985,7 @@ def get_candidate(
         "current_company": candidate.current_company,
         "current_role": candidate.current_role,
         "experience_years": candidate.experience_years,
-        "location": candidate.location,
+        "location": sanitize_candidate_location(candidate.location),
         "linkedin_url": candidate.linkedin_url,
         "resume_file_path": candidate.resume_file_path,
         "parsing_status": candidate.parsing_status,
