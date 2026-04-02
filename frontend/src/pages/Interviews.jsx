@@ -401,7 +401,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
           </select>
           <Button onClick={openScheduleModal}>
             <Plus className="h-4 w-4 mr-2" />
-            Schedule Interview
+            Reschedule Interview
           </Button>
         </div>
       </div>
@@ -691,7 +691,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowScheduleModal(false)}>
           <div className="bg-card rounded-lg p-6 max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold">ReSchedule Interview</h2>
+              <h2 className="text-xl font-bold">Schedule Interview</h2>
               <Button variant="ghost" size="icon" onClick={() => setShowScheduleModal(false)}>
                 <X className="h-4 w-4" />
               </Button>
@@ -847,7 +847,6 @@ export default function Interviews({ superAdminAgencyId = null }) {
                   className="w-full" 
                   variant="outline"
                   onClick={() => {
-                   // window.open('https://calendly.com', '_blank')
                     window.open('https://pontis-backend-production.up.railway.app/booking.html', '_blank')
                   }}
                 >
