@@ -70,6 +70,13 @@ DATE_RANGE_PATTERN = re.compile(
 YEAR_PATTERN = re.compile(r"\b(19|20)\d{2}\b")
 INSTITUTE_HINTS = ("university", "college", "institute", "school", "academy")
 LOCATION_HINTS = ("india", "bangalore", "bengaluru", "hyderabad", "chennai", "mumbai", "pune", "delhi", "noida", "gurgaon")
+EXPERIENCE_HEADLINE_SPLIT_PATTERN = re.compile(r"\s+[|\-–—]\s+")
+WHITESPACE_PATTERN = re.compile(r"\s+")
+LOCATION_LINE_PATTERN = re.compile(
+    r"(?i)\b(?:location|based in|address|city)\b\s*[:\-]?\s*(?P<value>[A-Za-z][A-Za-z\s,.-]{1,80})$"
+)
+EMAIL_PATTERN = re.compile(r"\b[A-Za-z0-9._%+-]+\s*@\s*[A-Za-z0-9.-]+\s*\.\s*[A-Za-z]{2,}\b")
+NON_LOCATION_PATTERN = re.compile(r"[@:/\\]|(?:\b(?:java|python|html|css|sql|fastapi|react|angular|git)\b)", re.IGNORECASE)
 
 _skill_keyword_processor = KeywordProcessor(case_sensitive=False)
 for canonical_skill in SKILL_KEYWORDS:
@@ -98,15 +105,16 @@ def _unique_in_order(values: List[str]) -> List[str]:
 
 
 def extract_skill_keywords(text: str, section_text: str = "") -> List[str]:
-    """Extract normalized skills using Flashtext over both section and full text."""
+    """Extract normalized skills using conservative matching to avoid generic false positives."""
     matches: List[str] = []
     intelligence_matches: List[str] = []
 
-    for source in (section_text, text):
-        if not source:
-            continue
-        matches.extend(_skill_keyword_processor.extract_keywords(source))
-        intelligence_matches.extend(_skill_intelligence.extract_skills(source))
+    if section_text:
+        matches.extend(_skill_keyword_processor.extract_keywords(section_text))
+        intelligence_matches.extend(_skill_intelligence.extract_skills(section_text))
+    elif text:
+        # Fallback to direct technical keyword matching only on full text.
+        matches.extend(_skill_keyword_processor.extract_keywords(text))
 
     if section_text:
         for chunk in re.split(r"[\n,;|/]", section_text):
@@ -119,14 +127,89 @@ def extract_skill_keywords(text: str, section_text: str = "") -> List[str]:
 
     combined = [normalize_skill_name(skill) for skill in matches]
     combined.extend(_skill_intelligence.map_skills(intelligence_matches))
-    return _unique_in_order(combined)[:40]
+    filtered = [skill for skill in _unique_in_order(combined) if skill in SKILL_KEYWORDS]
+    return filtered[:40]
+
+
+def _looks_like_location(value: str) -> bool:
+    cleaned = WHITESPACE_PATTERN.sub(" ", value.strip(" ,.-")) if value else ""
+    if not cleaned or len(cleaned) > 80:
+        return False
+    if NON_LOCATION_PATTERN.search(cleaned):
+        return False
+    if any(char.isdigit() for char in cleaned):
+        return False
+    words = cleaned.split()
+    if len(words) > 5:
+        return False
+    return bool(re.fullmatch(r"[A-Za-z][A-Za-z\s,.-]*", cleaned))
+
+
+def _normalize_email_match(value: str) -> str:
+    return re.sub(r"\s+", "", value or "").strip().strip(".,;:")
+
+
+def extract_email(text: str) -> str:
+    if not text:
+        return ""
+
+    match = EMAIL_PATTERN.search(text)
+    if match:
+        return _normalize_email_match(match.group(0))
+
+    compact_text = text.replace("(at)", "@").replace("[at]", "@").replace(" at ", "@")
+    compact_text = compact_text.replace("(dot)", ".").replace("[dot]", ".").replace(" dot ", ".")
+    match = EMAIL_PATTERN.search(compact_text)
+    if match:
+        return _normalize_email_match(match.group(0))
+
+    return ""
+
+
+def _extract_experience_headline_fields(headline: str) -> Dict[str, str]:
+    title = ""
+    company = ""
+    normalized_headline = headline.strip(" ,|-")
+
+    if " at " in normalized_headline.lower():
+        parts = re.split(r"\bat\b", normalized_headline, maxsplit=1, flags=re.IGNORECASE)
+        title = parts[0].strip(" ,|-")
+        company = parts[1].strip(" ,|-")
+    else:
+        parts = [part.strip(" ,|-") for part in EXPERIENCE_HEADLINE_SPLIT_PATTERN.split(normalized_headline) if part.strip(" ,|-")]
+        if len(parts) >= 2:
+            title, company = parts[0], parts[1]
+        else:
+            title = normalized_headline
+
+    return {"title": title[:120], "company": company[:120]}
 
 
 def extract_experience_entries(text: str, experience_section: str = "") -> List[Dict]:
     """Extract structured work-experience entries from the segmented experience section."""
     section_text = experience_section or segment_resume_sections(text).get("experience", "")
     if not section_text:
-        return []
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        fallback_blocks: List[str] = []
+        current_block: List[str] = []
+        for line in lines:
+            if DATE_RANGE_PATTERN.search(line):
+                if current_block:
+                    fallback_blocks.append("\n".join(current_block))
+                    current_block = []
+                current_block.append(line)
+                continue
+            if current_block:
+                if len(current_block) < 5:
+                    current_block.append(line)
+                else:
+                    fallback_blocks.append("\n".join(current_block))
+                    current_block = []
+        if current_block:
+            fallback_blocks.append("\n".join(current_block))
+        if not fallback_blocks:
+            return []
+        section_text = "\n\n".join(fallback_blocks[:8])
 
     blocks = [block.strip() for block in re.split(r"\n\s*\n", section_text) if block.strip()]
     if not blocks:
@@ -139,19 +222,14 @@ def extract_experience_entries(text: str, experience_section: str = "") -> List[
         date_match = DATE_RANGE_PATTERN.search(block)
         years = sorted(set(match.group(0) for match in YEAR_PATTERN.finditer(block)))
 
-        title = ""
-        company = ""
-        if " at " in headline.lower():
-            parts = re.split(r"\bat\b", headline, maxsplit=1, flags=re.IGNORECASE)
-            title = parts[0].strip(" ,|-")
-            company = parts[1].strip(" ,|-")
-        else:
-            title = headline.strip(" ,|-")
-            if SPACY_AVAILABLE and nlp is not None:
-                doc = nlp(headline)
-                org_entities = [ent.text.strip() for ent in doc.ents if ent.label_ == "ORG"]
-                if org_entities:
-                    company = org_entities[0]
+        headline_fields = _extract_experience_headline_fields(headline)
+        title = headline_fields["title"]
+        company = headline_fields["company"]
+        if not company and SPACY_AVAILABLE and nlp is not None:
+            doc = nlp(headline)
+            org_entities = [ent.text.strip() for ent in doc.ents if ent.label_ == "ORG"]
+            if org_entities:
+                company = org_entities[0]
 
         if date_match and company:
             company = company.replace(date_match.group(0), "").strip(" ,|-")
@@ -224,23 +302,30 @@ def extract_education_entries(text: str, education_section: str = "") -> List[Di
 
 
 def extract_location(text: str) -> str:
-    """Extract a likely candidate location from resume text."""
+    """Extract a likely candidate location from explicit location clues only."""
     if not text:
         return ""
+
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    for line in lines[:30]:
+        explicit_match = LOCATION_LINE_PATTERN.search(line)
+        if explicit_match:
+            candidate = explicit_match.group("value").strip(" ,.-")
+            if _looks_like_location(candidate):
+                return candidate
+
+    for line in lines[:20]:
+        normalized = line.lower()
+        if any(hint in normalized for hint in LOCATION_HINTS) and _looks_like_location(line):
+            return line[:80].strip(" ,.-")
 
     if SPACY_AVAILABLE and nlp is not None:
         doc = nlp(text[:3000])
         for ent in doc.ents:
             if ent.label_ in {"GPE", "LOC"}:
                 candidate = ent.text.strip()
-                if candidate and len(candidate) <= 80:
+                if _looks_like_location(candidate):
                     return candidate
-
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    for line in lines[:20]:
-        normalized = line.lower()
-        if any(hint in normalized for hint in LOCATION_HINTS):
-            return line[:80]
 
     return ""
 

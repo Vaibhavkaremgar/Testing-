@@ -21,6 +21,7 @@ from app.schemas import (
 from app.auth import get_current_active_user
 from app.config import settings
 from ats.extraction.information_extraction import (
+    extract_email,
     extract_education_entries,
     extract_experience_entries,
     extract_resume_information,
@@ -264,6 +265,8 @@ def extract_resume_data(file_path: str, original_filename: str = None) -> dict:
     education_text = ""
     education = []
     cleaned_text = ""
+    current_role = None
+    current_company = None
     
     try:
         text = ""
@@ -313,9 +316,7 @@ def extract_resume_data(file_path: str, original_filename: str = None) -> dict:
             sections = extracted_info["sections"]
 
             # Extract email
-            email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
-            emails = re.findall(email_pattern, cleaned_text, re.IGNORECASE)
-            email = emails[0] if emails else None
+            email = extract_email(raw_text) or extract_email(cleaned_text) or None
             
             # Extract phone
             phone_patterns = [
@@ -381,6 +382,9 @@ def extract_resume_data(file_path: str, original_filename: str = None) -> dict:
             # Extract experience text for matching
             experience_text = extracted_info["experience_text"] or clean_text_pipeline(extract_experience_text(raw_text))
             work_experience = extracted_info["experience"]
+            if work_experience:
+                current_role = work_experience[0].get("title") or None
+                current_company = work_experience[0].get("company") or None
             education_text = extracted_info["education_text"] or clean_text_pipeline(sections.get("education", ""))
             education = extracted_info["education"]
 
@@ -405,6 +409,8 @@ def extract_resume_data(file_path: str, original_filename: str = None) -> dict:
         'email': email,
         'phone': phone,
         'location': location,
+        'current_role': current_role,
+        'current_company': current_company,
         'skills': skills,
         'projects': projects,
         'experience_text': experience_text,
@@ -920,6 +926,8 @@ def process_single_resume_upload(
             name=resume_data['name'],
             email=resume_data['email'],
             phone=resume_data['phone'],
+            current_company=resume_data.get('current_company'),
+            current_role=resume_data.get('current_role'),
             location=resume_data.get('location'),
             experience_years=resume_data.get('experience_years'),
             skills=resume_data['skills'],
@@ -1006,6 +1014,8 @@ def process_bulk_upload_batch(
                         name=resume_data['name'],
                         email=resume_data['email'],
                         phone=resume_data['phone'],
+                        current_company=resume_data.get('current_company'),
+                        current_role=resume_data.get('current_role'),
                         location=resume_data.get('location'),
                         experience_years=resume_data.get('experience_years'),
                         skills=resume_data['skills'],
@@ -1125,6 +1135,8 @@ def process_zip_upload_batch(
                         name=resume_data['name'],
                         email=resume_data['email'],
                         phone=resume_data['phone'],
+                        current_company=resume_data.get('current_company'),
+                        current_role=resume_data.get('current_role'),
                         location=resume_data.get('location'),
                         experience_years=resume_data.get('experience_years'),
                         skills=resume_data['skills'],
