@@ -13,9 +13,13 @@ SECTION_ALIASES = {
     "summary": [
         "summary",
         "professional summary",
+        "executive summary",
         "profile",
         "career summary",
         "objective",
+        "career objective",
+        "professional profile",
+        "about me",
     ],
     "skills": [
         "skills",
@@ -24,6 +28,8 @@ SECTION_ALIASES = {
         "key skills",
         "competencies",
         "tech stack",
+        "tools",
+        "technologies",
     ],
     "experience": [
         "experience",
@@ -31,8 +37,9 @@ SECTION_ALIASES = {
         "professional experience",
         "employment history",
         "work history",
-        "internship",
-        "internships",
+        "career history",
+        "relevant experience",
+        "career experience",
     ],
     "education": [
         "education",
@@ -62,25 +69,47 @@ SECTION_ALIASES = {
 BOUNDARY_ONLY_ALIASES = {
     "certifications",
     "certification",
+    "licenses",
+    "licenses and certifications",
     "achievements",
     "awards",
+    "honors",
     "publications",
     "languages",
     "interests",
+    "hobbies",
     "references",
     "contact",
+    "volunteering",
+    "volunteer experience",
+    "activities",
 }
 
-HEADER_PATTERN = re.compile(r"^[A-Za-z][A-Za-z\s/&,-]{0,40}:?$")
+HEADER_PATTERN = re.compile(r"^[A-Za-z][A-Za-z\s/&,\-()]{0,50}:?$")
 INLINE_HEADER_PATTERN = re.compile(
-    r"^(?P<header>[A-Za-z][A-Za-z\s/&,-]{1,40}?):\s*(?P<content>.+)$"
+    r"^(?P<header>[A-Za-z][A-Za-z\s/&,\-()]{1,50}?):\s*(?P<content>.+)$"
 )
 WHITESPACE_PATTERN = re.compile(r"\s+")
 
 
+def _normalize_text(value: str) -> str:
+    normalized = (value or "").replace("\r", "\n")
+    replacements = {
+        "\u2013": "-",
+        "\u2014": "-",
+        "\u2015": "-",
+        "â€“": "-",
+        "â€”": "-",
+        "\u00a0": " ",
+    }
+    for source, target in replacements.items():
+        normalized = normalized.replace(source, target)
+    return normalized
+
+
 def _normalize_header(value: str) -> str:
-    value = value.strip().lower().rstrip(":")
-    value = re.sub(r"[^a-z\s/&,-]", " ", value)
+    value = _normalize_text(value).strip().lower().rstrip(":")
+    value = re.sub(r"[^a-z\s/&,\-()]", " ", value)
     return WHITESPACE_PATTERN.sub(" ", value).strip()
 
 
@@ -105,6 +134,19 @@ def _is_boundary_header(line: str) -> bool:
     return _alias_to_section(line) is not None
 
 
+def _looks_like_header(line: str) -> bool:
+    stripped = _normalize_text(line).strip()
+    if not stripped:
+        return False
+    if not HEADER_PATTERN.match(stripped):
+        return False
+    if len(stripped.split()) > 6:
+        return False
+    if any(char.isdigit() for char in stripped):
+        return False
+    return True
+
+
 def _clean_section_content(lines: List[str]) -> str:
     cleaned_lines: List[str] = []
     for line in lines:
@@ -123,13 +165,14 @@ def _clean_section_content(lines: List[str]) -> str:
 
 def segment_resume_sections(text: str) -> Dict[str, str]:
     """
-    Detect major resume sections using lightweight regex and header heuristics.
+    Detect major resume sections using header aliases and conservative boundary heuristics.
     """
     sections = {name: "" for name in SECTION_ALIASES}
     if not text or not text.strip():
         return sections
 
-    lines = text.replace("\r", "\n").split("\n")
+    normalized_text = _normalize_text(text)
+    lines = normalized_text.split("\n")
     current_section: str | None = None
     buffers = {name: [] for name in SECTION_ALIASES}
     header_lines: List[str] = []
@@ -155,7 +198,7 @@ def segment_resume_sections(text: str) -> Dict[str, str]:
                     buffers[current_section].append(content)
                 continue
 
-        if HEADER_PATTERN.match(line):
+        if _looks_like_header(line):
             next_section = _alias_to_section(line)
             if next_section:
                 current_section = next_section
@@ -171,7 +214,6 @@ def segment_resume_sections(text: str) -> Dict[str, str]:
         sections[section] = _clean_section_content(collected_lines)
 
     sections["header"] = _clean_section_content(header_lines[:10])
-
     return sections
 
 

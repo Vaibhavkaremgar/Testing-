@@ -7,6 +7,12 @@ from typing import Any, Dict, List
 
 from flashtext import KeywordProcessor
 
+from ats.extraction.experience_extraction import (
+    compute_total_experience,
+    extract_experience_entries as extract_structured_experience_entries,
+    extract_total_experience,
+    parse_date,
+)
 from ats.extraction.skill_intelligence import SkillIntelligence
 from ats.preprocessing.section_segmentation import segment_resume_sections
 from ats.preprocessing.text_cleaning import clean_text_pipeline
@@ -344,31 +350,19 @@ def _parse_date_token(token: str) -> tuple[int, int] | None:
 
 
 def estimate_total_experience_years(entries: List[Dict]) -> float | None:
-    intervals: List[tuple[tuple[int, int], tuple[int, int]]] = []
-    for entry in entries:
-        start = _parse_date_token(entry.get("start_date", ""))
-        end = _parse_date_token(entry.get("end_date", ""))
-        if not start or not end or end < start:
-            continue
-        intervals.append((start, end))
-
-    if not intervals:
+    if not entries:
         return None
 
-    intervals.sort(key=lambda item: item[0])
-    merged: List[List[tuple[int, int]]] = [[intervals[0][0], intervals[0][1]]]
-    for start, end in intervals[1:]:
-        last_start, last_end = merged[-1]
-        if start <= last_end:
-            if end > last_end:
-                merged[-1][1] = end
-        else:
-            merged.append([start, end])
+    ranges = []
+    for entry in entries:
+        start = parse_date(entry.get("start_date", ""))
+        end = parse_date(entry.get("end_date", ""), is_end=True)
+        if not start or not end or end < start:
+            continue
+        ranges.append((start, end))
 
-    total_months = 0
-    for start, end in merged:
-        total_months += max(0, (end[0] - start[0]) * 12 + (end[1] - start[1]))
-    return round(total_months / 12.0, 1)
+    total_years = compute_total_experience(ranges)
+    return total_years if total_years > 0 else None
 
 
 def derive_experience_level(experience_years: float | None) -> str:
@@ -422,83 +416,22 @@ def infer_responsibility_skills(text: str) -> List[str]:
 
 
 def extract_experience_entries(text: str, experience_section: str = "") -> List[Dict]:
-    """Extract structured work-experience entries with robust date parsing."""
-    section_text = experience_section or segment_resume_sections(text).get("experience", "")
-    if not section_text:
-        lines = [line.strip() for line in text.splitlines() if line.strip()]
-        fallback_blocks: List[str] = []
-        current_block: List[str] = []
-        for line in lines:
-            if _find_date_match(line):
-                if current_block:
-                    fallback_blocks.append("\n".join(current_block))
-                    current_block = []
-                current_block.append(line)
-                continue
-            if current_block:
-                if len(current_block) < 6:
-                    current_block.append(line)
-                else:
-                    fallback_blocks.append("\n".join(current_block))
-                    current_block = []
-        if current_block:
-            fallback_blocks.append("\n".join(current_block))
-        section_text = "\n\n".join(fallback_blocks[:10])
-        if not section_text:
-            return []
-
-    blocks = [block.strip() for block in re.split(r"\n\s*\n", section_text) if block.strip()]
-    if not blocks:
-        blocks = [line.strip() for line in section_text.splitlines() if line.strip()]
-
+    """Extract structured work-experience entries with robust section filtering."""
+    source_text = experience_section or text
+    structured_entries = extract_structured_experience_entries(source_text)
     entries: List[Dict] = []
-    for block in blocks[:15]:
-        lines = [line.strip(" -\t") for line in block.splitlines() if line.strip()]
-        if not lines:
-            continue
-        headline = lines[0]
-        date_match = _find_date_match(block)
-        years = sorted(set(match.group(0) for match in YEAR_PATTERN.finditer(block)))
-        if not date_match and not years:
-            continue
-
-        headline_fields = _extract_experience_headline_fields(headline)
-        title = headline_fields["title"]
-        company = headline_fields["company"]
-
-        if not company and SPACY_AVAILABLE and nlp is not None:
-            doc = nlp(headline)
-            org_entities = [ent.text.strip() for ent in doc.ents if ent.label_ == "ORG"]
-            if org_entities:
-                company = org_entities[0]
-
-        description_lines = [line for line in lines[1:] if not _find_date_match(line)]
+    for entry in structured_entries:
         entries.append(
             {
-                "title": title[:120],
-                "company": company[:160],
-                "start_date": date_match.group("start").strip() if date_match else (years[0] if years else ""),
-                "end_date": date_match.group("end").strip() if date_match else (years[-1] if len(years) > 1 else ""),
-                "description": " ".join(description_lines)[:600],
-                "raw_text": block[:800],
+                "title": entry.get("title") or "",
+                "company": entry.get("company") or "",
+                "start_date": entry.get("start_date", ""),
+                "end_date": entry.get("end_date", ""),
+                "description": "",
+                "raw_text": entry.get("raw_text", ""),
             }
         )
-
-    entries.sort(key=lambda entry: _parse_date_token(entry.get("end_date", "")) or (0, 0), reverse=True)
-    deduped: List[Dict] = []
-    seen = set()
-    for entry in entries:
-        key = (
-            normalize_skill_name(entry.get("title", "")),
-            normalize_skill_name(entry.get("company", "")),
-            entry.get("start_date", ""),
-            entry.get("end_date", ""),
-        )
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(entry)
-    return deduped
+    return entries
 
 
 def extract_project_entries(text: str, projects_section: str = "") -> List[Dict[str, Any]]:
@@ -653,7 +586,8 @@ def extract_resume_information(text: str) -> Dict:
     project_entries = extract_project_entries(text, sections.get("projects", ""))
     education_entries = extract_education_entries(text, sections.get("education", ""))
     languages = extract_languages(text, sections.get("languages", ""))
-    total_experience_years = estimate_total_experience_years(experience_entries)
+    total_experience_payload = extract_total_experience(text)
+    total_experience_years = total_experience_payload["total_experience_years"] or estimate_total_experience_years(experience_entries)
     current_company = experience_entries[0].get("company") if experience_entries else None
     designation = experience_entries[0].get("title") if experience_entries else None
 
