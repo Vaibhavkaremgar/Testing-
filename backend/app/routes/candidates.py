@@ -27,6 +27,7 @@ from ats.extraction.information_extraction import (
     extract_resume_information,
     extract_skill_keywords,
 )
+from ats.extraction.resume_parser import parse_resume
 from ats.extraction.summary_generator import generate_summary
 from ats.features import build_feature_vector
 from ats.matching import compute_matching_signals
@@ -251,9 +252,8 @@ def extract_email_from_raw_file(file_path: str) -> Optional[str]:
     return emails[0] if emails else None
 
 def extract_resume_data(file_path: str, original_filename: str = None) -> dict:
-    """Extract name and email from resume file (PDF or Word)"""
+    """Extract structured resume data using the production ATS parser."""
     import os
-    import re
     
     email = None
     phone = None
@@ -268,127 +268,41 @@ def extract_resume_data(file_path: str, original_filename: str = None) -> dict:
     cleaned_text = ""
     current_role = None
     current_company = None
+    experience_level = None
+    languages = []
     
     try:
-        text = ""
-        file_ext = os.path.splitext(file_path)[1].lower()
-        
-        if file_ext == '.pdf':
-            # PDF extraction
-            try:
-                import PyPDF2
-                with open(file_path, 'rb') as file:
-                    pdf_reader = PyPDF2.PdfReader(file)
-                    for page in pdf_reader.pages:
-                        page_text = page.extract_text()
-                        if page_text:
-                            text += page_text + '\n'
-            except Exception as e:
-                print(f"PDF extraction failed: {e}")
-        
-        elif file_ext in ['.doc', '.docx']:
-            # Word document extraction
-            try:
-                if file_ext == '.docx':
-                    import docx
-                    doc = docx.Document(file_path)
-                    for paragraph in doc.paragraphs:
-                        text += paragraph.text + '\n'
-                else:
-                    # For .doc files, try basic text extraction
-                    try:
-                        import subprocess
-                        result = subprocess.run(['antiword', file_path], capture_output=True, text=True)
-                        if result.returncode == 0:
-                            text = result.stdout
-                    except:
-                        # Fallback: treat as binary and extract readable text
-                        with open(file_path, 'rb') as f:
-                            content = f.read()
-                            text = ''.join(chr(b) for b in content if 32 <= b <= 126)
-            except Exception as e:
-                print(f"Word document extraction failed: {e}")
-        
-        raw_text = text
-        cleaned_text = clean_text(raw_text) if raw_text.strip() else ""
+        parsed_resume = parse_resume(file_path, original_filename)
+        raw_text = parsed_resume.get("raw_text", "")
+        cleaned_text = parsed_resume.get("full_text", "") or (clean_text(raw_text) if raw_text.strip() else "")
+        email = parsed_resume.get("email") or None
+        phone = parsed_resume.get("phone") or None
+        name = parsed_resume.get("name") or None
+        location = parsed_resume.get("location") or None
+        skills = parsed_resume.get("skills") or []
+        current_role = parsed_resume.get("designation") or None
+        current_company = parsed_resume.get("current_company") or None
+        languages = parsed_resume.get("languages") or []
+        experience_level = parsed_resume.get("experience_level") or None
 
         if raw_text.strip():
             extracted_info = extract_resume_information(raw_text)
             sections = extracted_info["sections"]
-
-            # Extract email
-            email = extract_email(raw_text) or extract_email(cleaned_text) or None
             
-            # Extract phone
-            phone_patterns = [
-                r'\+91[-\s]?\d{5}[-\s]?\d{5}',  # Indian: +91-XXXXX-XXXXX or +91 XXXXX XXXXX
-                r'\+91[-\s]?\d{10}',  # Indian: +91-XXXXXXXXXX or +91 XXXXXXXXXX
-                r'\d{5}[-\s]?\d{5}',  # Indian without code: XXXXX-XXXXX or XXXXX XXXXX
-                r'\+?1?[-\s]?\(?\d{3}\)?[-\s]?\d{3}[-\s]?\d{4}',  # US format
-                r'\(?\d{3}\)?[-\s]?\d{3}[-\s]?\d{4}',  # US format without country code
-            ]
-            for pattern in phone_patterns:
-                matches = re.findall(pattern, cleaned_text)
-                if matches:
-                    phone = matches[0].strip()
-                    break
-            
-            # Extract name from document content
-            lines = [line.strip() for line in raw_text.split('\n') if line.strip()]
-            
-            # Look for name in first few lines
-            for line in lines[:20]:
-                # Skip if line is too short or too long
-                if len(line) < 3 or len(line) > 60:
-                    continue
-                    
-                words = line.split()
-                
-                # Name should be 2-4 words only
-                if not (2 <= len(words) <= 4):
-                    continue
-                
-                # Skip common headers/keywords and job titles
-                skip_keywords = [
-                    'resume', 'curriculum', 'vitae', 'profile', 'summary', 'objective',
-                    'experience', 'education', 'skills', 'projects', 'work', 'professional',
-                    'personal', 'contact', 'information', 'details', 'about', 'career',
-                    'employment', 'history', 'background', 'qualifications', 'certifications',
-                    'achievements', 'awards', 'references', 'languages', 'interests', 'hobbies',
-                    'technical', 'declaration', 'address', 'phone', 'email', 'mobile',
-                    'engineer', 'developer', 'manager', 'analyst', 'designer', 'consultant',
-                    'specialist', 'executive', 'director', 'lead', 'senior', 'junior',
-                    'software', 'web', 'data', 'full', 'stack', 'front', 'back', 'end'
-                ]
-                
-                if any(keyword in line.lower() for keyword in skip_keywords):
-                    continue
-                
-                # Check if line contains email or phone
-                if '@' in line or any(char.isdigit() for char in line if len([c for c in line if c.isdigit()]) > 5):
-                    continue
-                
-                # All words must be purely alphabetic and start with capital
-                if all(word.isalpha() and word[0].isupper() for word in words):
-                    name = line
-                    break
-            
-            # Extract skills (normalized to lowercase)
-            skills = extracted_info["skills"] or extract_skills_from_text(raw_text)
-            location = extracted_info.get("location") or location
+            # Keep parser-first fields, but preserve extraction fallbacks when parser returns nothing.
+            skills = skills or extracted_info["skills"] or extract_skills_from_text(raw_text)
+            location = location or extracted_info.get("location") or None
             
             # Extract projects
             projects = extract_projects_from_text(raw_text)
             
             # Extract experience text for matching
+            work_experience = parsed_resume.get("experience_entries") or extracted_info["experience"]
             experience_text = extracted_info["experience_text"] or clean_text_pipeline(extract_experience_text(raw_text))
-            work_experience = extracted_info["experience"]
-            current_role = extracted_info.get("designation") or (work_experience[0].get("title") if work_experience else None)
-            current_company = extracted_info.get("current_company") or (work_experience[0].get("company") if work_experience else None)
+            current_role = current_role or extracted_info.get("designation") or (work_experience[0].get("title") if work_experience else None)
+            current_company = current_company or extracted_info.get("current_company") or (work_experience[0].get("company") if work_experience else None)
             education_text = extracted_info["education_text"] or clean_text_pipeline(sections.get("education", ""))
             education = extracted_info["education"]
-            if extracted_info.get("experience_years") is not None:
-                experience_text = extracted_info["experience_text"] or experience_text
 
         if not email:
             email = extract_email_from_raw_file(file_path)
@@ -419,8 +333,9 @@ def extract_resume_data(file_path: str, original_filename: str = None) -> dict:
         'work_experience': work_experience,
         'education_text': education_text,
         'education': education,
-        'languages': extracted_info.get('languages', []) if raw_text.strip() else [],
-        'experience_years': extracted_info.get('experience_years') if raw_text.strip() else None,
+        'languages': languages,
+        'experience_years': parsed_resume.get('total_experience_years') if raw_text.strip() else None,
+        'experience_level': experience_level,
         'full_text': cleaned_text  # Store cleaned text for downstream ATS processing
     }
 
