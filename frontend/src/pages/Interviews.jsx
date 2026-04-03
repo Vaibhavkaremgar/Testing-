@@ -388,7 +388,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
         </div>
         <div className="flex items-center gap-3">
           <select
-            className="h-10 min-w-56 rounded-lg border border-input bg-background px-3 py-2 text-sm"
+            className="h-10 min-w-56 rounded-lg border border-input bg-background pl-3 pr-8 py-2 text-sm"
             value={selectedJobFilter}
             onChange={(e) => setSelectedJobFilter(e.target.value)}
           >
@@ -401,7 +401,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
           </select>
           <Button onClick={openScheduleModal}>
             <Plus className="h-4 w-4 mr-2" />
-            Schedule Interview
+            Reschedule Interview
           </Button>
         </div>
       </div>
@@ -847,13 +847,13 @@ export default function Interviews({ superAdminAgencyId = null }) {
                   className="w-full" 
                   variant="outline"
                   onClick={() => {
-                    window.open('https://calendly.com', '_blank')
+                    window.open('https://pontis-backend-production.up.railway.app/booking.html', '_blank')
                   }}
                 >
                   Book Interview Slot
                 </Button>
               </div>
-              
+              {/*
               <div>
                 <label className="text-sm font-medium mb-1 block">Meeting Link</label>
                 <input
@@ -870,6 +870,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
                   Send Email
                 </Button>
               </div>
+              */}
             </div>
           </div>
         </div>

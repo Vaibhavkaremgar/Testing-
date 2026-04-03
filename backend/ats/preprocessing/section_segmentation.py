@@ -13,13 +13,9 @@ SECTION_ALIASES = {
     "summary": [
         "summary",
         "professional summary",
-        "executive summary",
         "profile",
         "career summary",
         "objective",
-        "career objective",
-        "professional profile",
-        "about me",
     ],
     "skills": [
         "skills",
@@ -28,8 +24,6 @@ SECTION_ALIASES = {
         "key skills",
         "competencies",
         "tech stack",
-        "tools",
-        "technologies",
     ],
     "experience": [
         "experience",
@@ -37,9 +31,6 @@ SECTION_ALIASES = {
         "professional experience",
         "employment history",
         "work history",
-        "career history",
-        "relevant experience",
-        "career experience",
     ],
     "education": [
         "education",
@@ -69,27 +60,20 @@ SECTION_ALIASES = {
 BOUNDARY_ONLY_ALIASES = {
     "certifications",
     "certification",
-    "licenses",
-    "licenses and certifications",
     "achievements",
     "awards",
-    "honors",
     "publications",
     "languages",
     "interests",
-    "hobbies",
     "references",
     "contact",
-    "volunteering",
-    "volunteer experience",
-    "activities",
+    "internship",
+    "internships",
 }
 
-DECORATION_PATTERN = re.compile(r"[━•·■◆▪◦●○\-\_=~*#|]+")
+DECORATION_PATTERN = re.compile(r"[•·■◆▪◦●○\-\_=~*#|]+")
 HEADER_PATTERN = re.compile(r"^[A-Za-z][A-Za-z\s/&,\-()]{0,50}:?$")
-INLINE_HEADER_PATTERN = re.compile(
-    r"^(?P<header>[^:]{1,60}?):\s*(?P<content>.+)$"
-)
+INLINE_HEADER_PATTERN = re.compile(r"^(?P<header>[^:]{1,60}?):\s*(?P<content>.+)$")
 WHITESPACE_PATTERN = re.compile(r"\s+")
 
 
@@ -101,14 +85,14 @@ def _normalize_text(value: str) -> str:
         "\u2015": "-",
         "\u2022": "|",
         "\u00b7": "|",
-        "·": "|",
+        "Â·": "|",
         "\u00a0": " ",
-        "â€“": "-",
-        "â€”": "-",
+        "Ã¢â‚¬â€œ": "-",
+        "Ã¢â‚¬â€": "-",
     }
     for source, target in replacements.items():
         normalized = normalized.replace(source, target)
-    normalized = re.sub(r"━{2,}", " ", normalized)
+    normalized = re.sub(r"â”{2,}", " ", normalized)
     normalized = re.sub(r"[ \t]+", " ", normalized)
     normalized = re.sub(r"\n{3,}", "\n\n", normalized)
     return normalized
@@ -187,8 +171,7 @@ def segment_resume_sections(text: str) -> Dict[str, str]:
     if not text or not text.strip():
         return sections
 
-    normalized_text = _normalize_text(text)
-    lines = normalized_text.split("\n")
+    lines = _normalize_text(text).split("\n")
     current_section: str | None = None
     buffers = {name: [] for name in SECTION_ALIASES}
     header_lines: List[str] = []
@@ -230,6 +213,7 @@ def segment_resume_sections(text: str) -> Dict[str, str]:
         sections[section] = _clean_section_content(collected_lines)
 
     sections["header"] = _clean_section_content(header_lines[:10])
+
     return sections
 
 

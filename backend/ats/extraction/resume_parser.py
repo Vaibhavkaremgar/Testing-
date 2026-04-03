@@ -13,11 +13,6 @@ from flashtext import KeywordProcessor
 from pypdf import PdfReader
 from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS
 
-from ats.extraction.experience_extraction import (
-    compute_total_experience as compute_total_experience_from_ranges,
-    extract_experience_entries as extract_structured_experience_entries,
-    parse_date,
-)
 from ats.extraction.skill_intelligence import SkillIntelligence
 from ats.preprocessing.section_segmentation import segment_resume_sections
 from ats.preprocessing.text_cleaning import clean_text_pipeline
@@ -408,24 +403,110 @@ def extract_experience(text: str) -> List[Dict[str, Any]]:
     if not text:
         return []
 
-    structured_entries = extract_structured_experience_entries(text)
+    source_text = _experience_source_text(text)
+    raw_blocks = [block.strip() for block in re.split(r"\n\s*\n", source_text) if block.strip()]
+    lines = [line.strip() for line in source_text.splitlines() if line.strip()]
+    blocks: List[str] = []
+    current_block: List[str] = []
+
+    def flush_block() -> None:
+        nonlocal current_block
+        if current_block:
+            blocks.append("\n".join(current_block))
+            current_block = []
+
+    for line in lines:
+        if any(keyword == line.lower().strip(":") for keyword in EXPERIENCE_SECTION_KEYS):
+            continue
+        has_date = any(pattern.search(line) for pattern in DATE_RANGE_PATTERNS)
+        if has_date and current_block:
+            flush_block()
+        if has_date or current_block:
+            current_block.append(line)
+            continue
+    flush_block()
+
+    if raw_blocks:
+        for block in raw_blocks:
+            if any(pattern.search(block) for pattern in DATE_RANGE_PATTERNS):
+                blocks.append(block)
+
+    if not blocks:
+        lines = [line.strip() for line in text.splitlines() if line.strip()]
+        for line in lines:
+            has_date = any(pattern.search(line) for pattern in DATE_RANGE_PATTERNS)
+            if has_date and current_block:
+                flush_block()
+            if has_date or current_block:
+                current_block.append(line)
+                if len(current_block) >= 5:
+                    flush_block()
+        flush_block()
+
     entries: List[Dict[str, Any]] = []
-    for entry in structured_entries:
-        start_date = parse_date(entry.get("start_date", ""))
-        end_date = parse_date(entry.get("end_date", ""), is_end=True)
+    for block in blocks:
+        date_match = None
+        for pattern in DATE_RANGE_PATTERNS:
+            date_match = pattern.search(block)
+            if date_match:
+                break
+        if not date_match:
+            continue
+
+        lines = [line.strip(" -*\t") for line in block.splitlines() if line.strip()]
+        headline = lines[0] if lines else block.splitlines()[0].strip()
+        title = ""
+        company = ""
+
+        if " at " in headline.lower():
+            parts = re.split(r"\bat\b", headline, maxsplit=1, flags=re.IGNORECASE)
+            title = parts[0].strip(" ,|-")
+            company = parts[1].strip(" ,|-")
+        else:
+            parts = [part.strip(" ,|-") for part in HEADER_SPLIT_PATTERN.split(headline) if part.strip(" ,|-")]
+            if len(parts) >= 2:
+                title, company = parts[0], parts[1]
+            elif parts:
+                title = parts[0]
+
+        company = re.sub(r"\(\s*\d{4}.*?\)\s*$", "", company or "").strip(" ,|-")
+        company = re.sub(r"\(?\s*\d{4}\s*$", "", company or "").strip(" ,|-")
+        title = re.sub(r"\(\s*\d{4}.*?\)\s*$", "", title or "").strip(" ,|-")
+        title = re.sub(r"\(?\s*\d{4}\s*$", "", title or "").strip(" ,|-")
+
+        if SPACY_AVAILABLE and nlp is not None and not company:
+            doc = nlp(headline)
+            org_entities = [ent.text.strip() for ent in doc.ents if ent.label_ == "ORG"]
+            if org_entities:
+                company = org_entities[0]
+
+        start_date = _parse_date_token(date_match.group("start"))
+        end_date = _parse_date_token(date_match.group("end"))
         if not start_date or not end_date:
             continue
+
+        description = " ".join(lines[1:])[:600]
         entries.append(
             {
-                "title": entry.get("title"),
-                "company": entry.get("company"),
+                "title": title[:120] or None,
+                "company": company[:160] or None,
                 "start_date": start_date,
                 "end_date": end_date,
-                "raw_text": entry.get("raw_text", ""),
-                "description": "",
+                "raw_text": block[:800],
+                "description": description,
             }
         )
-    return _validate_experience_entries(entries)
+
+    entries.sort(key=lambda item: item["end_date"], reverse=True)
+    deduped: List[Dict[str, Any]] = []
+    seen = set()
+    for entry in entries:
+        key = (entry.get("title"), entry.get("company"), entry.get("start_date"), entry.get("end_date"))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(entry)
+    return _validate_experience_entries(deduped)
 
 
 def calculate_total_experience(experience_entries: List[Dict[str, Any]]) -> float:
@@ -435,12 +516,31 @@ def calculate_total_experience(experience_entries: List[Dict[str, Any]]) -> floa
     if not experience_entries:
         return 0.0
 
-    intervals = [
-        (entry["start_date"], entry["end_date"])
-        for entry in experience_entries
-        if entry.get("start_date") and entry.get("end_date")
-    ]
-    return compute_total_experience_from_ranges(intervals)
+    intervals = sorted(
+        [
+            (entry["start_date"], entry["end_date"])
+            for entry in experience_entries
+            if entry.get("start_date") and entry.get("end_date")
+        ],
+        key=lambda item: item[0],
+    )
+    if not intervals:
+        return 0.0
+
+    merged: List[List[datetime]] = [[intervals[0][0], intervals[0][1]]]
+    for start, end in intervals[1:]:
+        last_start, last_end = merged[-1]
+        if start <= last_end:
+            if end > last_end:
+                merged[-1][1] = end
+        else:
+            merged.append([start, end])
+
+    total_months = 0
+    for start, end in merged:
+        total_months += max(0, (end.year - start.year) * 12 + (end.month - start.month))
+
+    return round(total_months / 12.0, 1)
 
 
 def extract_current_company(experience_entries: List[Dict[str, Any]]) -> str:
