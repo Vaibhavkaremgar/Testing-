@@ -34,6 +34,10 @@ INVALID_NAME_TOKENS = {
     "curriculum", "vitae", "experience", "skills", "education", "project", "projects",
     "email", "phone", "address", "location",
 }
+PDF_LINE_TOLERANCE = 3.0
+PDF_MIN_COLUMN_GAP = 60.0
+PDF_MIN_LINES_PER_COLUMN = 8
+PDF_SEGMENT_GAP = 35.0
 
 
 def _iter_docx_blocks(parent):
@@ -68,6 +72,120 @@ def _extract_docx_table_lines(table: Table) -> List[str]:
     return lines
 
 
+def _group_pdf_words_into_lines(words: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    if not words:
+        return []
+    ordered_words = sorted(words, key=lambda item: (item["top"], item["x0"]))
+    line_groups: List[List[Dict[str, Any]]] = []
+    current_group: List[Dict[str, Any]] = []
+    current_top: float | None = None
+
+    for word in ordered_words:
+        word_top = float(word["top"])
+        if current_top is None or abs(word_top - current_top) <= PDF_LINE_TOLERANCE:
+            current_group.append(word)
+            if current_top is None:
+                current_top = word_top
+            else:
+                current_top = min(current_top, word_top)
+            continue
+        line_groups.append(current_group)
+        current_group = [word]
+        current_top = word_top
+
+    if current_group:
+        line_groups.append(current_group)
+
+    lines: List[Dict[str, Any]] = []
+    for group in line_groups:
+        group = sorted(group, key=lambda item: item["x0"])
+        segments: List[List[Dict[str, Any]]] = []
+        current_segment: List[Dict[str, Any]] = []
+        previous_x1: float | None = None
+
+        for item in group:
+            x0 = float(item["x0"])
+            if previous_x1 is None or x0 - previous_x1 <= PDF_SEGMENT_GAP:
+                current_segment.append(item)
+            else:
+                if current_segment:
+                    segments.append(current_segment)
+                current_segment = [item]
+            previous_x1 = float(item["x1"])
+
+        if current_segment:
+            segments.append(current_segment)
+
+        for segment in segments:
+            text = " ".join(str(item["text"]).strip() for item in segment if str(item["text"]).strip()).strip()
+            if not text:
+                continue
+            lines.append(
+                {
+                    "text": text,
+                    "x0": min(float(item["x0"]) for item in segment),
+                    "x1": max(float(item["x1"]) for item in segment),
+                    "top": min(float(item["top"]) for item in segment),
+                }
+            )
+    return lines
+
+
+def _detect_pdf_column_split(lines: List[Dict[str, Any]], page_width: float) -> Optional[float]:
+    starts = sorted({round(line["x0"], 1) for line in lines})
+    best_split: Optional[float] = None
+    best_gap = 0.0
+
+    for left_start, right_start in zip(starts, starts[1:]):
+        gap = right_start - left_start
+        if gap < PDF_MIN_COLUMN_GAP:
+            continue
+        split = left_start + gap / 2
+        left_lines = [line for line in lines if line["x0"] < split]
+        right_lines = [line for line in lines if line["x0"] >= split]
+        if len(left_lines) < PDF_MIN_LINES_PER_COLUMN or len(right_lines) < PDF_MIN_LINES_PER_COLUMN:
+            continue
+        left_avg_width = sum(line["x1"] - line["x0"] for line in left_lines) / len(left_lines)
+        right_avg_width = sum(line["x1"] - line["x0"] for line in right_lines) / len(right_lines)
+        if left_avg_width >= right_avg_width:
+            continue
+        if split <= page_width * 0.18 or split >= page_width * 0.55:
+            continue
+        if gap > best_gap:
+            best_gap = gap
+            best_split = split
+
+    return best_split
+
+
+def _extract_pdf_page_text(page: pdfplumber.page.Page) -> str:
+    words = page.extract_words(use_text_flow=False, keep_blank_chars=False) or []
+    lines = _group_pdf_words_into_lines(words)
+    if not lines:
+        return page.extract_text() or ""
+
+    split = _detect_pdf_column_split(lines, float(page.width))
+    if split is None:
+        return "\n".join(line["text"] for line in sorted(lines, key=lambda item: (item["top"], item["x0"])))
+
+    left_lines = [line for line in lines if line["x0"] < split]
+    right_lines = [line for line in lines if line["x0"] >= split]
+    if not left_lines or not right_lines:
+        return "\n".join(line["text"] for line in sorted(lines, key=lambda item: (item["top"], item["x0"])))
+
+    left_first_top = min(line["top"] for line in left_lines)
+    header_cutoff = max(0.0, left_first_top - 35.0)
+    header_lines = [line for line in right_lines if line["top"] < header_cutoff]
+    remaining_right_lines = [line for line in right_lines if line["top"] >= header_cutoff]
+
+    ordered_lines = (
+        sorted(header_lines, key=lambda item: (item["top"], item["x0"]))
+        + sorted(left_lines, key=lambda item: (item["top"], item["x0"]))
+        + sorted(remaining_right_lines, key=lambda item: (item["top"], item["x0"]))
+    )
+    return "\n".join(line["text"] for line in ordered_lines)
+
+
 def extract_text(file_path: str) -> str:
     if not file_path or not os.path.exists(file_path):
         return ""
@@ -80,7 +198,7 @@ def extract_text(file_path: str) -> str:
             try:
                 with pdfplumber.open(file_path) as pdf:
                     for page in pdf.pages:
-                        page_text = page.extract_text() or ""
+                        page_text = _extract_pdf_page_text(page) or ""
                         if page_text.strip():
                             text_parts.append(page_text)
             except Exception as exc:

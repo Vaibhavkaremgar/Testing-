@@ -74,6 +74,7 @@ SKILL_ALIASES: Dict[str, str] = {
 }
 
 NOISE_TERMS = {
+    "plan",
     "negotiation",
     "presentation",
     "communication",
@@ -320,7 +321,9 @@ class SkillIntelligence:
         lowered = (text or "").lower()
         if canonical in self.category_map:
             return True
-        return canonical in lowered
+        if canonical == lowered.strip():
+            return True
+        return bool(re.search(rf"(?<!\w){re.escape(canonical)}(?!\w)", lowered))
 
     def extract_skills(self, text: str) -> List[str]:
         skills, _ = self.extract_skills_with_categories(text)

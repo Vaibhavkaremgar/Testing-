@@ -4,21 +4,21 @@ import re
 from typing import Dict, List
 
 CORE_SECTIONS = ("experience", "skills", "education", "projects")
-OPTIONAL_SECTIONS = ("header", "summary", "languages" , "achievements", "certifications", "awards", "publications", "interests", "references")
+OPTIONAL_SECTIONS = ("header", "summary", "languages", "achievements", "certifications", "awards", "publications", "interests", "references")
 ALL_SECTIONS = CORE_SECTIONS + OPTIONAL_SECTIONS
 
 SECTION_HEADER_PATTERNS = {
     "experience": re.compile(
         r"(?i)^(?:work experience|professional experience|employment history|employment|career history|experience)$"
     ),
-    "skills": re.compile(r"(?i)^(?:technical skills|skills)$"),
+    "skills": re.compile(r"(?i)^(?:technical skills|core skills|key skills|skills|tools)$"),
     "education": re.compile(r"(?i)^education$"),
     "projects": re.compile(r"(?i)^projects?$"),
     "summary": re.compile(r"(?i)^(?:professional summary|profile summary|career summary|summary|objective|profile)$"),
     "languages": re.compile(r"(?i)^languages?$"),
-    "achievements": re.compile(r"(?i)^achievements?$"),
+    "achievements": re.compile(r"(?i)^(?:achievements?|key product launches(?:\s*&\s*impact)?)$"),
     "certifications": re.compile(r"(?i)^certifications?$"),
-    "awards": re.compile(r"(?i)^awards?$"),
+    "awards": re.compile(r"(?i)^(?:awards?|awards\s*&\s*recognition)$"),
     "publications": re.compile(r"(?i)^publications?$"),
     "interests": re.compile(r"(?i)^interests?$"),
     "references": re.compile(r"(?i)^references?$"),
@@ -28,21 +28,21 @@ SECTION_PREFIX_PATTERNS = {
     "experience": re.compile(
         r"(?i)^(?:work experience|professional experience|employment history|employment|career history|experience)\b"
     ),
-    "skills": re.compile(r"(?i)^(?:technical skills|skills)\b"),
+    "skills": re.compile(r"(?i)^(?:technical skills|core skills|key skills|skills|tools)\b"),
     "education": re.compile(r"(?i)^education\b"),
     "projects": re.compile(r"(?i)^projects?\b"),
     "summary": re.compile(r"(?i)^(?:professional summary|profile summary|career summary|summary|objective|profile)\b"),
     "languages": re.compile(r"(?i)^languages?\b"),
-    "achievements": re.compile(r"(?i)^achievements?\b"),
+    "achievements": re.compile(r"(?i)^(?:achievements?|key product launches(?:\s*&\s*impact)?)\b"),
     "certifications": re.compile(r"(?i)^certifications?\b"),
-    "awards": re.compile(r"(?i)^awards?\b"),
+    "awards": re.compile(r"(?i)^(?:awards?|awards\s*&\s*recognition)\b"),
     "publications": re.compile(r"(?i)^publications?\b"),
     "interests": re.compile(r"(?i)^interests?\b"),
     "references": re.compile(r"(?i)^references?\b"),
 }
 
 BOUNDARY_HEADER_PATTERNS = [
-    re.compile(r"(?i)^(?:certifications?|awards|achievements|publications|interests|references|internships?)$"),
+    re.compile(r"(?i)^(?:certifications?|awards|awards\s*&\s*recognition|achievements|key product launches(?:\s*&\s*impact)?|publications|interests|references|internships?)$"),
 ]
 
 INLINE_HEADER_PATTERN = re.compile(r"^(?P<header>[^:]{1,60}?):\s*(?P<content>.+)$")

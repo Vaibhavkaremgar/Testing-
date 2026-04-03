@@ -8,6 +8,7 @@ logger = logging.getLogger(__name__)
 URL_PATTERN = re.compile(r"(?:https?://|www\.)\S+", re.IGNORECASE)
 BULLET_PREFIX_PATTERN = re.compile(r"(?m)^\s*[\-\*\u2022\u25aa\u25e6\u2043\u2219]+\s*")
 SPECIAL_CHARACTER_PATTERN = re.compile(r"[^\w\s@.,;:/+#&()\-|\n]")
+CID_ARTIFACT_PATTERN = re.compile(r"\(cid:\d+\)")
 ZERO_WIDTH_PATTERN = re.compile(r"[\u200b-\u200d\ufeff]")
 DECORATIVE_SYMBOL_PATTERN = re.compile(r"(?:(?<!\w)[@#&=~*_]{2,}|[@#&=~*_]{2,}(?!\w))")
 REPEATED_PUNCTUATION_PATTERN = re.compile(r"([.,;:|/()\-])\1+")
@@ -36,6 +37,7 @@ def normalize_line_breaks(text: str) -> str:
 
 def normalize_common_artifacts(text: str) -> str:
     normalized = normalize_line_breaks(text)
+    normalized = CID_ARTIFACT_PATTERN.sub(" ", normalized)
     replacements = {
         "\u2013": "-",
         "\u2014": "-",

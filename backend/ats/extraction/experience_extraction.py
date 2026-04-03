@@ -76,6 +76,15 @@ def _is_skill_like(value: str) -> bool:
     return bool(SKILL_LIKE_PATTERN.search(candidate)) and not ROLE_HINT_PATTERN.search(candidate)
 
 
+def _looks_like_experience_heading(value: str) -> bool:
+    candidate = _normalize_line(value)
+    if not candidate or len(candidate.split()) > 12:
+        return False
+    if candidate.endswith("."):
+        return False
+    return bool(ROLE_HINT_PATTERN.search(candidate))
+
+
 def _looks_like_company(value: str) -> bool:
     candidate = _normalize_line(value)
     if not candidate:
@@ -182,14 +191,22 @@ def _split_experience_blocks(section_text: str) -> List[List[str]]:
         current = []
         seen_date = False
 
-    for line in lines:
+    for index, line in enumerate(lines):
         if not line:
             flush()
             continue
         if SECTION_BREAK_PATTERN.match(line):
             flush()
             break
+        next_nonempty = ""
+        for future_line in lines[index + 1:]:
+            if future_line:
+                next_nonempty = future_line
+                break
         line_has_date = bool(DATE_RANGE_REGEX.search(line))
+        next_has_date = bool(next_nonempty and DATE_RANGE_REGEX.search(next_nonempty))
+        if current and not line_has_date and next_has_date and _looks_like_experience_heading(line):
+            flush()
         if current and seen_date and line_has_date:
             flush()
         current.append(line)
@@ -211,6 +228,35 @@ def _find_date_range(block_lines: Sequence[str]) -> Optional[Dict[str, Any]]:
 def _remove_date_range_text(line: str) -> str:
     normalized = _normalize_line(line)
     return DATE_RANGE_REGEX.sub("", normalized).strip(" |-,:")
+
+
+def _extract_company_from_heading_line(line: str, role: Optional[str] = None) -> Optional[str]:
+    candidate = _normalize_line(line)
+    if not candidate:
+        return None
+
+    if role and candidate.lower().startswith(role.lower()):
+        candidate = candidate[len(role):].strip(" |-,:")
+
+    candidate = re.sub(r"(?i)^previously worked at\s+", "", candidate).strip()
+    candidate = re.sub(r"\([^)]*\)", "", candidate).strip(" |-,:")
+    if not candidate:
+        return None
+
+    company_match = re.search(
+        r"(?i)(?P<company>[A-Z][A-Za-z0-9&.'-]*(?:\s+[A-Z][A-Za-z0-9&.'-]*)*\s+(?:Pvt\.?\s+Ltd\.?|Ltd\.?|Inc\.?|Corp\.?|Technologies|Solutions|Systems|Labs|Works|LLP))\b",
+        candidate,
+    )
+    if company_match:
+        return _clean_company_name(company_match.group("company"))
+
+    parts = candidate.split()
+    if len(parts) >= 3 and parts[-1][:1].isupper():
+        inferred = " ".join(parts[:-1]).strip()
+        if inferred and len(inferred.split()) >= 2:
+            return _clean_company_name(inferred)
+
+    return None
 
 
 def _candidate_lines_near_date(block_lines: Sequence[str]) -> List[str]:
@@ -237,6 +283,19 @@ def _candidate_lines_near_date(block_lines: Sequence[str]) -> List[str]:
 
 
 def _extract_company_candidate(block_lines: Sequence[str]) -> Optional[str]:
+    headline_lines = [_remove_date_range_text(line) for line in block_lines[:3]]
+    headline_lines = [line for line in headline_lines if line]
+    role_hint = None
+    for line in headline_lines:
+        role_hint_match = ROLE_TITLE_PATTERN.search(line)
+        if role_hint_match:
+            role_hint = _normalize_line(role_hint_match.group("role"))
+            break
+    for line in headline_lines:
+        extracted = _extract_company_from_heading_line(line, role_hint)
+        if extracted and _looks_like_company(extracted):
+            return extracted
+
     context_lines = _candidate_lines_near_date(block_lines)
     for line in context_lines:
         if " - " in line:

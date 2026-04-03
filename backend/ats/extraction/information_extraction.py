@@ -9,7 +9,13 @@ from ats.extraction.experience_extraction import extract_total_experience
 from ats.extraction.skill_intelligence import LANGUAGE_TERMS, NOISE_ALIASES, NOISE_TERMS, SkillIntelligence
 from ats.extraction.validation import validate_parsed_fields
 from ats.preprocessing.section_segmentation import segment_resume_sections
-from ats.preprocessing.text_cleaning import clean_text_pipeline
+from ats.preprocessing.text_cleaning import (
+    clean_text_pipeline,
+    merge_broken_lines,
+    normalize_common_artifacts,
+    normalize_text,
+    repair_date_ranges,
+)
 from app.spacy_nlp import SPACY_AVAILABLE, get_section_doc
 
 SKILL_ALIASES = {
@@ -27,7 +33,7 @@ SKILL_ALIASES = {
     "docker-compose": "docker",
 }
 
-SKILL_TOKEN_SPLIT_PATTERN = re.compile(r"[\n,;|/]+")
+SKILL_TOKEN_SPLIT_PATTERN = re.compile(r"[\n,;|]+")
 SKILL_SENTENCE_SPLIT_PATTERN = re.compile(r"[.!?]\s+")
 DEGREE_PATTERNS = [
     r"\bB\.?\s?Tech\b",
@@ -67,6 +73,16 @@ LANGUAGE_TERMS = [
     "arabic", "japanese", "mandarin", "chinese",
 ]
 EMAIL_PATTERN = re.compile(r"\b[A-Za-z0-9._%+-]+\s*@\s*[A-Za-z0-9.-]+\s*\.\s*[A-Za-z]{2,}\b")
+SKILL_LABEL_TERMS = {
+    "and tools",
+    "tools",
+    "languages",
+    "frameworks",
+    "databases",
+    "devops",
+    "messaging",
+    "testing",
+}
 
 _skill_intelligence = SkillIntelligence()
 _skill_keyword_processor = KeywordProcessor(case_sensitive=False)
@@ -92,6 +108,39 @@ def _looks_like_skill_chunk(chunk: str) -> bool:
     return True
 
 
+def _fallback_skill_from_chunk(chunk: str) -> str:
+    normalized = clean_text_pipeline(chunk or "").strip().lower()
+    normalized = re.sub(r"\([^)]*\)", "", normalized)
+    normalized = re.sub(r"\s+", " ", normalized).strip(" -,:/")
+    if not normalized:
+        return ""
+    if len(normalized.split()) > 4:
+        return ""
+    if re.search(r"\b(intermediate|advanced|beginner|native|fluent|professional)\b", normalized):
+        normalized = re.sub(r"\b(intermediate|advanced|beginner|native|fluent|professional)\b", "", normalized)
+        normalized = re.sub(r"\s+", " ", normalized).strip(" -,:/")
+    return normalize_skill_name(normalized)
+
+
+def _is_supported_extracted_skill(skill: str, chunk: str) -> bool:
+    normalized_skill = normalize_skill_name(skill)
+    normalized_chunk = clean_text_pipeline(chunk or "").strip().lower()
+    aliased_chunk = SKILL_ALIASES.get(normalized_chunk, normalized_chunk)
+    if not normalized_skill or not normalized_chunk:
+        return False
+    if _skill_intelligence._is_noise(normalized_skill):
+        return False
+    if re.search(r"\b[a-z]\b", normalized_skill) and normalized_skill not in {"c", "r"}:
+        return False
+    if normalized_skill == aliased_chunk:
+        return True
+    if normalized_skill == normalized_chunk:
+        return True
+    if re.search(rf"(?<!\w){re.escape(normalized_skill)}(?!\w)", normalized_chunk):
+        return True
+    return normalized_skill.replace(" ", "") in normalized_chunk.replace(" ", "")
+
+
 for skill in _skill_intelligence.get_skill_dictionary():
     if _is_valid_skill_candidate(skill):
         _skill_keyword_processor.add_keyword(skill, skill)
@@ -104,9 +153,9 @@ for alias, canonical in SKILL_ALIASES.items():
 
 
 def normalize_skill_name(skill: str) -> str:
-    normalized = clean_text_pipeline(skill or "").lower().strip()
+    normalized = clean_text_pipeline(skill or "").lower().strip(" -,:;/()[]{}")
     normalized = re.sub(r"\s+", " ", normalized)
-    if not _is_valid_skill_candidate(normalized):
+    if not _is_valid_skill_candidate(normalized) or normalized in SKILL_LABEL_TERMS:
         return ""
     return SKILL_ALIASES.get(normalized, normalized)
 
@@ -141,8 +190,17 @@ def extract_skill_keywords(text: str, section_text: str = "") -> List[str]:
     for chunk in raw_chunks:
         if len(chunk) < 2 or not _looks_like_skill_chunk(chunk):
             continue
-        matches.extend(_skill_keyword_processor.extract_keywords(chunk))
-        matches.extend(_skill_intelligence.extract_skills(chunk))
+        chunk_matches = []
+        chunk_matches.extend(_skill_keyword_processor.extract_keywords(chunk))
+        chunk_matches.extend(_skill_intelligence.extract_skills(chunk))
+        if not chunk_matches:
+            fallback_skill = _fallback_skill_from_chunk(chunk)
+            if fallback_skill:
+                chunk_matches.append(fallback_skill)
+        matches.extend(
+            match for match in chunk_matches
+            if _is_supported_extracted_skill(match, chunk)
+        )
 
     if not matches and SPACY_AVAILABLE:
         doc = get_section_doc(normalized_section)
@@ -314,14 +372,43 @@ def derive_experience_level(experience_years: float | None) -> str:
 
 
 def extract_resume_information(text: str) -> Dict:
+    structural_text = normalize_text(
+        merge_broken_lines(
+            repair_date_ranges(
+                normalize_common_artifacts(text or "")
+            )
+        )
+    )
     cleaned_text = clean_text_pipeline(text)
     sections = segment_resume_sections(cleaned_text)
-    skills = extract_skill_keywords(sections.get("skills", ""), sections.get("skills", ""))
-    experience_result = extract_total_experience(sections.get("experience", ""))
+    skills_section = sections.get("skills", "")
+    skills = extract_skill_keywords(skills_section, skills_section)
+    # Fallback: extract skills from full text when skills section is empty
+    if not skills:
+        skills = extract_skill_keywords(cleaned_text, cleaned_text)
+    experience_result = extract_total_experience(structural_text)
     experience_entries = experience_result.get("experiences", [])
     total_experience_years = experience_result.get("total_experience_years")
 
+    # Fallback: infer experience years from a year-range pattern in the full text
+    if total_experience_years is None:
+        year_matches = re.findall(r"\b(20\d{2}|19\d{2})\b", structural_text)
+        if len(year_matches) >= 2:
+            years = sorted(set(int(y) for y in year_matches))
+            span = years[-1] - years[0]
+            if 0 < span <= 40:
+                total_experience_years = float(span)
+
     current_entry = experience_entries[0] if experience_entries else {}
+    # Fallback current_role from header when no experience entries parsed
+    header_role = ""
+    if not current_entry.get("role"):
+        from ats.extraction.experience_extraction import ROLE_TITLE_PATTERN
+        for line in (sections.get("header", "") or "").splitlines():
+            m = ROLE_TITLE_PATTERN.search(line.strip())
+            if m:
+                header_role = m.group("role").strip()
+                break
     result = {
         "sections": sections,
         "skills": skills,
@@ -330,8 +417,8 @@ def extract_resume_information(text: str) -> Dict:
         "education": extract_education_entries(cleaned_text, sections.get("education", "")),
         "location": extract_location("\n".join(part for part in [sections.get("header", ""), cleaned_text] if part)),
         "current_company": current_entry.get("company"),
-        "current_role": current_entry.get("role"),
-        "designation": current_entry.get("role"),
+        "current_role": current_entry.get("role") or header_role or None,
+        "designation": current_entry.get("role") or header_role or None,
         "experience_years": total_experience_years,
         "total_experience_years": total_experience_years,
         "experience_level": derive_experience_level(total_experience_years),
