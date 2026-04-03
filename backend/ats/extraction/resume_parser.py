@@ -40,7 +40,7 @@ DEFAULT_INVALID_NAME_TOKENS = {
     "about", "machine", "learning", "python", "java", "react", "sql", "developer",
     "engineer", "manager", "analyst", "summary", "profile", "objective", "resume",
     "curriculum", "vitae", "experience", "skills", "education", "project", "projects",
-    "email", "phone", "address", "location",
+    "email", "phone", "address", "location", "contact", "details",
 }
 DEFAULT_NAME_STOP_TOKENS = {
     "senior", "sr", "junior", "jr", "principal", "staff", "assistant",
@@ -55,10 +55,14 @@ HEADER_NAME_SPLIT_PATTERN = re.compile(r"\s+[|,/-]\s+|\s{2,}")
 INLINE_CONTACT_PATTERN = re.compile(
     r"(?i)(\+?\d[\d\s().-]{7,}\d|[A-Za-z0-9._%+-]+\s*@\s*[A-Za-z0-9.-]+\s*\.\s*[A-Za-z]{2,}|linkedin|github|portfolio)"
 )
+NAME_LABEL_PATTERN = re.compile(r"(?i)^\s*name\s*[:\-]\s*(?P<value>.+)$")
 SECTION_START_PATTERN = re.compile(
     r"(?i)^(?:work experience|professional experience|employment history|employment|career history|experience|"
     r"skills|technical skills|core skills|key skills|education|projects?|summary|profile|languages?|"
     r"certifications?|achievements?|awards?|publications?|references?)$"
+)
+NAME_CONTEXT_ROLE_PATTERN = re.compile(
+    r"(?i)\b(?:engineer|developer|tester|analyst|consultant|manager|architect|specialist|intern)\b"
 )
 PDF_LINE_TOLERANCE = 3.0
 PDF_MIN_COLUMN_GAP = 60.0
@@ -504,6 +508,16 @@ def _email_to_name(email: str) -> str:
 
 def _extract_name(text: str, original_filename: Optional[str] = None) -> str:
     for line in _header_name_candidates(text):
+        lowered_line = line.strip().lower()
+        if lowered_line in {"contact details", "contact information"}:
+            continue
+        if SECTION_START_PATTERN.match(line):
+            continue
+        label_match = NAME_LABEL_PATTERN.match(line)
+        if label_match:
+            labeled_name = _normalize_name_candidate(label_match.group("value"))
+            if labeled_name:
+                return labeled_name
         prefix_segment = re.split(r"\s+\|\s+|\s+[•·]\s+", line, maxsplit=1)[0].strip()
         normalized = _normalize_name_candidate(prefix_segment)
         if normalized:
@@ -511,6 +525,40 @@ def _extract_name(text: str, original_filename: Optional[str] = None) -> str:
         inline_prefix_name = _extract_inline_header_name(prefix_segment)
         if inline_prefix_name:
             return inline_prefix_name
+        normalized = _normalize_name_candidate(line)
+        if normalized:
+            return normalized
+        inline_header_name = _extract_inline_header_name(line)
+        if inline_header_name:
+            return inline_header_name
+    raw_lines = [line.strip() for line in normalize_document_structure(text or "").splitlines() if line.strip()]
+    for index, line in enumerate(raw_lines[:80]):
+        lowered_line = line.strip().lower()
+        if lowered_line in {"contact details", "contact information"}:
+            continue
+        if SECTION_START_PATTERN.match(line):
+            continue
+        if EMAIL_PATTERN.search(line) or PHONE_LINE_PATTERN.search(line):
+            continue
+        normalized = _normalize_name_candidate(line)
+        if not normalized:
+            continue
+        next_line = raw_lines[index + 1].strip() if index + 1 < len(raw_lines) else ""
+        if next_line and NAME_CONTEXT_ROLE_PATTERN.search(next_line):
+            return normalized
+    for line in raw_lines[:60]:
+        lowered_line = line.strip().lower()
+        if lowered_line in {"contact details", "contact information"}:
+            continue
+        if SECTION_START_PATTERN.match(line):
+            continue
+        if EMAIL_PATTERN.search(line) or PHONE_LINE_PATTERN.search(line):
+            continue
+        label_match = NAME_LABEL_PATTERN.match(line)
+        if label_match:
+            labeled_name = _normalize_name_candidate(label_match.group("value"))
+            if labeled_name:
+                return labeled_name
         normalized = _normalize_name_candidate(line)
         if normalized:
             return normalized

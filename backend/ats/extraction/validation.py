@@ -7,6 +7,7 @@ from ats.datasets.parser_config_loader import ParserConfigLoader
 
 BULLET_PREFIX_PATTERN = re.compile(r"^\s*[â€¢â–ªâ—¦â—Â·\-\*]+\s*")
 FALLBACK_COMPANY_PATTERN = re.compile(r"^[A-Z][A-Za-z0-9&.,' -]+(?:\s+[A-Z][A-Za-z0-9&.,' -]+)+$")
+SINGLE_TOKEN_COMPANY_PATTERN = re.compile(r"^[A-Z][A-Z0-9&.'-]{3,}$")
 SENTENCE_NOISE_PATTERN = re.compile(
     r"(?i)\b(?:act as|partnering|support a workforce|recognized for|responsible for|worked on|served as)\b"
 )
@@ -89,7 +90,7 @@ def validate_current_company(value: Optional[str], experience_section: str) -> O
         return None
     if SENTENCE_NOISE_PATTERN.search(candidate):
         return None
-    if not COMPANY_PATTERN.search(candidate) and not FALLBACK_COMPANY_PATTERN.match(candidate):
+    if not COMPANY_PATTERN.search(candidate) and not FALLBACK_COMPANY_PATTERN.match(candidate) and not SINGLE_TOKEN_COMPANY_PATTERN.match(candidate):
         return None
     return candidate
 
@@ -144,6 +145,8 @@ def _score_company_confidence(value: Optional[str], experience_section: str) -> 
         score += 0.35
     if COMPANY_PATTERN.search(candidate):
         score += 0.25
+    elif SINGLE_TOKEN_COMPANY_PATTERN.match(candidate):
+        score += 0.2
     elif FALLBACK_COMPANY_PATTERN.match(candidate):
         score += 0.15
     if len(candidate.split()) <= 6:

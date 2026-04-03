@@ -150,6 +150,27 @@ CERTIFICATION_SPLIT_PATTERN = re.compile(r"[\n|,;]+")
 CERTIFICATION_HINT_PATTERN = re.compile(
     r"(?i)\b(?:certified|certification|certificate|license|licence|aws certified|azure certified|google cloud certified|scrum master|pmp)\b"
 )
+NAME_LIKE_SKILL_PATTERN = re.compile(r"^[A-Z][A-Za-z'`.-]+(?:\s+[A-Z][A-Za-z'`.-]+){1,3}$")
+ROLE_LIKE_SKILL_PATTERN = re.compile(
+    r"(?i)\b(?:engineer|developer|tester|analyst|consultant|manager|lead|architect|specialist)\b"
+)
+SOFT_SKILL_LINE_PATTERN = re.compile(r"(?i)^\s*(?:communication|analytical|problem-solving|critical thinking)\s*$")
+ROLE_TITLE_LINE_PATTERN = re.compile(
+    r"(?i)^(?:senior|sr\.?|junior|jr\.?|lead|principal|staff|associate|assistant)?\s*"
+    r"(?:python\s+automation\s+test\s+)?"
+    r"(?:software|qa|quality assurance|automation|test|backend|frontend|data|machine learning|network|devops)?\s*"
+    r"(?:engineer|developer|tester|analyst|consultant|manager|intern)(?:\s+[A-Za-z]+){0,3}$"
+)
+SKILL_SECTION_BREAK_PATTERN = re.compile(
+    r"(?i)^(?:profile(?: summary)?|professional summary|summary|work experience|experience|employment|"
+    r"projects?|education|certifications?|achievements?|awards?|languages?|references?|internship|job objective|objective)$"
+)
+SOFT_SKILLS_HEADER_PATTERN = re.compile(r"(?i)^soft skills?$")
+PERSON_NAME_BLOCKLIST = {
+    "management", "planning", "development", "assessment", "communication", "pedagogy",
+    "teaching", "analysis", "analytics", "framework", "testing", "learning", "vision",
+    "engineering", "science", "automation", "protocols", "tools", "skills",
+}
 
 
 def _language_label_lines(*sections: str) -> str:
@@ -165,6 +186,47 @@ def _language_label_lines(*sections: str) -> str:
                 extracted_lines.append(stripped)
     return "\n".join(extracted_lines)
 
+
+def _sanitize_skill_section(section_text: str) -> str:
+    if not section_text:
+        return ""
+
+    sanitized_lines: List[str] = []
+    lines = [line.strip() for line in (section_text or "").splitlines()]
+    previous_kept = ""
+    for raw_line in lines:
+        line = raw_line.strip(" -*\t")
+        if not line:
+            continue
+        if SKILL_SECTION_BREAK_PATTERN.match(line):
+            break
+        if SOFT_SKILLS_HEADER_PATTERN.match(line):
+            break
+        if _looks_like_person_name_line(line):
+            continue
+        if ROLE_TITLE_LINE_PATTERN.match(line):
+            continue
+        if SOFT_SKILL_LINE_PATTERN.match(line):
+            continue
+        if previous_kept and _looks_like_person_name_line(previous_kept) and ROLE_TITLE_LINE_PATTERN.match(line):
+            if sanitized_lines:
+                sanitized_lines.pop()
+            previous_kept = ""
+            continue
+        sanitized_lines.append(line)
+        previous_kept = line
+    return "\n".join(sanitized_lines)
+
+
+def _looks_like_person_name_line(value: str) -> bool:
+    compact = re.sub(r"\s+", " ", (value or "").strip())
+    if not NAME_LIKE_SKILL_PATTERN.match(compact):
+        return False
+    lowered_tokens = [token.strip(".,").lower() for token in compact.split()]
+    if any(token in PERSON_NAME_BLOCKLIST for token in lowered_tokens):
+        return False
+    return True
+
 _skill_intelligence = SkillIntelligence()
 _skill_keyword_processor = KeywordProcessor(case_sensitive=False)
 
@@ -177,6 +239,13 @@ def _is_valid_skill_candidate(skill: str) -> bool:
 def _looks_like_skill_chunk(chunk: str) -> bool:
     normalized = clean_text_pipeline(chunk or "").strip().lower()
     if not normalized:
+        return False
+    raw_compact = re.sub(r"\s+", " ", (chunk or "").strip())
+    if _looks_like_person_name_line(raw_compact):
+        return False
+    if ROLE_LIKE_SKILL_PATTERN.search(raw_compact) and len(raw_compact.split()) >= 3:
+        return False
+    if SOFT_SKILL_LINE_PATTERN.match(raw_compact):
         return False
     normalized = SKILL_CHUNK_LEADIN_PATTERN.sub("", normalized).strip()
     if not normalized or normalized in SKILL_CHUNK_NOISE_TERMS:
@@ -204,6 +273,13 @@ def _looks_like_skill_chunk(chunk: str) -> bool:
 
 def _fallback_skill_from_chunk(chunk: str) -> str:
     normalized = clean_text_pipeline(chunk or "").strip().lower()
+    raw_compact = re.sub(r"\s+", " ", (chunk or "").strip())
+    if _looks_like_person_name_line(raw_compact):
+        return ""
+    if ROLE_LIKE_SKILL_PATTERN.search(raw_compact) and len(raw_compact.split()) >= 3:
+        return ""
+    if SOFT_SKILL_LINE_PATTERN.match(raw_compact):
+        return ""
     normalized = SKILL_CHUNK_LEADIN_PATTERN.sub("", normalized).strip()
     normalized = re.sub(r"\([^)]*\)", "", normalized)
     normalized = re.sub(r"\s+", " ", normalized).strip(" -,:/")
@@ -218,6 +294,8 @@ def _fallback_skill_from_chunk(chunk: str) -> str:
     if SKILL_ROLE_NOISE_PATTERN.search(normalized):
         return ""
     if SKILL_COMPANY_LIKE_PATTERN.search(normalized):
+        return ""
+    if normalized in {"robot", "framework"}:
         return ""
     if re.search(r"\b(worked in|worked as|door to door|walk-in)\b", normalized):
         return ""
@@ -301,15 +379,25 @@ def _filter_section_level_matches(matches: List[str], source_text: str) -> List[
         category = _skill_intelligence.category_map.get(normalized)
         if category == "industry":
             continue
-        if len(normalized.split()) == 1 and normalized not in SKILL_ALIASES.values():
-            continue
         if normalized not in filtered and re.search(rf"(?<!\w){re.escape(normalized)}(?!\w)", source_lower):
             filtered.append(normalized)
     return filtered
 
 
+def _suppress_generic_overlaps(skills: List[str]) -> List[str]:
+    skill_set = set(skills)
+    suppressed: List[str] = []
+    for skill in skills:
+        if skill == "robot" and "robot framework" in skill_set:
+            continue
+        if skill == "selenium" and "selenium webdriver" in skill_set:
+            continue
+        suppressed.append(skill)
+    return suppressed
+
+
 def extract_skill_keywords(text: str, section_text: str = "") -> List[str]:
-    source = section_text or text
+    source = _sanitize_skill_section(section_text or text)
     if not source:
         return []
 
@@ -338,11 +426,10 @@ def extract_skill_keywords(text: str, section_text: str = "") -> List[str]:
             if _is_supported_extracted_skill(match, chunk)
         )
 
-    if not matches:
-        section_matches = []
-        section_matches.extend(_skill_keyword_processor.extract_keywords(normalized_section))
-        section_matches.extend(_skill_intelligence.extract_skills(normalized_section))
-        matches.extend(_filter_section_level_matches(section_matches, normalized_section))
+    section_matches = []
+    section_matches.extend(_skill_keyword_processor.extract_keywords(normalized_section))
+    section_matches.extend(_skill_intelligence.extract_skills(normalized_section))
+    matches.extend(_filter_section_level_matches(section_matches, normalized_section))
 
     if not matches and SPACY_AVAILABLE:
         doc = get_section_doc(normalized_section)
@@ -357,7 +444,7 @@ def extract_skill_keywords(text: str, section_text: str = "") -> List[str]:
                     matches.append(candidate)
 
     normalized_matches = _skill_intelligence.map_skills(matches)
-    return _unique_in_order(normalized_matches)[:50]
+    return _unique_in_order(_suppress_generic_overlaps(normalized_matches))[:50]
 
 
 def extract_email(text: str) -> str:
@@ -607,7 +694,7 @@ def extract_resume_information(text: str) -> Dict:
     sections = segment_resume_sections(cleaned_text)
     structural_source = normalize_document_structure(text or "")
     raw_sections = segment_resume_sections(structural_source)
-    skills_section = raw_sections.get("skills", "") or sections.get("skills", "")
+    skills_section = _sanitize_skill_section(raw_sections.get("skills", "") or sections.get("skills", ""))
     skills = extract_skill_keywords(skills_section, skills_section)
     experience_result = extract_total_experience(structural_text)
     experience_entries = experience_result.get("experiences", [])

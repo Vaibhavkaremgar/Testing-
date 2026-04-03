@@ -30,6 +30,7 @@ from ats.extraction.information_extraction import (
 from ats.extraction.resume_parser import parse_resume
 from ats.extraction.skill_intelligence import SkillIntelligence
 from ats.extraction.summary_generator import generate_summary
+from ats.extraction.validation import validate_current_company, validate_current_role
 from ats.features import build_feature_vector
 from ats.matching import compute_matching_signals
 from ats.preprocessing.section_segmentation import segment_resume_sections
@@ -114,6 +115,47 @@ def sanitize_candidate_location(value: Optional[str]) -> Optional[str]:
         return None
     if re.match(r"^[A-Za-z]+(?:[\s-][A-Za-z]+)*(?:,\s*[A-Za-z]+(?:[\s-][A-Za-z]+)*){0,2}$", cleaned):
         return cleaned
+    return None
+
+
+def resolve_current_company_for_storage(
+    work_experience: Optional[List[dict]],
+    fallback_company: Optional[str],
+    experience_text: str,
+) -> Optional[str]:
+    """Persist only a text company value from the most recent valid experience entry."""
+    for entry in work_experience or []:
+        company_value = entry.get("company") if isinstance(entry, dict) else None
+        if not isinstance(company_value, str):
+            continue
+        validated = validate_current_company(company_value, experience_text or "")
+        if validated:
+            return validated
+
+    if isinstance(fallback_company, str):
+        return validate_current_company(fallback_company, experience_text or "") or None
+    return None
+
+
+def resolve_current_role_for_storage(
+    work_experience: Optional[List[dict]],
+    fallback_role: Optional[str],
+    skills: Optional[List[str]],
+) -> Optional[str]:
+    """Persist only a valid text role from the most recent experience entry."""
+    normalized_skills = skills or []
+    for entry in work_experience or []:
+        role_value = None
+        if isinstance(entry, dict):
+            role_value = entry.get("role") or entry.get("title")
+        if not isinstance(role_value, str):
+            continue
+        validated = validate_current_role(role_value, normalized_skills)
+        if validated:
+            return validated
+
+    if isinstance(fallback_role, str):
+        return validate_current_role(fallback_role, normalized_skills) or None
     return None
 
 
@@ -323,8 +365,16 @@ def extract_resume_data(file_path: str, original_filename: str = None) -> dict:
             # Extract experience text for matching
             work_experience = parsed_resume.get("experience_entries") or extracted_info["experience"]
             experience_text = extracted_info["experience_text"] or clean_text_pipeline(extract_experience_text(raw_text))
-            current_role = current_role or extracted_info.get("designation") or (work_experience[0].get("title") if work_experience else None)
-            current_company = current_company or extracted_info.get("current_company") or (work_experience[0].get("company") if work_experience else None)
+            current_role = resolve_current_role_for_storage(
+                work_experience,
+                current_role or extracted_info.get("designation"),
+                skills,
+            )
+            current_company = resolve_current_company_for_storage(
+                work_experience,
+                current_company or extracted_info.get("current_company"),
+                experience_text,
+            )
             experience_level = experience_level or extracted_info.get("experience_level") or None
             education_text = extracted_info["education_text"] or clean_text_pipeline(sections.get("education", ""))
             education = extracted_info["education"]
@@ -350,8 +400,8 @@ def extract_resume_data(file_path: str, original_filename: str = None) -> dict:
         'email': email,
         'phone': phone,
         'location': location,
-        'current_role': current_role,
-        'current_company': current_company,
+        'current_role': resolve_current_role_for_storage(work_experience, current_role, skills),
+        'current_company': resolve_current_company_for_storage(work_experience, current_company, experience_text),
         'skills': skills,
         'projects': projects,
         'experience_text': experience_text,

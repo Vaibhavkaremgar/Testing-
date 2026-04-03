@@ -7,75 +7,29 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from dateutil import parser as date_parser
 
-from ats.datasets.parser_config_loader import ParserConfigLoader
 from ats.preprocessing.section_segmentation import get_section_content, segment_resume_sections
 from app.spacy_nlp import SPACY_AVAILABLE, get_experience_doc
 
 logger = logging.getLogger(__name__)
-_parser_config_loader = ParserConfigLoader()
-_parser_vocabulary = _parser_config_loader.load_parser_vocabulary()
-
-
-def _compile_contains_pattern(values: List[str], fallback: List[str]) -> re.Pattern:
-    terms = [str(value).strip().lower() for value in values if str(value).strip()] or fallback
-    return re.compile(rf"(?i)\b(?:{'|'.join(re.escape(term) for term in terms)})\b")
-
-
-def _compile_company_pattern(values: List[str], fallback: List[str]) -> re.Pattern:
-    terms = [str(value).strip().lower() for value in values if str(value).strip()] or fallback
-    return re.compile(rf"(?i)\b(?:{'|'.join(re.escape(term) for term in terms)})\b")
-
-
-def _compile_role_title_pattern(prefix_terms: List[str], role_terms: List[str]) -> re.Pattern:
-    prefixes = [str(value).strip().lower() for value in prefix_terms if str(value).strip()]
-    roles = [str(value).strip().lower() for value in role_terms if str(value).strip()]
-    if not roles:
-        roles = [
-            "engineer", "developer", "manager", "lead", "analyst", "consultant", "architect",
-            "specialist", "administrator", "designer", "executive", "director", "officer",
-            "associate", "scientist", "recruiter", "qa", "tester", "intern", "partner",
-            "generalist", "coordinator",
-        ]
-    prefix_fragment = "|".join(re.escape(term) for term in prefixes) if prefixes else ""
-    role_fragment = "|".join(re.escape(term) for term in roles)
-    if prefix_fragment:
-        pattern = (
-            rf"(?i)\b(?P<role>(?:(?:{prefix_fragment})\s+){{0,4}}"
-            rf"(?:{role_fragment}))\b"
-        )
-    else:
-        pattern = rf"(?i)\b(?P<role>(?:{role_fragment}))\b"
-    return re.compile(pattern)
 
 MONTH_PATTERN = r"(?:jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)"
 PRESENT_PATTERN = r"(?:present|current|now|today|till date|till now)"
 DATE_RANGE_REGEX = re.compile(
-    rf"(?P<start>{MONTH_PATTERN}(?:[\s/-]+)\d{{4}}|\d{{1,2}}[/-]\d{{4}}|\d{{4}})\s*"
+    rf"(?P<start>{MONTH_PATTERN}\s+\d{{4}}|\d{{1,2}}[/-]\d{{4}}|\d{{4}})\s*"
     rf"(?:-|–|—|to|until|through)\s*"
-    rf"(?P<end>{PRESENT_PATTERN}|{MONTH_PATTERN}(?:[\s/-]+)\d{{4}}|\d{{1,2}}[/-]\d{{4}}|\d{{4}})",
+    rf"(?P<end>{PRESENT_PATTERN}|{MONTH_PATTERN}\s+\d{{4}}|\d{{1,2}}[/-]\d{{4}}|\d{{4}})",
     re.IGNORECASE,
 )
-ROLE_HINT_PATTERN = _compile_contains_pattern(
-    list(_parser_vocabulary.get("role_hint_terms") or []),
-    [
-        "engineer", "developer", "manager", "lead", "analyst", "consultant", "architect",
-        "specialist", "administrator", "designer", "executive", "director", "officer",
-        "associate", "scientist", "recruiter", "sales", "product", "qa", "tester",
-        "intern", "partner", "generalist", "coordinator",
-    ],
+ROLE_HINT_PATTERN = re.compile(
+    r"(?i)\b(?:engineer|developer|manager|lead|analyst|consultant|architect|specialist|administrator|designer|executive|director|officer|associate|scientist|recruiter|sales|product|qa|tester|intern)\b"
 )
-ROLE_TITLE_PATTERN = _compile_role_title_pattern(
-    list(_parser_vocabulary.get("role_prefix_terms") or []),
-    list(_parser_vocabulary.get("role_hint_terms") or []),
+ROLE_TITLE_PATTERN = re.compile(
+    r"(?i)\b(?P<role>(?:(?:senior|sr|junior|jr|lead|principal|staff|associate|assistant|frontend|front-end|backend|back-end|full[- ]stack|data|product|software|web|mobile|qa|devops|machine learning|ml)\s+){0,3}(?:engineer|developer|manager|lead|analyst|consultant|architect|specialist|administrator|designer|executive|director|officer|associate|scientist|recruiter|sales|product|qa|tester|intern))\b"
 )
 PROSE_ROLE_PATTERN = re.compile(
-    rf"(?i)\b(?:i\s+was|worked\s+as|work(?:ed)?\s+as|joined\s+as|served\s+as|role\s+was|position\s+was)\s+"
-    rf"(?:an?\s+)?(?P<role>[A-Za-z][A-Za-z/&\-\s]{{1,80}}?(?:{'|'.join(re.escape(str(value).strip().lower()) for value in (_parser_vocabulary.get('role_hint_terms') or []) if str(value).strip())}))\b"
+    r"(?i)\b(?:i\s+was|worked\s+as|work(?:ed)?\s+as|joined\s+as|served\s+as|role\s+was|position\s+was)\s+(?:an?\s+)?(?P<role>[A-Za-z][A-Za-z/&\-\s]{1,80}?(?:engineer|developer|manager|lead|analyst|consultant|architect|specialist|administrator|designer|executive|director|officer|associate|scientist|recruiter|sales|product|qa|tester|intern))\b"
 )
-COMPANY_PATTERN = _compile_company_pattern(
-    list(_parser_vocabulary.get("company_hint_terms") or []),
-    ["pvt", "ltd", "inc", "technologies", "solutions", "corp"],
-)
+COMPANY_PATTERN = re.compile(r"(?i)\b(?:pvt|ltd|inc|technologies|solutions|corp|organisation|organization|)\b")
 SKILL_LIKE_PATTERN = re.compile(
     r"(?i)\b(?:python|java|javascript|typescript|react|angular|vue|node(?:\.js)?|fastapi|django|flask|sql|aws|azure|gcp|docker|kubernetes|seo|crm|machine learning)\b"
 )
@@ -83,32 +37,6 @@ COMPANY_STOPWORD_PATTERN = re.compile(r"(?i)\b(?:strategy|analytics|marketing|pl
 BULLET_PREFIX_PATTERN = re.compile(r"^\s*[•▪◦●·\-\*]+\s*")
 SECTION_BREAK_PATTERN = re.compile(r"(?i)^(?:education|projects?|skills|technical skills|certifications?|summary|profile|languages?)$")
 EXPERIENCE_HEADER_PATTERN = re.compile(r"(?i)^(?:work experience|professional experience|employment history|employment|career history|experience)$")
-LOCATION_TAIL_TOKENS = {
-    str(value).strip().lower()
-    for value in (
-        _parser_vocabulary.get("location_tail_tokens")
-        or [
-            "ahmedabad", "bangalore", "bengaluru", "chennai", "delhi", "gurgaon",
-            "gurugram", "hosur", "hyderabad", "jaipur", "kochi", "kolkata",
-            "mumbai", "noida", "pune",
-        ]
-    )
-    if str(value).strip()
-}
-TOTAL_EXPERIENCE_PATTERN = re.compile(
-    r"(?i)\b(?:total|overall|professional|relevant)?\s*"
-    r"(?P<years>\d{1,2}(?:\.\d+)?)\s*\+?\s*years?"
-    r"(?:\s*(?:and|&)?\s*(?P<months>\d{1,2})\s*months?)?"
-    r"\s+of\s+experience\b"
-)
-TOTAL_EXPERIENCE_LABEL_PATTERN = re.compile(
-    r"(?i)\b(?:total|overall|professional|relevant)\s+experience\s*[:\-]?\s*"
-    r"(?P<years>\d{1,2}(?:\.\d+)?)\s*\+?\s*years?"
-    r"(?:\s*(?:and|&)?\s*(?P<months>\d{1,2})\s*months?)?"
-)
-EXPERIENCE_SUFFIX_NOISE_PATTERN = re.compile(
-    r"(?i)^\s*(?:with|in|on|using)\s+[A-Za-z][A-Za-z0-9\s&+.#/-]{0,40}$"
-)
 
 
 def _normalize_text(value: str) -> str:
@@ -157,42 +85,6 @@ def _looks_like_experience_heading(value: str) -> bool:
     return bool(ROLE_HINT_PATTERN.search(candidate))
 
 
-def _split_compound_experience_line(line: str) -> List[str]:
-    normalized = _normalize_line(line)
-    if not normalized:
-        return []
-
-    date_matches = list(DATE_RANGE_REGEX.finditer(normalized))
-    if not date_matches:
-        return [normalized]
-
-    split_positions = set()
-    for match in date_matches:
-        window_start = max(0, match.start() - 140)
-        prefix = normalized[window_start:match.start()]
-        role_matches = list(ROLE_TITLE_PATTERN.finditer(prefix))
-        if not role_matches:
-            continue
-        split_pos = window_start + role_matches[-1].start()
-        if split_pos > 0:
-            split_positions.add(split_pos)
-
-    if not split_positions:
-        return [normalized]
-
-    parts: List[str] = []
-    last_index = 0
-    for split_pos in sorted(split_positions):
-        segment = normalized[last_index:split_pos].strip()
-        if segment:
-            parts.append(segment)
-        last_index = split_pos
-    tail = normalized[last_index:].strip()
-    if tail:
-        parts.append(tail)
-    return parts or [normalized]
-
-
 def _looks_like_company(value: str) -> bool:
     candidate = _normalize_line(value)
     if not candidate:
@@ -213,33 +105,19 @@ def _clean_company_name(value: Optional[str]) -> Optional[str]:
     candidate = _normalize_line(value or "")
     if not candidate:
         return None
-    candidate = re.sub(r"(?i)^at\s+", "", candidate).strip()
     candidate = re.sub(r"\(\s*(?:\d{4}\s*(?:-|to)\s*(?:\d{4}|now|present)|digital agency)\s*\)", "", candidate, flags=re.IGNORECASE)
     candidate = re.sub(r"\(\s*\)", "", candidate)
-    candidate = re.sub(r"\s*\($", "", candidate)
     candidate = re.sub(
         r"\s*-\s*[A-Z][A-Za-z.\s]+,\s*[A-Z][A-Za-z.\s]+$",
         "",
         candidate,
     )
-    # If company legal suffix exists, trim trailing city/state tokens accidentally attached.
-    if COMPANY_PATTERN.search(candidate):
-        candidate = re.sub(
-            r"(?i)\b((?:pvt\.?\s+)?ltd\.?|inc\.?|corp\.?|llp)\b\.?\s+[A-Z][A-Za-z]+(?:,\s*[A-Z][A-Za-z]+)?$",
-            r"\1",
-            candidate,
-        )
-    else:
-        words = candidate.split()
-        if len(words) >= 2 and words[-1].lower() in LOCATION_TAIL_TOKENS:
-            candidate = " ".join(words[:-1]).strip()
     candidate = re.sub(r"\s+", " ", candidate).strip(" |-,:")
     return candidate or None
 
 
 def _parse_date_token(token: str, is_end: bool = False, today: Optional[datetime] = None) -> Optional[datetime]:
     raw = _normalize_line(token).lower().replace(".", "")
-    raw = re.sub(r"(?i)\b(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)[-/](\d{4})\b", r"\1 \2", raw)
     if not raw:
         return None
     current = today or datetime.utcnow()
@@ -300,9 +178,7 @@ def extract_date_ranges(text: str) -> List[Dict[str, Any]]:
 
 
 def _split_experience_blocks(section_text: str) -> List[List[str]]:
-    lines: List[str] = []
-    for line in _normalize_text(section_text).split("\n"):
-        lines.extend(_split_compound_experience_line(line))
+    lines = [_normalize_line(line) for line in _normalize_text(section_text).split("\n")]
     blocks: List[List[str]] = []
     current: List[str] = []
     seen_date = False
@@ -323,27 +199,13 @@ def _split_experience_blocks(section_text: str) -> List[List[str]]:
             flush()
             break
         next_nonempty = ""
-        second_next_nonempty = ""
         for future_line in lines[index + 1:]:
             if future_line:
-                if not next_nonempty:
-                    next_nonempty = future_line
-                    continue
-                second_next_nonempty = future_line
+                next_nonempty = future_line
                 break
         line_has_date = bool(DATE_RANGE_REGEX.search(line))
         next_has_date = bool(next_nonempty and DATE_RANGE_REGEX.search(next_nonempty))
-        second_next_has_date = bool(second_next_nonempty and DATE_RANGE_REGEX.search(second_next_nonempty))
         if current and not line_has_date and next_has_date and _looks_like_experience_heading(line):
-            flush()
-        if (
-            current
-            and not line_has_date
-            and _looks_like_experience_heading(line)
-            and next_nonempty
-            and ("|" in next_nonempty or _looks_like_company(next_nonempty))
-            and second_next_has_date
-        ):
             flush()
         if current and seen_date and line_has_date:
             flush()
@@ -368,43 +230,10 @@ def _remove_date_range_text(line: str) -> str:
     return DATE_RANGE_REGEX.sub("", normalized).strip(" |-,:")
 
 
-def _extract_role_company_from_combined_heading(line: str) -> Tuple[Optional[str], Optional[str]]:
-    normalized = _normalize_line(line)
-    if not normalized:
-        return None, None
-    date_match = DATE_RANGE_REGEX.search(normalized)
-    if not date_match:
-        return None, None
-    prefix = normalized[:date_match.start()].strip(" |-,:")
-    if not prefix:
-        return None, None
-    role_match = ROLE_TITLE_PATTERN.search(prefix)
-    if not role_match:
-        return None, None
-    role = _normalize_line(role_match.group("role")).removesuffix(" at").strip()
-    company_part = prefix[role_match.end():].strip(" |-,:")
-    company_part = re.sub(r"(?i)^at\s+", "", company_part).strip(" |-,:")
-    if not COMPANY_PATTERN.search(company_part):
-        words = company_part.split()
-        if len(words) >= 3:
-            last = words[-1]
-            if last[:1].isupper() and re.fullmatch(r"[A-Za-z]+", last):
-                company_part = " ".join(words[:-1]).strip()
-    company = _clean_company_name(company_part) if company_part else None
-    return role or None, company or None
-
-
 def _extract_company_from_heading_line(line: str, role: Optional[str] = None) -> Optional[str]:
     candidate = _normalize_line(line)
     if not candidate:
         return None
-
-    if " at " in candidate.lower():
-        parts = re.split(r"\bat\b", candidate, maxsplit=1, flags=re.IGNORECASE)
-        if len(parts) == 2:
-            company_after_at = _clean_company_name(parts[1])
-            if company_after_at and _looks_like_company(company_after_at):
-                return company_after_at
 
     if role and candidate.lower().startswith(role.lower()):
         candidate = candidate[len(role):].strip(" |-,:")
@@ -413,12 +242,6 @@ def _extract_company_from_heading_line(line: str, role: Optional[str] = None) ->
     candidate = re.sub(r"\([^)]*\)", "", candidate).strip(" |-,:")
     if not candidate:
         return None
-
-    if ROLE_HINT_PATTERN.search(candidate):
-        return None
-
-    if COMPANY_PATTERN.search(candidate) and "|" not in candidate and "," not in candidate:
-        return _clean_company_name(candidate)
 
     company_match = re.search(
         r"(?i)(?P<company>[A-Z][A-Za-z0-9&.'-]*(?:\s+[A-Z][A-Za-z0-9&.'-]*)*\s+(?:Pvt\.?\s+Ltd\.?|Ltd\.?|Inc\.?|Corp\.?|Technologies|Solutions|Systems|Labs|Works|LLP))\b",
@@ -432,8 +255,6 @@ def _extract_company_from_heading_line(line: str, role: Optional[str] = None) ->
         inferred = " ".join(parts[:-1]).strip()
         if inferred and len(inferred.split()) >= 2:
             return _clean_company_name(inferred)
-    if len(parts) == 2 and parts[1].lower() in LOCATION_TAIL_TOKENS:
-        return _clean_company_name(parts[0])
 
     return None
 
@@ -462,11 +283,6 @@ def _candidate_lines_near_date(block_lines: Sequence[str]) -> List[str]:
 
 
 def _extract_company_candidate(block_lines: Sequence[str]) -> Optional[str]:
-    for line in block_lines[:2]:
-        combined_role, combined_company = _extract_role_company_from_combined_heading(line)
-        if combined_company and _looks_like_company(combined_company):
-            return combined_company
-
     headline_lines = [_remove_date_range_text(line) for line in block_lines[:3]]
     headline_lines = [line for line in headline_lines if line]
     role_hint = None
@@ -510,59 +326,16 @@ def _extract_company_candidate(block_lines: Sequence[str]) -> Optional[str]:
 
 
 def _extract_role_candidate(block_lines: Sequence[str], company: Optional[str]) -> Optional[str]:
-    for line in block_lines[:2]:
-        combined_role, combined_company = _extract_role_company_from_combined_heading(line)
-        if combined_role:
-            return combined_role
-
-    date_index = 0
-    for index, line in enumerate(block_lines):
-        if DATE_RANGE_REGEX.search(line):
-            date_index = index
-            break
-
-    priority_lines: List[str] = []
-    same_line = _remove_date_range_text(block_lines[date_index]) if block_lines else ""
-    if same_line:
-        priority_lines.append(same_line)
-    before_lines = [
-        _normalize_line(line)
-        for line in block_lines[max(0, date_index - 2):date_index]
-        if line and not EXPERIENCE_HEADER_PATTERN.match(line)
-    ]
-    priority_lines.extend(reversed(before_lines))
-    after_lines = [
-        _normalize_line(line)
-        for line in block_lines[date_index + 1:date_index + 3]
-        if line and not EXPERIENCE_HEADER_PATTERN.match(line)
-    ]
-    priority_lines.extend(after_lines)
-
-    for line in priority_lines:
+    context_lines = _candidate_lines_near_date(block_lines)
+    for line in context_lines:
         normalized = _normalize_line(line)
         if not normalized or _is_bullet_line(line):
             continue
         if company and normalized == company:
             continue
-        if company and company in normalized:
-            trimmed = normalized.replace(company, "").strip(" |-,:")
-            trimmed = trimmed.removesuffix(" at").strip()
-            title_from_trimmed = ROLE_TITLE_PATTERN.search(trimmed)
-            if title_from_trimmed:
-                candidate = _normalize_line(title_from_trimmed.group("role"))
-                if candidate and not _is_skill_like(candidate):
-                    return candidate
-            if (
-                trimmed
-                and len(trimmed.split()) <= 12
-                and ROLE_HINT_PATTERN.search(trimmed)
-                and not _is_skill_like(trimmed)
-            ):
-                return trimmed
         if " at " in normalized.lower() and len(normalized.split()) <= 12:
             parts = re.split(r"\bat\b", normalized, maxsplit=1, flags=re.IGNORECASE)
             candidate = _normalize_line(parts[0])
-            candidate = candidate.removesuffix(" at").strip()
             if ROLE_HINT_PATTERN.search(candidate) and not _is_skill_like(candidate):
                 return candidate
         if "|" in normalized:
@@ -576,12 +349,12 @@ def _extract_role_candidate(block_lines: Sequence[str], company: Optional[str]) 
             if candidate and not _is_skill_like(candidate):
                 return candidate
         title_match = ROLE_TITLE_PATTERN.search(normalized)
-        if title_match:
+        if title_match and len(normalized.split()) > 4:
             candidate = _normalize_line(title_match.group("role"))
             if candidate and not _is_skill_like(candidate):
                 return candidate
-        if len(normalized.split()) <= 12 and ROLE_HINT_PATTERN.search(normalized) and not _is_skill_like(normalized):
-            return normalized.removesuffix(" at").strip()
+        if ROLE_HINT_PATTERN.search(normalized) and not _is_skill_like(normalized):
+            return normalized
     return None
 
 
@@ -651,28 +424,6 @@ def compute_total_experience(ranges: Sequence[Tuple[datetime, datetime]]) -> flo
     return round(total_days / 365.25, 1) if total_days > 0 else 0.0
 
 
-def _extract_stated_total_experience(text: str) -> Optional[float]:
-    normalized = _normalize_text(text)
-    if not normalized:
-        return None
-
-    candidates: List[float] = []
-    for pattern in (TOTAL_EXPERIENCE_LABEL_PATTERN, TOTAL_EXPERIENCE_PATTERN):
-        for match in pattern.finditer(normalized):
-            suffix = normalized[match.end():match.end() + 45]
-            if EXPERIENCE_SUFFIX_NOISE_PATTERN.match(suffix):
-                continue
-            years = float(match.group("years"))
-            months = int(match.group("months") or 0)
-            if months >= 12:
-                years += months / 12.0
-            else:
-                years += months / 12.0
-            if 0.0 <= years <= 40.0:
-                candidates.append(round(years, 1))
-    return max(candidates) if candidates else None
-
-
 def _sort_key(entry: Dict[str, Any]) -> Tuple[int, datetime]:
     end_date = parse_date(entry.get("end_date", ""), is_end=True) or datetime(1900, 1, 1)
     return (1 if entry.get("is_current") else 0, end_date)
@@ -735,15 +486,7 @@ def extract_total_experience(
             continue
         ranges.append((start, end))
         normalized_entries.append(entry)
-    computed_total = compute_total_experience(ranges) if ranges else None
-    stated_total = _extract_stated_total_experience(text)
-    if computed_total is None:
-        total_experience_years = stated_total
-    elif stated_total is None:
-        total_experience_years = computed_total
-    else:
-        total_experience_years = max(computed_total, stated_total)
     return {
-        "total_experience_years": total_experience_years,
+        "total_experience_years": compute_total_experience(ranges) if ranges else None,
         "experiences": normalized_entries,
     }

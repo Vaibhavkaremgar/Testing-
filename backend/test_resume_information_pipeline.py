@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from ats.extraction.information_extraction import extract_resume_information  # noqa: E402
 from ats.extraction.resume_parser import extract_text, parse_resume  # noqa: E402
+from app.routes.candidates import resolve_current_company_for_storage, resolve_current_role_for_storage  # noqa: E402
 
 
 class ResumeInformationPipelineTests(unittest.TestCase):
@@ -107,6 +108,54 @@ Strategy, CRM, Leadership
         self.assertEqual(result["current_company"], "Nova Systems Ltd")
         self.assertGreater(result["total_experience_years"], 6.0)
         self.assertNotEqual(result["current_role"], "Growth Strategy")
+
+    def test_current_company_for_storage_uses_latest_valid_experience_company(self):
+        work_experience = [
+            {"company": "Acme Organization", "title": "Senior Teacher"},
+            {"company": "Old School Ltd", "title": "Teacher"},
+        ]
+        experience_text = """
+Senior Teacher | Acme Organization | Jan 2024 - Present
+Teacher | Old School Ltd | Jun 2020 - Dec 2023
+        """
+
+        resolved = resolve_current_company_for_storage(work_experience, "Random Narrative Text", experience_text)
+
+        self.assertEqual(resolved, "Acme Organization")
+
+    def test_current_company_for_storage_rejects_non_text_or_invalid_values(self):
+        work_experience = [
+            {"company": {"name": "Acme Organization"}, "title": "Senior Teacher"},
+            {"company": "managed school operations across regions", "title": "Teacher"},
+        ]
+        experience_text = """
+Senior Teacher | Acme Organization | Jan 2024 - Present
+Teacher | Old School Ltd | Jun 2020 - Dec 2023
+        """
+
+        resolved = resolve_current_company_for_storage(work_experience, {"name": "bad"}, experience_text)
+
+        self.assertIsNone(resolved)
+
+    def test_current_role_for_storage_uses_latest_valid_experience_role(self):
+        work_experience = [
+            {"company": "Acme Organization", "title": "Senior Teacher"},
+            {"company": "Old School Ltd", "title": "Teacher"},
+        ]
+
+        resolved = resolve_current_role_for_storage(work_experience, "Narrative text", ["pedagogy"])
+
+        self.assertEqual(resolved, "Senior Teacher")
+
+    def test_current_role_for_storage_rejects_invalid_values(self):
+        work_experience = [
+            {"company": "Acme Organization", "title": {"name": "bad"}},
+            {"company": "Old School Ltd", "title": "communication"},
+        ]
+
+        resolved = resolve_current_role_for_storage(work_experience, {"name": "bad"}, ["communication"])
+
+        self.assertIsNone(resolved)
 
     def test_skills_are_extracted_only_from_skills_section(self):
         resume_text = """
@@ -534,6 +583,47 @@ Managed an escalation queue and vendor support line 1800 555 1111.
         self.assertEqual(parsed["phone"], "+91 99887 66554")
         self.assertEqual(parsed["location"], "Hyderabad, Telangana")
 
+    def test_name_falls_back_beyond_contact_block_and_skills_ignore_noise_lines(self):
+        resume_text = """
+CONTACT DETAILS
+nithinreddy502@gmail.com
++91 - 9989890734
+LinkedIn
+
+JOB OBJECTIVE
+Targeting challenging opportunities in software automation testing.
+
+TECHNICAL SKILLS
+Programming: C, Python, Core Java, SQL, TypeScript
+Automation / Frameworks: Selenium WebDriver, Robot Framework, PyTest, Playwright, Postman, RestAssured, JMeter, PYATS
+Networking & Protocols: Cisco Switching & Routing, TCP/IP, OSPF, EIGRP, VLAN, STP, BGP, ACLs, HSRP
+DevOps Tools: Docker, Jenkins
+Nithin Reddy Lekkala
+Python Automation Test Engineer
+
+PROFILE SUMMARY
+Possess nearly 3 years of experience in UI/API automation.
+
+WORK EXPERIENCE
+Software Engineer | Nouveau Labs - Bangalore | Nov 2025 - Present
+        """
+
+        result = extract_resume_information(resume_text)
+        parsed = self._parse_resume_text(resume_text, "nithin_reddy_software_test_engineer.txt")
+
+        self.assertEqual(parsed["name"], "Nithin Reddy Lekkala")
+        self.assertIn("python", result["skills"])
+        self.assertIn("java", result["skills"])
+        self.assertIn("selenium webdriver", result["skills"])
+        self.assertIn("robot framework", result["skills"])
+        self.assertIn("rest assured", result["skills"])
+        self.assertIn("docker", result["skills"])
+        self.assertNotIn("contact details", result["skills"])
+        self.assertNotIn("nithin reddy lekkala", result["skills"])
+        self.assertNotIn("python automation test engineer", result["skills"])
+        self.assertNotIn("communication", result["skills"])
+        self.assertNotIn("analytical", result["skills"])
+
     def test_section_variants_drive_education_languages_and_certifications(self):
         resume_text = """
 Nisha Verma
@@ -643,6 +733,37 @@ WORK EXPERIENCE
         self.assertEqual(parsed["email"], "aneeshrudravaram@gmail.com")
         self.assertIn("sap extended warehouse management", result["skills"])
         self.assertIn("sap ecc", result["skills"])
+
+    def test_labeled_header_name_is_extracted(self):
+        resume_text = """
+Name: Rahul Verma
+Location: Bangalore / Hyderabad / Remote
+Email: rahul.verma.ai.dev@gmail.com
+Phone: +91 9876543210
+
+Work Experience
+Senior ML Engineer
+AI Labs Pvt Ltd
+2022 - Present
+        """
+
+        parsed = self._parse_resume_text(resume_text, "unknown_candidate.txt")
+
+        self.assertEqual(parsed["name"], "Rahul Verma")
+
+    def test_company_is_extracted_from_role_in_all_caps_org_line(self):
+        resume_text = """
+Rudravaram Nareshsai Aneesh
++91 8977816703 | aneeshrudravaram@gmail.com
+
+Work Experience
+SAP EWM CONSULTANT in COGNIZANT (September 2022 - Present)
+Handled logistics execution support.
+        """
+
+        result = extract_resume_information(resume_text)
+
+        self.assertEqual(result["current_company"], "COGNIZANT")
 
 
 if __name__ == "__main__":
