@@ -3,202 +3,184 @@ from __future__ import annotations
 import re
 from typing import Dict, List
 
-SECTION_ALIASES = {
-    "header": [
-        "contact",
-        "contact information",
-        "personal details",
-        "profile summary",
-    ],
-    "summary": [
-        "summary",
-        "professional summary",
-        "profile",
-        "career summary",
-        "objective",
-    ],
-    "skills": [
-        "skills",
-        "technical skills",
-        "core competencies",
-        "key skills",
-        "competencies",
-        "tech stack",
-    ],
-    "experience": [
-        "experience",
-        "work experience",
-        "professional experience",
-        "employment history",
-        "work history",
-    ],
-    "education": [
-        "education",
-        "academic background",
-        "academic qualification",
-        "academic qualifications",
-        "qualification",
-        "qualifications",
-    ],
-    "projects": [
-        "projects",
-        "project",
-        "personal projects",
-        "work projects",
-        "professional projects",
-        "academic projects",
-        "side projects",
-        "open source projects",
-    ],
-    "languages": [
-        "languages",
-        "language",
-        "language proficiency",
-    ],
+CORE_SECTIONS = ("experience", "skills", "education", "projects")
+OPTIONAL_SECTIONS = ("header", "summary", "languages")
+ALL_SECTIONS = CORE_SECTIONS + OPTIONAL_SECTIONS
+
+SECTION_HEADER_PATTERNS = {
+    "experience": re.compile(
+        r"(?i)^(?:work experience|professional experience|employment history|employment|career history|experience)$"
+    ),
+    "skills": re.compile(r"(?i)^(?:technical skills|skills)$"),
+    "education": re.compile(r"(?i)^education$"),
+    "projects": re.compile(r"(?i)^projects?$"),
+    "summary": re.compile(r"(?i)^(?:professional summary|profile summary|career summary|summary|objective|profile)$"),
+    "languages": re.compile(r"(?i)^languages?$"),
 }
 
-BOUNDARY_ONLY_ALIASES = {
-    "certifications",
-    "certification",
-    "achievements",
-    "awards",
-    "publications",
-    "languages",
-    "interests",
-    "references",
-    "contact",
-    "internship",
-    "internships",
-}
+BOUNDARY_HEADER_PATTERNS = [
+    re.compile(r"(?i)^(?:certifications?|awards|achievements|publications|interests|references|internships?)$"),
+]
 
-DECORATION_PATTERN = re.compile(r"[•·■◆▪◦●○\-\_=~*#|]+")
-HEADER_PATTERN = re.compile(r"^[A-Za-z][A-Za-z\s/&,\-()]{0,50}:?$")
 INLINE_HEADER_PATTERN = re.compile(r"^(?P<header>[^:]{1,60}?):\s*(?P<content>.+)$")
-WHITESPACE_PATTERN = re.compile(r"\s+")
+DATE_RANGE_PATTERN = re.compile(
+    r"(?i)\b(?:"
+    r"(?:jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\s+\d{4}"
+    r"|\d{1,2}[/-]\d{4}"
+    r"|\d{4}"
+    r")\s*(?:-|–|—|to|until)\s*(?:present|current|now|"
+    r"(?:jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\s+\d{4}"
+    r"|\d{1,2}[/-]\d{4}"
+    r"|\d{4})\b"
+)
+ROLE_HINT_PATTERN = re.compile(
+    r"(?i)\b(?:engineer|developer|manager|lead|analyst|consultant|architect|specialist|administrator|designer|executive|director|officer|associate|scientist|recruiter|sales|product|qa|tester)\b"
+)
+COMPANY_HINT_PATTERN = re.compile(r"(?i)\b(?:pvt|ltd|inc|technologies|solutions|corp|systems|software|labs|works)\b")
+DECORATION_PATTERN = re.compile(r"^[\s|_\-=~*#.:·•▪◦●◆]+|[\s|_\-=~*#.:·•▪◦●◆]+$")
+WHITESPACE_PATTERN = re.compile(r"[ \t]+")
 
 
-def _normalize_text(value: str) -> str:
-    normalized = (value or "").replace("\r", "\n")
+def _normalize_line(line: str) -> str:
+    normalized = (line or "").replace("\r", "")
     replacements = {
         "\u2013": "-",
         "\u2014": "-",
         "\u2015": "-",
-        "\u2022": "|",
-        "\u00b7": "|",
-        "Â·": "|",
-        "\u00a0": " ",
-        "Ã¢â‚¬â€œ": "-",
-        "Ã¢â‚¬â€": "-",
+        "\u2022": " ",
+        "\u25aa": " ",
+        "\u25e6": " ",
+        "\u00b7": " ",
+        "Â·": " ",
+        "â€¢": " ",
+        "â–ª": " ",
+        "â”": " ",
     }
     for source, target in replacements.items():
         normalized = normalized.replace(source, target)
-    normalized = re.sub(r"â”{2,}", " ", normalized)
-    normalized = re.sub(r"[ \t]+", " ", normalized)
-    normalized = re.sub(r"\n{3,}", "\n\n", normalized)
-    return normalized
+    normalized = WHITESPACE_PATTERN.sub(" ", normalized)
+    return normalized.strip()
 
 
-def _strip_decorations(value: str) -> str:
-    cleaned = _normalize_text(value).strip()
-    cleaned = re.sub(r"^[^A-Za-z]+", "", cleaned)
-    cleaned = re.sub(r"[^A-Za-z:]+$", "", cleaned)
-    cleaned = DECORATION_PATTERN.sub(" ", cleaned)
-    return WHITESPACE_PATTERN.sub(" ", cleaned).strip()
+def _clean_header_candidate(line: str) -> str:
+    cleaned = _normalize_line(line).strip(":")
+    cleaned = DECORATION_PATTERN.sub("", cleaned)
+    cleaned = re.sub(r"[^A-Za-z\s]", " ", cleaned)
+    cleaned = WHITESPACE_PATTERN.sub(" ", cleaned)
+    return cleaned.strip()
 
 
-def _normalize_header(value: str) -> str:
-    value = _strip_decorations(value).lower().rstrip(":")
-    value = re.sub(r"[^a-z\s/&,\-()]", " ", value)
-    return WHITESPACE_PATTERN.sub(" ", value).strip()
-
-
-def _alias_to_section(line: str) -> str | None:
-    normalized = _normalize_header(line)
-    if not normalized:
+def _match_section_name(header_text: str) -> str | None:
+    candidate = _clean_header_candidate(header_text)
+    if not candidate:
         return None
-
-    for section, aliases in SECTION_ALIASES.items():
-        if normalized in aliases:
+    for section, pattern in SECTION_HEADER_PATTERNS.items():
+        if pattern.match(candidate):
             return section
-
     return None
 
 
-def _is_boundary_header(line: str) -> bool:
-    normalized = _normalize_header(line)
-    if not normalized:
+def _is_boundary_header(header_text: str) -> bool:
+    candidate = _clean_header_candidate(header_text)
+    if not candidate:
         return False
-    if normalized in BOUNDARY_ONLY_ALIASES:
-        return True
-    return _alias_to_section(line) is not None
+    return any(pattern.match(candidate) for pattern in BOUNDARY_HEADER_PATTERNS)
 
 
 def _looks_like_header(line: str) -> bool:
-    stripped = _strip_decorations(line)
-    if not stripped:
+    candidate = _clean_header_candidate(line)
+    if not candidate:
         return False
-    if not HEADER_PATTERN.match(stripped):
+    if len(candidate.split()) > 4:
         return False
-    if len(stripped.split()) > 6:
-        return False
-    if any(char.isdigit() for char in stripped):
-        return False
-    return True
+    return candidate.isalpha() or " " in candidate
 
 
 def _clean_section_content(lines: List[str]) -> str:
-    cleaned_lines: List[str] = []
+    cleaned: List[str] = []
     for line in lines:
-        stripped = line.strip()
-        if not stripped:
-            if cleaned_lines and cleaned_lines[-1] != "":
-                cleaned_lines.append("")
+        normalized = _normalize_line(line)
+        normalized = re.sub(r"^\s*[•▪◦●·\-\*]+\s*", "", normalized)
+        if not normalized:
+            if cleaned and cleaned[-1] != "":
+                cleaned.append("")
             continue
-        cleaned_lines.append(stripped)
+        cleaned.append(normalized)
+    while cleaned and cleaned[-1] == "":
+        cleaned.pop()
+    return "\n".join(cleaned).strip()
 
-    while cleaned_lines and cleaned_lines[-1] == "":
-        cleaned_lines.pop()
 
-    return "\n".join(cleaned_lines).strip()
+def _collect_inferred_experience(lines: List[str]) -> str:
+    blocks: List[List[str]] = []
+    current: List[str] = []
+    seen_date = False
+
+    def looks_like_employment(block: List[str]) -> bool:
+        joined = " ".join(block[:4])
+        return bool(
+            DATE_RANGE_PATTERN.search(joined)
+            and (ROLE_HINT_PATTERN.search(joined) or COMPANY_HINT_PATTERN.search(joined) or " at " in joined.lower() or "|" in joined)
+        )
+
+    def flush() -> None:
+        nonlocal current, seen_date
+        cleaned = [item for item in current if item.strip()]
+        if cleaned and seen_date and looks_like_employment(cleaned):
+            blocks.append(cleaned)
+        current = []
+        seen_date = False
+
+    for raw_line in lines:
+        line = _normalize_line(raw_line)
+        if not line:
+            flush()
+            continue
+        if _is_boundary_header(line) or _match_section_name(line) in {"education", "projects", "skills"}:
+            flush()
+            continue
+        has_date = bool(DATE_RANGE_PATTERN.search(line))
+        if current and seen_date and has_date:
+            flush()
+        current.append(line)
+        seen_date = seen_date or has_date
+    flush()
+    return "\n\n".join("\n".join(block) for block in blocks[:12]).strip()
 
 
 def segment_resume_sections(text: str) -> Dict[str, str]:
-    """
-    Detect major resume sections using header aliases, styled-header cleanup,
-    and conservative boundary heuristics.
-    """
-    sections = {name: "" for name in SECTION_ALIASES}
+    sections = {name: "" for name in ALL_SECTIONS}
     if not text or not text.strip():
         return sections
 
-    lines = _normalize_text(text).split("\n")
+    normalized_text = text.replace("\r\n", "\n").replace("\r", "\n")
+    raw_lines = normalized_text.split("\n")
     current_section: str | None = None
-    buffers = {name: [] for name in SECTION_ALIASES}
-    header_lines: List[str] = []
+    buffers = {name: [] for name in ALL_SECTIONS}
+    header_buffer: List[str] = []
 
-    for index, raw_line in enumerate(lines):
-        line = raw_line.strip()
+    for index, raw_line in enumerate(raw_lines):
+        line = _normalize_line(raw_line)
         if not line:
             if current_section:
                 buffers[current_section].append("")
             continue
 
         if index < 12 and not current_section:
-            header_lines.append(line)
+            header_buffer.append(line)
 
         inline_match = INLINE_HEADER_PATTERN.match(line)
         if inline_match:
-            header = inline_match.group("header")
-            content = inline_match.group("content").strip()
-            next_section = _alias_to_section(header)
+            next_section = _match_section_name(inline_match.group("header"))
             if next_section:
                 current_section = next_section
+                content = _normalize_line(inline_match.group("content"))
                 if content:
                     buffers[current_section].append(content)
                 continue
 
         if _looks_like_header(line):
-            next_section = _alias_to_section(line)
+            next_section = _match_section_name(line)
             if next_section:
                 current_section = next_section
                 continue
@@ -209,10 +191,14 @@ def segment_resume_sections(text: str) -> Dict[str, str]:
         if current_section:
             buffers[current_section].append(line)
 
-    for section, collected_lines in buffers.items():
-        sections[section] = _clean_section_content(collected_lines)
+    for section in ALL_SECTIONS:
+        if section == "header":
+            sections[section] = _clean_section_content(header_buffer[:10])
+        else:
+            sections[section] = _clean_section_content(buffers[section])
 
-    sections["header"] = _clean_section_content(header_lines[:10])
+    if not sections["experience"]:
+        sections["experience"] = _collect_inferred_experience(raw_lines)
 
     return sections
 
