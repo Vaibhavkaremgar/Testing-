@@ -21,13 +21,13 @@ DATE_RANGE_REGEX = re.compile(
     re.IGNORECASE,
 )
 ROLE_HINT_PATTERN = re.compile(
-    r"(?i)\b(?:engineer|developer|manager|lead|analyst|consultant|architect|specialist|administrator|designer|executive|director|officer|associate|scientist|recruiter|sales|product|qa|tester|intern)\b"
+    r"(?i)\b(?:engineer|developer|manager|lead|analyst|consultant|architect|specialist|administrator|designer|executive|director|officer|associate|scientist|recruiter|sales|product|qa|tester|intern|partner|generalist|coordinator)\b"
 )
 ROLE_TITLE_PATTERN = re.compile(
-    r"(?i)\b(?P<role>(?:(?:senior|sr|junior|jr|lead|principal|staff|associate|assistant|frontend|front-end|backend|back-end|full[- ]stack|data|product|software|web|mobile|qa|devops|machine learning|ml)\s+){0,3}(?:engineer|developer|manager|lead|analyst|consultant|architect|specialist|administrator|designer|executive|director|officer|associate|scientist|recruiter|sales|product|qa|tester|intern))\b"
+    r"(?i)\b(?P<role>(?:(?:senior|sr|junior|jr|lead|principal|staff|associate|assistant|frontend|front-end|backend|back-end|full[- ]stack|data|product|software|web|mobile|qa|devops|machine learning|ml|human resources|hr|business)\s+){0,4}(?:engineer|developer|manager|lead|analyst|consultant|architect|specialist|administrator|designer|executive|director|officer|associate|scientist|recruiter|sales|product|qa|tester|intern|partner|generalist|coordinator))\b"
 )
 PROSE_ROLE_PATTERN = re.compile(
-    r"(?i)\b(?:i\s+was|worked\s+as|work(?:ed)?\s+as|joined\s+as|served\s+as|role\s+was|position\s+was)\s+(?:an?\s+)?(?P<role>[A-Za-z][A-Za-z/&\-\s]{1,80}?(?:engineer|developer|manager|lead|analyst|consultant|architect|specialist|administrator|designer|executive|director|officer|associate|scientist|recruiter|sales|product|qa|tester|intern))\b"
+    r"(?i)\b(?:i\s+was|worked\s+as|work(?:ed)?\s+as|joined\s+as|served\s+as|role\s+was|position\s+was)\s+(?:an?\s+)?(?P<role>[A-Za-z][A-Za-z/&\-\s]{1,80}?(?:engineer|developer|manager|lead|analyst|consultant|architect|specialist|administrator|designer|executive|director|officer|associate|scientist|recruiter|sales|product|qa|tester|intern|partner|generalist|coordinator))\b"
 )
 COMPANY_PATTERN = re.compile(r"(?i)\b(?:pvt|ltd|inc|technologies|solutions|corp)\b")
 SKILL_LIKE_PATTERN = re.compile(
@@ -85,6 +85,42 @@ def _looks_like_experience_heading(value: str) -> bool:
     return bool(ROLE_HINT_PATTERN.search(candidate))
 
 
+def _split_compound_experience_line(line: str) -> List[str]:
+    normalized = _normalize_line(line)
+    if not normalized:
+        return []
+
+    date_matches = list(DATE_RANGE_REGEX.finditer(normalized))
+    if not date_matches:
+        return [normalized]
+
+    split_positions = set()
+    for match in date_matches:
+        window_start = max(0, match.start() - 140)
+        prefix = normalized[window_start:match.start()]
+        role_matches = list(ROLE_TITLE_PATTERN.finditer(prefix))
+        if not role_matches:
+            continue
+        split_pos = window_start + role_matches[-1].start()
+        if split_pos > 0:
+            split_positions.add(split_pos)
+
+    if not split_positions:
+        return [normalized]
+
+    parts: List[str] = []
+    last_index = 0
+    for split_pos in sorted(split_positions):
+        segment = normalized[last_index:split_pos].strip()
+        if segment:
+            parts.append(segment)
+        last_index = split_pos
+    tail = normalized[last_index:].strip()
+    if tail:
+        parts.append(tail)
+    return parts or [normalized]
+
+
 def _looks_like_company(value: str) -> bool:
     candidate = _normalize_line(value)
     if not candidate:
@@ -105,6 +141,7 @@ def _clean_company_name(value: Optional[str]) -> Optional[str]:
     candidate = _normalize_line(value or "")
     if not candidate:
         return None
+    candidate = re.sub(r"(?i)^at\s+", "", candidate).strip()
     candidate = re.sub(r"\(\s*(?:\d{4}\s*(?:-|to)\s*(?:\d{4}|now|present)|digital agency)\s*\)", "", candidate, flags=re.IGNORECASE)
     candidate = re.sub(r"\(\s*\)", "", candidate)
     candidate = re.sub(
@@ -178,7 +215,9 @@ def extract_date_ranges(text: str) -> List[Dict[str, Any]]:
 
 
 def _split_experience_blocks(section_text: str) -> List[List[str]]:
-    lines = [_normalize_line(line) for line in _normalize_text(section_text).split("\n")]
+    lines: List[str] = []
+    for line in _normalize_text(section_text).split("\n"):
+        lines.extend(_split_compound_experience_line(line))
     blocks: List[List[str]] = []
     current: List[str] = []
     seen_date = False
@@ -199,13 +238,27 @@ def _split_experience_blocks(section_text: str) -> List[List[str]]:
             flush()
             break
         next_nonempty = ""
+        second_next_nonempty = ""
         for future_line in lines[index + 1:]:
             if future_line:
-                next_nonempty = future_line
+                if not next_nonempty:
+                    next_nonempty = future_line
+                    continue
+                second_next_nonempty = future_line
                 break
         line_has_date = bool(DATE_RANGE_REGEX.search(line))
         next_has_date = bool(next_nonempty and DATE_RANGE_REGEX.search(next_nonempty))
+        second_next_has_date = bool(second_next_nonempty and DATE_RANGE_REGEX.search(second_next_nonempty))
         if current and not line_has_date and next_has_date and _looks_like_experience_heading(line):
+            flush()
+        if (
+            current
+            and not line_has_date
+            and _looks_like_experience_heading(line)
+            and next_nonempty
+            and ("|" in next_nonempty or _looks_like_company(next_nonempty))
+            and second_next_has_date
+        ):
             flush()
         if current and seen_date and line_has_date:
             flush()
@@ -230,6 +283,26 @@ def _remove_date_range_text(line: str) -> str:
     return DATE_RANGE_REGEX.sub("", normalized).strip(" |-,:")
 
 
+def _extract_role_company_from_combined_heading(line: str) -> Tuple[Optional[str], Optional[str]]:
+    normalized = _normalize_line(line)
+    if not normalized:
+        return None, None
+    date_match = DATE_RANGE_REGEX.search(normalized)
+    if not date_match:
+        return None, None
+    prefix = normalized[:date_match.start()].strip(" |-,:")
+    if not prefix:
+        return None, None
+    role_match = ROLE_TITLE_PATTERN.search(prefix)
+    if not role_match:
+        return None, None
+    role = _normalize_line(role_match.group("role")).removesuffix(" at").strip()
+    company_part = prefix[role_match.end():].strip(" |-,:")
+    company_part = re.sub(r"(?i)^at\s+", "", company_part).strip(" |-,:")
+    company = _clean_company_name(company_part) if company_part else None
+    return role or None, company or None
+
+
 def _extract_company_from_heading_line(line: str, role: Optional[str] = None) -> Optional[str]:
     candidate = _normalize_line(line)
     if not candidate:
@@ -241,6 +314,9 @@ def _extract_company_from_heading_line(line: str, role: Optional[str] = None) ->
     candidate = re.sub(r"(?i)^previously worked at\s+", "", candidate).strip()
     candidate = re.sub(r"\([^)]*\)", "", candidate).strip(" |-,:")
     if not candidate:
+        return None
+
+    if ROLE_HINT_PATTERN.search(candidate):
         return None
 
     company_match = re.search(
@@ -283,6 +359,11 @@ def _candidate_lines_near_date(block_lines: Sequence[str]) -> List[str]:
 
 
 def _extract_company_candidate(block_lines: Sequence[str]) -> Optional[str]:
+    for line in block_lines[:2]:
+        combined_role, combined_company = _extract_role_company_from_combined_heading(line)
+        if combined_company and _looks_like_company(combined_company):
+            return combined_company
+
     headline_lines = [_remove_date_range_text(line) for line in block_lines[:3]]
     headline_lines = [line for line in headline_lines if line]
     role_hint = None
@@ -326,16 +407,49 @@ def _extract_company_candidate(block_lines: Sequence[str]) -> Optional[str]:
 
 
 def _extract_role_candidate(block_lines: Sequence[str], company: Optional[str]) -> Optional[str]:
-    context_lines = _candidate_lines_near_date(block_lines)
-    for line in context_lines:
+    for line in block_lines[:2]:
+        combined_role, combined_company = _extract_role_company_from_combined_heading(line)
+        if combined_role:
+            return combined_role
+
+    date_index = 0
+    for index, line in enumerate(block_lines):
+        if DATE_RANGE_REGEX.search(line):
+            date_index = index
+            break
+
+    priority_lines: List[str] = []
+    same_line = _remove_date_range_text(block_lines[date_index]) if block_lines else ""
+    if same_line:
+        priority_lines.append(same_line)
+    before_lines = [
+        _normalize_line(line)
+        for line in block_lines[max(0, date_index - 2):date_index]
+        if line and not EXPERIENCE_HEADER_PATTERN.match(line)
+    ]
+    priority_lines.extend(reversed(before_lines))
+    after_lines = [
+        _normalize_line(line)
+        for line in block_lines[date_index + 1:date_index + 3]
+        if line and not EXPERIENCE_HEADER_PATTERN.match(line)
+    ]
+    priority_lines.extend(after_lines)
+
+    for line in priority_lines:
         normalized = _normalize_line(line)
         if not normalized or _is_bullet_line(line):
             continue
         if company and normalized == company:
             continue
+        if company and company in normalized:
+            trimmed = normalized.replace(company, "").strip(" |-,:")
+            trimmed = trimmed.removesuffix(" at").strip()
+            if trimmed and ROLE_HINT_PATTERN.search(trimmed) and not _is_skill_like(trimmed):
+                return trimmed
         if " at " in normalized.lower() and len(normalized.split()) <= 12:
             parts = re.split(r"\bat\b", normalized, maxsplit=1, flags=re.IGNORECASE)
             candidate = _normalize_line(parts[0])
+            candidate = candidate.removesuffix(" at").strip()
             if ROLE_HINT_PATTERN.search(candidate) and not _is_skill_like(candidate):
                 return candidate
         if "|" in normalized:
@@ -354,7 +468,7 @@ def _extract_role_candidate(block_lines: Sequence[str], company: Optional[str]) 
             if candidate and not _is_skill_like(candidate):
                 return candidate
         if ROLE_HINT_PATTERN.search(normalized) and not _is_skill_like(normalized):
-            return normalized
+            return normalized.removesuffix(" at").strip()
     return None
 
 

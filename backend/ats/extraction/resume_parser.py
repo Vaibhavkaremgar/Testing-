@@ -29,7 +29,7 @@ PHONE_PATTERNS = [
 EMAIL_PATTERN = re.compile(r"\b[A-Za-z0-9._%+-]+\s*@\s*[A-Za-z0-9.-]+\s*\.\s*[A-Za-z]{2,}\b")
 PHONE_LINE_PATTERN = re.compile(r"(?:\+?\d[\d\s().-]{7,}\d)")
 INVALID_NAME_TOKENS = {
-    "machine", "learning", "python", "java", "react", "sql", "developer",
+    "about", "machine", "learning", "python", "java", "react", "sql", "developer",
     "engineer", "manager", "analyst", "summary", "profile", "objective", "resume",
     "curriculum", "vitae", "experience", "skills", "education", "project", "projects",
     "email", "phone", "address", "location",

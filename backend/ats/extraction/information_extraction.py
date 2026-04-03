@@ -15,6 +15,7 @@ from ats.preprocessing.text_cleaning import (
     normalize_common_artifacts,
     normalize_text,
     repair_date_ranges,
+    split_inline_section_headers,
 )
 from app.spacy_nlp import SPACY_AVAILABLE, get_section_doc
 
@@ -82,6 +83,23 @@ SKILL_LABEL_TERMS = {
     "devops",
     "messaging",
     "testing",
+}
+LOCATION_LEADING_DESCRIPTORS = {
+    "analyst",
+    "business",
+    "consumer",
+    "data",
+    "developer",
+    "engineering",
+    "finance",
+    "human",
+    "intelligence",
+    "manager",
+    "mobile",
+    "product",
+    "resources",
+    "software",
+    "visualization",
 }
 
 _skill_intelligence = SkillIntelligence()
@@ -298,10 +316,34 @@ def extract_location(text: str) -> str:
     if not text:
         return ""
     lines = [line.strip() for line in text.splitlines() if line.strip()]
+    embedded_location_pattern = re.compile(
+        r"(?P<value>[A-Za-z][A-Za-z\s.-]{1,40},\s*[A-Za-z][A-Za-z\s.-]{1,40})",
+        re.IGNORECASE,
+    )
+
+    def normalize_location_candidate(candidate: str) -> str:
+        compact = re.sub(r"\s+", " ", candidate.strip(" ,.-"))
+        if "," not in compact:
+            return compact
+        left, right = [part.strip() for part in compact.split(",", 1)]
+        left_words = left.split()
+        if len(left_words) > 2:
+            left = " ".join(left_words[-2:]).strip()
+            left_words = left.split()
+        if len(left_words) == 2 and left_words[0].lower() in LOCATION_LEADING_DESCRIPTORS:
+            left = left_words[-1]
+        return f"{left}, {right}".strip(" ,")
+
     for line in lines[:30]:
         match = LOCATION_PATTERN.search(line)
         if match:
-            return re.sub(r"\s+", " ", match.group("value").strip(" ,.-"))[:80]
+            return normalize_location_candidate(match.group("value"))[:80]
+    for line in lines[:8]:
+        matches = [m.group("value") for m in embedded_location_pattern.finditer(line)]
+        for candidate in reversed(matches):
+            compact = normalize_location_candidate(candidate)
+            if compact and not LOCATION_NOISE_PATTERN.search(compact):
+                return compact[:80]
     for line in lines[:12]:
         match = HEADER_LOCATION_PATTERN.match(line)
         if match:
@@ -356,6 +398,11 @@ def extract_languages(text: str, languages_section: str = "") -> List[str]:
                 normalized = chunk.strip().lower()
                 if normalized in LANGUAGE_TERMS:
                     matches.append(normalized.title())
+    for match in re.finditer(r"(?is)\blanguages?\s*[:\-]?\s*(?P<value>.{0,160})", text or ""):
+        value = match.group("value")
+        for language in LANGUAGE_TERMS:
+            if re.search(rf"\b{re.escape(language)}\b", value, re.IGNORECASE):
+                matches.append(language.title())
     return list(dict.fromkeys(matches))
 
 
@@ -375,7 +422,9 @@ def extract_resume_information(text: str) -> Dict:
     structural_text = normalize_text(
         merge_broken_lines(
             repair_date_ranges(
-                normalize_common_artifacts(text or "")
+                split_inline_section_headers(
+                    normalize_common_artifacts(text or "")
+                )
             )
         )
     )
@@ -383,21 +432,9 @@ def extract_resume_information(text: str) -> Dict:
     sections = segment_resume_sections(cleaned_text)
     skills_section = sections.get("skills", "")
     skills = extract_skill_keywords(skills_section, skills_section)
-    # Fallback: extract skills from full text when skills section is empty
-    if not skills:
-        skills = extract_skill_keywords(cleaned_text, cleaned_text)
     experience_result = extract_total_experience(structural_text)
     experience_entries = experience_result.get("experiences", [])
     total_experience_years = experience_result.get("total_experience_years")
-
-    # Fallback: infer experience years from a year-range pattern in the full text
-    if total_experience_years is None:
-        year_matches = re.findall(r"\b(20\d{2}|19\d{2})\b", structural_text)
-        if len(year_matches) >= 2:
-            years = sorted(set(int(y) for y in year_matches))
-            span = years[-1] - years[0]
-            if 0 < span <= 40:
-                total_experience_years = float(span)
 
     current_entry = experience_entries[0] if experience_entries else {}
     # Fallback current_role from header when no experience entries parsed

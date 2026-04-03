@@ -29,6 +29,13 @@ HEADER_PATTERN = re.compile(
     r"(?i)^(?:work experience|professional experience|employment history|employment|experience|skills|technical skills|education|projects?|summary|profile|languages?)$"
 )
 WHITESPACE_PATTERN = re.compile(r"[ \t]+")
+INLINE_SECTION_HEADER_PATTERN = re.compile(
+    r"(?i)(?<!\n)(?:\s{2,}|\s)(?P<header>"
+    r"career profile|professional summary|profile summary|profile|summary|objective|"
+    r"work experience|professional experience|employment history|"
+    r"technical skills|core skills|skills|education|"
+    r"certifications?|achievements?\s*&\s*recognition|awards?\s*&\s*recognition)\b"
+)
 
 
 def normalize_line_breaks(text: str) -> str:
@@ -165,8 +172,22 @@ def normalize_text(text: str) -> str:
     return normalized.strip()
 
 
+def split_inline_section_headers(text: str) -> str:
+    if not text:
+        return ""
+
+    def replacer(match: re.Match[str]) -> str:
+        header = match.group("header")
+        return f"\n{header.upper()}\n"
+
+    normalized = INLINE_SECTION_HEADER_PATTERN.sub(replacer, text)
+    normalized = re.sub(r"\n{3,}", "\n\n", normalized)
+    return normalized
+
+
 def clean_text_pipeline(text: str) -> str:
     cleaned_text = normalize_common_artifacts(text)
+    cleaned_text = split_inline_section_headers(cleaned_text)
     cleaned_text = remove_urls(cleaned_text)
     cleaned_text = remove_bullets(cleaned_text)
     cleaned_text = remove_special_characters(cleaned_text)

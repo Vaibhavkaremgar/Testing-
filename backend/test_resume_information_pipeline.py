@@ -123,6 +123,50 @@ Leadership, Stakeholder Management, Hiring
         self.assertEqual(result["current_role"], "Engineering Manager")
         self.assertEqual(result["current_company"], "Bright Solutions Ltd")
 
+    def test_multiline_role_and_company_are_not_replaced_by_responsibility_text(self):
+        resume_text = """
+Divya Menon
+Human Resources Business Partner
+Chennai, Tamil Nadu | +91 93210 45678 | divya.menon.hr@gmail.com
+
+Work Experience
+Senior HR Business Partner
+Zoho Corporation Pvt. Ltd. | Chennai, Tamil Nadu
+May 2021 - Present
+Act as strategic HRBP for the Finance Plus division across India and APAC.
+
+HR Business Partner
+Cognizant Technology Solutions | Chennai, Tamil Nadu
+Jan 2018 - Apr 2021
+Served as HRBP for the Retail & Consumer Goods vertical.
+        """
+
+        result = extract_resume_information(resume_text)
+
+        self.assertEqual(result["current_role"], "Senior HR Business Partner")
+        self.assertEqual(result["current_company"], "Zoho Corporation Pvt. Ltd")
+        self.assertEqual(result["location"], "Chennai, Tamil Nadu")
+        self.assertEqual(len(result["experience"]), 2)
+
+    def test_inline_section_headers_do_not_pollute_location_or_current_role(self):
+        resume_text = """
+Ananya Krishnan Data Analyst | Business Intelligence | Visualization Hyderabad, Telangana | +91 98001 23456 | ananya.krishnan@outlook.com
+PROFILE Data Analyst with 5 years of experience turning complex datasets into insights.
+WORK EXPERIENCE Senior Data Analyst Meesho Pvt. Ltd. | Jun 2022 - Present Bengaluru, Karnataka Built reporting dashboards.
+Data Analyst Delhivery Ltd. | Jan 2020 - May 2022 Gurugram, Haryana Built logistics reporting.
+TECHNICAL SKILLS SQL | Python | Power BI | Tableau | Mixpanel | Git
+Languages: English (Fluent) Tamil (Native) Telugu (Conversational) Hindi (Working)
+        """
+
+        result = extract_resume_information(resume_text)
+
+        self.assertEqual(result["location"], "Hyderabad, Telangana")
+        self.assertEqual(result["current_role"], "Senior Data Analyst")
+        self.assertEqual(result["current_company"], "Meesho Pvt. Ltd.")
+        self.assertIn("sql", result["skills"])
+        self.assertIn("python", result["skills"])
+        self.assertIn("English", result["languages"])
+
 
 if __name__ == "__main__":
     unittest.main()
