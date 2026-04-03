@@ -257,6 +257,34 @@ Built Android features and internal tooling.
         self.assertEqual(len(merged), 2)
         self.assertAlmostEqual(compute_total_experience(merged), 1.9, delta=0.15)
 
+    def test_extract_date_ranges_supports_year_month_and_short_year_formats(self):
+        text = """
+2021/03 - Present
+Mar-21 - Dec-22
+09.2018 - 02.2021
+        """
+
+        ranges = extract_date_ranges(text)
+
+        self.assertEqual(len(ranges), 3)
+        self.assertEqual(ranges[0]["start"], "2021/03")
+        self.assertEqual(ranges[1]["end"], "Dec-22")
+
+    def test_multiple_entries_are_split_when_each_line_contains_a_date_range(self):
+        resume_text = """
+Professional Experience
+Lead Engineer | Nova Systems | 2021/03 - Present
+Built platform services.
+Senior Engineer | Acme Works | 09.2018 - 02.2021
+Delivered hiring workflow automation.
+        """
+
+        result = extract_total_experience(resume_text)
+
+        self.assertEqual(len(result["experiences"]), 2)
+        self.assertEqual(result["experiences"][0]["company"], "Nova Systems")
+        self.assertEqual(result["experiences"][1]["company"], "Acme Works")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -20,10 +20,12 @@ except ImportError:  # pragma: no cover - optional dependency
 
 from ats.datasets.parser_config_loader import ParserConfigLoader
 from ats.extraction.experience_extraction import compute_total_experience, parse_date
+from ats.extraction.information_extraction import extract_email as extract_normalized_email
 from ats.extraction.information_extraction import extract_resume_information
 from ats.extraction.validation import validate_parsed_fields
 from ats.preprocessing.section_segmentation import segment_resume_sections
 from ats.preprocessing.text_cleaning import clean_text_pipeline, normalize_common_artifacts, normalize_document_structure, split_inline_section_headers
+from app.spacy_nlp import SPACY_AVAILABLE, get_section_doc
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +61,7 @@ NAME_LABEL_PATTERN = re.compile(r"(?i)^\s*name\s*[:\-]\s*(?P<value>.+)$")
 SECTION_START_PATTERN = re.compile(
     r"(?i)^(?:work experience|professional experience|employment history|employment|career history|experience|"
     r"skills|technical skills|core skills|key skills|education|projects?|summary|profile|languages?|"
-    r"certifications?|achievements?|awards?|publications?|references?)$"
+    r"certifications?|achievements?|awards?|publications?|references?|professional snapshot|snapshot|overview)$"
 )
 NAME_CONTEXT_ROLE_PATTERN = re.compile(
     r"(?i)\b(?:engineer|developer|tester|analyst|consultant|manager|architect|specialist|intern)\b"
@@ -490,12 +492,7 @@ def _extract_phone(text: str) -> str:
 
 def _extract_email(text: str) -> str:
     source_text = _extract_contact_zone_text(text)
-    match = EMAIL_PATTERN.search(source_text or "")
-    if not match:
-        compact = (source_text or "").replace("(at)", "@").replace("[at]", "@").replace(" at ", "@")
-        compact = compact.replace("(dot)", ".").replace("[dot]", ".").replace(" dot ", ".")
-        match = EMAIL_PATTERN.search(compact)
-    return re.sub(r"\s+", "", match.group(0)).strip(".,;:") if match else ""
+    return extract_normalized_email(source_text or "")
 
 
 def _email_to_name(email: str) -> str:
@@ -504,6 +501,28 @@ def _email_to_name(email: str) -> str:
     if not (2 <= len(tokens) <= 4):
         return ""
     return _normalize_name_candidate(" ".join(token.title() for token in tokens))
+
+
+def _extract_name_with_spacy(text: str) -> str:
+    if not SPACY_AVAILABLE:
+        return ""
+    search_zones = [
+        "\n".join(_header_name_candidates(text)[:8]),
+        "\n".join(line.strip() for line in normalize_document_structure(text or "").splitlines()[:20] if line.strip()),
+    ]
+    for zone in search_zones:
+        if not zone.strip():
+            continue
+        doc = get_section_doc(zone)
+        if doc is None:
+            continue
+        for ent in doc.ents:
+            if ent.label_ != "PERSON":
+                continue
+            candidate = _normalize_name_candidate(ent.text)
+            if candidate:
+                return candidate
+    return ""
 
 
 def _extract_name(text: str, original_filename: Optional[str] = None) -> str:
@@ -531,6 +550,9 @@ def _extract_name(text: str, original_filename: Optional[str] = None) -> str:
         inline_header_name = _extract_inline_header_name(line)
         if inline_header_name:
             return inline_header_name
+    spacy_name = _extract_name_with_spacy(text)
+    if spacy_name:
+        return spacy_name
     raw_lines = [line.strip() for line in normalize_document_structure(text or "").splitlines() if line.strip()]
     for index, line in enumerate(raw_lines[:80]):
         lowered_line = line.strip().lower()

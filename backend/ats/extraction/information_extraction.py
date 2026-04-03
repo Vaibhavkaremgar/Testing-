@@ -22,6 +22,27 @@ from ats.preprocessing.text_cleaning import (
 from app.spacy_nlp import SPACY_AVAILABLE, get_section_doc
 from ats.extraction.experience_extraction import DATE_RANGE_REGEX
 
+def extract_name(text: str) -> str:
+    if not text:
+        return ""
+
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+
+    # 1. Try spaCy
+    if SPACY_AVAILABLE:
+        doc = get_section_doc("\n".join(lines[:10]))
+        if doc:
+            for ent in doc.ents:
+                if ent.label_ == "PERSON" and 1 < len(ent.text.split()) <= 4:
+                    return ent.text
+
+    # 2. Fallback
+    for line in lines[:5]:
+        if re.match(r"^[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3}$", line):
+            return line
+
+    return ""
+
 SKILL_ALIASES = {
     "js": "javascript",
     "ts": "typescript",
@@ -450,6 +471,8 @@ def extract_skill_keywords(text: str, section_text: str = "") -> List[str]:
 def extract_email(text: str) -> str:
     if not text:
         return ""
+
+    text = re.sub(r'(\w+)\s*@\s*\n\s*(\w+\.\w+)', r'\1@\2', text)
     match = EMAIL_PATTERN.search(text)
     if match:
         return re.sub(r"\s+", "", match.group(0)).strip(".,;:")
@@ -692,19 +715,36 @@ def extract_resume_information(text: str) -> Dict:
     )
     cleaned_text = clean_text_pipeline(text)
     sections = segment_resume_sections(cleaned_text)
+    
     structural_source = normalize_document_structure(text or "")
     raw_sections = segment_resume_sections(structural_source)
+    
     skills_section = _sanitize_skill_section(raw_sections.get("skills", "") or sections.get("skills", ""))
+    
     skills = extract_skill_keywords(skills_section, skills_section)
+    
+    if not skills:
+        skills = extract_skill_keywords(cleaned_text, cleaned_text)
+    
     experience_result = extract_total_experience(structural_text)
+    
+    if not experience_result.get("experiences"):
+        experience_result = extract_total_experience(cleaned_text)
+    
     experience_entries = experience_result.get("experiences", [])
     total_experience_years = experience_result.get("total_experience_years")
 
-    current_entry = next(
-        (entry for entry in experience_entries if entry.get("role") or entry.get("company")),
-        {},
+    current_entry = {}
+
+if experience_entries:
+    experience_entries_sorted = sorted(
+        experience_entries,
+        key=lambda x: x.get("end_date") or "Present",
+        reverse=True
     )
+    current_entry = experience_entries_sorted[0]
     # Fallback current_role from header when no experience entries parsed
+    
     header_role = ""
     if not experience_entries and not current_entry.get("role"):
         from ats.extraction.experience_extraction import ROLE_TITLE_PATTERN
@@ -713,16 +753,27 @@ def extract_resume_information(text: str) -> Dict:
             if m:
                 header_role = m.group("role").strip()
                 break
+    location = extract_location(sections.get("header", ""))            
+    
+    if not location and SPACY_AVAILABLE:
+       doc = get_section_doc(text[:500])
+       if doc:
+           for ent in doc.ents:
+               if ent.label_ == "GPE":
+                  location = ent.text
+                  break            
+    
     result = {
         "sections": sections,
         "skills": skills,
+        "name": extract_name(text),
         "experience": experience_entries,
         "projects": extract_project_entries(cleaned_text, sections.get("projects", "")),
         "education": extract_education_entries(cleaned_text, sections.get("education", "")),
         "certifications": extract_certification_entries(cleaned_text, sections.get("certifications", "")),
-        "location": extract_location(sections.get("header", "")),
+        "location": location,               
         "current_company": current_entry.get("company"),
-        "current_role": current_entry.get("role") or (header_role if not experience_entries else None) or None,
+        "current_role": current_entry.get("role") or (header_role if not experience_entries else None),
         "designation": current_entry.get("role") or (header_role if not experience_entries else None) or None,
         "experience_years": total_experience_years,
         "total_experience_years": total_experience_years,

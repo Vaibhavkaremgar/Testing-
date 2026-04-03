@@ -32,6 +32,34 @@ _section_header_terms = {
     str(key).strip().lower(): [str(value).strip().lower() for value in values if str(value).strip()]
     for key, values in (_parser_vocabulary.get("section_header_terms") or {}).items()
 }
+HEADER_NORMALIZATION_MAP = {
+    "career profile": "summary",
+    "career summary": "summary",
+    "profile summary": "summary",
+    "professional profile": "summary",
+    "professional overview": "summary",
+    "executive summary": "summary",
+    "work history": "experience",
+    "employment details": "experience",
+    "professional background": "experience",
+    "career journey": "experience",
+    "technical expertise": "skills",
+    "skill set": "skills",
+    "tools and technologies": "skills",
+    "tools & technologies": "skills",
+    "technology tools": "skills",
+    "tech stack": "skills",
+    "tool stack": "skills",
+    "academic profile": "education",
+    "education details": "education",
+    "professional projects": "projects",
+    "project profile": "projects",
+    "spoken languages": "languages",
+    "language skills": "languages",
+    "certificates": "certifications",
+    "licenses and certifications": "certifications",
+    "licenses & certifications": "certifications",
+}
 SECTION_HEADER_PATTERNS = {
     section: _compile_exact_terms(terms)
     for section, terms in _section_header_terms.items()
@@ -47,12 +75,16 @@ BOUNDARY_HEADER_PATTERNS = [
 INLINE_HEADER_PATTERN = re.compile(r"^(?P<header>[^:]{1,60}?):\s*(?P<content>.+)$")
 DATE_RANGE_PATTERN = re.compile(
     r"(?i)\b(?:"
-    r"(?:jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\s+\d{4}"
-    r"|\d{1,2}[/-]\d{4}"
+    r"(?:jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)[.\-/\s]+\d{2,4}"
+    r"|\d{1,2}[/-]\d{2,4}"
+    r"|\d{4}[/-]\d{1,2}"
+    r"|\d{1,2}\.\d{2,4}"
     r"|\d{4}"
     r")\s*(?:-|to|until)\s*(?:present|current|now|"
-    r"(?:jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\s+\d{4}"
-    r"|\d{1,2}[/-]\d{4}"
+    r"(?:jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)[.\-/\s]+\d{2,4}"
+    r"|\d{1,2}[/-]\d{2,4}"
+    r"|\d{4}[/-]\d{1,2}"
+    r"|\d{1,2}\.\d{2,4}"
     r"|\d{4})\b"
 )
 ROLE_HINT_PATTERN = _compile_contains_terms([str(value).strip().lower() for value in (_parser_vocabulary.get("role_hint_terms") or []) if str(value).strip()])
@@ -104,6 +136,9 @@ def _match_section_name(header_text: str) -> str | None:
     candidate = _clean_header_candidate(header_text)
     if not candidate:
         return None
+    normalized_candidate = HEADER_NORMALIZATION_MAP.get(candidate.lower())
+    if normalized_candidate:
+        return normalized_candidate
     for section, pattern in SECTION_HEADER_PATTERNS.items():
         if pattern.match(candidate):
             return section

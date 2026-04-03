@@ -98,6 +98,22 @@ AWS Certified Developer
         self.assertIn("Software Engineer | Acme Corp", experience)
         self.assertNotIn("AWS Certified Developer", experience)
 
+    def test_header_normalization_maps_tool_stack_to_skills(self):
+        resume_text = """
+Riya Shah
+
+Tool Stack
+Python | Docker | AWS
+
+Work History
+Backend Engineer | Acme Corp
+2022 - Present
+        """
+
+        sections = segment_resume_sections(resume_text)
+        self.assertIn("Python", sections["skills"])
+        self.assertIn("Backend Engineer", sections["experience"])
+
 
 if __name__ == "__main__":
     unittest.main()

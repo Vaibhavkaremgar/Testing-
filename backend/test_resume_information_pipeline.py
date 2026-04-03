@@ -221,7 +221,7 @@ Languages: English (Fluent) Tamil (Native) Telugu (Conversational) Hindi (Workin
 
         self.assertEqual(result["location"], "Hyderabad, Telangana")
         self.assertEqual(result["current_role"], "Senior Data Analyst")
-        self.assertEqual(result["current_company"], "Meesho Pvt. Ltd.")
+        self.assertEqual(result["current_company"], "Meesho Pvt. Ltd")
         self.assertIn("sql", result["skills"])
         self.assertIn("python", result["skills"])
         self.assertIn("English", result["languages"])
@@ -764,6 +764,77 @@ Handled logistics execution support.
         result = extract_resume_information(resume_text)
 
         self.assertEqual(result["current_company"], "COGNIZANT")
+
+    def test_tools_section_and_full_text_fallback_extract_skills_for_unstructured_resume(self):
+        resume_text = """
+Maya Thomas
+Austin, Texas
+maya.thomas.engineer@
+gmail.com
+
+Principal Backend Engineer at Acme Cloud Systems
+2023/01 - Present
+Building Python and FastAPI services on AWS with Docker and PostgreSQL.
+
+Tool Stack
+Docker | AWS | GitHub Actions | Terraform
+        """
+
+        parsed = self._parse_resume_text(resume_text, "maya_thomas.txt")
+        result = extract_resume_information(resume_text)
+
+        self.assertEqual(parsed["email"], "maya.thomas.engineer@gmail.com")
+        self.assertEqual(result["current_role"], "Principal Backend Engineer")
+        self.assertEqual(result["current_company"], "Acme Cloud Systems")
+        self.assertIn("docker", result["skills"])
+        self.assertIn("aws", result["skills"])
+        self.assertIn("python", result["skills"])
+        self.assertIn("fastapi", result["skills"])
+
+    def test_unstructured_resume_without_sections_still_extracts_latest_role_company_location_and_education(self):
+        resume_text = """
+Neha Kapoor
+Seattle, Washington | neha.kapoor.data@gmail.com
+
+Lead Data Engineer | Northwind Technologies
+2021-03 - Present
+Built hiring analytics pipelines and warehouse automation using Python, Airflow, and Snowflake.
+
+Senior Data Engineer | Blue River Labs
+07/2018 - 02/2021
+Designed ETL systems for enterprise reporting.
+
+Bachelor of Technology
+National Institute of Technology
+2018
+        """
+
+        result = extract_resume_information(resume_text)
+
+        self.assertEqual(result["current_role"], "Lead Data Engineer")
+        self.assertEqual(result["current_company"], "Northwind Technologies")
+        self.assertEqual(result["location"], "Seattle, Washington")
+        self.assertEqual(result["education"][0]["degree"], "Bachelor of Technology")
+        self.assertEqual(result["education"][0]["institution"], "National Institute of Technology")
+        self.assertIn("python", result["skills"])
+
+    def test_spacy_person_name_fallback_handles_non_header_name_line(self):
+        resume_text = """
+CONTACT DETAILS
+abhishek.verma.dev@gmail.com
++1 (425) 555-0123
+
+Professional Snapshot
+Abhishek Verma is a senior backend engineer focused on distributed systems and hiring platforms.
+
+Experience
+Senior Backend Engineer | Delta Systems
+Jan 2024 - Present
+        """
+
+        parsed = self._parse_resume_text(resume_text, "candidate_profile.txt")
+
+        self.assertEqual(parsed["name"], "Abhishek Verma")
 
 
 if __name__ == "__main__":
