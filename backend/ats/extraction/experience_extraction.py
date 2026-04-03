@@ -25,6 +25,28 @@ def _compile_company_pattern(values: List[str], fallback: List[str]) -> re.Patte
     terms = [str(value).strip().lower() for value in values if str(value).strip()] or fallback
     return re.compile(rf"(?i)\b(?:{'|'.join(re.escape(term) for term in terms)})\b")
 
+
+def _compile_role_title_pattern(prefix_terms: List[str], role_terms: List[str]) -> re.Pattern:
+    prefixes = [str(value).strip().lower() for value in prefix_terms if str(value).strip()]
+    roles = [str(value).strip().lower() for value in role_terms if str(value).strip()]
+    if not roles:
+        roles = [
+            "engineer", "developer", "manager", "lead", "analyst", "consultant", "architect",
+            "specialist", "administrator", "designer", "executive", "director", "officer",
+            "associate", "scientist", "recruiter", "qa", "tester", "intern", "partner",
+            "generalist", "coordinator",
+        ]
+    prefix_fragment = "|".join(re.escape(term) for term in prefixes) if prefixes else ""
+    role_fragment = "|".join(re.escape(term) for term in roles)
+    if prefix_fragment:
+        pattern = (
+            rf"(?i)\b(?P<role>(?:(?:{prefix_fragment})\s+){{0,4}}"
+            rf"(?:{role_fragment}))\b"
+        )
+    else:
+        pattern = rf"(?i)\b(?P<role>(?:{role_fragment}))\b"
+    return re.compile(pattern)
+
 MONTH_PATTERN = r"(?:jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)"
 PRESENT_PATTERN = r"(?:present|current|now|today|till date|till now)"
 DATE_RANGE_REGEX = re.compile(
@@ -42,11 +64,13 @@ ROLE_HINT_PATTERN = _compile_contains_pattern(
         "intern", "partner", "generalist", "coordinator",
     ],
 )
-ROLE_TITLE_PATTERN = re.compile(
-    r"(?i)\b(?P<role>(?:(?:senior|sr|junior|jr|lead|principal|staff|associate|assistant|frontend|front-end|backend|back-end|full[- ]stack|data|product|software|web|mobile|qa|devops|machine learning|ml|human resources|hr|business|sales)\s+){0,4}(?:engineer|developer|manager|lead|analyst|consultant|architect|specialist|administrator|designer|executive|director|officer|associate|scientist|recruiter|qa|tester|intern|partner|generalist|coordinator))\b"
+ROLE_TITLE_PATTERN = _compile_role_title_pattern(
+    list(_parser_vocabulary.get("role_prefix_terms") or []),
+    list(_parser_vocabulary.get("role_hint_terms") or []),
 )
 PROSE_ROLE_PATTERN = re.compile(
-    r"(?i)\b(?:i\s+was|worked\s+as|work(?:ed)?\s+as|joined\s+as|served\s+as|role\s+was|position\s+was)\s+(?:an?\s+)?(?P<role>[A-Za-z][A-Za-z/&\-\s]{1,80}?(?:engineer|developer|manager|lead|analyst|consultant|architect|specialist|administrator|designer|executive|director|officer|associate|scientist|recruiter|qa|tester|intern|partner|generalist|coordinator))\b"
+    rf"(?i)\b(?:i\s+was|worked\s+as|work(?:ed)?\s+as|joined\s+as|served\s+as|role\s+was|position\s+was)\s+"
+    rf"(?:an?\s+)?(?P<role>[A-Za-z][A-Za-z/&\-\s]{{1,80}}?(?:{'|'.join(re.escape(str(value).strip().lower()) for value in (_parser_vocabulary.get('role_hint_terms') or []) if str(value).strip())}))\b"
 )
 COMPANY_PATTERN = _compile_company_pattern(
     list(_parser_vocabulary.get("company_hint_terms") or []),
@@ -392,6 +416,9 @@ def _extract_company_from_heading_line(line: str, role: Optional[str] = None) ->
 
     if ROLE_HINT_PATTERN.search(candidate):
         return None
+
+    if COMPANY_PATTERN.search(candidate) and "|" not in candidate and "," not in candidate:
+        return _clean_company_name(candidate)
 
     company_match = re.search(
         r"(?i)(?P<company>[A-Z][A-Za-z0-9&.'-]*(?:\s+[A-Z][A-Za-z0-9&.'-]*)*\s+(?:Pvt\.?\s+Ltd\.?|Ltd\.?|Inc\.?|Corp\.?|Technologies|Solutions|Systems|Labs|Works|LLP))\b",

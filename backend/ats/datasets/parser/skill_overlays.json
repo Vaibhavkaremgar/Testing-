@@ -123,6 +123,22 @@
       "prototyping",
       "graphic design"
     ],
+    "education": [
+      "teaching",
+      "classroom management",
+      "lesson planning",
+      "curriculum development",
+      "student assessment",
+      "special education",
+      "pedagogy",
+      "parent communication",
+      "academic coordination",
+      "subject matter expertise",
+      "online teaching",
+      "instructional design",
+      "learning management systems",
+      "child development"
+    ],
     "healthcare": [
       "patient care",
       "clinical documentation",
@@ -171,6 +187,13 @@
     "powerbi": "power bi",
     "bigquery": "google bigquery",
     "airflow": "apache airflow",
+    "lms": "learning management systems",
+    "classroom mgmt": "classroom management",
+    "lesson plan": "lesson planning",
+    "lesson plans": "lesson planning",
+    "curriculum design": "curriculum development",
+    "student evaluations": "student assessment",
+    "student evaluation": "student assessment",
     "html5": "html",
     "css3": "css"
   },

@@ -405,6 +405,44 @@ Supported test automation execution.
         self.assertEqual(result["current_role"], "QA Automation Engineer")
         self.assertEqual(result["current_company"], "Cognizant Technology Solutions")
 
+    def test_teacher_resume_extracts_role_company_location_and_skills(self):
+        resume_text = """
+Anita Sharma
+Bengaluru, Karnataka | +91 98765 43210 | anita.sharma@email.com
+
+Work Experience
+Senior Mathematics Teacher
+Green Valley Public School
+Jun-2021 to Present
+Led grade 9 and 10 mathematics curriculum planning, student assessment, and parent communication.
+
+Mathematics Teacher
+Sunrise High School
+Apr-2017 to May-2021
+Managed classroom instruction and lesson planning for secondary students.
+
+Skills
+Classroom Management
+Lesson Planning
+Curriculum Development
+Student Assessment
+Parent Communication
+Pedagogy
+Online Teaching
+        """
+
+        result = extract_resume_information(resume_text)
+        parsed = self._parse_resume_text(resume_text, "anita_teacher.txt")
+
+        self.assertEqual(parsed["name"], "Anita Sharma")
+        self.assertEqual(result["location"], "Bengaluru, Karnataka")
+        self.assertEqual(result["current_role"], "Senior Mathematics Teacher")
+        self.assertEqual(result["current_company"], "Green Valley Public School")
+        self.assertIn("classroom management", result["skills"])
+        self.assertIn("lesson planning", result["skills"])
+        self.assertIn("student assessment", result["skills"])
+        self.assertIn("pedagogy", result["skills"])
+
 
 if __name__ == "__main__":
     unittest.main()

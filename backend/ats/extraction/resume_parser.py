@@ -400,6 +400,28 @@ def _extract_name(text: str, original_filename: Optional[str] = None) -> str:
     return "Unknown Candidate"
 
 
+def _score_name_confidence(name: str) -> float:
+    normalized = _normalize_name_candidate(name)
+    if not normalized:
+        return 0.0
+    score = 0.45
+    if 2 <= len(normalized.split()) <= 3:
+        score += 0.25
+    if not any(token.lower() in INVALID_NAME_TOKENS for token in normalized.split()):
+        score += 0.15
+    if normalized != "Unknown Candidate":
+        score += 0.15
+    return round(min(score, 1.0), 2)
+
+
+def _score_email_confidence(email: str) -> float:
+    return 1.0 if _extract_email(email) else 0.0
+
+
+def _score_phone_confidence(phone: str) -> float:
+    return 1.0 if _extract_phone(phone) else 0.0
+
+
 def extract_skills(text: str) -> List[str]:
     info = extract_resume_information(text)
     return info.get("skills", [])
@@ -483,8 +505,16 @@ def parse_resume(file_path: str, original_filename: Optional[str] = None) -> Dic
         "experience_entries": extracted_info.get("experience", []),
         "full_text": cleaned_text,
         "raw_text": raw_text,
+        "field_confidence": {
+            "name": 0.0,
+            "email": 0.0,
+            "phone": 0.0,
+        },
     }
     result = validate_parsed_fields(result)
+    result["field_confidence"]["name"] = _score_name_confidence(result.get("name", ""))
+    result["field_confidence"]["email"] = _score_email_confidence(result.get("email", ""))
+    result["field_confidence"]["phone"] = _score_phone_confidence(result.get("phone", ""))
     logger.info(
         "Parsed resume: name=%s, skills=%s, experience_years=%s, current_company=%s, location=%s",
         result["name"],

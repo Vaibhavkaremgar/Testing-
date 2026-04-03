@@ -24,6 +24,7 @@ EXACT_MATCH_FIELDS = [
 @dataclass
 class BenchmarkCase:
     case_id: str
+    domain: str
     source_text: str
     filename: str
     expected: Dict[str, Any]
@@ -54,10 +55,11 @@ def _load_benchmark_cases(dataset_path: str | Path) -> List[BenchmarkCase]:
     cases: List[BenchmarkCase] = []
     for index, item in enumerate(payload.get("cases", []), start=1):
         case_id = str(item.get("id") or f"case_{index}")
+        domain = str(item.get("domain") or "general")
         source_text = str(item.get("resume_text") or "")
         filename = str(item.get("filename") or f"{case_id}.txt")
         expected = dict(item.get("expected") or {})
-        cases.append(BenchmarkCase(case_id=case_id, source_text=source_text, filename=filename, expected=expected))
+        cases.append(BenchmarkCase(case_id=case_id, domain=domain, source_text=source_text, filename=filename, expected=expected))
     return cases
 
 
@@ -93,11 +95,13 @@ class ResumeParsingBenchmark:
         skill_precisions: List[float] = []
         skill_recalls: List[float] = []
         case_results: List[Dict[str, Any]] = []
+        domain_counts: Dict[str, int] = {}
 
         for case in self.cases:
             actual = self._parse_case(case)
             expected = case.expected
-            case_result: Dict[str, Any] = {"id": case.case_id, "fields": {}}
+            case_result: Dict[str, Any] = {"id": case.case_id, "domain": case.domain, "fields": {}}
+            domain_counts[case.domain] = domain_counts.get(case.domain, 0) + 1
 
             for field in EXACT_MATCH_FIELDS:
                 if field not in expected:
@@ -172,6 +176,7 @@ class ResumeParsingBenchmark:
                 "avg_recall": round(avg_recall, 3) if avg_recall is not None else None,
                 "avg_f1": round(avg_f1, 3) if avg_f1 is not None else None,
             },
+            "domain_coverage": domain_counts,
             "case_results": case_results,
         }
 

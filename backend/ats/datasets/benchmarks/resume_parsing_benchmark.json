@@ -2,6 +2,7 @@
   "cases": [
     {
       "id": "inline_header_data_analyst",
+      "domain": "analytics",
       "filename": "R1_Ananya_Krishnan_DataAnalyst.docx",
       "resume_text": "Ananya Krishnan Data Analyst | Business Intelligence | Visualization Hyderabad, Telangana | +91 98001 23456 | ananya.krishnan@outlook.com\nPROFILE Data Analyst with 5 years of experience turning complex datasets into insights.\nWORK EXPERIENCE Senior Data Analyst Meesho Pvt. Ltd. | Jun 2022 - Present Bengaluru, Karnataka Built reporting dashboards.\nData Analyst Delhivery Ltd. | Jan 2020 - May 2022 Gurugram, Haryana Built logistics reporting.\nTECHNICAL SKILLS SQL | Python | Power BI | Tableau | Mixpanel | Git",
       "expected": {
@@ -17,6 +18,7 @@
     },
     {
       "id": "sales_skill_noise_filter",
+      "domain": "sales",
       "filename": "vikram_sales.txt",
       "resume_text": "Vikram Patel\n\nSkills\nb2g\npipeline mgmt\nclosing\nforecasting\nterritory mgmt\ncold calling\npipeline\nprospecting\ndeal closing\nretention\ncross sell\nbusiness development\ngrowth enterprises\n2016 - 2018\nproduct demos\nclosing deals\nsenior sales executive\nretail\n2014 - 2016\nwalk-in leads\nsales executive\nprime marketing services\n2012 - 2014\nworked in field sales\ndoor to door sales\nsalesforce\nhubspot\nzoho\npipedrive\ncommunication: email\nwhatsapp\nmeet\nteams\nshort\nsales\naccount mgmt",
       "expected": {
@@ -42,6 +44,7 @@
     },
     {
       "id": "month_based_experience",
+      "domain": "qa",
       "filename": "deepak_qa.txt",
       "resume_text": "Deepak Sharma\n\nWork Experience\nQA Automation Engineer\nCognizant Technology Solutions\nDec-2022 to Present\nBuilt automation for API and UI workflows.\n\nQEA Intern\nAcme Labs\nJun-2022 to Nov-2022\nSupported test automation execution.",
       "expected": {
@@ -53,6 +56,7 @@
     },
     {
       "id": "header_only_location_rule",
+      "domain": "qa",
       "filename": "bhimaraju_qa.txt",
       "resume_text": "Bhimaraju Kowshik\nbhimaraju.kowshik@gmail.com | +91 8106148797\n\nProfessional Summary\nQA Automation Engineer with 4.2 years of experience in Java, Selenium WebDriver and API testing.\n\nSkills\nrest assured\njava\nsql\ntestng\ncucumber\napache maven\ngcp\naccelq\nstibo\npostman\nsoap\n\nExperience\nQA Automation Engineer\nCognizant Technology Solutions\nDec-2022 to Present\nUsing JIRA, Maven while continuously improving regression suites.",
       "expected": {
@@ -64,6 +68,30 @@
         "current_company": "Cognizant Technology Solutions",
         "experience_years": 3.3,
         "skills": ["rest assured", "java", "sql", "testng", "cucumber", "apache maven", "gcp", "accelq", "stibo", "postman", "soap"]
+      }
+    },
+    {
+      "id": "teacher_resume_parsing",
+      "domain": "education",
+      "filename": "anita_teacher.txt",
+      "resume_text": "Anita Sharma\nBengaluru, Karnataka | +91 98765 43210 | anita.sharma@email.com\n\nProfessional Summary\nHigh school mathematics teacher with 8 years of experience in CBSE classrooms.\n\nWork Experience\nSenior Mathematics Teacher\nGreen Valley Public School\nJun-2021 to Present\nLed grade 9 and 10 mathematics curriculum planning, student assessment, and parent communication.\n\nMathematics Teacher\nSunrise High School\nApr-2017 to May-2021\nManaged classroom instruction and lesson planning for secondary students.\n\nSkills\nClassroom Management\nLesson Planning\nCurriculum Development\nStudent Assessment\nParent Communication\nPedagogy\nOnline Teaching",
+      "expected": {
+        "name": "Anita Sharma",
+        "email": "anita.sharma@email.com",
+        "phone": "+91 98765 43210",
+        "location": "Bengaluru, Karnataka",
+        "current_role": "Senior Mathematics Teacher",
+        "current_company": "Green Valley Public School",
+        "experience_years": 8.0,
+        "skills": [
+          "classroom management",
+          "lesson planning",
+          "curriculum development",
+          "student assessment",
+          "parent communication",
+          "pedagogy",
+          "online teaching"
+        ]
       }
     }
   ]
