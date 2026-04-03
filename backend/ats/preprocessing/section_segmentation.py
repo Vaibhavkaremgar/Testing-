@@ -3,46 +3,45 @@ from __future__ import annotations
 import re
 from typing import Dict, List
 
+from ats.datasets.parser_config_loader import ParserConfigLoader
+
 CORE_SECTIONS = ("experience", "skills", "education", "projects")
 OPTIONAL_SECTIONS = ("header", "summary", "languages", "achievements", "certifications", "awards", "publications", "interests", "references")
 ALL_SECTIONS = CORE_SECTIONS + OPTIONAL_SECTIONS
 
+_parser_config_loader = ParserConfigLoader()
+_parser_vocabulary = _parser_config_loader.load_parser_vocabulary()
+
+
+def _compile_exact_terms(terms: List[str]) -> re.Pattern:
+    escaped_terms = [re.escape(term) for term in terms if term]
+    return re.compile(rf"(?i)^(?:{'|'.join(escaped_terms)})$") if escaped_terms else re.compile(r"$^")
+
+
+def _compile_prefix_terms(terms: List[str]) -> re.Pattern:
+    escaped_terms = [re.escape(term) for term in terms if term]
+    return re.compile(rf"(?i)^(?:{'|'.join(escaped_terms)})\b") if escaped_terms else re.compile(r"$^")
+
+
+def _compile_contains_terms(terms: List[str]) -> re.Pattern:
+    escaped_terms = [re.escape(term) for term in terms if term]
+    return re.compile(rf"(?i)\b(?:{'|'.join(escaped_terms)})\b") if escaped_terms else re.compile(r"$^")
+
+
+_section_header_terms = {
+    str(key).strip().lower(): [str(value).strip().lower() for value in values if str(value).strip()]
+    for key, values in (_parser_vocabulary.get("section_header_terms") or {}).items()
+}
 SECTION_HEADER_PATTERNS = {
-    "experience": re.compile(
-        r"(?i)^(?:work experience|professional experience|employment history|employment|career history|experience)$"
-    ),
-    "skills": re.compile(r"(?i)^(?:technical skills|core skills|key skills|skills|tools)$"),
-    "education": re.compile(r"(?i)^education$"),
-    "projects": re.compile(r"(?i)^projects?$"),
-    "summary": re.compile(r"(?i)^(?:professional summary|profile summary|career summary|summary|objective|profile)$"),
-    "languages": re.compile(r"(?i)^languages?$"),
-    "achievements": re.compile(r"(?i)^(?:achievements?|key product launches(?:\s*&\s*impact)?)$"),
-    "certifications": re.compile(r"(?i)^certifications?$"),
-    "awards": re.compile(r"(?i)^(?:awards?|awards\s*&\s*recognition)$"),
-    "publications": re.compile(r"(?i)^publications?$"),
-    "interests": re.compile(r"(?i)^interests?$"),
-    "references": re.compile(r"(?i)^references?$"),
+    section: _compile_exact_terms(terms)
+    for section, terms in _section_header_terms.items()
 }
-
 SECTION_PREFIX_PATTERNS = {
-    "experience": re.compile(
-        r"(?i)^(?:work experience|professional experience|employment history|employment|career history|experience)\b"
-    ),
-    "skills": re.compile(r"(?i)^(?:technical skills|core skills|key skills|skills|tools)\b"),
-    "education": re.compile(r"(?i)^education\b"),
-    "projects": re.compile(r"(?i)^projects?\b"),
-    "summary": re.compile(r"(?i)^(?:professional summary|profile summary|career summary|summary|objective|profile)\b"),
-    "languages": re.compile(r"(?i)^languages?\b"),
-    "achievements": re.compile(r"(?i)^(?:achievements?|key product launches(?:\s*&\s*impact)?)\b"),
-    "certifications": re.compile(r"(?i)^certifications?\b"),
-    "awards": re.compile(r"(?i)^(?:awards?|awards\s*&\s*recognition)\b"),
-    "publications": re.compile(r"(?i)^publications?\b"),
-    "interests": re.compile(r"(?i)^interests?\b"),
-    "references": re.compile(r"(?i)^references?\b"),
+    section: _compile_prefix_terms(terms)
+    for section, terms in _section_header_terms.items()
 }
-
 BOUNDARY_HEADER_PATTERNS = [
-    re.compile(r"(?i)^(?:certifications?|awards|awards\s*&\s*recognition|achievements|key product launches(?:\s*&\s*impact)?|publications|interests|references|internships?)$"),
+    _compile_exact_terms([str(value).strip().lower() for value in (_parser_vocabulary.get("boundary_headers") or []) if str(value).strip()])
 ]
 
 INLINE_HEADER_PATTERN = re.compile(r"^(?P<header>[^:]{1,60}?):\s*(?P<content>.+)$")
@@ -56,14 +55,12 @@ DATE_RANGE_PATTERN = re.compile(
     r"|\d{1,2}[/-]\d{4}"
     r"|\d{4})\b"
 )
-ROLE_HINT_PATTERN = re.compile(
-    r"(?i)\b(?:engineer|developer|manager|lead|analyst|consultant|architect|specialist|administrator|designer|executive|director|officer|associate|scientist|recruiter|sales|product|qa|tester)\b"
-)
-COMPANY_HINT_PATTERN = re.compile(r"(?i)\b(?:pvt|ltd|inc|technologies|solutions|corp|systems|software|labs|works)\b")
+ROLE_HINT_PATTERN = _compile_contains_terms([str(value).strip().lower() for value in (_parser_vocabulary.get("role_hint_terms") or []) if str(value).strip()])
+COMPANY_HINT_PATTERN = _compile_contains_terms([str(value).strip().lower() for value in (_parser_vocabulary.get("company_hint_terms") or []) if str(value).strip()])
 DECORATION_PATTERN = re.compile(r"^[\s|_\-=~*#.:]+|[\s|_\-=~*#.:]+$")
 WHITESPACE_PATTERN = re.compile(r"[ \t]+")
 BULLET_PREFIX_PATTERN = re.compile(r"^\s*[\-\*\u2022\u25aa\u25e6\u00b7]+\s*")
-CONTACT_HEADER_PATTERN = re.compile(r"(?i)^(?:email|phone|mobile|location|address)\b")
+CONTACT_HEADER_PATTERN = _compile_prefix_terms([str(value).strip().lower() for value in (_parser_vocabulary.get("contact_header_terms") or []) if str(value).strip()])
 
 
 def _normalize_line(line: str) -> str:

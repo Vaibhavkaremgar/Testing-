@@ -7,10 +7,23 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from dateutil import parser as date_parser
 
+from ats.datasets.parser_config_loader import ParserConfigLoader
 from ats.preprocessing.section_segmentation import get_section_content, segment_resume_sections
 from app.spacy_nlp import SPACY_AVAILABLE, get_experience_doc
 
 logger = logging.getLogger(__name__)
+_parser_config_loader = ParserConfigLoader()
+_parser_vocabulary = _parser_config_loader.load_parser_vocabulary()
+
+
+def _compile_contains_pattern(values: List[str], fallback: List[str]) -> re.Pattern:
+    terms = [str(value).strip().lower() for value in values if str(value).strip()] or fallback
+    return re.compile(rf"(?i)\b(?:{'|'.join(re.escape(term) for term in terms)})\b")
+
+
+def _compile_company_pattern(values: List[str], fallback: List[str]) -> re.Pattern:
+    terms = [str(value).strip().lower() for value in values if str(value).strip()] or fallback
+    return re.compile(rf"(?i)\b(?:{'|'.join(re.escape(term) for term in terms)})\b")
 
 MONTH_PATTERN = r"(?:jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)"
 PRESENT_PATTERN = r"(?:present|current|now|today|till date|till now)"
@@ -20,8 +33,14 @@ DATE_RANGE_REGEX = re.compile(
     rf"(?P<end>{PRESENT_PATTERN}|{MONTH_PATTERN}(?:[\s/-]+)\d{{4}}|\d{{1,2}}[/-]\d{{4}}|\d{{4}})",
     re.IGNORECASE,
 )
-ROLE_HINT_PATTERN = re.compile(
-    r"(?i)\b(?:engineer|developer|manager|lead|analyst|consultant|architect|specialist|administrator|designer|executive|director|officer|associate|scientist|recruiter|sales|product|qa|tester|intern|partner|generalist|coordinator)\b"
+ROLE_HINT_PATTERN = _compile_contains_pattern(
+    list(_parser_vocabulary.get("role_hint_terms") or []),
+    [
+        "engineer", "developer", "manager", "lead", "analyst", "consultant", "architect",
+        "specialist", "administrator", "designer", "executive", "director", "officer",
+        "associate", "scientist", "recruiter", "sales", "product", "qa", "tester",
+        "intern", "partner", "generalist", "coordinator",
+    ],
 )
 ROLE_TITLE_PATTERN = re.compile(
     r"(?i)\b(?P<role>(?:(?:senior|sr|junior|jr|lead|principal|staff|associate|assistant|frontend|front-end|backend|back-end|full[- ]stack|data|product|software|web|mobile|qa|devops|machine learning|ml|human resources|hr|business|sales)\s+){0,4}(?:engineer|developer|manager|lead|analyst|consultant|architect|specialist|administrator|designer|executive|director|officer|associate|scientist|recruiter|qa|tester|intern|partner|generalist|coordinator))\b"
@@ -29,7 +48,10 @@ ROLE_TITLE_PATTERN = re.compile(
 PROSE_ROLE_PATTERN = re.compile(
     r"(?i)\b(?:i\s+was|worked\s+as|work(?:ed)?\s+as|joined\s+as|served\s+as|role\s+was|position\s+was)\s+(?:an?\s+)?(?P<role>[A-Za-z][A-Za-z/&\-\s]{1,80}?(?:engineer|developer|manager|lead|analyst|consultant|architect|specialist|administrator|designer|executive|director|officer|associate|scientist|recruiter|qa|tester|intern|partner|generalist|coordinator))\b"
 )
-COMPANY_PATTERN = re.compile(r"(?i)\b(?:pvt|ltd|inc|technologies|solutions|corp)\b")
+COMPANY_PATTERN = _compile_company_pattern(
+    list(_parser_vocabulary.get("company_hint_terms") or []),
+    ["pvt", "ltd", "inc", "technologies", "solutions", "corp"],
+)
 SKILL_LIKE_PATTERN = re.compile(
     r"(?i)\b(?:python|java|javascript|typescript|react|angular|vue|node(?:\.js)?|fastapi|django|flask|sql|aws|azure|gcp|docker|kubernetes|seo|crm|machine learning)\b"
 )
@@ -38,21 +60,16 @@ BULLET_PREFIX_PATTERN = re.compile(r"^\s*[•▪◦●·\-\*]+\s*")
 SECTION_BREAK_PATTERN = re.compile(r"(?i)^(?:education|projects?|skills|technical skills|certifications?|summary|profile|languages?)$")
 EXPERIENCE_HEADER_PATTERN = re.compile(r"(?i)^(?:work experience|professional experience|employment history|employment|career history|experience)$")
 LOCATION_TAIL_TOKENS = {
-    "ahmedabad",
-    "bangalore",
-    "bengaluru",
-    "chennai",
-    "delhi",
-    "gurgaon",
-    "gurugram",
-    "hosur",
-    "hyderabad",
-    "jaipur",
-    "kochi",
-    "kolkata",
-    "mumbai",
-    "noida",
-    "pune",
+    str(value).strip().lower()
+    for value in (
+        _parser_vocabulary.get("location_tail_tokens")
+        or [
+            "ahmedabad", "bangalore", "bengaluru", "chennai", "delhi", "gurgaon",
+            "gurugram", "hosur", "hyderabad", "jaipur", "kochi", "kolkata",
+            "mumbai", "noida", "pune",
+        ]
+    )
+    if str(value).strip()
 }
 TOTAL_EXPERIENCE_PATTERN = re.compile(
     r"(?i)\b(?:total|overall|professional|relevant)?\s*"
@@ -357,6 +374,13 @@ def _extract_company_from_heading_line(line: str, role: Optional[str] = None) ->
     candidate = _normalize_line(line)
     if not candidate:
         return None
+
+    if " at " in candidate.lower():
+        parts = re.split(r"\bat\b", candidate, maxsplit=1, flags=re.IGNORECASE)
+        if len(parts) == 2:
+            company_after_at = _clean_company_name(parts[1])
+            if company_after_at and _looks_like_company(company_after_at):
+                return company_after_at
 
     if role and candidate.lower().startswith(role.lower()):
         candidate = candidate[len(role):].strip(" |-,:")

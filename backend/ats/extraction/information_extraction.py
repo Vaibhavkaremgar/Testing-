@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from flashtext import KeywordProcessor
 
+from ats.datasets.parser_config_loader import ParserConfigLoader
 from ats.extraction.experience_extraction import extract_total_experience
 from ats.extraction.skill_intelligence import LANGUAGE_TERMS, NOISE_ALIASES, NOISE_TERMS, SkillIntelligence
 from ats.extraction.validation import validate_parsed_fields
@@ -85,15 +86,12 @@ PIPE_HEADER_LOCATION_PATTERN = re.compile(
 LOCATION_CANDIDATE_PATTERN = re.compile(
     r"^[A-Za-z]+(?:[\s-][A-Za-z]+)*(?:,\s*[A-Za-z]+(?:[\s-][A-Za-z]+)*){0,2}$"
 )
+_parser_config_loader = ParserConfigLoader()
+_parser_vocabulary = _parser_config_loader.load_parser_vocabulary()
 LOCATION_NOISE_PATTERN = re.compile(
-    r"(?i)\b(?:engineer|developer|manager|analyst|scientist|director|lead|consultant|architect|summary|profile|experience|skills|education|projects|languages|email|phone|resume)\b"
+    rf"(?i)\b(?:{'|'.join(re.escape(str(value).strip().lower()) for value in (_parser_vocabulary.get('location_noise_terms') or []) if str(value).strip())})\b"
 )
 LANGUAGE_LINE_PATTERN = re.compile(r"(?i)^\s*languages?\s*[:\-]?\s*(?P<value>.+)$")
-LANGUAGE_TERMS = [
-    "english", "hindi", "telugu", "tamil", "kannada", "malayalam", "marathi",
-    "gujarati", "punjabi", "bengali", "urdu", "french", "german", "spanish",
-    "arabic", "japanese", "mandarin", "chinese",
-]
 EMAIL_PATTERN = re.compile(r"\b[A-Za-z0-9._%+-]+\s*@\s*[A-Za-z0-9.-]+\s*\.\s*[A-Za-z]{2,}\b")
 SKILL_LABEL_TERMS = {
     "and tools",
@@ -106,21 +104,9 @@ SKILL_LABEL_TERMS = {
     "testing",
 }
 SKILL_CHUNK_NOISE_TERMS = {
-    "technical skills",
-    "core skills",
-    "key skills",
-    "primary skills",
-    "professional skills",
-    "skills summary",
-    "competencies",
-    "technical competencies",
-    "areas of expertise",
-    "expertise",
-    "technologies",
-    "technology stack",
-    "platforms",
-    "operating systems",
-    "communication",
+    str(value).strip().lower()
+    for value in (_parser_vocabulary.get("skill_chunk_noise_terms") or [])
+    if str(value).strip()
 }
 SKILL_CHUNK_LEADIN_PATTERN = re.compile(
     r"(?i)^(?:technical skills?|core skills?|key skills?|primary skills?|professional skills?|skills?|"
@@ -128,22 +114,9 @@ SKILL_CHUNK_LEADIN_PATTERN = re.compile(
     r"tools(?: and technologies)?|frameworks|databases|platforms|languages)\s*[:\-]?\s*"
 )
 LOCATION_LEADING_DESCRIPTORS = {
-    "contact",
-    "analyst",
-    "business",
-    "consumer",
-    "data",
-    "developer",
-    "engineering",
-    "finance",
-    "human",
-    "intelligence",
-    "manager",
-    "mobile",
-    "product",
-    "resources",
-    "software",
-    "visualization",
+    str(value).strip().lower()
+    for value in (_parser_vocabulary.get("location_leading_descriptors") or [])
+    if str(value).strip()
 }
 
 _skill_intelligence = SkillIntelligence()

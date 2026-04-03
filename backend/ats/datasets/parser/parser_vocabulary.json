@@ -95,5 +95,205 @@
     "mobile",
     "linkedin",
     "github"
+  ],
+  "role_hint_terms": [
+    "engineer",
+    "developer",
+    "manager",
+    "lead",
+    "analyst",
+    "consultant",
+    "architect",
+    "specialist",
+    "administrator",
+    "designer",
+    "executive",
+    "director",
+    "officer",
+    "associate",
+    "scientist",
+    "recruiter",
+    "sales",
+    "product",
+    "qa",
+    "tester",
+    "intern",
+    "partner",
+    "generalist",
+    "coordinator"
+  ],
+  "company_hint_terms": [
+    "pvt",
+    "ltd",
+    "inc",
+    "technologies",
+    "solutions",
+    "corp",
+    "systems",
+    "software",
+    "labs",
+    "works"
+  ],
+  "location_tail_tokens": [
+    "ahmedabad",
+    "bangalore",
+    "bengaluru",
+    "chennai",
+    "delhi",
+    "gurgaon",
+    "gurugram",
+    "hosur",
+    "hyderabad",
+    "jaipur",
+    "kochi",
+    "kolkata",
+    "mumbai",
+    "noida",
+    "pune"
+  ],
+  "location_leading_descriptors": [
+    "contact",
+    "analyst",
+    "business",
+    "consumer",
+    "data",
+    "developer",
+    "engineering",
+    "finance",
+    "human",
+    "intelligence",
+    "manager",
+    "mobile",
+    "product",
+    "resources",
+    "software",
+    "visualization"
+  ],
+  "location_noise_terms": [
+    "engineer",
+    "developer",
+    "manager",
+    "analyst",
+    "scientist",
+    "director",
+    "lead",
+    "consultant",
+    "architect",
+    "summary",
+    "profile",
+    "experience",
+    "skills",
+    "education",
+    "projects",
+    "languages",
+    "email",
+    "phone",
+    "resume"
+  ],
+  "skill_chunk_noise_terms": [
+    "technical skills",
+    "core skills",
+    "key skills",
+    "primary skills",
+    "professional skills",
+    "skills summary",
+    "competencies",
+    "technical competencies",
+    "areas of expertise",
+    "expertise",
+    "technologies",
+    "technology stack",
+    "platforms",
+    "operating systems",
+    "communication"
+  ],
+  "section_header_terms": {
+    "experience": [
+      "work experience",
+      "professional experience",
+      "employment history",
+      "employment",
+      "career history",
+      "experience"
+    ],
+    "skills": [
+      "technical skills",
+      "core skills",
+      "key skills",
+      "skills",
+      "tools"
+    ],
+    "education": [
+      "education"
+    ],
+    "projects": [
+      "project",
+      "projects"
+    ],
+    "summary": [
+      "professional summary",
+      "profile summary",
+      "career summary",
+      "summary",
+      "objective",
+      "profile"
+    ],
+    "languages": [
+      "language",
+      "languages"
+    ],
+    "achievements": [
+      "achievement",
+      "achievements",
+      "key product launches",
+      "key product launches & impact"
+    ],
+    "certifications": [
+      "certification",
+      "certifications"
+    ],
+    "awards": [
+      "award",
+      "awards",
+      "awards & recognition"
+    ],
+    "publications": [
+      "publication",
+      "publications"
+    ],
+    "interests": [
+      "interest",
+      "interests"
+    ],
+    "references": [
+      "reference",
+      "references"
+    ]
+  },
+  "boundary_headers": [
+    "certification",
+    "certifications",
+    "award",
+    "awards",
+    "awards & recognition",
+    "achievement",
+    "achievements",
+    "key product launches",
+    "key product launches & impact",
+    "publication",
+    "publications",
+    "interest",
+    "interests",
+    "reference",
+    "references",
+    "internship",
+    "internships"
+  ],
+  "contact_header_terms": [
+    "email",
+    "phone",
+    "mobile",
+    "location",
+    "address"
   ]
 }

@@ -2627,8 +2627,8 @@ def send_email(
         db.add(email_comm)
         db.commit()
         
-        print(f"✅ Email sent to {candidate.email} - Message-ID: {provider_message_id}")
-        print(f"   Email type: {email_type}")
+        print(f" Email sent to {candidate.email} - Message-ID: {provider_message_id}")
+        print(f"  Email type: {email_type}")
         print(f"   Interview URL: {interview_url}")
         print(f"   Slot Booking: {settings.SLOT_BOOKING_URL}")
         

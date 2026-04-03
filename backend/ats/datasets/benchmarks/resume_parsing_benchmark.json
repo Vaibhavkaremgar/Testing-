@@ -1,0 +1,70 @@
+{
+  "cases": [
+    {
+      "id": "inline_header_data_analyst",
+      "filename": "R1_Ananya_Krishnan_DataAnalyst.docx",
+      "resume_text": "Ananya Krishnan Data Analyst | Business Intelligence | Visualization Hyderabad, Telangana | +91 98001 23456 | ananya.krishnan@outlook.com\nPROFILE Data Analyst with 5 years of experience turning complex datasets into insights.\nWORK EXPERIENCE Senior Data Analyst Meesho Pvt. Ltd. | Jun 2022 - Present Bengaluru, Karnataka Built reporting dashboards.\nData Analyst Delhivery Ltd. | Jan 2020 - May 2022 Gurugram, Haryana Built logistics reporting.\nTECHNICAL SKILLS SQL | Python | Power BI | Tableau | Mixpanel | Git",
+      "expected": {
+        "name": "Ananya Krishnan",
+        "email": "ananya.krishnan@outlook.com",
+        "phone": "+91 98001 23456",
+        "location": "Hyderabad, Telangana",
+        "current_role": "Senior Data Analyst",
+        "current_company": "Meesho Pvt. Ltd.",
+        "experience_years": 6.8,
+        "skills": ["sql", "python", "power bi", "tableau", "mixpanel", "git"]
+      }
+    },
+    {
+      "id": "sales_skill_noise_filter",
+      "filename": "vikram_sales.txt",
+      "resume_text": "Vikram Patel\n\nSkills\nb2g\npipeline mgmt\nclosing\nforecasting\nterritory mgmt\ncold calling\npipeline\nprospecting\ndeal closing\nretention\ncross sell\nbusiness development\ngrowth enterprises\n2016 - 2018\nproduct demos\nclosing deals\nsenior sales executive\nretail\n2014 - 2016\nwalk-in leads\nsales executive\nprime marketing services\n2012 - 2014\nworked in field sales\ndoor to door sales\nsalesforce\nhubspot\nzoho\npipedrive\ncommunication: email\nwhatsapp\nmeet\nteams\nshort\nsales\naccount mgmt",
+      "expected": {
+        "skills": [
+          "b2g sales",
+          "pipeline management",
+          "forecasting",
+          "territory management",
+          "cold calling",
+          "prospecting",
+          "deal closing",
+          "retention",
+          "cross-selling",
+          "business development",
+          "product demos",
+          "salesforce",
+          "hubspot",
+          "zoho crm",
+          "pipedrive",
+          "account management"
+        ]
+      }
+    },
+    {
+      "id": "month_based_experience",
+      "filename": "deepak_qa.txt",
+      "resume_text": "Deepak Sharma\n\nWork Experience\nQA Automation Engineer\nCognizant Technology Solutions\nDec-2022 to Present\nBuilt automation for API and UI workflows.\n\nQEA Intern\nAcme Labs\nJun-2022 to Nov-2022\nSupported test automation execution.",
+      "expected": {
+        "name": "Deepak Sharma",
+        "current_role": "QA Automation Engineer",
+        "current_company": "Cognizant Technology Solutions",
+        "experience_years": 3.8
+      }
+    },
+    {
+      "id": "header_only_location_rule",
+      "filename": "bhimaraju_qa.txt",
+      "resume_text": "Bhimaraju Kowshik\nbhimaraju.kowshik@gmail.com | +91 8106148797\n\nProfessional Summary\nQA Automation Engineer with 4.2 years of experience in Java, Selenium WebDriver and API testing.\n\nSkills\nrest assured\njava\nsql\ntestng\ncucumber\napache maven\ngcp\naccelq\nstibo\npostman\nsoap\n\nExperience\nQA Automation Engineer\nCognizant Technology Solutions\nDec-2022 to Present\nUsing JIRA, Maven while continuously improving regression suites.",
+      "expected": {
+        "name": "Bhimaraju Kowshik",
+        "email": "bhimaraju.kowshik@gmail.com",
+        "phone": "+91 8106148797",
+        "location": "",
+        "current_role": "QA Automation Engineer",
+        "current_company": "Cognizant Technology Solutions",
+        "experience_years": 3.3,
+        "skills": ["rest assured", "java", "sql", "testng", "cucumber", "apache maven", "gcp", "accelq", "stibo", "postman", "soap"]
+      }
+    }
+  ]
+}
