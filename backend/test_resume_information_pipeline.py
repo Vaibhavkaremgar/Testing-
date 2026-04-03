@@ -226,6 +226,108 @@ Python, FastAPI, PostgreSQL, Docker
         self.assertEqual(result["experience_years"], 5.5)
         self.assertEqual(result["total_experience_years"], 5.5)
 
+    def test_latest_experience_entry_drives_current_role_and_company(self):
+        resume_text = """
+Rakesh Kumar
+
+Profile
+Regional sales leader with 10 years of experience.
+
+Work Experience
+Senior Sales Manager
+Growth Enterprises Pvt Ltd
+2018 - Present
+Led enterprise and government sales across assigned territory.
+
+Senior Sales Executive
+Prime Marketing Services
+2016 - 2018
+Managed retail and walk-in lead conversion.
+
+Sales Executive
+Prime Marketing Services
+2012 - 2014
+Worked in field sales and door to door sales.
+        """
+
+        result = extract_resume_information(resume_text)
+
+        self.assertEqual(result["current_role"], "Senior Sales Manager")
+        self.assertEqual(result["current_company"], "Growth Enterprises Pvt Ltd")
+        self.assertGreaterEqual(result["experience_years"], 8.0)
+
+    def test_skill_section_ignores_dates_roles_and_communication_noise(self):
+        resume_text = """
+Vikram Patel
+
+Skills
+b2g
+pipeline mgmt
+closing
+forecasting
+territory mgmt
+cold calling
+pipeline
+prospecting
+deal closing
+retention
+cross sell
+business development
+growth enterprises
+2016 - 2018
+product demos
+closing deals
+senior sales executive
+retail
+2014 - 2016
+walk-in leads
+sales executive
+prime marketing services
+2012 - 2014
+worked in field sales
+door to door sales
+salesforce
+hubspot
+zoho
+pipedrive
+communication: email
+whatsapp
+meet
+teams
+short
+sales
+account mgmt
+        """
+
+        result = extract_resume_information(resume_text)
+
+        self.assertIn("b2g sales", result["skills"])
+        self.assertIn("pipeline management", result["skills"])
+        self.assertIn("forecasting", result["skills"])
+        self.assertIn("territory management", result["skills"])
+        self.assertIn("cold calling", result["skills"])
+        self.assertIn("prospecting", result["skills"])
+        self.assertIn("deal closing", result["skills"])
+        self.assertIn("retention", result["skills"])
+        self.assertIn("cross-selling", result["skills"])
+        self.assertIn("business development", result["skills"])
+        self.assertIn("product demos", result["skills"])
+        self.assertIn("salesforce", result["skills"])
+        self.assertIn("hubspot", result["skills"])
+        self.assertIn("zoho crm", result["skills"])
+        self.assertIn("pipedrive", result["skills"])
+        self.assertIn("account management", result["skills"])
+        self.assertNotIn("2016 - 2018", result["skills"])
+        self.assertNotIn("growth enterprises", result["skills"])
+        self.assertNotIn("senior sales executive", result["skills"])
+        self.assertNotIn("prime marketing services", result["skills"])
+        self.assertNotIn("email", result["skills"])
+        self.assertNotIn("whatsapp", result["skills"])
+        self.assertNotIn("meet", result["skills"])
+        self.assertNotIn("teams", result["skills"])
+        self.assertNotIn("short", result["skills"])
+        self.assertNotIn("sales", result["skills"])
+
 
 if __name__ == "__main__":
     unittest.main()

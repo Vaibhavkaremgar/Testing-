@@ -18,11 +18,13 @@ from ats.preprocessing.text_cleaning import (
     split_inline_section_headers,
 )
 from app.spacy_nlp import SPACY_AVAILABLE, get_section_doc
+from ats.extraction.experience_extraction import DATE_RANGE_REGEX
 
 SKILL_ALIASES = {
     "js": "javascript",
     "ts": "typescript",
     "py": "python",
+    "b2g": "b2g sales",
     "node": "nodejs",
     "node.js": "nodejs",
     "react.js": "react",
@@ -32,10 +34,29 @@ SKILL_ALIASES = {
     "fastapi": "fastapi",
     "aws": "aws",
     "docker-compose": "docker",
+    "pipeline mgmt": "pipeline management",
+    "territory mgmt": "territory management",
+    "account mgmt": "account management",
+    "cross sell": "cross-selling",
+    "closing deals": "deal closing",
+    "product demo": "product demos",
+    "product demonstrations": "product demos",
+    "zoho": "zoho crm",
 }
 
 SKILL_TOKEN_SPLIT_PATTERN = re.compile(r"[\n,;|]+")
 SKILL_SENTENCE_SPLIT_PATTERN = re.compile(r"[.!?]\s+")
+SKILL_YEAR_RANGE_PATTERN = re.compile(r"^\s*(?:19|20)\d{2}\s*[-/to]+\s*(?:19|20)\d{2}\s*$", re.IGNORECASE)
+SKILL_YEAR_ONLY_PATTERN = re.compile(r"^\s*(?:19|20)\d{2}\s*$")
+SKILL_COMMUNICATION_PATTERN = re.compile(r"(?i)^\s*communication\s*[:\-]")
+SKILL_ROLE_NOISE_PATTERN = re.compile(
+    r"(?i)\b(?:senior|sr|junior|jr|lead)\s+(?:sales|business development|account)\s+"
+    r"(?:executive|manager|associate|representative)\b|"
+    r"\b(?:sales|business development|account)\s+(?:executive|manager|associate|representative)\b"
+)
+SKILL_COMPANY_LIKE_PATTERN = re.compile(
+    r"(?i)\b(?:services|solutions|technologies|systems|enterprises|marketing|corporation|corp|ltd|pvt)\b"
+)
 DEGREE_PATTERNS = [
     r"\bB\.?\s?Tech\b",
     r"\bM\.?\s?Tech\b",
@@ -99,6 +120,7 @@ SKILL_CHUNK_NOISE_TERMS = {
     "technology stack",
     "platforms",
     "operating systems",
+    "communication",
 }
 SKILL_CHUNK_LEADIN_PATTERN = re.compile(
     r"(?i)^(?:technical skills?|core skills?|key skills?|primary skills?|professional skills?|skills?|"
@@ -140,12 +162,22 @@ def _looks_like_skill_chunk(chunk: str) -> bool:
     normalized = SKILL_CHUNK_LEADIN_PATTERN.sub("", normalized).strip()
     if not normalized or normalized in SKILL_CHUNK_NOISE_TERMS:
         return False
+    if DATE_RANGE_REGEX.search(normalized) or SKILL_YEAR_RANGE_PATTERN.match(normalized) or SKILL_YEAR_ONLY_PATTERN.match(normalized):
+        return False
+    if SKILL_COMMUNICATION_PATTERN.match(normalized):
+        return False
+    if SKILL_ROLE_NOISE_PATTERN.search(normalized):
+        return False
+    if SKILL_COMPANY_LIKE_PATTERN.search(normalized):
+        return False
 
     tokens = normalized.split()
     if len(tokens) > 8:
         return False
 
     if re.search(r"\b(responsible for|worked on|involved in|experience with|project|team|client)\b", normalized):
+        return False
+    if re.search(r"\b(worked in|worked as|door to door|walk-in)\b", normalized):
         return False
 
     return True
@@ -160,6 +192,16 @@ def _fallback_skill_from_chunk(chunk: str) -> str:
         return ""
     if normalized in SKILL_CHUNK_NOISE_TERMS:
         return ""
+    if DATE_RANGE_REGEX.search(normalized) or SKILL_YEAR_RANGE_PATTERN.match(normalized) or SKILL_YEAR_ONLY_PATTERN.match(normalized):
+        return ""
+    if SKILL_COMMUNICATION_PATTERN.match(normalized):
+        return ""
+    if SKILL_ROLE_NOISE_PATTERN.search(normalized):
+        return ""
+    if SKILL_COMPANY_LIKE_PATTERN.search(normalized):
+        return ""
+    if re.search(r"\b(worked in|worked as|door to door|walk-in)\b", normalized):
+        return ""
     if len(normalized.split()) > 4:
         return ""
     if re.search(r"\b(intermediate|advanced|beginner|native|fluent|professional)\b", normalized):
@@ -172,6 +214,7 @@ def _is_supported_extracted_skill(skill: str, chunk: str) -> bool:
     normalized_skill = normalize_skill_name(skill)
     normalized_chunk = clean_text_pipeline(chunk or "").strip().lower()
     aliased_chunk = SKILL_ALIASES.get(normalized_chunk, normalized_chunk)
+    canonical_chunk = _skill_intelligence.get_synonym_dictionary().get(aliased_chunk, aliased_chunk)
     if not normalized_skill or not normalized_chunk:
         return False
     if _skill_intelligence._is_noise(normalized_skill):
@@ -179,6 +222,8 @@ def _is_supported_extracted_skill(skill: str, chunk: str) -> bool:
     if re.search(r"\b[a-z]\b", normalized_skill) and normalized_skill not in {"c", "r"}:
         return False
     if normalized_skill == aliased_chunk:
+        return True
+    if normalized_skill == canonical_chunk:
         return True
     if normalized_skill == normalized_chunk:
         return True
@@ -479,16 +524,20 @@ def extract_resume_information(text: str) -> Dict:
     )
     cleaned_text = clean_text_pipeline(text)
     sections = segment_resume_sections(cleaned_text)
-    skills_section = sections.get("skills", "")
+    raw_sections = segment_resume_sections(normalize_common_artifacts(text or ""))
+    skills_section = raw_sections.get("skills", "") or sections.get("skills", "")
     skills = extract_skill_keywords(skills_section, skills_section)
     experience_result = extract_total_experience(structural_text)
     experience_entries = experience_result.get("experiences", [])
     total_experience_years = experience_result.get("total_experience_years")
 
-    current_entry = experience_entries[0] if experience_entries else {}
+    current_entry = next(
+        (entry for entry in experience_entries if entry.get("role") or entry.get("company")),
+        {},
+    )
     # Fallback current_role from header when no experience entries parsed
     header_role = ""
-    if not current_entry.get("role"):
+    if not experience_entries and not current_entry.get("role"):
         from ats.extraction.experience_extraction import ROLE_TITLE_PATTERN
         for line in (sections.get("header", "") or "").splitlines():
             m = ROLE_TITLE_PATTERN.search(line.strip())
@@ -503,8 +552,8 @@ def extract_resume_information(text: str) -> Dict:
         "education": extract_education_entries(cleaned_text, sections.get("education", "")),
         "location": extract_location("\n".join(part for part in [sections.get("header", ""), cleaned_text] if part)),
         "current_company": current_entry.get("company"),
-        "current_role": current_entry.get("role") or header_role or None,
-        "designation": current_entry.get("role") or header_role or None,
+        "current_role": current_entry.get("role") or (header_role if not experience_entries else None) or None,
+        "designation": current_entry.get("role") or (header_role if not experience_entries else None) or None,
         "experience_years": total_experience_years,
         "total_experience_years": total_experience_years,
         "experience_level": derive_experience_level(total_experience_years),

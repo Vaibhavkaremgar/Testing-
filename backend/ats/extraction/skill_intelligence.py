@@ -21,7 +21,9 @@ DOMAIN_SKILLS: Dict[str, List[str]] = {
     "sales": [
         "b2b sales", "b2c sales", "lead generation", "business development",
         "customer relationship management", "account management", "cold calling",
-        "pipeline management", "salesforce", "hubspot", "zoho crm", "saas",
+        "pipeline management", "territory management", "forecasting", "prospecting",
+        "deal closing", "retention", "cross-selling", "product demos", "b2g sales",
+        "salesforce", "hubspot", "zoho crm", "pipedrive", "saas",
     ],
     "marketing": [
         "digital marketing", "seo", "sem", "content marketing", "social media marketing",
@@ -67,8 +69,16 @@ SKILL_ALIASES: Dict[str, str] = {
     "hubspot crm": "hubspot",
     "zoho crm": "zoho crm",
     "business dev": "business development",
+    "b2g": "b2g sales",
     "b2b": "b2b sales",
     "b2c": "b2c sales",
+    "pipeline mgmt": "pipeline management",
+    "territory mgmt": "territory management",
+    "account mgmt": "account management",
+    "cross sell": "cross-selling",
+    "closing deals": "deal closing",
+    "product demo": "product demos",
+    "product demonstrations": "product demos",
     "html5": "html",
     "css3": "css",
 }
@@ -86,6 +96,12 @@ NOISE_TERMS = {
     "professional",
     "experienced",
     "computer science",
+    "email",
+    "whatsapp",
+    "meet",
+    "teams",
+    "short",
+    "sales",
 }
 
 LANGUAGE_TERMS = {
