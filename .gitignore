@@ -156,3 +156,5 @@ hr-dashboard-key.json
 #bat files
 *.bat
 
+# md files
+*.md

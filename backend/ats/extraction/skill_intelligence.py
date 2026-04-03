@@ -110,6 +110,69 @@ LANGUAGE_TERMS = {
 
 NOISE_ALIASES = {
     "lead others",
+    "computer programming",
+    "database management systems",
+    "tools for software configuration management",
+    "ict project management methodologies",
+    "use online tools to collaborate",
+    "integrated development environment software",
+    "electronic communication",
+    "perform cleaning duties",
+    "advise others",
+    "think creatively",
+    "report facts",
+    "comply with regulations",
+    "apply knowledge of science, technology and engineering",
+    "source (digital game creation systems)",
+    "logic",
+}
+
+VERB_LED_NOISE_PREFIXES = {
+    "advise",
+    "apply",
+    "assist",
+    "build",
+    "clean",
+    "collaborate",
+    "communicate",
+    "comply",
+    "create",
+    "develop",
+    "ensure",
+    "follow",
+    "improve",
+    "lead",
+    "maintain",
+    "manage",
+    "monitor",
+    "perform",
+    "prepare",
+    "provide",
+    "report",
+    "support",
+    "think",
+    "use",
+    "work",
+}
+
+GENERIC_NOISE_TOKENS = {
+    "activities",
+    "communication",
+    "creatively",
+    "creation",
+    "digital",
+    "duties",
+    "facts",
+    "knowledge",
+    "methodologies",
+    "others",
+    "regulations",
+    "science",
+    "software",
+    "source",
+    "systems",
+    "technology",
+    "tools",
 }
 
 BOUNDARY_REPLACEMENTS = {
@@ -190,7 +253,39 @@ class SkillIntelligence:
 
     def _is_noise(self, skill: str) -> bool:
         normalized = self.normalize_skill(skill)
-        return normalized in NOISE_TERMS or normalized in LANGUAGE_TERMS or normalized in NOISE_ALIASES
+        return (
+            normalized in NOISE_TERMS
+            or normalized in LANGUAGE_TERMS
+            or normalized in NOISE_ALIASES
+            or self._looks_like_generic_noise(normalized)
+        )
+
+    def _looks_like_generic_noise(self, skill: str) -> bool:
+        tokens = [token for token in re.split(r"[\s/+-]+", skill) if token]
+        if not tokens:
+            return True
+
+        if len(tokens) >= 5:
+            return True
+
+        if any(char in skill for char in "()[]{}") and len(tokens) >= 3:
+            return True
+
+        if tokens[0] in VERB_LED_NOISE_PREFIXES and len(tokens) >= 2:
+            return True
+
+        generic_noise_hits = sum(1 for token in tokens if token in GENERIC_NOISE_TOKENS)
+        if generic_noise_hits >= 2:
+            return True
+
+        if (
+            len(tokens) >= 4
+            and generic_noise_hits >= 1
+            and not any(token.isdigit() or token in {"c", "c++", "c#", "sql"} for token in tokens)
+        ):
+            return True
+
+        return False
 
     def _extract_boundary_variants(self, text: str) -> List[str]:
         lowered = (text or "").lower()

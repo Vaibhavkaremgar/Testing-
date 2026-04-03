@@ -228,6 +228,9 @@ def segment_resume_sections(text: str) -> Dict[str, str]:
         if inline_match:
             next_section = _match_section_name(inline_match.group("header"))
             if next_section:
+                if current_section == "skills" and next_section == "languages":
+                    buffers[current_section].append(line)
+                    continue
                 collecting_header = False
                 current_section = next_section
                 content = _normalize_line(inline_match.group("content"))

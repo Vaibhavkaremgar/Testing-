@@ -6,6 +6,9 @@ import re
 from typing import Any, Dict, List, Optional
 
 import pdfplumber
+from docx.document import Document as DocxDocument
+from docx.table import Table, _Cell
+from docx.text.paragraph import Paragraph
 from pypdf import PdfReader
 
 from ats.extraction.experience_extraction import compute_total_experience, parse_date
@@ -31,6 +34,38 @@ INVALID_NAME_TOKENS = {
     "curriculum", "vitae", "experience", "skills", "education", "project", "projects",
     "email", "phone", "address", "location",
 }
+
+
+def _iter_docx_blocks(parent):
+    parent_element = parent.element.body if isinstance(parent, DocxDocument) else parent._tc
+    for child in parent_element.iterchildren():
+        if child.tag.endswith("}p"):
+            yield Paragraph(child, parent)
+        elif child.tag.endswith("}tbl"):
+            yield Table(child, parent)
+
+
+def _extract_docx_table_lines(table: Table) -> List[str]:
+    lines: List[str] = []
+    for row in table.rows:
+        row_values: List[str] = []
+        for cell in row.cells:
+            cell_parts: List[str] = []
+            for block in _iter_docx_blocks(cell):
+                if isinstance(block, Paragraph):
+                    text = block.text.strip()
+                    if text:
+                        cell_parts.append(text)
+                elif isinstance(block, Table):
+                    nested_lines = _extract_docx_table_lines(block)
+                    if nested_lines:
+                        cell_parts.extend(nested_lines)
+            cell_text = " ".join(part.strip() for part in cell_parts if part.strip()).strip()
+            if cell_text:
+                row_values.append(cell_text)
+        if row_values:
+            lines.append(" | ".join(row_values))
+    return lines
 
 
 def extract_text(file_path: str) -> str:
@@ -66,9 +101,12 @@ def extract_text(file_path: str) -> str:
                 import docx
 
                 document = docx.Document(file_path)
-                for paragraph in document.paragraphs:
-                    if paragraph.text.strip():
-                        text_parts.append(paragraph.text)
+                for block in _iter_docx_blocks(document):
+                    if isinstance(block, Paragraph):
+                        if block.text.strip():
+                            text_parts.append(block.text)
+                    elif isinstance(block, Table):
+                        text_parts.extend(_extract_docx_table_lines(block))
             except Exception as exc:
                 logger.warning("python-docx extraction failed for %s: %s", file_path, exc)
 

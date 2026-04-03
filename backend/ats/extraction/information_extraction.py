@@ -28,6 +28,7 @@ SKILL_ALIASES = {
 }
 
 SKILL_TOKEN_SPLIT_PATTERN = re.compile(r"[\n,;|/]+")
+SKILL_SENTENCE_SPLIT_PATTERN = re.compile(r"[.!?]\s+")
 DEGREE_PATTERNS = [
     r"\bB\.?\s?Tech\b",
     r"\bM\.?\s?Tech\b",
@@ -46,11 +47,18 @@ INSTITUTE_HINTS = ("university", "college", "institute", "school", "academy")
 LOCATION_PATTERN = re.compile(
     r"(?i)\b(?:location|based in|address|city)\b\s*[:\-]?\s*(?P<value>[A-Za-z][A-Za-z\s,.-]{1,80})$"
 )
+HEADER_LOCATION_PATTERN = re.compile(
+    r"^(?P<value>[A-Za-z][A-Za-z\s.-]{1,40},\s*[A-Za-z][A-Za-z\s.-]{1,40})(?:\s+(?:\+?\d|[A-Za-z0-9._%+-]+@|linkedin|github).*)?$",
+    re.IGNORECASE,
+)
+PIPE_HEADER_LOCATION_PATTERN = re.compile(
+    r"(?i)(?:^|\|)\s*(?P<value>[A-Za-z][A-Za-z\s.-]{1,40}(?:,\s*[A-Za-z][A-Za-z\s.-]{1,40})?)\s*(?=\||$)"
+)
 LOCATION_CANDIDATE_PATTERN = re.compile(
     r"^[A-Za-z]+(?:[\s-][A-Za-z]+)*(?:,\s*[A-Za-z]+(?:[\s-][A-Za-z]+)*){0,2}$"
 )
 LOCATION_NOISE_PATTERN = re.compile(
-    r"(?i)\b(?:engineer|developer|manager|analyst|director|lead|summary|profile|experience|skills|education|projects|languages|email|phone|resume)\b"
+    r"(?i)\b(?:engineer|developer|manager|analyst|scientist|director|lead|consultant|architect|summary|profile|experience|skills|education|projects|languages|email|phone|resume)\b"
 )
 LANGUAGE_LINE_PATTERN = re.compile(r"(?i)^\s*languages?\s*[:\-]?\s*(?P<value>.+)$")
 LANGUAGE_TERMS = [
@@ -67,6 +75,21 @@ _skill_keyword_processor = KeywordProcessor(case_sensitive=False)
 def _is_valid_skill_candidate(skill: str) -> bool:
     normalized = (skill or "").strip().lower()
     return bool(normalized and normalized not in LANGUAGE_TERMS and normalized not in NOISE_TERMS and normalized not in NOISE_ALIASES)
+
+
+def _looks_like_skill_chunk(chunk: str) -> bool:
+    normalized = clean_text_pipeline(chunk or "").strip().lower()
+    if not normalized:
+        return False
+
+    tokens = normalized.split()
+    if len(tokens) > 8:
+        return False
+
+    if re.search(r"\b(responsible for|worked on|involved in|experience with|project|team|client)\b", normalized):
+        return False
+
+    return True
 
 
 for skill in _skill_intelligence.get_skill_dictionary():
@@ -106,13 +129,20 @@ def extract_skill_keywords(text: str, section_text: str = "") -> List[str]:
         return []
 
     normalized_section = source.replace("•", ",").replace("▪", ",").replace("|", ",")
-    raw_chunks = [chunk.strip(" -*:\t") for chunk in SKILL_TOKEN_SPLIT_PATTERN.split(normalized_section) if chunk.strip(" -*:\t")]
+    raw_chunks: List[str] = []
+    for sentence in SKILL_SENTENCE_SPLIT_PATTERN.split(normalized_section):
+        raw_chunks.extend(
+            chunk.strip(" -*:\t")
+            for chunk in SKILL_TOKEN_SPLIT_PATTERN.split(sentence)
+            if chunk.strip(" -*:\t")
+        )
     matches: List[str] = []
 
     for chunk in raw_chunks:
-        if len(chunk) < 2:
+        if len(chunk) < 2 or not _looks_like_skill_chunk(chunk):
             continue
         matches.extend(_skill_keyword_processor.extract_keywords(chunk))
+        matches.extend(_skill_intelligence.extract_skills(chunk))
 
     if not matches and SPACY_AVAILABLE:
         doc = get_section_doc(normalized_section)
@@ -126,7 +156,6 @@ def extract_skill_keywords(text: str, section_text: str = "") -> List[str]:
                 elif candidate in _skill_intelligence.get_skill_dictionary():
                     matches.append(candidate)
 
-    matches.extend(_skill_intelligence.extract_skills(normalized_section))
     normalized_matches = _skill_intelligence.map_skills(matches)
     return _unique_in_order(normalized_matches)[:50]
 
@@ -215,6 +244,28 @@ def extract_location(text: str) -> str:
         match = LOCATION_PATTERN.search(line)
         if match:
             return re.sub(r"\s+", " ", match.group("value").strip(" ,.-"))[:80]
+    for line in lines[:12]:
+        match = HEADER_LOCATION_PATTERN.match(line)
+        if match:
+            compact = re.sub(r"\s+", " ", match.group("value").strip(" ,.-"))
+            if compact and not LOCATION_NOISE_PATTERN.search(compact):
+                return compact[:80]
+    for line in lines[:12]:
+        if "@" not in line and "|" not in line:
+            continue
+        candidates = [m.group("value") for m in PIPE_HEADER_LOCATION_PATTERN.finditer(line)]
+        ranked_candidates = sorted(candidates, key=lambda value: ("," not in value, len(value)))
+        for candidate in ranked_candidates:
+            compact = re.sub(r"\s+", " ", candidate.strip(" ,.-"))
+            if not compact or LOCATION_NOISE_PATTERN.search(compact):
+                continue
+            if any(char.isdigit() for char in compact):
+                continue
+            if len(compact.split()) > 4:
+                continue
+            if compact.lower().startswith(("linkedin", "github", "medium", "kaggle")):
+                continue
+            return compact[:80]
     for line in lines[:5]:
         if "@" in line or any(char.isdigit() for char in line):
             continue
@@ -236,10 +287,10 @@ def extract_languages(text: str, languages_section: str = "") -> List[str]:
     matches: List[str] = []
     section_source = languages_section or ""
     if section_source:
-        for chunk in re.split(r"[\n,;|/]", section_source):
-            normalized = chunk.strip().lower()
-            if normalized in LANGUAGE_TERMS:
-                matches.append(normalized.title())
+        section_lower = section_source.lower()
+        for language in LANGUAGE_TERMS:
+            if re.search(rf"\b{re.escape(language)}\b", section_lower):
+                matches.append(language.title())
     for line in [line.strip() for line in text.splitlines() if line.strip()][:30]:
         header_match = LANGUAGE_LINE_PATTERN.match(line)
         if header_match:
