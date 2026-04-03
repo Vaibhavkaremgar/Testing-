@@ -232,6 +232,19 @@ Built production services.
         self.assertEqual(result["experiences"][0]["end_date"], "2021-12")
         self.assertAlmostEqual(result["total_experience_years"], 3.0, delta=0.05)
 
+    def test_company_trims_trailing_city_token(self):
+        resume_text = """
+Professional Experience
+Junior Mobile Developer | Byjus Bengaluru
+2019 - 2021
+Built Android features and internal tooling.
+        """
+
+        result = extract_total_experience(resume_text)
+        self.assertEqual(len(result["experiences"]), 1)
+        self.assertEqual(result["experiences"][0]["role"], "Junior Mobile Developer")
+        self.assertEqual(result["experiences"][0]["company"], "Byjus")
+
     def test_merge_overlapping_ranges(self):
         merged = merge_overlapping_ranges(
             [

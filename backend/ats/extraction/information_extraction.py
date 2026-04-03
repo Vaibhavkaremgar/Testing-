@@ -85,6 +85,7 @@ SKILL_LABEL_TERMS = {
     "testing",
 }
 LOCATION_LEADING_DESCRIPTORS = {
+    "contact",
     "analyst",
     "business",
     "consumer",
@@ -332,7 +333,23 @@ def extract_location(text: str) -> str:
             left_words = left.split()
         if len(left_words) == 2 and left_words[0].lower() in LOCATION_LEADING_DESCRIPTORS:
             left = left_words[-1]
-        return f"{left}, {right}".strip(" ,")
+        right_tokens: List[str] = []
+        for token in right.split():
+            lowered = token.lower()
+            if (
+                "@" in token
+                or "." in token
+                or any(ch.isdigit() for ch in token)
+                or lowered.startswith(("linkedin", "github", "kaggle", "medium"))
+            ):
+                break
+            right_tokens.append(token)
+            if len(right_tokens) >= 3:
+                break
+        cleaned_right = " ".join(right_tokens).strip()
+        if not cleaned_right:
+            return left.strip(" ,")
+        return f"{left}, {cleaned_right}".strip(" ,")
 
     for line in lines[:30]:
         match = LOCATION_PATTERN.search(line)

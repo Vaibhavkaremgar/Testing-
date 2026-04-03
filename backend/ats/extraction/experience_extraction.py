@@ -37,6 +37,23 @@ COMPANY_STOPWORD_PATTERN = re.compile(r"(?i)\b(?:strategy|analytics|marketing|pl
 BULLET_PREFIX_PATTERN = re.compile(r"^\s*[•▪◦●·\-\*]+\s*")
 SECTION_BREAK_PATTERN = re.compile(r"(?i)^(?:education|projects?|skills|technical skills|certifications?|summary|profile|languages?)$")
 EXPERIENCE_HEADER_PATTERN = re.compile(r"(?i)^(?:work experience|professional experience|employment history|employment|career history|experience)$")
+LOCATION_TAIL_TOKENS = {
+    "ahmedabad",
+    "bangalore",
+    "bengaluru",
+    "chennai",
+    "delhi",
+    "gurgaon",
+    "gurugram",
+    "hosur",
+    "hyderabad",
+    "jaipur",
+    "kochi",
+    "kolkata",
+    "mumbai",
+    "noida",
+    "pune",
+}
 
 
 def _normalize_text(value: str) -> str:
@@ -144,11 +161,23 @@ def _clean_company_name(value: Optional[str]) -> Optional[str]:
     candidate = re.sub(r"(?i)^at\s+", "", candidate).strip()
     candidate = re.sub(r"\(\s*(?:\d{4}\s*(?:-|to)\s*(?:\d{4}|now|present)|digital agency)\s*\)", "", candidate, flags=re.IGNORECASE)
     candidate = re.sub(r"\(\s*\)", "", candidate)
+    candidate = re.sub(r"\s*\($", "", candidate)
     candidate = re.sub(
         r"\s*-\s*[A-Z][A-Za-z.\s]+,\s*[A-Z][A-Za-z.\s]+$",
         "",
         candidate,
     )
+    # If company legal suffix exists, trim trailing city/state tokens accidentally attached.
+    if COMPANY_PATTERN.search(candidate):
+        candidate = re.sub(
+            r"(?i)\b((?:pvt\.?\s+)?ltd\.?|inc\.?|corp\.?|llp)\b\.?\s+[A-Z][A-Za-z]+(?:,\s*[A-Z][A-Za-z]+)?$",
+            r"\1",
+            candidate,
+        )
+    else:
+        words = candidate.split()
+        if len(words) >= 2 and words[-1].lower() in LOCATION_TAIL_TOKENS:
+            candidate = " ".join(words[:-1]).strip()
     candidate = re.sub(r"\s+", " ", candidate).strip(" |-,:")
     return candidate or None
 
@@ -299,6 +328,12 @@ def _extract_role_company_from_combined_heading(line: str) -> Tuple[Optional[str
     role = _normalize_line(role_match.group("role")).removesuffix(" at").strip()
     company_part = prefix[role_match.end():].strip(" |-,:")
     company_part = re.sub(r"(?i)^at\s+", "", company_part).strip(" |-,:")
+    if not COMPANY_PATTERN.search(company_part):
+        words = company_part.split()
+        if len(words) >= 3:
+            last = words[-1]
+            if last[:1].isupper() and re.fullmatch(r"[A-Za-z]+", last):
+                company_part = " ".join(words[:-1]).strip()
     company = _clean_company_name(company_part) if company_part else None
     return role or None, company or None
 
@@ -331,6 +366,8 @@ def _extract_company_from_heading_line(line: str, role: Optional[str] = None) ->
         inferred = " ".join(parts[:-1]).strip()
         if inferred and len(inferred.split()) >= 2:
             return _clean_company_name(inferred)
+    if len(parts) == 2 and parts[1].lower() in LOCATION_TAIL_TOKENS:
+        return _clean_company_name(parts[0])
 
     return None
 
@@ -444,7 +481,17 @@ def _extract_role_candidate(block_lines: Sequence[str], company: Optional[str]) 
         if company and company in normalized:
             trimmed = normalized.replace(company, "").strip(" |-,:")
             trimmed = trimmed.removesuffix(" at").strip()
-            if trimmed and ROLE_HINT_PATTERN.search(trimmed) and not _is_skill_like(trimmed):
+            title_from_trimmed = ROLE_TITLE_PATTERN.search(trimmed)
+            if title_from_trimmed:
+                candidate = _normalize_line(title_from_trimmed.group("role"))
+                if candidate and not _is_skill_like(candidate):
+                    return candidate
+            if (
+                trimmed
+                and len(trimmed.split()) <= 12
+                and ROLE_HINT_PATTERN.search(trimmed)
+                and not _is_skill_like(trimmed)
+            ):
                 return trimmed
         if " at " in normalized.lower() and len(normalized.split()) <= 12:
             parts = re.split(r"\bat\b", normalized, maxsplit=1, flags=re.IGNORECASE)
@@ -463,11 +510,11 @@ def _extract_role_candidate(block_lines: Sequence[str], company: Optional[str]) 
             if candidate and not _is_skill_like(candidate):
                 return candidate
         title_match = ROLE_TITLE_PATTERN.search(normalized)
-        if title_match and len(normalized.split()) > 4:
+        if title_match:
             candidate = _normalize_line(title_match.group("role"))
             if candidate and not _is_skill_like(candidate):
                 return candidate
-        if ROLE_HINT_PATTERN.search(normalized) and not _is_skill_like(normalized):
+        if len(normalized.split()) <= 12 and ROLE_HINT_PATTERN.search(normalized) and not _is_skill_like(normalized):
             return normalized.removesuffix(" at").strip()
     return None
 
