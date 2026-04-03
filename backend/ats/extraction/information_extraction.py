@@ -735,34 +735,34 @@ def extract_resume_information(text: str) -> Dict:
     total_experience_years = experience_result.get("total_experience_years")
 
     current_entry = {}
+    if experience_entries:
+        experience_entries_sorted = sorted(
+            experience_entries,
+            key=lambda x: x.get("end_date") or "Present",
+            reverse=True,
+        )
+        current_entry = experience_entries_sorted[0]
 
-if experience_entries:
-    experience_entries_sorted = sorted(
-        experience_entries,
-        key=lambda x: x.get("end_date") or "Present",
-        reverse=True
-    )
-    current_entry = experience_entries_sorted[0]
-    # Fallback current_role from header when no experience entries parsed
-    
+    # Fallback current_role from header when no experience entries parsed.
     header_role = ""
     if not experience_entries and not current_entry.get("role"):
         from ats.extraction.experience_extraction import ROLE_TITLE_PATTERN
+
         for line in (sections.get("header", "") or "").splitlines():
             m = ROLE_TITLE_PATTERN.search(line.strip())
             if m:
                 header_role = m.group("role").strip()
                 break
-    location = extract_location(sections.get("header", ""))            
-    
+
+    location = extract_location(sections.get("header", ""))
     if not location and SPACY_AVAILABLE:
-       doc = get_section_doc(text[:500])
-       if doc:
-           for ent in doc.ents:
-               if ent.label_ == "GPE":
-                  location = ent.text
-                  break            
-    
+        doc = get_section_doc(text[:500])
+        if doc:
+            for ent in doc.ents:
+                if ent.label_ == "GPE":
+                    location = ent.text
+                    break
+
     result = {
         "sections": sections,
         "skills": skills,
@@ -771,7 +771,7 @@ if experience_entries:
         "projects": extract_project_entries(cleaned_text, sections.get("projects", "")),
         "education": extract_education_entries(cleaned_text, sections.get("education", "")),
         "certifications": extract_certification_entries(cleaned_text, sections.get("certifications", "")),
-        "location": location,               
+        "location": location,
         "current_company": current_entry.get("company"),
         "current_role": current_entry.get("role") or (header_role if not experience_entries else None),
         "designation": current_entry.get("role") or (header_role if not experience_entries else None) or None,
@@ -780,7 +780,15 @@ if experience_entries:
         "experience_level": derive_experience_level(total_experience_years),
         "languages": extract_languages(
             cleaned_text,
-            "\n".join(filter(None, [sections.get("languages", ""), _language_label_lines(sections.get("header", ""), sections.get("skills", ""))])),
+            "\n".join(
+                filter(
+                    None,
+                    [
+                        sections.get("languages", ""),
+                        _language_label_lines(sections.get("header", ""), sections.get("skills", "")),
+                    ],
+                )
+            ),
             sections.get("header", ""),
         ),
         "experience_text": clean_text_pipeline(sections.get("experience", "")),
