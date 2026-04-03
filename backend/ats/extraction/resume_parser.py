@@ -11,11 +11,12 @@ from docx.table import Table, _Cell
 from docx.text.paragraph import Paragraph
 from pypdf import PdfReader
 
+from ats.datasets.parser_config_loader import ParserConfigLoader
 from ats.extraction.experience_extraction import compute_total_experience, parse_date
 from ats.extraction.information_extraction import extract_resume_information
 from ats.extraction.validation import validate_parsed_fields
 from ats.preprocessing.section_segmentation import segment_resume_sections
-from ats.preprocessing.text_cleaning import clean_text_pipeline
+from ats.preprocessing.text_cleaning import clean_text_pipeline, normalize_common_artifacts, split_inline_section_headers
 
 logger = logging.getLogger(__name__)
 
@@ -28,13 +29,13 @@ PHONE_PATTERNS = [
 ]
 EMAIL_PATTERN = re.compile(r"\b[A-Za-z0-9._%+-]+\s*@\s*[A-Za-z0-9.-]+\s*\.\s*[A-Za-z]{2,}\b")
 PHONE_LINE_PATTERN = re.compile(r"(?:\+?\d[\d\s().-]{7,}\d)")
-INVALID_NAME_TOKENS = {
+DEFAULT_INVALID_NAME_TOKENS = {
     "about", "machine", "learning", "python", "java", "react", "sql", "developer",
     "engineer", "manager", "analyst", "summary", "profile", "objective", "resume",
     "curriculum", "vitae", "experience", "skills", "education", "project", "projects",
     "email", "phone", "address", "location",
 }
-NAME_STOP_TOKENS = {
+DEFAULT_NAME_STOP_TOKENS = {
     "senior", "sr", "junior", "jr", "principal", "staff", "assistant",
     "frontend", "front-end", "backend", "back-end", "fullstack", "full-stack",
     "software", "data", "product", "business", "human", "resources", "hr",
@@ -51,6 +52,19 @@ PDF_LINE_TOLERANCE = 3.0
 PDF_MIN_COLUMN_GAP = 60.0
 PDF_MIN_LINES_PER_COLUMN = 8
 PDF_SEGMENT_GAP = 35.0
+
+_parser_config_loader = ParserConfigLoader()
+_parser_vocabulary = _parser_config_loader.load_parser_vocabulary()
+INVALID_NAME_TOKENS = set(
+    str(value).strip().lower()
+    for value in (_parser_vocabulary.get("invalid_name_tokens") or DEFAULT_INVALID_NAME_TOKENS)
+    if str(value).strip()
+)
+NAME_STOP_TOKENS = set(
+    str(value).strip().lower()
+    for value in (_parser_vocabulary.get("name_stop_tokens") or DEFAULT_NAME_STOP_TOKENS)
+    if str(value).strip()
+)
 
 
 def _iter_docx_blocks(parent):
@@ -290,10 +304,6 @@ def _extract_inline_header_name(line: str) -> str:
         return ""
 
     candidate_line = INLINE_CONTACT_PATTERN.split(candidate_line, maxsplit=1)[0].strip(" ,|-")
-    for segment in HEADER_NAME_SPLIT_PATTERN.split(candidate_line):
-        normalized = _normalize_name_candidate(segment)
-        if normalized:
-            return normalized
 
     tokens = [token.strip(" ,.-") for token in candidate_line.split() if token.strip(" ,.-")]
     collected: List[str] = []
@@ -317,7 +327,16 @@ def _extract_inline_header_name(line: str) -> str:
             if next_index < len(tokens) and tokens[next_index].lower() in NAME_STOP_TOKENS:
                 break
 
-    return _normalize_name_candidate(" ".join(collected))
+    leading_name = _normalize_name_candidate(" ".join(collected))
+    if leading_name:
+        return leading_name
+
+    for segment in HEADER_NAME_SPLIT_PATTERN.split(candidate_line):
+        normalized = _normalize_name_candidate(segment)
+        if normalized:
+            return normalized
+
+    return ""
 
 
 def _header_name_candidates(text: str) -> List[str]:
@@ -325,8 +344,11 @@ def _header_name_candidates(text: str) -> List[str]:
     sections = segment_resume_sections(cleaned_text)
     header_text = sections.get("header", "")
     header_lines = [line.strip() for line in header_text.splitlines() if line.strip()]
-    raw_lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
-    return header_lines or raw_lines[:5]
+    structural_text = split_inline_section_headers(normalize_common_artifacts(text or ""))
+    structural_sections = segment_resume_sections(structural_text)
+    structural_header_lines = [line.strip() for line in structural_sections.get("header", "").splitlines() if line.strip()]
+    raw_lines = [line.strip() for line in structural_text.splitlines() if line.strip()]
+    return structural_header_lines or header_lines or raw_lines[:5]
 
 
 def _extract_phone(text: str) -> str:
@@ -356,15 +378,19 @@ def _email_to_name(email: str) -> str:
 
 def _extract_name(text: str, original_filename: Optional[str] = None) -> str:
     for line in _header_name_candidates(text):
+        prefix_segment = re.split(r"\s+\|\s+|\s+[•·]\s+", line, maxsplit=1)[0].strip()
+        normalized = _normalize_name_candidate(prefix_segment)
+        if normalized:
+            return normalized
+        inline_prefix_name = _extract_inline_header_name(prefix_segment)
+        if inline_prefix_name:
+            return inline_prefix_name
         normalized = _normalize_name_candidate(line)
         if normalized:
             return normalized
         inline_header_name = _extract_inline_header_name(line)
         if inline_header_name:
             return inline_header_name
-    email_name = _email_to_name(_extract_email(text))
-    if email_name:
-        return email_name
     if original_filename:
         filename_name = _normalize_name_candidate(
             os.path.splitext(original_filename)[0].replace("_", " ").replace("-", " ").title()

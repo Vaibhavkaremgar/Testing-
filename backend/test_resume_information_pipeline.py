@@ -328,6 +328,83 @@ account mgmt
         self.assertNotIn("short", result["skills"])
         self.assertNotIn("sales", result["skills"])
 
+    def test_header_name_and_skills_are_extracted_from_ananya_style_header(self):
+        resume_text = """
+Ananya Krishnan Data Analyst | Business Intelligence | Visualization Hyderabad, Telangana | +91 98001 23456 | ananya.krishnan@outlook.com
+PROFILE Data Analyst with 5 years of experience turning complex datasets into insights.
+WORK EXPERIENCE Senior Data Analyst Meesho Pvt. Ltd. | Jun 2022 - Present Bengaluru, Karnataka Built reporting dashboards.
+Data Analyst Delhivery Ltd. | Jan 2020 - May 2022 Gurugram, Haryana Built logistics reporting.
+TECHNICAL SKILLS Languages & Querying SQL (Advanced) Python (pandas, numpy) | R (ggplot2, dplyr) DAX / M Query | Bash scripting BI & Visualization Power BI Tableau | Looker / LookML Google Data Studio | Metabase Matplotlib / Seaborn Data Platforms & Tools Google BigQuery AWS Redshift Snowflake | Apache Airflow dbt (data build tool) Excel / Google Sheets | Mixpanel Amplitude Git
+        """
+
+        parsed = self._parse_resume_text(resume_text, "R1_Ananya_Krishnan_DataAnalyst.docx")
+        result = extract_resume_information(resume_text)
+
+        self.assertEqual(parsed["name"], "Ananya Krishnan")
+        self.assertEqual(result["location"], "Hyderabad, Telangana")
+        self.assertIn("sql", result["skills"])
+        self.assertIn("python", result["skills"])
+        self.assertIn("power bi", result["skills"])
+        self.assertIn("tableau", result["skills"])
+        self.assertIn("mixpanel", result["skills"])
+        self.assertIn("git", result["skills"])
+        self.assertNotEqual(parsed["name"], "Business Intelligence")
+
+    def test_location_is_blank_when_not_in_header(self):
+        resume_text = """
+Bhimaraju Kowshik
+bhimaraju.kowshik@gmail.com | +91 8106148797
+
+Professional Summary
+QA Automation Engineer with 4.2 years of experience in Java, Selenium WebDriver and API testing.
+
+Skills
+rest assured
+java
+sql
+testng
+cucumber
+apache maven
+gcp
+accelq
+stibo
+postman
+soap
+
+Experience
+QA Automation Engineer
+Cognizant Technology Solutions
+Dec-2022 to Present
+Using JIRA, Maven while continuously improving regression suites.
+        """
+
+        result = extract_resume_information(resume_text)
+
+        self.assertEqual(result["location"], "")
+        self.assertGreaterEqual(result["experience_years"], 2.0)
+
+    def test_month_based_experience_ranges_are_counted(self):
+        resume_text = """
+Deepak Sharma
+
+Work Experience
+QA Automation Engineer
+Cognizant Technology Solutions
+Dec-2022 to Present
+Built automation for API and UI workflows.
+
+QEA Intern
+Acme Labs
+Jun-2022 to Nov-2022
+Supported test automation execution.
+        """
+
+        result = extract_resume_information(resume_text)
+
+        self.assertGreaterEqual(result["experience_years"], 3.0)
+        self.assertEqual(result["current_role"], "QA Automation Engineer")
+        self.assertEqual(result["current_company"], "Cognizant Technology Solutions")
+
 
 if __name__ == "__main__":
     unittest.main()

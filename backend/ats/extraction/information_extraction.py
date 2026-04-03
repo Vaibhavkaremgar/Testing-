@@ -202,7 +202,11 @@ def _fallback_skill_from_chunk(chunk: str) -> str:
         return ""
     if re.search(r"\b(worked in|worked as|door to door|walk-in)\b", normalized):
         return ""
-    if len(normalized.split()) > 4:
+    normalized_tokens = normalized.split()
+    canonical_skill = _skill_intelligence.get_synonym_dictionary().get(normalized, normalized)
+    if len(normalized_tokens) > 2 and canonical_skill not in _skill_intelligence.get_skill_dictionary():
+        return ""
+    if len(normalized_tokens) > 4:
         return ""
     if re.search(r"\b(intermediate|advanced|beginner|native|fluent|professional)\b", normalized):
         normalized = re.sub(r"\b(intermediate|advanced|beginner|native|fluent|professional)\b", "", normalized)
@@ -297,6 +301,11 @@ def extract_skill_keywords(text: str, section_text: str = "") -> List[str]:
             match for match in chunk_matches
             if _is_supported_extracted_skill(match, chunk)
         )
+
+    section_matches = []
+    section_matches.extend(_skill_keyword_processor.extract_keywords(normalized_section))
+    section_matches.extend(_skill_intelligence.extract_skills(normalized_section))
+    matches.extend(section_matches)
 
     if not matches and SPACY_AVAILABLE:
         doc = get_section_doc(normalized_section)
@@ -428,10 +437,12 @@ def extract_location(text: str) -> str:
             return left.strip(" ,")
         return f"{left}, {cleaned_right}".strip(" ,")
 
-    for line in lines[:30]:
+    for line in lines[:8]:
         match = LOCATION_PATTERN.search(line)
         if match:
-            return normalize_location_candidate(match.group("value"))[:80]
+            compact = normalize_location_candidate(match.group("value"))
+            if compact and not LOCATION_NOISE_PATTERN.search(compact):
+                return compact[:80]
     for line in lines[:8]:
         matches = [m.group("value") for m in embedded_location_pattern.finditer(line)]
         for candidate in reversed(matches):
@@ -524,7 +535,8 @@ def extract_resume_information(text: str) -> Dict:
     )
     cleaned_text = clean_text_pipeline(text)
     sections = segment_resume_sections(cleaned_text)
-    raw_sections = segment_resume_sections(normalize_common_artifacts(text or ""))
+    structural_source = split_inline_section_headers(normalize_common_artifacts(text or ""))
+    raw_sections = segment_resume_sections(structural_source)
     skills_section = raw_sections.get("skills", "") or sections.get("skills", "")
     skills = extract_skill_keywords(skills_section, skills_section)
     experience_result = extract_total_experience(structural_text)
@@ -550,7 +562,7 @@ def extract_resume_information(text: str) -> Dict:
         "experience": experience_entries,
         "projects": extract_project_entries(cleaned_text, sections.get("projects", "")),
         "education": extract_education_entries(cleaned_text, sections.get("education", "")),
-        "location": extract_location("\n".join(part for part in [sections.get("header", ""), cleaned_text] if part)),
+        "location": extract_location(sections.get("header", "")),
         "current_company": current_entry.get("company"),
         "current_role": current_entry.get("role") or (header_role if not experience_entries else None) or None,
         "designation": current_entry.get("role") or (header_role if not experience_entries else None) or None,

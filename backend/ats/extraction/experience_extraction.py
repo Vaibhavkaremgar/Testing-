@@ -15,9 +15,9 @@ logger = logging.getLogger(__name__)
 MONTH_PATTERN = r"(?:jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)"
 PRESENT_PATTERN = r"(?:present|current|now|today|till date|till now)"
 DATE_RANGE_REGEX = re.compile(
-    rf"(?P<start>{MONTH_PATTERN}\s+\d{{4}}|\d{{1,2}}[/-]\d{{4}}|\d{{4}})\s*"
+    rf"(?P<start>{MONTH_PATTERN}(?:[\s/-]+)\d{{4}}|\d{{1,2}}[/-]\d{{4}}|\d{{4}})\s*"
     rf"(?:-|–|—|to|until|through)\s*"
-    rf"(?P<end>{PRESENT_PATTERN}|{MONTH_PATTERN}\s+\d{{4}}|\d{{1,2}}[/-]\d{{4}}|\d{{4}})",
+    rf"(?P<end>{PRESENT_PATTERN}|{MONTH_PATTERN}(?:[\s/-]+)\d{{4}}|\d{{1,2}}[/-]\d{{4}}|\d{{4}})",
     re.IGNORECASE,
 )
 ROLE_HINT_PATTERN = re.compile(
@@ -198,6 +198,7 @@ def _clean_company_name(value: Optional[str]) -> Optional[str]:
 
 def _parse_date_token(token: str, is_end: bool = False, today: Optional[datetime] = None) -> Optional[datetime]:
     raw = _normalize_line(token).lower().replace(".", "")
+    raw = re.sub(r"(?i)\b(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)[-/](\d{4})\b", r"\1 \2", raw)
     if not raw:
         return None
     current = today or datetime.utcnow()

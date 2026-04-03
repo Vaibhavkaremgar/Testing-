@@ -15,7 +15,7 @@ REPEATED_PUNCTUATION_PATTERN = re.compile(r"([.,;:|/()\-])\1+")
 PIPE_SEPARATOR_PATTERN = re.compile(r"\s*\|\s*")
 DATE_TOKEN_PATTERN = (
     r"(?:"
-    r"(?:jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\s+\d{4}"
+    r"(?:jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)(?:[\s/-]+)\d{4}"
     r"|\d{1,2}[/-]\d{4}"
     r"|\d{4}"
     r")"

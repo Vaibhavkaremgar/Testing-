@@ -2,21 +2,24 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Dict, List, Tuple
+from typing import Dict, List, Set, Tuple
 
 from flashtext import KeywordProcessor
 
 from ats.datasets.esco_loader import ESCOLoader
+from ats.datasets.parser_config_loader import ParserConfigLoader
 
 logger = logging.getLogger(__name__)
 
 
-DOMAIN_SKILLS: Dict[str, List[str]] = {
+DEFAULT_DOMAIN_SKILLS: Dict[str, List[str]] = {
     "technology": [
         "python", "java", "javascript", "typescript", "react", "nodejs", "fastapi",
         "sql", "postgresql", "mysql", "mongodb", "aws", "azure", "docker",
         "kubernetes", "rest api", "graphql", "machine learning", "data analysis",
-        "html", "css",
+        "html", "css", "power bi", "tableau", "looker", "lookml", "google bigquery",
+        "redshift", "snowflake", "apache airflow", "dbt", "mixpanel", "amplitude",
+        "git", "bash scripting", "google sheets", "excel", "dax", "m query", "r",
     ],
     "sales": [
         "b2b sales", "b2c sales", "lead generation", "business development",
@@ -57,7 +60,7 @@ DOMAIN_SKILLS: Dict[str, List[str]] = {
     ],
 }
 
-SKILL_ALIASES: Dict[str, str] = {
+DEFAULT_SKILL_ALIASES: Dict[str, str] = {
     "react.js": "react",
     "reactjs": "react",
     "node.js": "nodejs",
@@ -79,11 +82,14 @@ SKILL_ALIASES: Dict[str, str] = {
     "closing deals": "deal closing",
     "product demo": "product demos",
     "product demonstrations": "product demos",
+    "powerbi": "power bi",
+    "bigquery": "google bigquery",
+    "airflow": "apache airflow",
     "html5": "html",
     "css3": "css",
 }
 
-NOISE_TERMS = {
+DEFAULT_NOISE_TERMS = {
     "plan",
     "negotiation",
     "presentation",
@@ -104,7 +110,7 @@ NOISE_TERMS = {
     "sales",
 }
 
-LANGUAGE_TERMS = {
+DEFAULT_LANGUAGE_TERMS = {
     "english",
     "hindi",
     "telugu",
@@ -125,7 +131,7 @@ LANGUAGE_TERMS = {
     "chinese",
 }
 
-NOISE_ALIASES = {
+DEFAULT_NOISE_ALIASES = {
     "lead others",
     "computer programming",
     "database management systems",
@@ -142,6 +148,10 @@ NOISE_ALIASES = {
     "apply knowledge of science, technology and engineering",
     "source (digital game creation systems)",
     "logic",
+    "software components libraries",
+    "data visualisation software",
+    "business intelligence",
+    "office software",
 }
 
 VERB_LED_NOISE_PREFIXES = {
@@ -192,8 +202,54 @@ GENERIC_NOISE_TOKENS = {
     "tools",
 }
 
-BOUNDARY_REPLACEMENTS = {
+DEFAULT_BOUNDARY_REPLACEMENTS = {
     "b2b and b2c sales": ["b2b sales", "b2c sales"],
+}
+
+
+def _normalize_list(values: List[str]) -> List[str]:
+    return [str(value).strip().lower() for value in values if str(value).strip()]
+
+
+def _normalize_mapping(values: Dict[str, str]) -> Dict[str, str]:
+    normalized: Dict[str, str] = {}
+    for key, value in values.items():
+        normalized_key = str(key).strip().lower()
+        normalized_value = str(value).strip().lower()
+        if normalized_key and normalized_value:
+            normalized[normalized_key] = normalized_value
+    return normalized
+
+
+def _merge_overlay_lists(base: Dict[str, List[str]], overlay: Dict[str, List[str]]) -> Dict[str, List[str]]:
+    merged: Dict[str, List[str]] = {key: list(values) for key, values in base.items()}
+    for key, values in overlay.items():
+        existing = merged.setdefault(key, [])
+        for value in _normalize_list(values):
+            if value not in existing:
+                existing.append(value)
+    return merged
+
+
+_parser_config_loader = ParserConfigLoader()
+_skill_overlays = _parser_config_loader.load_skill_overlays()
+DOMAIN_SKILLS: Dict[str, List[str]] = _merge_overlay_lists(
+    DEFAULT_DOMAIN_SKILLS,
+    {str(key).strip().lower(): list(values) for key, values in (_skill_overlays.get("domain_skills") or {}).items()},
+)
+SKILL_ALIASES: Dict[str, str] = {
+    **DEFAULT_SKILL_ALIASES,
+    **_normalize_mapping(_skill_overlays.get("skill_aliases") or {}),
+}
+NOISE_TERMS: Set[str] = set(DEFAULT_NOISE_TERMS) | set(_normalize_list(_skill_overlays.get("noise_terms") or []))
+LANGUAGE_TERMS: Set[str] = set(DEFAULT_LANGUAGE_TERMS)
+NOISE_ALIASES: Set[str] = set(DEFAULT_NOISE_ALIASES) | set(_normalize_list(_skill_overlays.get("noise_aliases") or []))
+BOUNDARY_REPLACEMENTS: Dict[str, List[str]] = {
+    **DEFAULT_BOUNDARY_REPLACEMENTS,
+    **{
+        str(key).strip().lower(): _normalize_list(values)
+        for key, values in (_skill_overlays.get("boundary_replacements") or {}).items()
+    },
 }
 
 
