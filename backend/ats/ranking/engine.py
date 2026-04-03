@@ -23,8 +23,14 @@ class RankingEngine:
         "education_score": 0.1,
     }
 
+    def _coerce_float(self, value: object) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return 0.0
+
     def _normalize_feature(self, value: float) -> float:
-        normalized = float(value or 0.0) / 100.0
+        normalized = self._coerce_float(value) / 100.0
         return max(0.0, min(normalized, 1.0))
 
     def compute_score(self, feature_vector: Dict[str, float]) -> Dict[str, float]:

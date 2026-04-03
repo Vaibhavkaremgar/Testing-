@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 import pdfplumber
 from pypdf import PdfReader
 
-from ats.extraction.experience_extraction import parse_date
+from ats.extraction.experience_extraction import compute_total_experience, parse_date
 from ats.extraction.information_extraction import extract_resume_information
 from ats.extraction.validation import validate_parsed_fields
 from ats.preprocessing.section_segmentation import segment_resume_sections
@@ -24,10 +24,12 @@ PHONE_PATTERNS = [
     r"\(?\d{3}\)?[-\s]?\d{3}[-\s]?\d{4}",
 ]
 EMAIL_PATTERN = re.compile(r"\b[A-Za-z0-9._%+-]+\s*@\s*[A-Za-z0-9.-]+\s*\.\s*[A-Za-z]{2,}\b")
+PHONE_LINE_PATTERN = re.compile(r"(?:\+?\d[\d\s().-]{7,}\d)")
 INVALID_NAME_TOKENS = {
     "machine", "learning", "python", "java", "react", "sql", "developer",
     "engineer", "manager", "analyst", "summary", "profile", "objective", "resume",
     "curriculum", "vitae", "experience", "skills", "education", "project", "projects",
+    "email", "phone", "address", "location",
 }
 
 
@@ -104,9 +106,22 @@ def _normalize_name_candidate(value: str) -> str:
     lowered_words = [word.lower().strip(".,") for word in words]
     if any(word in INVALID_NAME_TOKENS for word in lowered_words):
         return ""
+    if "@" in candidate or PHONE_LINE_PATTERN.search(candidate):
+        return ""
     if not all(word.replace(".", "").replace("'", "").isalpha() for word in words):
         return ""
+    if not all(word.isupper() or word[:1].isupper() for word in words):
+        return ""
     return candidate.title()
+
+
+def _header_name_candidates(text: str) -> List[str]:
+    cleaned_text = clean_text_pipeline(text or "")
+    sections = segment_resume_sections(cleaned_text)
+    header_text = sections.get("header", "")
+    header_lines = [line.strip() for line in header_text.splitlines() if line.strip()]
+    raw_lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
+    return header_lines or raw_lines[:5]
 
 
 def _extract_phone(text: str) -> str:
@@ -131,12 +146,11 @@ def _email_to_name(email: str) -> str:
     tokens = [token for token in re.split(r"[._\-]+", local_part) if token]
     if not (2 <= len(tokens) <= 4):
         return ""
-    return _normalize_name_candidate(" ".join(tokens))
+    return _normalize_name_candidate(" ".join(token.title() for token in tokens))
 
 
 def _extract_name(text: str, original_filename: Optional[str] = None) -> str:
-    lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
-    for line in lines[:12]:
+    for line in _header_name_candidates(text):
         normalized = _normalize_name_candidate(line)
         if normalized:
             return normalized
@@ -145,7 +159,7 @@ def _extract_name(text: str, original_filename: Optional[str] = None) -> str:
         return email_name
     if original_filename:
         filename_name = _normalize_name_candidate(
-            os.path.splitext(original_filename)[0].replace("_", " ").replace("-", " ")
+            os.path.splitext(original_filename)[0].replace("_", " ").replace("-", " ").title()
         )
         if filename_name:
             return filename_name
@@ -174,8 +188,7 @@ def calculate_total_experience(experience_entries: List[Dict[str, Any]]) -> floa
         ranges.append((start, end))
     if not ranges:
         return 0.0
-    total_days = sum((end - start).days + 1 for start, end in ranges)
-    return round(total_days / 365.25, 1)
+    return compute_total_experience(ranges)
 
 
 def extract_current_company(experience_entries: List[Dict[str, Any]]) -> str:

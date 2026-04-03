@@ -187,12 +187,18 @@ def _find_date_range(block_lines: Sequence[str]) -> Optional[Dict[str, Any]]:
     return matches[0] if matches else None
 
 
+def _remove_date_range_text(line: str) -> str:
+    normalized = _normalize_line(line)
+    return DATE_RANGE_REGEX.sub("", normalized).strip(" |-,:")
+
+
 def _candidate_lines_near_date(block_lines: Sequence[str]) -> List[str]:
     date_index = 0
     for index, line in enumerate(block_lines):
         if DATE_RANGE_REGEX.search(line):
             date_index = index
             break
+    same_line = _remove_date_range_text(block_lines[date_index]) if block_lines else ""
     before = [
         line for line in block_lines[max(0, date_index - 2):date_index]
         if line and not EXPERIENCE_HEADER_PATTERN.match(line)
@@ -201,7 +207,12 @@ def _candidate_lines_near_date(block_lines: Sequence[str]) -> List[str]:
         line for line in block_lines[date_index + 1:date_index + 3]
         if line and not EXPERIENCE_HEADER_PATTERN.match(line)
     ]
-    return before + after
+    candidates: List[str] = []
+    if same_line:
+        candidates.append(same_line)
+    candidates.extend(before)
+    candidates.extend(after)
+    return candidates
 
 
 def _extract_company_candidate(block_lines: Sequence[str]) -> Optional[str]:
@@ -265,7 +276,8 @@ def _entry_from_block(block_lines: Sequence[str]) -> Optional[Dict[str, Any]]:
     date_range = _find_date_range(block_lines)
     if not date_range:
         return None
-    headline_lines = [line for line in block_lines[:3] if not DATE_RANGE_REGEX.search(line)]
+    headline_lines = [_remove_date_range_text(line) for line in block_lines[:3]]
+    headline_lines = [line for line in headline_lines if line]
     if not any(ROLE_HINT_PATTERN.search(line) or COMPANY_PATTERN.search(line) or " at " in line.lower() or "|" in line for line in headline_lines):
         return None
     company = _extract_company_candidate(block_lines)

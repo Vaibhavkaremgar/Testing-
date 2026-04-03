@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import math
+import re
+from collections import Counter
 from typing import Dict, List
 
-from rank_bm25 import BM25Okapi
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
 from ats.preprocessing.text_cleaning import clean_text_pipeline
+
+TOKEN_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9.+#/-]*")
 
 
 class MatchingEngine:
@@ -17,7 +21,39 @@ class MatchingEngine:
 
     def _tokenize(self, text: str) -> List[str]:
         normalized = self._normalize_text(text)
-        return [token for token in normalized.split() if token]
+        return [match.group(0).lower() for match in TOKEN_PATTERN.finditer(normalized)]
+
+    def _bm25_raw_score(
+        self,
+        query_tokens: List[str],
+        document_tokens: List[str],
+        *,
+        k1: float = 1.5,
+        b: float = 0.75,
+    ) -> float:
+        if not query_tokens or not document_tokens:
+            return 0.0
+
+        doc_length = len(document_tokens)
+        avg_doc_length = float(doc_length)
+        doc_counts = Counter(document_tokens)
+        query_counts = Counter(query_tokens)
+        score = 0.0
+
+        for token, query_frequency in query_counts.items():
+            term_frequency = doc_counts.get(token, 0)
+            if term_frequency <= 0:
+                continue
+
+            # Smoothed single-document BM25 IDF to avoid zero or negative scores.
+            doc_frequency = 1
+            corpus_size = 1
+            idf = math.log(1.0 + ((corpus_size - doc_frequency + 0.5) / (doc_frequency + 0.5)))
+            numerator = term_frequency * (k1 + 1.0)
+            denominator = term_frequency + k1 * (1.0 - b + b * (doc_length / avg_doc_length))
+            score += idf * (numerator / denominator) * query_frequency
+
+        return score
 
     def tfidf_similarity(self, source_text: str, target_text: str) -> float:
         source = self._normalize_text(source_text)
@@ -36,12 +72,12 @@ class MatchingEngine:
         if not query_tokens or not document_tokens:
             return 0.0
 
-        bm25 = BM25Okapi([document_tokens])
-        scores = bm25.get_scores(query_tokens)
-        raw_score = float(scores[0]) if len(scores) else 0.0
-        raw_score = max(raw_score, 0.0)
-        capped_score = min(raw_score, 25.0)
-        return float(round((capped_score / 25.0) * 100, 2))
+        raw_score = self._bm25_raw_score(query_tokens, document_tokens)
+        ideal_score = self._bm25_raw_score(query_tokens, query_tokens)
+        if ideal_score <= 0.0:
+            return 0.0
+        normalized_score = min(raw_score / ideal_score, 1.0)
+        return float(round(normalized_score * 100, 2))
 
     def compute_match(self, resume_text: str, job_text: str) -> Dict[str, float]:
         tfidf_score = self.tfidf_similarity(resume_text, job_text)

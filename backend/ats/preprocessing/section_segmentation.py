@@ -4,7 +4,7 @@ import re
 from typing import Dict, List
 
 CORE_SECTIONS = ("experience", "skills", "education", "projects")
-OPTIONAL_SECTIONS = ("header", "summary", "languages")
+OPTIONAL_SECTIONS = ("header", "summary", "languages" , "achievements", "certifications", "awards", "publications", "interests", "references")
 ALL_SECTIONS = CORE_SECTIONS + OPTIONAL_SECTIONS
 
 SECTION_HEADER_PATTERNS = {
@@ -16,6 +16,29 @@ SECTION_HEADER_PATTERNS = {
     "projects": re.compile(r"(?i)^projects?$"),
     "summary": re.compile(r"(?i)^(?:professional summary|profile summary|career summary|summary|objective|profile)$"),
     "languages": re.compile(r"(?i)^languages?$"),
+    "achievements": re.compile(r"(?i)^achievements?$"),
+    "certifications": re.compile(r"(?i)^certifications?$"),
+    "awards": re.compile(r"(?i)^awards?$"),
+    "publications": re.compile(r"(?i)^publications?$"),
+    "interests": re.compile(r"(?i)^interests?$"),
+    "references": re.compile(r"(?i)^references?$"),
+}
+
+SECTION_PREFIX_PATTERNS = {
+    "experience": re.compile(
+        r"(?i)^(?:work experience|professional experience|employment history|employment|career history|experience)\b"
+    ),
+    "skills": re.compile(r"(?i)^(?:technical skills|skills)\b"),
+    "education": re.compile(r"(?i)^education\b"),
+    "projects": re.compile(r"(?i)^projects?\b"),
+    "summary": re.compile(r"(?i)^(?:professional summary|profile summary|career summary|summary|objective|profile)\b"),
+    "languages": re.compile(r"(?i)^languages?\b"),
+    "achievements": re.compile(r"(?i)^achievements?\b"),
+    "certifications": re.compile(r"(?i)^certifications?\b"),
+    "awards": re.compile(r"(?i)^awards?\b"),
+    "publications": re.compile(r"(?i)^publications?\b"),
+    "interests": re.compile(r"(?i)^interests?\b"),
+    "references": re.compile(r"(?i)^references?\b"),
 }
 
 BOUNDARY_HEADER_PATTERNS = [
@@ -28,7 +51,7 @@ DATE_RANGE_PATTERN = re.compile(
     r"(?:jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\s+\d{4}"
     r"|\d{1,2}[/-]\d{4}"
     r"|\d{4}"
-    r")\s*(?:-|–|—|to|until)\s*(?:present|current|now|"
+    r")\s*(?:-|to|until)\s*(?:present|current|now|"
     r"(?:jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\s+\d{4}"
     r"|\d{1,2}[/-]\d{4}"
     r"|\d{4})\b"
@@ -37,8 +60,10 @@ ROLE_HINT_PATTERN = re.compile(
     r"(?i)\b(?:engineer|developer|manager|lead|analyst|consultant|architect|specialist|administrator|designer|executive|director|officer|associate|scientist|recruiter|sales|product|qa|tester)\b"
 )
 COMPANY_HINT_PATTERN = re.compile(r"(?i)\b(?:pvt|ltd|inc|technologies|solutions|corp|systems|software|labs|works)\b")
-DECORATION_PATTERN = re.compile(r"^[\s|_\-=~*#.:·•▪◦●◆]+|[\s|_\-=~*#.:·•▪◦●◆]+$")
+DECORATION_PATTERN = re.compile(r"^[\s|_\-=~*#.:]+|[\s|_\-=~*#.:]+$")
 WHITESPACE_PATTERN = re.compile(r"[ \t]+")
+BULLET_PREFIX_PATTERN = re.compile(r"^\s*[\-\*\u2022\u25aa\u25e6\u00b7]+\s*")
+CONTACT_HEADER_PATTERN = re.compile(r"(?i)^(?:email|phone|mobile|location|address)\b")
 
 
 def _normalize_line(line: str) -> str:
@@ -51,10 +76,18 @@ def _normalize_line(line: str) -> str:
         "\u25aa": " ",
         "\u25e6": " ",
         "\u00b7": " ",
-        "Â·": " ",
+        "\u00a0": " ",
+        "â€“": "-",
+        "â€”": "-",
         "â€¢": " ",
         "â–ª": " ",
-        "â”": " ",
+        "â—¦": " ",
+        "â—": " ",
+        "Ã¢â‚¬â€œ": "-",
+        "Ã¢â‚¬â€": "-",
+        "Ã‚Â·": " ",
+        "Ã¢â‚¬Â¢": " ",
+        "Ã¢â€“Âª": " ",
     }
     for source, target in replacements.items():
         normalized = normalized.replace(source, target)
@@ -65,9 +98,9 @@ def _normalize_line(line: str) -> str:
 def _clean_header_candidate(line: str) -> str:
     cleaned = _normalize_line(line).strip(":")
     cleaned = DECORATION_PATTERN.sub("", cleaned)
-    cleaned = re.sub(r"[^A-Za-z\s]", " ", cleaned)
+    cleaned = re.sub(r"[^A-Za-z\s-]", " ", cleaned)
     cleaned = WHITESPACE_PATTERN.sub(" ", cleaned)
-    return cleaned.strip()
+    return cleaned.strip(" -")
 
 
 def _match_section_name(header_text: str) -> str | None:
@@ -77,7 +110,31 @@ def _match_section_name(header_text: str) -> str | None:
     for section, pattern in SECTION_HEADER_PATTERNS.items():
         if pattern.match(candidate):
             return section
+    for section, pattern in SECTION_PREFIX_PATTERNS.items():
+        if pattern.match(candidate):
+            return section
     return None
+
+
+def _extract_prefixed_header_content(line: str, section: str | None) -> str:
+    if not section:
+        return ""
+    normalized = _normalize_line(line)
+    prefix_pattern = SECTION_PREFIX_PATTERNS.get(section)
+    if prefix_pattern is None:
+        return ""
+    match = prefix_pattern.match(_clean_header_candidate(line))
+    if not match:
+        return ""
+
+    raw_match = re.match(prefix_pattern.pattern, normalized, re.IGNORECASE)
+    if not raw_match:
+        return ""
+
+    remainder = normalized[raw_match.end():].strip(" :-|")
+    if not remainder or _match_section_name(remainder):
+        return ""
+    return remainder
 
 
 def _is_boundary_header(header_text: str) -> bool:
@@ -91,16 +148,16 @@ def _looks_like_header(line: str) -> bool:
     candidate = _clean_header_candidate(line)
     if not candidate:
         return False
-    if len(candidate.split()) > 4:
+    if len(candidate.split()) > 6:
         return False
-    return candidate.isalpha() or " " in candidate
+    return candidate.isalpha() or " " in candidate or "-" in candidate
 
 
 def _clean_section_content(lines: List[str]) -> str:
     cleaned: List[str] = []
     for line in lines:
         normalized = _normalize_line(line)
-        normalized = re.sub(r"^\s*[•▪◦●·\-\*]+\s*", "", normalized)
+        normalized = BULLET_PREFIX_PATTERN.sub("", normalized)
         if not normalized:
             if cleaned and cleaned[-1] != "":
                 cleaned.append("")
@@ -158,6 +215,7 @@ def segment_resume_sections(text: str) -> Dict[str, str]:
     current_section: str | None = None
     buffers = {name: [] for name in ALL_SECTIONS}
     header_buffer: List[str] = []
+    collecting_header = True
 
     for index, raw_line in enumerate(raw_lines):
         line = _normalize_line(raw_line)
@@ -166,13 +224,11 @@ def segment_resume_sections(text: str) -> Dict[str, str]:
                 buffers[current_section].append("")
             continue
 
-        if index < 12 and not current_section:
-            header_buffer.append(line)
-
         inline_match = INLINE_HEADER_PATTERN.match(line)
         if inline_match:
             next_section = _match_section_name(inline_match.group("header"))
             if next_section:
+                collecting_header = False
                 current_section = next_section
                 content = _normalize_line(inline_match.group("content"))
                 if content:
@@ -182,11 +238,24 @@ def segment_resume_sections(text: str) -> Dict[str, str]:
         if _looks_like_header(line):
             next_section = _match_section_name(line)
             if next_section:
+                collecting_header = False
                 current_section = next_section
+                content = _extract_prefixed_header_content(line, next_section)
+                if content:
+                    buffers[current_section].append(content)
                 continue
             if _is_boundary_header(line):
+                collecting_header = False
                 current_section = None
                 continue
+
+        if index < 12 and collecting_header and not current_section:
+            header_buffer.append(line)
+            continue
+
+        if current_section == "summary" and index < 12 and CONTACT_HEADER_PATTERN.match(line):
+            header_buffer.append(line)
+            continue
 
         if current_section:
             buffers[current_section].append(line)

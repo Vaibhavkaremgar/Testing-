@@ -87,6 +87,31 @@ NOISE_TERMS = {
     "computer science",
 }
 
+LANGUAGE_TERMS = {
+    "english",
+    "hindi",
+    "telugu",
+    "tamil",
+    "kannada",
+    "malayalam",
+    "marathi",
+    "gujarati",
+    "punjabi",
+    "bengali",
+    "urdu",
+    "french",
+    "german",
+    "spanish",
+    "arabic",
+    "japanese",
+    "mandarin",
+    "chinese",
+}
+
+NOISE_ALIASES = {
+    "lead others",
+}
+
 BOUNDARY_REPLACEMENTS = {
     "b2b and b2c sales": ["b2b sales", "b2c sales"],
 }
@@ -164,7 +189,8 @@ class SkillIntelligence:
         return normalized
 
     def _is_noise(self, skill: str) -> bool:
-        return self.normalize_skill(skill) in NOISE_TERMS
+        normalized = self.normalize_skill(skill)
+        return normalized in NOISE_TERMS or normalized in LANGUAGE_TERMS or normalized in NOISE_ALIASES
 
     def _extract_boundary_variants(self, text: str) -> List[str]:
         lowered = (text or "").lower()

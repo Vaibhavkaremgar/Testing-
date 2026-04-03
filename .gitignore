@@ -152,3 +152,7 @@ alembic/versions/*.py
 # Credentials
 *-key.json
 hr-dashboard-key.json
+
+#bat files
+*.bat
+
