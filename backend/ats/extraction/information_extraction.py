@@ -84,6 +84,27 @@ SKILL_LABEL_TERMS = {
     "messaging",
     "testing",
 }
+SKILL_CHUNK_NOISE_TERMS = {
+    "technical skills",
+    "core skills",
+    "key skills",
+    "primary skills",
+    "professional skills",
+    "skills summary",
+    "competencies",
+    "technical competencies",
+    "areas of expertise",
+    "expertise",
+    "technologies",
+    "technology stack",
+    "platforms",
+    "operating systems",
+}
+SKILL_CHUNK_LEADIN_PATTERN = re.compile(
+    r"(?i)^(?:technical skills?|core skills?|key skills?|primary skills?|professional skills?|skills?|"
+    r"technical competencies|competencies|areas of expertise|expertise|technologies|technology stack|"
+    r"tools(?: and technologies)?|frameworks|databases|platforms|languages)\s*[:\-]?\s*"
+)
 LOCATION_LEADING_DESCRIPTORS = {
     "contact",
     "analyst",
@@ -116,6 +137,9 @@ def _looks_like_skill_chunk(chunk: str) -> bool:
     normalized = clean_text_pipeline(chunk or "").strip().lower()
     if not normalized:
         return False
+    normalized = SKILL_CHUNK_LEADIN_PATTERN.sub("", normalized).strip()
+    if not normalized or normalized in SKILL_CHUNK_NOISE_TERMS:
+        return False
 
     tokens = normalized.split()
     if len(tokens) > 8:
@@ -129,9 +153,12 @@ def _looks_like_skill_chunk(chunk: str) -> bool:
 
 def _fallback_skill_from_chunk(chunk: str) -> str:
     normalized = clean_text_pipeline(chunk or "").strip().lower()
+    normalized = SKILL_CHUNK_LEADIN_PATTERN.sub("", normalized).strip()
     normalized = re.sub(r"\([^)]*\)", "", normalized)
     normalized = re.sub(r"\s+", " ", normalized).strip(" -,:/")
     if not normalized:
+        return ""
+    if normalized in SKILL_CHUNK_NOISE_TERMS:
         return ""
     if len(normalized.split()) > 4:
         return ""
@@ -173,8 +200,13 @@ for alias, canonical in SKILL_ALIASES.items():
 
 def normalize_skill_name(skill: str) -> str:
     normalized = clean_text_pipeline(skill or "").lower().strip(" -,:;/()[]{}")
+    normalized = SKILL_CHUNK_LEADIN_PATTERN.sub("", normalized).strip()
     normalized = re.sub(r"\s+", " ", normalized)
-    if not _is_valid_skill_candidate(normalized) or normalized in SKILL_LABEL_TERMS:
+    if (
+        not _is_valid_skill_candidate(normalized)
+        or normalized in SKILL_LABEL_TERMS
+        or normalized in SKILL_CHUNK_NOISE_TERMS
+    ):
         return ""
     return SKILL_ALIASES.get(normalized, normalized)
 

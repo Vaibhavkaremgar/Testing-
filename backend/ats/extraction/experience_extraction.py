@@ -54,6 +54,20 @@ LOCATION_TAIL_TOKENS = {
     "noida",
     "pune",
 }
+TOTAL_EXPERIENCE_PATTERN = re.compile(
+    r"(?i)\b(?:total|overall|professional|relevant)?\s*"
+    r"(?P<years>\d{1,2}(?:\.\d+)?)\s*\+?\s*years?"
+    r"(?:\s*(?:and|&)?\s*(?P<months>\d{1,2})\s*months?)?"
+    r"\s+of\s+experience\b"
+)
+TOTAL_EXPERIENCE_LABEL_PATTERN = re.compile(
+    r"(?i)\b(?:total|overall|professional|relevant)\s+experience\s*[:\-]?\s*"
+    r"(?P<years>\d{1,2}(?:\.\d+)?)\s*\+?\s*years?"
+    r"(?:\s*(?:and|&)?\s*(?P<months>\d{1,2})\s*months?)?"
+)
+EXPERIENCE_SUFFIX_NOISE_PATTERN = re.compile(
+    r"(?i)^\s*(?:with|in|on|using)\s+[A-Za-z][A-Za-z0-9\s&+.#/-]{0,40}$"
+)
 
 
 def _normalize_text(value: str) -> str:
@@ -585,6 +599,28 @@ def compute_total_experience(ranges: Sequence[Tuple[datetime, datetime]]) -> flo
     return round(total_days / 365.25, 1) if total_days > 0 else 0.0
 
 
+def _extract_stated_total_experience(text: str) -> Optional[float]:
+    normalized = _normalize_text(text)
+    if not normalized:
+        return None
+
+    candidates: List[float] = []
+    for pattern in (TOTAL_EXPERIENCE_LABEL_PATTERN, TOTAL_EXPERIENCE_PATTERN):
+        for match in pattern.finditer(normalized):
+            suffix = normalized[match.end():match.end() + 45]
+            if EXPERIENCE_SUFFIX_NOISE_PATTERN.match(suffix):
+                continue
+            years = float(match.group("years"))
+            months = int(match.group("months") or 0)
+            if months >= 12:
+                years += months / 12.0
+            else:
+                years += months / 12.0
+            if 0.0 <= years <= 40.0:
+                candidates.append(round(years, 1))
+    return max(candidates) if candidates else None
+
+
 def _sort_key(entry: Dict[str, Any]) -> Tuple[int, datetime]:
     end_date = parse_date(entry.get("end_date", ""), is_end=True) or datetime(1900, 1, 1)
     return (1 if entry.get("is_current") else 0, end_date)
@@ -647,7 +683,15 @@ def extract_total_experience(
             continue
         ranges.append((start, end))
         normalized_entries.append(entry)
+    computed_total = compute_total_experience(ranges) if ranges else None
+    stated_total = _extract_stated_total_experience(text)
+    if computed_total is None:
+        total_experience_years = stated_total
+    elif stated_total is None:
+        total_experience_years = computed_total
+    else:
+        total_experience_years = max(computed_total, stated_total)
     return {
-        "total_experience_years": compute_total_experience(ranges) if ranges else None,
+        "total_experience_years": total_experience_years,
         "experiences": normalized_entries,
     }

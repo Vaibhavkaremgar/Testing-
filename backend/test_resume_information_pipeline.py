@@ -10,6 +10,15 @@ from ats.extraction.resume_parser import parse_resume  # noqa: E402
 
 
 class ResumeInformationPipelineTests(unittest.TestCase):
+    def _parse_resume_text(self, resume_text: str, filename: str = "resume.txt"):
+        with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False, encoding="utf-8") as handle:
+            handle.write(resume_text)
+            temp_path = handle.name
+        try:
+            return parse_resume(temp_path, filename)
+        finally:
+            Path(temp_path).unlink(missing_ok=True)
+
     def test_bullet_heavy_resume_ignores_skill_like_heading_for_current_role(self):
         resume_text = """
 Jane Doe
@@ -166,6 +175,56 @@ Languages: English (Fluent) Tamil (Native) Telugu (Conversational) Hindi (Workin
         self.assertIn("sql", result["skills"])
         self.assertIn("python", result["skills"])
         self.assertIn("English", result["languages"])
+
+    def test_parse_resume_prefers_header_name_over_email_local_part(self):
+        resume_text = """
+Priyanka Nair Senior Data Analyst | Hyderabad, Telangana | +91 99887 66554 | talent.pool1989@outlook.com
+PROFILE Data analyst with 5 years of experience building hiring dashboards.
+WORK EXPERIENCE Senior Data Analyst Meesho Pvt. Ltd. | Jun 2022 - Present Bengaluru, Karnataka Built reporting dashboards.
+TECHNICAL SKILLS SQL | Python | Power BI | Tableau
+        """
+
+        result = self._parse_resume_text(resume_text, "talent_pool1989_resume.txt")
+
+        self.assertEqual(result["name"], "Priyanka Nair")
+        self.assertNotEqual(result["name"], "Talent Pool")
+
+    def test_technical_skills_section_keeps_real_skills_and_drops_noise(self):
+        resume_text = """
+Karan Shah
+
+Technical Skills
+Programming Languages: Python | SQL | Java
+Frameworks: FastAPI | React
+Tools and Technologies: Docker | AWS | Git
+Core Skills: Communication | Leadership | Teamwork
+        """
+
+        result = extract_resume_information(resume_text)
+
+        self.assertIn("python", result["skills"])
+        self.assertIn("sql", result["skills"])
+        self.assertIn("fastapi", result["skills"])
+        self.assertIn("docker", result["skills"])
+        self.assertNotIn("communication", result["skills"])
+        self.assertNotIn("leadership", result["skills"])
+        self.assertNotIn("teamwork", result["skills"])
+
+    def test_explicit_total_experience_pattern_is_used_when_present(self):
+        resume_text = """
+Rahul Menon
+
+Professional Summary
+Backend engineer with 5 years and 6 months of experience building APIs and distributed systems.
+
+Skills
+Python, FastAPI, PostgreSQL, Docker
+        """
+
+        result = extract_resume_information(resume_text)
+
+        self.assertEqual(result["experience_years"], 5.5)
+        self.assertEqual(result["total_experience_years"], 5.5)
 
 
 if __name__ == "__main__":

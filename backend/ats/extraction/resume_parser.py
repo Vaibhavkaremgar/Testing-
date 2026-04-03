@@ -34,6 +34,19 @@ INVALID_NAME_TOKENS = {
     "curriculum", "vitae", "experience", "skills", "education", "project", "projects",
     "email", "phone", "address", "location",
 }
+NAME_STOP_TOKENS = {
+    "senior", "sr", "junior", "jr", "principal", "staff", "assistant",
+    "frontend", "front-end", "backend", "back-end", "fullstack", "full-stack",
+    "software", "data", "product", "business", "human", "resources", "hr",
+    "engineer", "developer", "manager", "analyst", "scientist", "consultant", "architect",
+    "specialist", "designer", "executive", "director", "associate", "lead", "intern",
+    "summary", "profile", "objective", "experience", "skills", "education", "projects",
+    "location", "email", "phone", "mobile", "linkedin", "github",
+}
+HEADER_NAME_SPLIT_PATTERN = re.compile(r"\s+[|,/-]\s+|\s{2,}")
+INLINE_CONTACT_PATTERN = re.compile(
+    r"(?i)(\+?\d[\d\s().-]{7,}\d|[A-Za-z0-9._%+-]+\s*@\s*[A-Za-z0-9.-]+\s*\.\s*[A-Za-z]{2,}|linkedin|github|portfolio)"
+)
 PDF_LINE_TOLERANCE = 3.0
 PDF_MIN_COLUMN_GAP = 60.0
 PDF_MIN_LINES_PER_COLUMN = 8
@@ -271,6 +284,42 @@ def _normalize_name_candidate(value: str) -> str:
     return candidate.title()
 
 
+def _extract_inline_header_name(line: str) -> str:
+    candidate_line = re.sub(r"\s+", " ", (line or "").strip())
+    if not candidate_line:
+        return ""
+
+    candidate_line = INLINE_CONTACT_PATTERN.split(candidate_line, maxsplit=1)[0].strip(" ,|-")
+    for segment in HEADER_NAME_SPLIT_PATTERN.split(candidate_line):
+        normalized = _normalize_name_candidate(segment)
+        if normalized:
+            return normalized
+
+    tokens = [token.strip(" ,.-") for token in candidate_line.split() if token.strip(" ,.-")]
+    collected: List[str] = []
+    for token in tokens:
+        lowered = token.lower()
+        normalized_candidate = _normalize_name_candidate(" ".join(collected + [token]))
+        if lowered in NAME_STOP_TOKENS:
+            break
+        if any(char.isdigit() for char in token) or "@" in token:
+            break
+        if lowered in INVALID_NAME_TOKENS:
+            break
+        if token.isupper() or token[:1].isupper():
+            collected.append(token)
+        else:
+            break
+        if len(collected) >= 4:
+            break
+        if normalized_candidate and len(collected) >= 2:
+            next_index = len(collected)
+            if next_index < len(tokens) and tokens[next_index].lower() in NAME_STOP_TOKENS:
+                break
+
+    return _normalize_name_candidate(" ".join(collected))
+
+
 def _header_name_candidates(text: str) -> List[str]:
     cleaned_text = clean_text_pipeline(text or "")
     sections = segment_resume_sections(cleaned_text)
@@ -310,6 +359,9 @@ def _extract_name(text: str, original_filename: Optional[str] = None) -> str:
         normalized = _normalize_name_candidate(line)
         if normalized:
             return normalized
+        inline_header_name = _extract_inline_header_name(line)
+        if inline_header_name:
+            return inline_header_name
     email_name = _email_to_name(_extract_email(text))
     if email_name:
         return email_name
