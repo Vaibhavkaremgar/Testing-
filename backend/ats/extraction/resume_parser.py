@@ -3,20 +3,27 @@ from __future__ import annotations
 import logging
 import os
 import re
+import shutil
 from typing import Any, Dict, List, Optional
 
 import pdfplumber
 from docx.document import Document as DocxDocument
 from docx.table import Table, _Cell
 from docx.text.paragraph import Paragraph
+from PIL import Image
 from pypdf import PdfReader
+
+try:
+    import pytesseract
+except ImportError:  # pragma: no cover - optional dependency
+    pytesseract = None
 
 from ats.datasets.parser_config_loader import ParserConfigLoader
 from ats.extraction.experience_extraction import compute_total_experience, parse_date
 from ats.extraction.information_extraction import extract_resume_information
 from ats.extraction.validation import validate_parsed_fields
 from ats.preprocessing.section_segmentation import segment_resume_sections
-from ats.preprocessing.text_cleaning import clean_text_pipeline, normalize_common_artifacts, split_inline_section_headers
+from ats.preprocessing.text_cleaning import clean_text_pipeline, normalize_common_artifacts, normalize_document_structure, split_inline_section_headers
 
 logger = logging.getLogger(__name__)
 
@@ -48,10 +55,18 @@ HEADER_NAME_SPLIT_PATTERN = re.compile(r"\s+[|,/-]\s+|\s{2,}")
 INLINE_CONTACT_PATTERN = re.compile(
     r"(?i)(\+?\d[\d\s().-]{7,}\d|[A-Za-z0-9._%+-]+\s*@\s*[A-Za-z0-9.-]+\s*\.\s*[A-Za-z]{2,}|linkedin|github|portfolio)"
 )
+SECTION_START_PATTERN = re.compile(
+    r"(?i)^(?:work experience|professional experience|employment history|employment|career history|experience|"
+    r"skills|technical skills|core skills|key skills|education|projects?|summary|profile|languages?|"
+    r"certifications?|achievements?|awards?|publications?|references?)$"
+)
 PDF_LINE_TOLERANCE = 3.0
 PDF_MIN_COLUMN_GAP = 60.0
 PDF_MIN_LINES_PER_COLUMN = 8
 PDF_SEGMENT_GAP = 35.0
+OCR_MIN_TEXT_LENGTH = 80
+OCR_MIN_ALPHA_CHARS = 30
+OCR_MIN_ALPHA_RATIO = 0.3
 
 _parser_config_loader = ParserConfigLoader()
 _parser_vocabulary = _parser_config_loader.load_parser_vocabulary()
@@ -213,6 +228,56 @@ def _extract_pdf_page_text(page: pdfplumber.page.Page) -> str:
     return "\n".join(line["text"] for line in ordered_lines)
 
 
+def _configure_tesseract() -> bool:
+    if pytesseract is None:
+        return False
+    configured_cmd = os.getenv("TESSERACT_CMD", "").strip()
+    if configured_cmd:
+        pytesseract.pytesseract.tesseract_cmd = configured_cmd
+        return os.path.exists(configured_cmd) or bool(shutil.which(configured_cmd))
+    return bool(shutil.which("tesseract"))
+
+
+def _is_ocr_ready() -> bool:
+    return pytesseract is not None and _configure_tesseract()
+
+
+def _has_meaningful_text(text_parts: List[str]) -> bool:
+    combined = "\n".join(part.strip() for part in text_parts if part and part.strip())
+    if not combined:
+        return False
+    alpha_count = sum(1 for char in combined if char.isalpha())
+    if len(combined) < OCR_MIN_TEXT_LENGTH or alpha_count < OCR_MIN_ALPHA_CHARS:
+        return False
+    return (alpha_count / max(len(combined), 1)) >= OCR_MIN_ALPHA_RATIO
+
+
+def _prepare_ocr_image(image: Image.Image) -> Image.Image:
+    prepared = image.convert("L")
+    return prepared.point(lambda pixel: 255 if pixel > 180 else 0)
+
+
+def _extract_pdf_text_via_ocr(file_path: str) -> List[str]:
+    if not _is_ocr_ready():
+        return []
+
+    ocr_parts: List[str] = []
+    try:
+        with pdfplumber.open(file_path) as pdf:
+            for page in pdf.pages:
+                try:
+                    page_image = page.to_image(resolution=200).original
+                    prepared_image = _prepare_ocr_image(page_image)
+                    page_text = pytesseract.image_to_string(prepared_image) or ""
+                    if page_text.strip():
+                        ocr_parts.append(page_text)
+                except Exception as exc:
+                    logger.warning("OCR page extraction failed for %s: %s", file_path, exc)
+    except Exception as exc:
+        logger.warning("OCR PDF open failed for %s: %s", file_path, exc)
+    return ocr_parts
+
+
 def extract_text(file_path: str) -> str:
     if not file_path or not os.path.exists(file_path):
         return ""
@@ -240,6 +305,11 @@ def extract_text(file_path: str) -> str:
                             text_parts.append(page_text)
                 except Exception as exc:
                     logger.warning("pypdf extraction failed for %s: %s", file_path, exc)
+
+            if not _has_meaningful_text(text_parts):
+                ocr_parts = _extract_pdf_text_via_ocr(file_path)
+                if _has_meaningful_text(ocr_parts):
+                    text_parts = ocr_parts
 
         elif file_ext == ".docx":
             try:
@@ -340,29 +410,49 @@ def _extract_inline_header_name(line: str) -> str:
 
 
 def _header_name_candidates(text: str) -> List[str]:
+    return _extract_contact_zone_lines(text)
+
+
+def _extract_contact_zone_lines(text: str) -> List[str]:
     cleaned_text = clean_text_pipeline(text or "")
     sections = segment_resume_sections(cleaned_text)
-    header_text = sections.get("header", "")
-    header_lines = [line.strip() for line in header_text.splitlines() if line.strip()]
-    structural_text = split_inline_section_headers(normalize_common_artifacts(text or ""))
+    structural_text = normalize_document_structure(text or "")
     structural_sections = segment_resume_sections(structural_text)
-    structural_header_lines = [line.strip() for line in structural_sections.get("header", "").splitlines() if line.strip()]
+
+    structural_header_lines = [
+        line.strip() for line in structural_sections.get("header", "").splitlines() if line.strip()
+    ]
+    header_lines = [line.strip() for line in sections.get("header", "").splitlines() if line.strip()]
+    if structural_header_lines or header_lines:
+        return structural_header_lines or header_lines
+
     raw_lines = [line.strip() for line in structural_text.splitlines() if line.strip()]
-    return structural_header_lines or header_lines or raw_lines[:5]
+    contact_lines: List[str] = []
+    for line in raw_lines[:10]:
+        if SECTION_START_PATTERN.match(line):
+            break
+        contact_lines.append(line)
+    return contact_lines or raw_lines[:5]
+
+
+def _extract_contact_zone_text(text: str) -> str:
+    return "\n".join(_extract_contact_zone_lines(text))
 
 
 def _extract_phone(text: str) -> str:
+    source_text = _extract_contact_zone_text(text)
     for pattern in PHONE_PATTERNS:
-        matches = re.findall(pattern, text or "")
+        matches = re.findall(pattern, source_text or "")
         if matches:
             return matches[0].strip()
     return ""
 
 
 def _extract_email(text: str) -> str:
-    match = EMAIL_PATTERN.search(text or "")
+    source_text = _extract_contact_zone_text(text)
+    match = EMAIL_PATTERN.search(source_text or "")
     if not match:
-        compact = (text or "").replace("(at)", "@").replace("[at]", "@").replace(" at ", "@")
+        compact = (source_text or "").replace("(at)", "@").replace("[at]", "@").replace(" at ", "@")
         compact = compact.replace("(dot)", ".").replace("[dot]", ".").replace(" dot ", ".")
         match = EMAIL_PATTERN.search(compact)
     return re.sub(r"\s+", "", match.group(0)).strip(".,;:") if match else ""

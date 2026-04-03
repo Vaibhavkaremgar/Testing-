@@ -173,9 +173,12 @@
     "pvt",
     "ltd",
     "inc",
+    "llc",
+    "llp",
     "technologies",
     "solutions",
     "corp",
+    "corporation",
     "systems",
     "software",
     "labs",
@@ -185,24 +188,32 @@
     "university",
     "academy",
     "institute",
-    "hospital"
+    "hospital",
+    "foundation",
+    "services"
   ],
   "location_tail_tokens": [
     "ahmedabad",
     "bangalore",
     "bengaluru",
+    "coimbatore",
     "chennai",
     "delhi",
     "gurgaon",
     "gurugram",
     "hosur",
     "hyderabad",
+    "indore",
     "jaipur",
     "kochi",
     "kolkata",
+    "lucknow",
     "mumbai",
     "noida",
-    "pune"
+    "pune",
+    "thane",
+    "trivandrum",
+    "visakhapatnam"
   ],
   "location_leading_descriptors": [
     "contact",
@@ -274,14 +285,30 @@
       "core skills",
       "key skills",
       "skills",
-      "tools"
+      "tools",
+      "competencies",
+      "technical competencies",
+      "areas of expertise",
+      "expertise",
+      "technology stack",
+      "technologies",
+      "professional skills",
+      "core competencies"
     ],
     "education": [
-      "education"
+      "education",
+      "academic qualifications",
+      "academic background",
+      "education details",
+      "educational qualifications",
+      "qualification",
+      "qualifications"
     ],
     "projects": [
       "project",
-      "projects"
+      "projects",
+      "project experience",
+      "academic projects"
     ],
     "summary": [
       "professional summary",
@@ -293,7 +320,9 @@
     ],
     "languages": [
       "language",
-      "languages"
+      "languages",
+      "language proficiency",
+      "linguistic proficiency"
     ],
     "achievements": [
       "achievement",
@@ -303,7 +332,11 @@
     ],
     "certifications": [
       "certification",
-      "certifications"
+      "certifications",
+      "professional certification",
+      "professional certifications",
+      "licenses",
+      "licences"
     ],
     "awards": [
       "award",
@@ -348,5 +381,45 @@
     "mobile",
     "location",
     "address"
+  ],
+  "institution_hint_terms": [
+    "university",
+    "college",
+    "institute",
+    "school",
+    "academy",
+    "polytechnic",
+    "campus"
+  ],
+  "education_degree_terms": [
+    "b.tech",
+    "m.tech",
+    "bca",
+    "mca",
+    "bsc",
+    "msc",
+    "b.com",
+    "m.com",
+    "mba",
+    "bba",
+    "ba",
+    "ma",
+    "be",
+    "me",
+    "ph.d",
+    "b.ed",
+    "m.ed",
+    "diploma",
+    "bachelor",
+    "master"
+  ],
+  "certification_noise_terms": [
+    "skills",
+    "experience",
+    "summary",
+    "profile",
+    "education",
+    "project",
+    "projects"
   ]
 }

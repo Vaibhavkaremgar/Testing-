@@ -2,11 +2,12 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from ats.extraction.information_extraction import extract_resume_information  # noqa: E402
-from ats.extraction.resume_parser import parse_resume  # noqa: E402
+from ats.extraction.resume_parser import extract_text, parse_resume  # noqa: E402
 
 
 class ResumeInformationPipelineTests(unittest.TestCase):
@@ -442,6 +443,164 @@ Online Teaching
         self.assertIn("lesson planning", result["skills"])
         self.assertIn("student assessment", result["skills"])
         self.assertIn("pedagogy", result["skills"])
+
+    def test_collapsed_header_line_is_normalized_before_field_extraction(self):
+        resume_text = """
+Anita Sharma Bengaluru, Karnataka | +91 98765 43210 | anita.sharma@email.com
+WORK EXPERIENCE
+Senior Mathematics Teacher
+Green Valley Public School
+Jun-2021 to Present
+Led grade 9 and 10 mathematics curriculum planning and student assessment.
+
+SKILLS
+Classroom Management | Lesson Planning | Pedagogy
+        """
+
+        result = extract_resume_information(resume_text)
+        parsed = self._parse_resume_text(resume_text, "anita_teacher_collapsed_header.txt")
+
+        self.assertEqual(parsed["name"], "Anita Sharma")
+        self.assertEqual(result["location"], "Bengaluru, Karnataka")
+        self.assertEqual(result["current_role"], "Senior Mathematics Teacher")
+        self.assertEqual(result["current_company"], "Green Valley Public School")
+
+    def test_parse_resume_does_not_take_email_from_body_text(self):
+        resume_text = """
+Ravi Kumar
+Hyderabad, Telangana
+
+Summary
+Backend engineer with strong API experience.
+
+Projects
+Hiring Platform
+Contact references at recruiter.team@agency.com for project validation.
+        """
+
+        result = self._parse_resume_text(resume_text, "ravi_kumar.txt")
+
+        self.assertEqual(result["name"], "Ravi Kumar")
+        self.assertEqual(result["email"], "")
+
+    def test_parse_resume_does_not_take_phone_from_body_text(self):
+        resume_text = """
+Meera Nair
+Bengaluru, Karnataka
+
+Professional Summary
+Delivery manager with global stakeholder experience.
+
+Experience
+Program Manager
+Bright Systems Ltd
+2021 - Present
+Managed an escalation queue and vendor support line 1800 555 1111.
+        """
+
+        result = self._parse_resume_text(resume_text, "meera_nair.txt")
+
+        self.assertEqual(result["name"], "Meera Nair")
+        self.assertEqual(result["phone"], "")
+
+    def test_pdf_ocr_fallback_is_used_when_native_extraction_is_empty(self):
+        with tempfile.NamedTemporaryFile("wb", suffix=".pdf", delete=False) as handle:
+            handle.write(b"")
+            temp_path = handle.name
+
+        ocr_text = "\n".join(
+            [
+                "Ravi Kumar",
+                "Hyderabad, Telangana | +91 99887 66554 | ravi.kumar@email.com",
+                "WORK EXPERIENCE",
+                "Backend Engineer",
+                "Acme Systems Ltd",
+                "Jan 2022 - Present",
+            ]
+        )
+
+        try:
+            with patch("ats.extraction.resume_parser.pdfplumber.open", side_effect=Exception("no text layer")), \
+                 patch("ats.extraction.resume_parser.PdfReader", side_effect=Exception("no text layer")), \
+                 patch("ats.extraction.resume_parser._extract_pdf_text_via_ocr", return_value=[ocr_text]):
+                extracted = extract_text(temp_path)
+                parsed = parse_resume(temp_path, "ravi_kumar.pdf")
+        finally:
+            Path(temp_path).unlink(missing_ok=True)
+
+        self.assertIn("Ravi Kumar", extracted)
+        self.assertEqual(parsed["name"], "Ravi Kumar")
+        self.assertEqual(parsed["email"], "ravi.kumar@email.com")
+        self.assertEqual(parsed["phone"], "+91 99887 66554")
+        self.assertEqual(parsed["location"], "Hyderabad, Telangana")
+
+    def test_section_variants_drive_education_languages_and_certifications(self):
+        resume_text = """
+Nisha Verma
+Pune, Maharashtra | +91 98765 11111 | nisha.verma@email.com
+
+Profile
+Worked with English-speaking customers and global teams across multiple programs.
+
+Academic Qualifications
+Master of Business Administration
+St. Joseph's College
+2020
+
+Professional Certifications
+AWS Certified Cloud Practitioner
+Scrum Master Certification
+
+Language Proficiency
+English | Hindi
+        """
+
+        result = extract_resume_information(resume_text)
+
+        self.assertEqual(result["education"][0]["degree"], "Master of Business Administration")
+        self.assertEqual(result["education"][0]["institution"], "St. Joseph's College")
+        self.assertIn({"name": "AWS Certified Cloud Practitioner"}, result["certifications"])
+        self.assertIn({"name": "Scrum Master Certification"}, result["certifications"])
+        self.assertEqual(result["languages"], ["English", "Hindi"])
+
+    def test_languages_are_not_extracted_from_summary_without_language_zone(self):
+        resume_text = """
+Arjun Menon
+Chennai, Tamil Nadu | +91 90000 11111 | arjun.menon@email.com
+
+Summary
+Worked with English-speaking enterprise customers across India and APAC.
+
+Skills
+Python | SQL | FastAPI
+        """
+
+        result = extract_resume_information(resume_text)
+
+        self.assertEqual(result["languages"], [])
+
+    def test_education_is_taken_only_from_education_section(self):
+        resume_text = """
+Ritika Sharma
+Bengaluru, Karnataka | +91 90123 45678 | ritika.sharma@email.com
+
+Experience
+Training Coordinator
+Bright Academy
+2021 - Present
+Conducted university outreach and college onboarding programs.
+
+Education
+B.Com
+Delhi University
+2019
+        """
+
+        result = extract_resume_information(resume_text)
+
+        self.assertEqual(len(result["education"]), 1)
+        self.assertEqual(result["education"][0]["institution"], "Delhi University")
+        self.assertNotEqual(result["current_company"], "Delhi University")
 
 
 if __name__ == "__main__":

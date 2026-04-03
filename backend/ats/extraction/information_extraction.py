@@ -14,6 +14,7 @@ from ats.preprocessing.text_cleaning import (
     clean_text_pipeline,
     merge_broken_lines,
     normalize_common_artifacts,
+    normalize_document_structure,
     normalize_text,
     repair_date_ranges,
     split_inline_section_headers,
@@ -72,7 +73,6 @@ DEGREE_PATTERNS = [
     r"\bPh\.?\s?D\b",
 ]
 YEAR_PATTERN = re.compile(r"\b(19|20)\d{2}\b")
-INSTITUTE_HINTS = ("university", "college", "institute", "school", "academy")
 LOCATION_PATTERN = re.compile(
     r"(?i)\b(?:location|based in|address|city)\b\s*[:\-]?\s*(?P<value>[A-Za-z][A-Za-z\s,.-]{1,80})$"
 )
@@ -88,6 +88,21 @@ LOCATION_CANDIDATE_PATTERN = re.compile(
 )
 _parser_config_loader = ParserConfigLoader()
 _parser_vocabulary = _parser_config_loader.load_parser_vocabulary()
+INSTITUTE_HINTS = tuple(
+    str(value).strip().lower()
+    for value in (_parser_vocabulary.get("institution_hint_terms") or ["university", "college", "institute", "school", "academy"])
+    if str(value).strip()
+)
+_degree_terms = [
+    str(value).strip()
+    for value in (_parser_vocabulary.get("education_degree_terms") or [])
+    if str(value).strip()
+]
+if _degree_terms:
+    DEGREE_PATTERNS = []
+    for term in _degree_terms:
+        escaped_term = re.escape(term).replace(r"\.", r"\.?")
+        DEGREE_PATTERNS.append(rf"\b{escaped_term}\b")
 LOCATION_NOISE_PATTERN = re.compile(
     rf"(?i)\b(?:{'|'.join(re.escape(str(value).strip().lower()) for value in (_parser_vocabulary.get('location_noise_terms') or []) if str(value).strip())})\b"
 )
@@ -118,6 +133,29 @@ LOCATION_LEADING_DESCRIPTORS = {
     for value in (_parser_vocabulary.get("location_leading_descriptors") or [])
     if str(value).strip()
 }
+CERTIFICATION_NOISE_TERMS = {
+    str(value).strip().lower()
+    for value in (_parser_vocabulary.get("certification_noise_terms") or [])
+    if str(value).strip()
+}
+CERTIFICATION_SPLIT_PATTERN = re.compile(r"[\n|,;]+")
+CERTIFICATION_HINT_PATTERN = re.compile(
+    r"(?i)\b(?:certified|certification|certificate|license|licence|aws certified|azure certified|google cloud certified|scrum master|pmp)\b"
+)
+
+
+def _language_label_lines(*sections: str) -> str:
+    extracted_lines: List[str] = []
+    for section in sections:
+        for line in (section or "").splitlines():
+            stripped = line.strip()
+            header_match = LANGUAGE_LINE_PATTERN.match(stripped)
+            if not header_match:
+                continue
+            value = header_match.group("value")
+            if any(re.search(rf"\b{re.escape(language)}\b", value, re.IGNORECASE) for language in LANGUAGE_TERMS):
+                extracted_lines.append(stripped)
+    return "\n".join(extracted_lines)
 
 _skill_intelligence = SkillIntelligence()
 _skill_keyword_processor = KeywordProcessor(case_sensitive=False)
@@ -245,6 +283,23 @@ def _unique_in_order(values: List[str]) -> List[str]:
     return ordered
 
 
+def _filter_section_level_matches(matches: List[str], source_text: str) -> List[str]:
+    filtered: List[str] = []
+    source_lower = clean_text_pipeline(source_text or "").lower()
+    for match in matches:
+        normalized = normalize_skill_name(match)
+        if not normalized:
+            continue
+        category = _skill_intelligence.category_map.get(normalized)
+        if category == "industry":
+            continue
+        if len(normalized.split()) == 1 and normalized not in SKILL_ALIASES.values():
+            continue
+        if normalized not in filtered and re.search(rf"(?<!\w){re.escape(normalized)}(?!\w)", source_lower):
+            filtered.append(normalized)
+    return filtered
+
+
 def extract_skill_keywords(text: str, section_text: str = "") -> List[str]:
     source = section_text or text
     if not source:
@@ -275,10 +330,11 @@ def extract_skill_keywords(text: str, section_text: str = "") -> List[str]:
             if _is_supported_extracted_skill(match, chunk)
         )
 
-    section_matches = []
-    section_matches.extend(_skill_keyword_processor.extract_keywords(normalized_section))
-    section_matches.extend(_skill_intelligence.extract_skills(normalized_section))
-    matches.extend(section_matches)
+    if not matches:
+        section_matches = []
+        section_matches.extend(_skill_keyword_processor.extract_keywords(normalized_section))
+        section_matches.extend(_skill_intelligence.extract_skills(normalized_section))
+        matches.extend(_filter_section_level_matches(section_matches, normalized_section))
 
     if not matches and SPACY_AVAILABLE:
         doc = get_section_doc(normalized_section)
@@ -350,11 +406,16 @@ def extract_education_entries(text: str, education_section: str = "") -> List[Di
         lines = [line.strip(" -\t") for line in block.splitlines() if line.strip()]
         combined = " ".join(lines)
         degree = ""
-        for pattern in DEGREE_PATTERNS:
-            match = re.search(pattern, combined, re.IGNORECASE)
-            if match:
-                degree = match.group(0).strip()
+        for line in lines:
+            if any(re.search(pattern, line, re.IGNORECASE) for pattern in DEGREE_PATTERNS):
+                degree = line[:120]
                 break
+        if not degree:
+            for pattern in DEGREE_PATTERNS:
+                match = re.search(pattern, combined, re.IGNORECASE)
+                if match:
+                    degree = match.group(0).strip()
+                    break
         institution = ""
         for line in lines:
             if any(hint in line.lower() for hint in INSTITUTE_HINTS):
@@ -459,8 +520,34 @@ def extract_location(text: str) -> str:
     return ""
 
 
-def extract_languages(text: str, languages_section: str = "") -> List[str]:
-    if not text and not languages_section:
+def extract_certification_entries(text: str, certifications_section: str = "") -> List[Dict[str, str]]:
+    section_text = certifications_section or segment_resume_sections(text).get("certifications", "")
+    if not section_text:
+        return []
+
+    entries: List[Dict[str, str]] = []
+    seen = set()
+    for chunk in CERTIFICATION_SPLIT_PATTERN.split(section_text):
+        normalized = clean_text_pipeline(chunk or "").strip(" -,:")
+        if not normalized:
+            continue
+        lowered = normalized.lower()
+        if lowered in CERTIFICATION_NOISE_TERMS:
+            continue
+        if len(normalized.split()) > 10:
+            continue
+        if not CERTIFICATION_HINT_PATTERN.search(normalized):
+            continue
+        key = lowered
+        if key in seen:
+            continue
+        seen.add(key)
+        entries.append({"name": normalized[:160]})
+    return entries
+
+
+def extract_languages(text: str, languages_section: str = "", header_text: str = "") -> List[str]:
+    if not languages_section and not header_text:
         return []
     matches: List[str] = []
     section_source = languages_section or ""
@@ -469,14 +556,17 @@ def extract_languages(text: str, languages_section: str = "") -> List[str]:
         for language in LANGUAGE_TERMS:
             if re.search(rf"\b{re.escape(language)}\b", section_lower):
                 matches.append(language.title())
-    for line in [line.strip() for line in text.splitlines() if line.strip()][:30]:
+    search_lines = [line.strip() for line in (languages_section or "").splitlines() if line.strip()]
+    search_lines.extend(line.strip() for line in (header_text or "").splitlines() if line.strip())
+    for line in search_lines[:20]:
         header_match = LANGUAGE_LINE_PATTERN.match(line)
         if header_match:
             for chunk in re.split(r"[,;|/]", header_match.group("value")):
                 normalized = chunk.strip().lower()
                 if normalized in LANGUAGE_TERMS:
                     matches.append(normalized.title())
-    for match in re.finditer(r"(?is)\blanguages?\s*[:\-]?\s*(?P<value>.{0,160})", text or ""):
+    combined_search_text = "\n".join(search_lines)
+    for match in re.finditer(r"(?is)\blanguages?\s*[:\-]?\s*(?P<value>.{0,160})", combined_search_text or ""):
         value = match.group("value")
         for language in LANGUAGE_TERMS:
             if re.search(rf"\b{re.escape(language)}\b", value, re.IGNORECASE):
@@ -499,16 +589,12 @@ def derive_experience_level(experience_years: float | None) -> str:
 def extract_resume_information(text: str) -> Dict:
     structural_text = normalize_text(
         merge_broken_lines(
-            repair_date_ranges(
-                split_inline_section_headers(
-                    normalize_common_artifacts(text or "")
-                )
-            )
+            normalize_document_structure(text or "")
         )
     )
     cleaned_text = clean_text_pipeline(text)
     sections = segment_resume_sections(cleaned_text)
-    structural_source = split_inline_section_headers(normalize_common_artifacts(text or ""))
+    structural_source = normalize_document_structure(text or "")
     raw_sections = segment_resume_sections(structural_source)
     skills_section = raw_sections.get("skills", "") or sections.get("skills", "")
     skills = extract_skill_keywords(skills_section, skills_section)
@@ -535,6 +621,7 @@ def extract_resume_information(text: str) -> Dict:
         "experience": experience_entries,
         "projects": extract_project_entries(cleaned_text, sections.get("projects", "")),
         "education": extract_education_entries(cleaned_text, sections.get("education", "")),
+        "certifications": extract_certification_entries(cleaned_text, sections.get("certifications", "")),
         "location": extract_location(sections.get("header", "")),
         "current_company": current_entry.get("company"),
         "current_role": current_entry.get("role") or (header_role if not experience_entries else None) or None,
@@ -542,9 +629,14 @@ def extract_resume_information(text: str) -> Dict:
         "experience_years": total_experience_years,
         "total_experience_years": total_experience_years,
         "experience_level": derive_experience_level(total_experience_years),
-        "languages": extract_languages(cleaned_text, sections.get("languages", "")),
+        "languages": extract_languages(
+            cleaned_text,
+            "\n".join(filter(None, [sections.get("languages", ""), _language_label_lines(sections.get("header", ""), sections.get("skills", ""))])),
+            sections.get("header", ""),
+        ),
         "experience_text": clean_text_pipeline(sections.get("experience", "")),
         "education_text": clean_text_pipeline(sections.get("education", "")),
         "projects_text": clean_text_pipeline(sections.get("projects", "")),
+        "certifications_text": clean_text_pipeline(sections.get("certifications", "")),
     }
     return validate_parsed_fields(result)

@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 
 URL_PATTERN = re.compile(r"(?:https?://|www\.)\S+", re.IGNORECASE)
 BULLET_PREFIX_PATTERN = re.compile(r"(?m)^\s*[\-\*\u2022\u25aa\u25e6\u2043\u2219]+\s*")
-SPECIAL_CHARACTER_PATTERN = re.compile(r"[^\w\s@.,;:/+#&()\-|\n]")
+SPECIAL_CHARACTER_PATTERN = re.compile(r"[^\w\s@.,;:/+#&()'\-|\n]")
 CID_ARTIFACT_PATTERN = re.compile(r"\(cid:\d+\)")
 ZERO_WIDTH_PATTERN = re.compile(r"[\u200b-\u200d\ufeff]")
 DECORATIVE_SYMBOL_PATTERN = re.compile(r"(?:(?<!\w)[@#&=~*_]{2,}|[@#&=~*_]{2,}(?!\w))")
@@ -25,6 +25,56 @@ DATE_RANGE_REPAIR_PATTERN = re.compile(
 )
 EMAIL_PATTERN = re.compile(r"\b[A-Za-z0-9._%+-]+\s*@\s*[A-Za-z0-9.-]+\s*\.\s*[A-Za-z]{2,}\b")
 PHONE_PATTERN = re.compile(r"(?:\+?\d[\d\s().-]{7,}\d)")
+HEADER_LOCATION_PATTERN = re.compile(
+    r"\b(?P<location>[A-Z][A-Za-z.\-]{1,30}(?:\s+[A-Z][A-Za-z.\-]{1,30}){0,2},\s*"
+    r"[A-Z][A-Za-z.\-]{1,30}(?:\s+[A-Z][A-Za-z.\-]{1,30}){0,2})\b"
+)
+NAME_LIKE_PATTERN = re.compile(r"^[A-Z][A-Za-z'`.-]+(?:\s+[A-Z][A-Za-z'`.-]+){1,3}$")
+HEADER_NAME_EXCLUDE_TOKENS = {
+    "analyst",
+    "architect",
+    "assistant",
+    "associate",
+    "backend",
+    "business",
+    "consultant",
+    "coordinator",
+    "data",
+    "designer",
+    "developer",
+    "director",
+    "education",
+    "engineer",
+    "executive",
+    "experience",
+    "faculty",
+    "frontend",
+    "fullstack",
+    "human",
+    "intern",
+    "lead",
+    "manager",
+    "mathematics",
+    "officer",
+    "principal",
+    "product",
+    "profile",
+    "project",
+    "projects",
+    "qa",
+    "resources",
+    "sales",
+    "scientist",
+    "skills",
+    "software",
+    "special",
+    "student",
+    "summary",
+    "teacher",
+    "technical",
+    "trainer",
+    "tutor",
+}
 HEADER_PATTERN = re.compile(
     r"(?i)^(?:work experience|professional experience|employment history|employment|experience|skills|technical skills|education|projects?|summary|profile|languages?)$"
 )
@@ -34,12 +84,20 @@ INLINE_SECTION_HEADER_PATTERN = re.compile(
     r"career profile|professional summary|profile summary|profile|summary|objective|"
     r"work experience|professional experience|employment history|"
     r"technical skills|core skills|skills|education|"
-    r"certifications?|achievements?\s*&\s*recognition|awards?\s*&\s*recognition)\b"
+    r"achievements?\s*&\s*recognition|awards?\s*&\s*recognition)\b"
 )
 
 
 def normalize_line_breaks(text: str) -> str:
     return (text or "").replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _looks_like_name(value: str) -> bool:
+    candidate = WHITESPACE_PATTERN.sub(" ", (value or "").strip(" ,|-"))
+    if not candidate or not NAME_LIKE_PATTERN.match(candidate):
+        return False
+    lowered_tokens = {token.strip(".,").lower() for token in candidate.split()}
+    return not any(token in HEADER_NAME_EXCLUDE_TOKENS for token in lowered_tokens)
 
 
 def normalize_common_artifacts(text: str) -> str:
@@ -104,6 +162,86 @@ def repair_date_ranges(text: str) -> str:
 
 def _is_contact_line(line: str) -> bool:
     return bool(EMAIL_PATTERN.search(line or "") or PHONE_PATTERN.search(line or ""))
+
+
+def _find_contact_start(line: str) -> int | None:
+    starts = []
+    email_match = EMAIL_PATTERN.search(line or "")
+    phone_match = PHONE_PATTERN.search(line or "")
+    if email_match:
+        starts.append(email_match.start())
+    if phone_match:
+        starts.append(phone_match.start())
+    if not starts:
+        return None
+    return min(starts)
+
+
+def restore_header_line_breaks(text: str) -> str:
+    if not text:
+        return ""
+
+    repaired_lines = []
+    for index, raw_line in enumerate(normalize_line_breaks(text).split("\n")):
+        line = WHITESPACE_PATTERN.sub(" ", raw_line).strip()
+        if (
+            not line
+            or index > 5
+            or "\n" in line
+            or not (_is_contact_line(line) or "|" in line)
+        ):
+            repaired_lines.append(raw_line)
+            continue
+
+        contact_start = _find_contact_start(line)
+        if contact_start is not None:
+            prefix = line[:contact_start].strip(" ,|-")
+            suffix = line[contact_start:].strip()
+            prefix_tokens = [token for token in prefix.split() if token]
+            for token_count in range(2, min(5, len(prefix_tokens)) + 1):
+                candidate_name = " ".join(prefix_tokens[:token_count]).strip()
+                remainder = prefix[len(candidate_name):].strip(" ,|-")
+                if _looks_like_name(candidate_name) and remainder:
+                    rebuilt_suffix = f"{remainder} {suffix}".strip()
+                    repaired_lines.append(f"{candidate_name}\n{rebuilt_suffix}")
+                    break
+            else:
+                location_match = HEADER_LOCATION_PATTERN.search(line)
+                if not location_match:
+                    repaired_lines.append(raw_line)
+                    continue
+
+                prefix = line[:location_match.start()].strip(" ,|-")
+                if not _looks_like_name(prefix):
+                    repaired_lines.append(raw_line)
+                    continue
+
+                rebuilt = f"{prefix}\n{line[location_match.start():].strip()}"
+                repaired_lines.append(rebuilt)
+            continue
+
+        location_match = HEADER_LOCATION_PATTERN.search(line)
+        if not location_match:
+            repaired_lines.append(raw_line)
+            continue
+
+        prefix = line[:location_match.start()].strip(" ,|-")
+        if not _looks_like_name(prefix):
+            repaired_lines.append(raw_line)
+            continue
+
+        rebuilt = f"{prefix}\n{line[location_match.start():].strip()}"
+        repaired_lines.append(rebuilt)
+
+    return "\n".join(repaired_lines)
+
+
+def normalize_document_structure(text: str) -> str:
+    normalized = normalize_common_artifacts(text)
+    normalized = restore_header_line_breaks(normalized)
+    normalized = split_inline_section_headers(normalized)
+    normalized = repair_date_ranges(normalized)
+    return normalized
 
 
 def merge_broken_lines(text: str) -> str:
@@ -186,12 +324,10 @@ def split_inline_section_headers(text: str) -> str:
 
 
 def clean_text_pipeline(text: str) -> str:
-    cleaned_text = normalize_common_artifacts(text)
-    cleaned_text = split_inline_section_headers(cleaned_text)
+    cleaned_text = normalize_document_structure(text)
     cleaned_text = remove_urls(cleaned_text)
     cleaned_text = remove_bullets(cleaned_text)
     cleaned_text = remove_special_characters(cleaned_text)
-    cleaned_text = repair_date_ranges(cleaned_text)
     cleaned_text = merge_broken_lines(cleaned_text)
     cleaned_text = normalize_text(cleaned_text)
     return cleaned_text

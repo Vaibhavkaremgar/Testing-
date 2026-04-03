@@ -215,7 +215,10 @@
     "meet",
     "teams",
     "short",
-    "sales"
+    "sales",
+    "closing",
+    "pipeline",
+    "retail"
   ],
   "noise_aliases": [
     "lead others",
