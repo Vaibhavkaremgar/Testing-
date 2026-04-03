@@ -44,6 +44,14 @@ SKILL_ALIASES = {
     "product demo": "product demos",
     "product demonstrations": "product demos",
     "zoho": "zoho crm",
+    "sap extended wareho use management": "sap extended warehouse management",
+    "sap extended warehouse management module": "sap extended warehouse management",
+    "extended warehouse management": "sap extended warehouse management",
+    "extended warehouse management module": "sap extended warehouse management",
+    "sap ewm consultant": "sap ewm",
+    "sap ewm con su ltant": "sap ewm",
+    "sap ecc integrations with extended warehouse management module": "sap ecc",
+    "logistics execution system": "logistics execution",
 }
 
 SKILL_TOKEN_SPLIT_PATTERN = re.compile(r"[\n,;|]+")
@@ -552,10 +560,13 @@ def extract_languages(text: str, languages_section: str = "", header_text: str =
     matches: List[str] = []
     section_source = languages_section or ""
     if section_source:
-        section_lower = section_source.lower()
-        for language in LANGUAGE_TERMS:
-            if re.search(rf"\b{re.escape(language)}\b", section_lower):
-                matches.append(language.title())
+        for chunk in re.split(r"[\n|,;/]+", section_source):
+            normalized = clean_text_pipeline(chunk or "").strip().lower()
+            normalized = re.sub(r"\b(?:fluent|native|conversational|working|professional|advanced|beginner|intermediate)\b", "", normalized)
+            normalized = re.sub(r"[()\-]", " ", normalized)
+            normalized = re.sub(r"\s+", " ", normalized).strip()
+            if normalized in LANGUAGE_TERMS:
+                matches.append(normalized.title())
     search_lines = [line.strip() for line in (languages_section or "").splitlines() if line.strip()]
     search_lines.extend(line.strip() for line in (header_text or "").splitlines() if line.strip())
     for line in search_lines[:20]:

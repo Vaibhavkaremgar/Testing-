@@ -67,6 +67,11 @@ PDF_SEGMENT_GAP = 35.0
 OCR_MIN_TEXT_LENGTH = 80
 OCR_MIN_ALPHA_CHARS = 30
 OCR_MIN_ALPHA_RATIO = 0.3
+BROKEN_TOKEN_PATTERN = re.compile(r"\b[A-Za-z]{1,8}\s+[A-Za-z]{1,8}\b")
+BROKEN_MONTH_PATTERN = re.compile(
+    r"(?i)\b(?:j\s+anuary|f\s+ebruary|m\s+arch|a\s+pril|m\s+ay|j\s+une|j\s+uly|s\s+eptember|o\s+ctober|n\s+ovember|d\s+ecember)\b"
+)
+SPLIT_EMAIL_ARTIFACT_PATTERN = re.compile(r"(?i)\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\s+[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
 
 _parser_config_loader = ParserConfigLoader()
 _parser_vocabulary = _parser_config_loader.load_parser_vocabulary()
@@ -252,6 +257,30 @@ def _has_meaningful_text(text_parts: List[str]) -> bool:
     return (alpha_count / max(len(combined), 1)) >= OCR_MIN_ALPHA_RATIO
 
 
+def _score_text_quality(text_parts: List[str]) -> float:
+    combined = "\n".join(part.strip() for part in text_parts if part and part.strip())
+    if not combined:
+        return 0.0
+
+    score = 0.0
+    alpha_count = sum(1 for char in combined if char.isalpha())
+    length = len(combined)
+    if length >= OCR_MIN_TEXT_LENGTH:
+        score += 0.25
+    if alpha_count >= OCR_MIN_ALPHA_CHARS:
+        score += 0.2
+    score += min(alpha_count / max(length, 1), 1.0) * 0.2
+    if EMAIL_PATTERN.search(combined):
+        score += 0.15
+    if re.search(r"(?i)\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec|\d{4})\b", combined):
+        score += 0.1
+    broken_penalty = 0.0
+    broken_penalty += min(len(BROKEN_MONTH_PATTERN.findall(combined)) * 0.08, 0.16)
+    broken_penalty += min(len(SPLIT_EMAIL_ARTIFACT_PATTERN.findall(combined)) * 0.12, 0.24)
+    broken_penalty += min(len(BROKEN_TOKEN_PATTERN.findall(combined[:4000])) * 0.005, 0.2)
+    return round(max(score - broken_penalty, 0.0), 3)
+
+
 def _prepare_ocr_image(image: Image.Image) -> Image.Image:
     prepared = image.convert("L")
     return prepared.point(lambda pixel: 255 if pixel > 180 else 0)
@@ -310,6 +339,13 @@ def extract_text(file_path: str) -> str:
                 ocr_parts = _extract_pdf_text_via_ocr(file_path)
                 if _has_meaningful_text(ocr_parts):
                     text_parts = ocr_parts
+            elif _is_ocr_ready():
+                ocr_parts = _extract_pdf_text_via_ocr(file_path)
+                if _has_meaningful_text(ocr_parts):
+                    native_score = _score_text_quality(text_parts)
+                    ocr_score = _score_text_quality(ocr_parts)
+                    if ocr_score > native_score + 0.08:
+                        text_parts = ocr_parts
 
         elif file_ext == ".docx":
             try:

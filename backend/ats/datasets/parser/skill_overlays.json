@@ -39,7 +39,12 @@
       "excel",
       "dax",
       "m query",
-      "r"
+      "r",
+      "sap ewm",
+      "sap extended warehouse management",
+      "sap ecc",
+      "warehouse management",
+      "logistics execution"
     ],
     "sales": [
       "b2b sales",
@@ -159,7 +164,9 @@
       "edtech",
       "e-commerce",
       "manufacturing",
-      "telecom"
+      "telecom",
+      "logistics",
+      "supply chain"
     ]
   },
   "skill_aliases": {
@@ -195,7 +202,15 @@
     "student evaluations": "student assessment",
     "student evaluation": "student assessment",
     "html5": "html",
-    "css3": "css"
+    "css3": "css",
+    "sap extended wareho use management": "sap extended warehouse management",
+    "sap extended warehouse management module": "sap extended warehouse management",
+    "extended warehouse management": "sap extended warehouse management",
+    "extended warehouse management module": "sap extended warehouse management",
+    "sap ewm consultant": "sap ewm",
+    "sap ewm con su ltant": "sap ewm",
+    "sap ecc integrations with extended warehouse management module": "sap ecc",
+    "logistics execution system": "logistics execution"
   },
   "noise_terms": [
     "plan",

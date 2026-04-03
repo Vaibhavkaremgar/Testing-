@@ -602,6 +602,48 @@ Delhi University
         self.assertEqual(result["education"][0]["institution"], "Delhi University")
         self.assertNotEqual(result["current_company"], "Delhi University")
 
+    def test_attached_summary_header_does_not_pollute_location(self):
+        resume_text = """
+PAINOORI RANGANATH
+QA AUTOMATION ENGINEER
+Hyderabad | +91 9704256023 | pranganath.pr@gmail.com | SUMMARY
+QA Automation Engineer with 3+ years of hands-on experience in developing and maintaining automated test scripts.
+TECHNICAL SKILLS
+Automation Tools: Selenium WebDriver
+Languages & Frameworks: Java, TestNG, Maven
+        """
+
+        parsed = self._parse_resume_text(resume_text, "ranganath.txt")
+        result = extract_resume_information(resume_text)
+
+        self.assertEqual(parsed["location"], "Hyderabad")
+        self.assertEqual(result["location"], "Hyderabad")
+
+    def test_fragmented_sap_resume_still_extracts_contact_and_sap_skills(self):
+        resume_text = """
+RESUME
+RUDRAVARAM NARE SH SAI ANEESH
+Contact: +91 8977816703
+Email Id: aneeshrudravaram@gma il.com
+CAREER OBJECTIVE
+An Electronics and Communication professional seeking chal lenging o ppurtunities.
+CERTIFICATIONS
+SAP Certified Application Associate - Extended Warehouse Management in SAP S4/HANA
+SKILLS
+SAP Extended Wareho use Management
+SAP ECC integrations with Extended
+Warehouse Management module
+WORK EXPERIENCE
+1) SAP EWM CON SU LTANT in COGNIZ ANT ( S eptember 2022 - Present)
+        """
+
+        parsed = self._parse_resume_text(resume_text, "aneesh.txt")
+        result = extract_resume_information(resume_text)
+
+        self.assertEqual(parsed["email"], "aneeshrudravaram@gmail.com")
+        self.assertIn("sap extended warehouse management", result["skills"])
+        self.assertIn("sap ecc", result["skills"])
+
 
 if __name__ == "__main__":
     unittest.main()

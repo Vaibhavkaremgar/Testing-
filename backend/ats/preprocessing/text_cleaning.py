@@ -86,6 +86,43 @@ INLINE_SECTION_HEADER_PATTERN = re.compile(
     r"technical skills|core skills|skills|education|"
     r"achievements?\s*&\s*recognition|awards?\s*&\s*recognition)\b"
 )
+LINE_PREFIX_SECTION_HEADER_PATTERN = re.compile(
+    r"(?im)^\s*(?P<header>"
+    r"career profile|professional summary|profile summary|profile|summary|objective|"
+    r"work experience|professional experience|employment history|employment|career history|experience|"
+    r"technical skills|core skills|key skills|skills|"
+    r"education|academic qualifications|qualifications|"
+    r"languages?|language proficiency|"
+    r"certifications?|professional certifications?"
+    r")\s+(?P<content>\S.+)$"
+)
+GLUED_SECTION_HEADER_PATTERN = re.compile(
+    r"(?im)^(?P<header>"
+    r"TECHNICAL SKILLS|CORE SKILLS|KEY SKILLS|SKILLS|"
+    r"WORK EXPERIENCE|PROFESSIONAL EXPERIENCE|EMPLOYMENT HISTORY|EXPERIENCE|"
+    r"EDUCATION|ACADEMIC QUALIFICATIONS|QUALIFICATIONS|"
+    r"LANGUAGES|LANGUAGE PROFICIENCY|"
+    r"CERTIFICATIONS|PROFESSIONAL CERTIFICATIONS"
+    r")(?P<content>[A-Z0-9].+)$"
+)
+ATTACHED_SECTION_HEADER_PATTERN = re.compile(
+    r"(?i)\|\s*(?P<header>"
+    r"summary|profile|objective|"
+    r"work experience|professional experience|employment history|career history|"
+    r"technical skills|core skills|key skills|skills|"
+    r"education|academic qualifications|qualifications|"
+    r"languages?|language proficiency|"
+    r"certifications?|professional certifications?"
+    r")\b"
+)
+SPLIT_MONTH_PATTERN = re.compile(
+    r"(?i)\b(?P<prefix>j|f|m|a|s|o|n|d)[ \t]+(?P<suffix>anuary|ebruary|arch|pril|ay|une|uly|eptember|ctober|ovember|ecember)\b"
+)
+FRAGMENTED_EMAIL_PATTERN = re.compile(
+    r"(?i)\b(?P<local>[A-Za-z0-9._%+-]+)[ \t]*@[ \t]*(?P<domain>[A-Za-z0-9.-]+(?:[ \t]+[A-Za-z0-9.-]+)*)[ \t]*\.[ \t]*(?P<tld>[A-Za-z]{2,})\b"
+)
+FRAGMENTED_UPPERCASE_TRIPLE_PATTERN = re.compile(r"\b([A-Z]{3,})[ \t]+([A-Z]{1,2})[ \t]+([A-Z]{3,})\b")
+FRAGMENTED_UPPERCASE_DOUBLE_PATTERN = re.compile(r"\b([A-Z]{4,})[ \t]+([A-Z]{2,3})\b")
 
 
 def normalize_line_breaks(text: str) -> str:
@@ -128,6 +165,17 @@ def normalize_common_artifacts(text: str) -> str:
     }
     for source, target in replacements.items():
         normalized = normalized.replace(source, target)
+    normalized = FRAGMENTED_EMAIL_PATTERN.sub(
+        lambda match: "{}@{}.{}".format(
+            match.group("local"),
+            re.sub(r"\s+", "", match.group("domain")),
+            match.group("tld"),
+        ),
+        normalized,
+    )
+    normalized = SPLIT_MONTH_PATTERN.sub(lambda match: f"{match.group('prefix')}{match.group('suffix')}", normalized)
+    normalized = FRAGMENTED_UPPERCASE_TRIPLE_PATTERN.sub(lambda match: "".join(match.groups()), normalized)
+    normalized = FRAGMENTED_UPPERCASE_DOUBLE_PATTERN.sub(lambda match: "".join(match.groups()), normalized)
     return ZERO_WIDTH_PATTERN.sub("", normalized)
 
 
@@ -318,7 +366,16 @@ def split_inline_section_headers(text: str) -> str:
         header = match.group("header")
         return f"\n{header.upper()}\n"
 
-    normalized = INLINE_SECTION_HEADER_PATTERN.sub(replacer, text)
+    normalized = LINE_PREFIX_SECTION_HEADER_PATTERN.sub(
+        lambda match: f"{match.group('header').upper()}\n{match.group('content')}",
+        text,
+    )
+    normalized = INLINE_SECTION_HEADER_PATTERN.sub(replacer, normalized)
+    normalized = ATTACHED_SECTION_HEADER_PATTERN.sub(replacer, normalized)
+    normalized = GLUED_SECTION_HEADER_PATTERN.sub(
+        lambda match: f"{match.group('header')}\n{match.group('content')}",
+        normalized,
+    )
     normalized = re.sub(r"\n{3,}", "\n\n", normalized)
     return normalized
 
@@ -326,6 +383,7 @@ def split_inline_section_headers(text: str) -> str:
 def clean_text_pipeline(text: str) -> str:
     cleaned_text = normalize_document_structure(text)
     cleaned_text = remove_urls(cleaned_text)
+    cleaned_text = split_inline_section_headers(cleaned_text)
     cleaned_text = remove_bullets(cleaned_text)
     cleaned_text = remove_special_characters(cleaned_text)
     cleaned_text = merge_broken_lines(cleaned_text)
