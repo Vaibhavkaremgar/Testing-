@@ -1,4 +1,8 @@
-const API_BASE = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'https://ai-recruitment-dashboard-production.up.railway.app/api'
+const DEFAULT_API_ORIGIN = import.meta.env.DEV
+  ? 'http://localhost:8000'
+  : 'https://ai-recruitment-dashboard-production.up.railway.app'
+const API_ORIGIN = (import.meta.env.VITE_API_URL || DEFAULT_API_ORIGIN).replace(/\/$/, '')
+const API_BASE = `${API_ORIGIN}/api`
 const RECORDING_API_BASE = import.meta.env.VITE_RECORDING_API_URL || 'https://pontis-backend-production.up.railway.app/api'
 const DEFAULT_LIST_LIMIT = 100
 const APP_BASE = API_BASE.replace(/\/api$/, '')
@@ -39,10 +43,15 @@ class ApiClient {
       headers['Content-Type'] = 'application/json'
     }
 
-    const response = await fetch(url, {
-      ...options,
-      headers,
-    })
+    let response
+    try {
+      response = await fetch(url, {
+        ...options,
+        headers,
+      })
+    } catch (error) {
+      throw new Error(`Unable to reach the server at ${API_ORIGIN}. Make sure the backend is running and the API URL is correct.`)
+    }
 
     if (response.status === 401) {
       // Don't auto-logout, just throw error
@@ -93,11 +102,16 @@ class ApiClient {
     console.log('Login URL:', loginUrl)
 
     try {
-      const response = await fetch(loginUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: formData,
-      })
+      let response
+      try {
+        response = await fetch(loginUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: formData,
+        })
+      } catch (networkError) {
+        throw new Error(`Unable to reach the server at ${API_ORIGIN}. Make sure the backend is running and the API URL is correct.`)
+      }
 
       console.log('Response status:', response.status)
       console.log('Response headers:', response.headers)

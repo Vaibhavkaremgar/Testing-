@@ -48,6 +48,7 @@ LANGUAGE_TERMS = [
     "gujarati", "punjabi", "bengali", "urdu", "french", "german", "spanish",
     "arabic", "japanese", "mandarin", "chinese",
 ]
+EMAIL_PATTERN = re.compile(r"\b[A-Za-z0-9._%+-]+\s*@\s*[A-Za-z0-9.-]+\s*\.\s*[A-Za-z]{2,}\b")
 
 _skill_intelligence = SkillIntelligence()
 _skill_keyword_processor = KeywordProcessor(case_sensitive=False)
@@ -105,6 +106,20 @@ def extract_skill_keywords(text: str, section_text: str = "") -> List[str]:
 
     normalized_matches = _skill_intelligence.map_skills(matches)
     return _unique_in_order(normalized_matches)[:50]
+
+
+def extract_email(text: str) -> str:
+    if not text:
+        return ""
+    match = EMAIL_PATTERN.search(text)
+    if match:
+        return re.sub(r"\s+", "", match.group(0)).strip(".,;:")
+    compact_text = text.replace("(at)", "@").replace("[at]", "@").replace(" at ", "@")
+    compact_text = compact_text.replace("(dot)", ".").replace("[dot]", ".").replace(" dot ", ".")
+    match = EMAIL_PATTERN.search(compact_text)
+    if match:
+        return re.sub(r"\s+", "", match.group(0)).strip(".,;:")
+    return ""
 
 
 def extract_experience_entries(text: str, experience_section: str = "") -> List[Dict]:

@@ -1,6 +1,7 @@
 """Structured ATS information extraction helpers."""
 
 from .information_extraction import (
+    extract_email,
     extract_education_entries,
     extract_experience_entries,
     extract_project_entries,
@@ -20,6 +21,7 @@ from .summary_generator import generate_summary
 
 __all__ = [
     "extract_resume_information",
+    "extract_email",
     "extract_skill_keywords",
     "extract_experience_entries",
     "extract_project_entries",
