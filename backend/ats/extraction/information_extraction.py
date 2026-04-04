@@ -220,7 +220,7 @@ LOCATION_OR_PATTERN = re.compile(
     r"(?i)\bor\s+(?P<value>[A-Z][A-Za-z.-]+(?:\s+[A-Z][A-Za-z.-]+){0,2})\b"
 )
 PERSONAL_DETAILS_HEADER_PATTERN = re.compile(
-    r"(?i)^(?:personal details?|personal information|contact details?|contact information|address details?)$"
+    r"(?i)^\s*(?:personal details?|personal information|contact details?|contact information|address details?)\s*[:\-]*\s*$"
 )
 LOCATION_LINE_LABEL_PATTERN = re.compile(
     r"(?i)\b(?:location|current location|present location|address|place|city|residence)\b\s*[:\-]?\s*(?P<value>.+)$"
@@ -252,6 +252,21 @@ LOCATION_TAIL_TOKENS = {
 }
 LOCATION_CANONICAL_OVERRIDES = {
     "banglore": "bangalore",
+}
+NON_LOCATION_CONTEXT_TERMS = {
+    "university",
+    "board",
+    "college",
+    "school",
+    "institute",
+    "education",
+    "intermediate",
+    "secondary",
+    "course",
+    "gpa",
+    "qualification",
+    "qualifications",
+    "academic",
 }
 LANGUAGE_LINE_PATTERN = re.compile(r"(?i)^\s*languages?\s*[:\-]?\s*(?P<value>.+)$")
 EMAIL_PATTERN = re.compile(r"\b[A-Za-z0-9._%+-]+\s*@\s*[A-Za-z0-9.-]+\s*\.\s*[A-Za-z]{2,}\b")
@@ -824,6 +839,11 @@ def extract_email(text: str) -> str:
     normalized_text = normalize_common_artifacts(text or "")
     normalized_text = re.sub(r"(\w+)\s*@\s*\n\s*(\w+\.\w+)", r"\1@\2", normalized_text)
     normalized_text = re.sub(
+        r"(?im)([A-Za-z0-9._%+-]+)\s*@\s*\n(?:[A-Z][A-Z\s.]{3,}\n)+\s*([A-Za-z0-9.-]+\.[A-Za-z]{2,6})",
+        lambda m: f"{m.group(1)}@{m.group(2)}",
+        normalized_text,
+    )
+    normalized_text = re.sub(
         r"(?im)([A-Za-z0-9._%+-]+)\s*@\s*\n(?:[A-Z][A-Z\s]{3,}\n)?\s*([A-Za-z0-9.-]+\.[A-Za-z]{2,6})",
         lambda m: f"{m.group(1)}@{m.group(2)}",
         normalized_text,
@@ -1103,6 +1123,8 @@ def _looks_like_location_fragment(value: str) -> bool:
     lowered = candidate.lower()
     if not candidate:
         return False
+    if _contains_non_location_context(candidate):
+        return False
     if any(char.isdigit() for char in candidate):
         return False
     if lowered in INVALID_LOCATION_WORDS or lowered in INVALID_LOCATION_LABELS:
@@ -1120,7 +1142,7 @@ def _looks_like_location_fragment(value: str) -> bool:
     if any(part in LOCATION_ROLE_BLOCKLIST for part in lowered_parts):
         return False
     if len(parts) == 1:
-        return lowered in LOCATION_CONNECTOR_TERMS
+        return lowered in LOCATION_CONNECTOR_TERMS or lowered in LOCATION_TAIL_TOKENS
     if any(part in LOCATION_CONNECTOR_TERMS for part in lowered_parts):
         return True
     return len(parts) <= 3 and all(re.match(r"^[A-Z][A-Za-z.-]*(?:\s+[A-Z][A-Za-z.-]*)*$", part) for part in parts)
@@ -1213,9 +1235,17 @@ def _canonicalize_location_token(value: str) -> str:
 
 
 def _pick_primary_location(value: str) -> str:
+    raw_value = re.sub(r"\s+", " ", (value or "").strip())
     normalized = _normalize_location_value(value or "")
     if not normalized:
-        return ""
+        normalized = raw_value
+
+    for token in sorted(LOCATION_TAIL_TOKENS | set(LOCATION_CANONICAL_OVERRIDES.keys()), key=len, reverse=True):
+        match = re.search(rf"(?i)\b{re.escape(token)}\b", raw_value)
+        if not match:
+            continue
+        canonical = LOCATION_CANONICAL_OVERRIDES.get(token, token)
+        return _canonicalize_location_token(canonical)
 
     city_candidates: List[tuple[int, str]] = []
     for token in sorted(LOCATION_TAIL_TOKENS | set(LOCATION_CANONICAL_OVERRIDES.keys()), key=len, reverse=True):
@@ -1236,7 +1266,7 @@ def _pick_primary_location(value: str) -> str:
     return _canonicalize_location_token(normalized) if _looks_like_location_fragment(normalized) else ""
 
 
-def _extract_personal_detail_lines(lines: List[str], window: int = 8) -> List[str]:
+def _extract_personal_detail_lines(lines: List[str], window: int = 20) -> List[str]:
     if not lines:
         return []
 
@@ -1248,12 +1278,25 @@ def _extract_personal_detail_lines(lines: List[str], window: int = 8) -> List[st
             if PERSONAL_DETAILS_HEADER_PATTERN.match(candidate):
                 break
             if re.match(
-                r"(?i)^(?:work experience|professional experience|employment|experience|skills|technical skills|education|projects|summary|profile|languages|certifications|awards|achievements|references)$",
+                r"(?i)^(?:work experience|professional experience|employment|experience|skills|technical skills|education|projects|summary|profile|certifications|awards|achievements|references)$",
                 candidate,
             ):
                 break
             captured.append(candidate)
     return captured
+
+
+def _contains_non_location_context(value: str) -> bool:
+    tokens = {
+        token.strip(".,:-").lower()
+        for token in re.split(r"[\s,/|()]+", value or "")
+        if token.strip(".,:-")
+    }
+    if not tokens:
+        return False
+    if tokens & NON_LOCATION_CONTEXT_TERMS and not tokens & LOCATION_TAIL_TOKENS:
+        return True
+    return False
 
 
 def extract_location(text: str) -> str:
@@ -1264,6 +1307,7 @@ def extract_location(text: str) -> str:
     lines = [line.strip() for line in cleaned_text.splitlines() if line.strip()]
     personal_detail_lines = _extract_personal_detail_lines(lines)
     prioritized_lines = personal_detail_lines + lines[:25]
+    labeled_search_lines = personal_detail_lines + lines[:80]
     comma_location_pattern = re.compile(
         r"(?P<left>[A-Z][A-Za-z.-]+(?:\s+[A-Z][A-Za-z.-]+){0,3})\s*,\s*"
         r"(?P<right>[A-Z][A-Za-z.-]+(?:\s+[A-Z][A-Za-z.-]+){0,2})"
@@ -1275,7 +1319,9 @@ def extract_location(text: str) -> str:
         re.compile(r"(?P<value>[A-Z][A-Za-z.-]+(?:\s+[A-Z][A-Za-z.-]+)?\s*\|\s*[A-Z][A-Za-z.-]+(?:\s*\|\s*[A-Z][A-Za-z.-]+)?)"),
     )
 
-    for line in prioritized_lines[:25]:
+    for line in labeled_search_lines[:80]:
+        if re.match(r"(?i)^(?:languages?|known|nationality)\b", line):
+            continue
         label_match = LOCATION_LINE_LABEL_PATTERN.search(line)
         if label_match:
             candidate = _pick_primary_location(label_match.group("value"))
@@ -1283,7 +1329,19 @@ def extract_location(text: str) -> str:
                 logger.debug("Location extracted from labeled line: %s", candidate)
                 return candidate
 
+    for line in labeled_search_lines[:80]:
+        if re.match(r"(?i)^(?:languages?|known|nationality)\b", line):
+            continue
+        place_match = PLACE_LINE_PATTERN.search(line)
+        if place_match:
+            candidate = _pick_primary_location(place_match.group("value"))
+            if candidate:
+                logger.debug("Location extracted from place line: %s", candidate)
+                return candidate
+
     for line in prioritized_lines[:25]:
+        if re.match(r"(?i)^(?:languages?|known|nationality)\b", line):
+            continue
         for match in comma_location_pattern.finditer(line):
             left = _trim_location_segment(match.group("left"))
             right = re.sub(r"\s+", " ", match.group("right").strip())
@@ -1518,7 +1576,7 @@ def extract_resume_information(text: str) -> Dict:
                 header_role = m.group("role").strip()
                 break
 
-    location = extract_location(sections.get("header", ""))
+    location = extract_location(structural_source)
     header_context = sections.get("header", "")
     if not location:
         top_window_lines = [line.strip() for line in normalize_document_structure(text or "").splitlines()[:25] if line.strip()]
@@ -1533,8 +1591,6 @@ def extract_resume_information(text: str) -> Dict:
         if not location:
             header_context = "\n".join(header_only_lines)
             location = extract_location(header_context)
-    if not location:
-        location = extract_location(structural_source)
     if not location and SPACY_AVAILABLE and header_context:
         doc = get_section_doc(header_context[:800])
         if doc:

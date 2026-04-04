@@ -192,7 +192,22 @@
     "institute",
     "hospital",
     "foundation",
-    "services"
+    "services",
+    "accenture",
+    "amazon",
+    "cognizant",
+    "deloitte",
+    "ey",
+    "google",
+    "hcl",
+    "ibm",
+    "infosys",
+    "kpmg",
+    "microsoft",
+    "oracle",
+    "tcs",
+    "tech mahindra",
+    "wipro"
   ],
   "location_tail_tokens": [
     "ahmedabad",

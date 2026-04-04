@@ -7,6 +7,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from dateutil import parser as date_parser
 
+from ats.datasets.parser_config_loader import ParserConfigLoader
 from ats.preprocessing.section_segmentation import get_section_content, segment_resume_sections
 from app.spacy_nlp import SPACY_AVAILABLE, get_experience_doc
 
@@ -36,8 +37,21 @@ ROLE_TITLE_PATTERN = re.compile(
 PROSE_ROLE_PATTERN = re.compile(
     r"(?i)\b(?:i\s+was|worked\s+as|work(?:ed)?\s+as|joined\s+as|served\s+as|role\s+was|position\s+was)\s+(?:an?\s+)?(?P<role>[A-Za-z][A-Za-z/&\-\s]{1,80}?(?:engineer|developer|manager|lead|analyst|consultant|architect|specialist|administrator|designer|executive|director|officer|associate|scientist|recruiter|sales|product|qa|tester|intern|teacher|partner|generalist|coordinator))\b"
 )
+_parser_config_loader = ParserConfigLoader()
+_parser_vocabulary = _parser_config_loader.load_parser_vocabulary()
+_company_hint_terms = [
+    str(value).strip().lower()
+    for value in (_parser_vocabulary.get("company_hint_terms") or [])
+    if str(value).strip()
+]
+if not _company_hint_terms:
+    _company_hint_terms = [
+        "pvt", "ltd", "inc", "llc", "llp", "technologies", "solutions", "corp", "corporation",
+        "organisation", "organization", "systems", "labs", "works", "school", "college",
+        "university", "academy", "institute", "services",
+    ]
 COMPANY_PATTERN = re.compile(
-    r"(?i)\b(?:pvt|ltd|inc|llc|llp|technologies|solutions|corp|corporation|organisation|organization|systems|labs|works|school|college|university|academy|institute|services)\b"
+    rf"(?i)\b(?:{'|'.join(re.escape(term) for term in _company_hint_terms)})\b"
 )
 SKILL_LIKE_PATTERN = re.compile(
     r"(?i)\b(?:python|java|javascript|typescript|react|angular|vue|node(?:\.js)?|fastapi|django|flask|sql|aws|azure|gcp|docker|kubernetes|seo|crm|machine learning)\b"
@@ -116,7 +130,9 @@ def _normalize_text(value: str) -> str:
 
 
 def _normalize_line(line: str) -> str:
-    return re.sub(r"\s+", " ", _normalize_text(line)).strip(" |-")
+    normalized = re.sub(r"\s+", " ", _normalize_text(line)).strip(" |-")
+    normalized = re.sub(r"^\s*(?:\d+\)|\d+\.\s*)", "", normalized).strip()
+    return normalized
 
 
 def _is_bullet_line(line: str) -> bool:
@@ -339,6 +355,10 @@ def _extract_company_from_heading_line(line: str, role: Optional[str] = None) ->
 
     candidate = re.sub(r"(?i)^previously worked at\s+", "", candidate).strip()
     candidate = re.sub(r"(?i)^at\s+", "", candidate).strip()
+    if " in " in candidate.lower():
+        parts = re.split(r"\bin\b", candidate, maxsplit=1, flags=re.IGNORECASE)
+        if len(parts) == 2:
+            candidate = parts[1].strip(" |-,:")
     candidate = re.sub(r"\([^)]*\)", "", candidate).strip(" |-,:")
     if not candidate:
         return None
@@ -407,6 +427,8 @@ def _extract_company_candidate(block_lines: Sequence[str]) -> Optional[str]:
     context_lines = _candidate_lines_near_date(block_lines)
     for line in context_lines:
         normalized_line = _normalize_line(line.replace("?", "|"))
+        if re.search(r"(?i)\broles?\s*and\s*responsibilit", normalized_line):
+            continue
         if " - " in normalized_line:
             left_part, right_part = [part.strip() for part in normalized_line.split(" - ", 1)]
             if "," in right_part and _looks_like_company(left_part):

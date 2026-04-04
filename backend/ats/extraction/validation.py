@@ -17,6 +17,21 @@ LOCATION_CANDIDATE_PATTERN = re.compile(
 EMAIL_PATTERN = re.compile(r"(?i)^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$")
 NAME_PATTERN = re.compile(r"^[A-Z][A-Za-z'`.-]+(?:\s+[A-Z][A-Za-z'`.-]+){1,3}$")
 INVALID_LOCATION_TOKENS = {"contact", "profile", "summary", "skills", "experience", "education", "certifications"}
+NON_LOCATION_CONTEXT_TERMS = {
+    "university",
+    "board",
+    "college",
+    "school",
+    "institute",
+    "education",
+    "intermediate",
+    "secondary",
+    "course",
+    "gpa",
+    "qualification",
+    "qualifications",
+    "academic",
+}
 
 _parser_config_loader = ParserConfigLoader()
 _parser_vocabulary = _parser_config_loader.load_parser_vocabulary()
@@ -71,6 +86,7 @@ def validate_current_role(value: Optional[str], skills: Iterable[str]) -> Option
     skill_set = {str(skill).strip().lower() for skill in skills if str(skill).strip()}
     if not candidate:
         return None
+    candidate = re.sub(r"^\s*(?:\d+\)|\d+\.\s*|[-*•]+\s*)", "", candidate).strip()
     leading_match = LEADING_ROLE_PATTERN.search(candidate)
     if leading_match:
         candidate = _normalize(leading_match.group("role"))
@@ -112,6 +128,13 @@ def validate_location(value: Optional[str]) -> str:
         return ""
     lowered = candidate.lower()
     if lowered in INVALID_LOCATION_TOKENS:
+        return ""
+    tokens = {
+        token.strip(".,:-").lower()
+        for token in re.split(r"[\s,/|()]+", candidate)
+        if token.strip(".,:-")
+    }
+    if tokens & NON_LOCATION_CONTEXT_TERMS:
         return ""
     if LOCATION_NOISE_PATTERN.search(candidate):
         return ""
@@ -243,11 +266,18 @@ def _score_experience_confidence(value: Any) -> float:
 def validate_parsed_fields(data: Dict[str, Any]) -> Dict[str, Any]:
     skills = data.get("skills") or []
     experience_section = data.get("sections", {}).get("experience", "")
+    experience_entries = data.get("experience_entries") or data.get("experience") or []
+    experience_entry_text = "\n".join(
+        str(entry.get("raw_text") or "")
+        for entry in experience_entries
+        if isinstance(entry, dict)
+    )
+    experience_source = "\n".join(part for part in [experience_section, experience_entry_text] if part)
     data["name"] = validate_name(data.get("name"), skills)
     data["email"] = validate_email(data.get("email"))
     data["current_role"] = validate_current_role(data.get("current_role"), skills)
     data["designation"] = data["current_role"]
-    data["current_company"] = validate_current_company(data.get("current_company"), experience_section)
+    data["current_company"] = validate_current_company(data.get("current_company"), experience_source)
     data["location"] = validate_location(data.get("location"))
     data["skills"] = validate_skills(skills, data.get("location"))
     normalized_years = validate_experience_years(data.get("experience_years"))
@@ -259,7 +289,7 @@ def validate_parsed_fields(data: Dict[str, Any]) -> Dict[str, Any]:
     field_confidence.update(
         {
             "current_role": _score_role_confidence(data.get("current_role")),
-            "current_company": _score_company_confidence(data.get("current_company"), experience_section),
+            "current_company": _score_company_confidence(data.get("current_company"), experience_source),
             "location": _score_location_confidence(data.get("location")),
             "experience_years": _score_experience_confidence(data.get("total_experience_years")),
             "name": 1.0 if data.get("name") else 0.0,

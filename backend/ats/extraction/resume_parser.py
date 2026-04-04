@@ -744,7 +744,10 @@ def _extract_phone(text: str) -> str:
 
 def _extract_email(text: str) -> str:
     source_text = _extract_contact_zone_text(text)
-    return extract_normalized_email(source_text or "")
+    email = extract_normalized_email(source_text or "")
+    if email:
+        return email
+    return extract_normalized_email(text or "")
 
 
 def _email_to_name(email: str) -> str:
