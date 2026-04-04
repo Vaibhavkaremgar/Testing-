@@ -76,6 +76,13 @@ LOCATION_ROLE_BLOCKLIST = {
     "architect", "soc", "cybersecurity", "penetration", "software", "data", "business",
     "intelligence", "visualization",
 }
+ADDRESS_CITY_HINT_PATTERN = re.compile(
+    r"(?i)\b(?P<city>[A-Za-z][A-Za-z\s.-]{1,40})\s*(?:\(?(?:dist|district|city)\)?\b)"
+)
+ADDRESS_PIN_CITY_PATTERN = re.compile(
+    r"(?i)\b(?P<city>[A-Za-z][A-Za-z\s.-]{1,40})\s*[-,]\s*\d{5,6}\b"
+)
+ADDRESS_LABEL_PATTERN = re.compile(r"(?i)\baddress\b\s*[:\-]?\s*(?P<value>.+)")
 
 
 def _clean_header_lines(text: str, limit: int = 12) -> List[str]:
@@ -790,16 +797,23 @@ def extract_email(text: str) -> str:
         candidate = re.sub(r"\s+", "", candidate)
         candidate = re.sub(r"(?<=\w),(?=\w)", "", candidate)
         candidate = candidate.strip(".,;:")
-        com_match = re.search(r"\.com(?=[^a-zA-Z]|$)", candidate, re.IGNORECASE)
+        at_index = candidate.find("@")
+        domain_part = candidate[at_index + 1:] if at_index >= 0 else candidate
+        com_match = re.search(r"\.com", domain_part, re.IGNORECASE)
         if com_match:
-            return candidate[:com_match.end()]
-        tld_match = re.search(r"\.[a-zA-Z]{2,6}(?=[^a-zA-Z]|$)", candidate)
+            return candidate[: at_index + 1 + com_match.end()] if at_index >= 0 else candidate[:com_match.end()]
+        tld_match = re.search(r"\.[a-zA-Z]{2,6}(?=[^a-zA-Z]|$)", domain_part)
         if tld_match:
-            return candidate[:tld_match.end()]
+            return candidate[: at_index + 1 + tld_match.end()] if at_index >= 0 else candidate[:tld_match.end()]
         return candidate
 
     normalized_text = normalize_common_artifacts(text or "")
     normalized_text = re.sub(r"(\w+)\s*@\s*\n\s*(\w+\.\w+)", r"\1@\2", normalized_text)
+    normalized_text = re.sub(
+        r"(?im)([A-Za-z0-9._%+-]+)\s*@\s*\n(?:[A-Z][A-Z\s]{3,}\n)?\s*([A-Za-z0-9.-]+\.[A-Za-z]{2,6})",
+        lambda m: f"{m.group(1)}@{m.group(2)}",
+        normalized_text,
+    )
     normalized_text = normalized_text.replace("mailto:", " ").replace("MAILTO:", " ")
     normalized_text = re.sub(r"([A-Za-z0-9._%+-]+)\s*@\s*([A-Za-z0-9,._-]+\.[A-Za-z]{2,6})", lambda m: f"{m.group(1)}@{m.group(2).replace(',', '')}", normalized_text)
     relaxed_match = RELAXED_EMAIL_PATTERN.search(normalized_text)
@@ -1134,11 +1148,51 @@ def _trim_location_segment(value: str) -> str:
     return " ".join(words)
 
 
+def _extract_city_from_address_block(lines: List[str]) -> str:
+    if not lines:
+        return ""
+    search_text = "\n".join(lines[:10])
+    label_match = ADDRESS_LABEL_PATTERN.search(search_text)
+    if label_match:
+        search_text = f"{label_match.group('value')}\n" + "\n".join(lines[1:10])
+
+    district_candidates: List[str] = []
+    for match in ADDRESS_CITY_HINT_PATTERN.finditer(search_text):
+        candidate = re.sub(r"\s+", " ", match.group("city")).strip(" ,.-")
+        if candidate and not LOCATION_FALSE_POSITIVE_TECH_PATTERN.search(candidate.lower()):
+            district_candidates.append(candidate)
+    if district_candidates:
+        return district_candidates[-1]
+
+    pin_match = ADDRESS_PIN_CITY_PATTERN.search(search_text)
+    if pin_match:
+        candidate = re.sub(r"\s+", " ", pin_match.group("city")).strip(" ,.-")
+        candidate_words = candidate.split()
+        if len(candidate_words) > 2:
+            candidate = candidate_words[-1]
+        if candidate and candidate.lower() not in INVALID_LOCATION_WORDS:
+            return candidate
+
+    comma_parts = [part.strip(" ,.-") for part in re.split(r"[\n,]+", search_text) if part.strip()]
+    for part in reversed(comma_parts):
+        lowered = part.lower()
+        if any(char.isdigit() for char in part):
+            continue
+        if lowered in INVALID_LOCATION_WORDS or lowered in INVALID_LOCATION_LABELS:
+            continue
+        if LOCATION_FALSE_POSITIVE_TECH_PATTERN.search(lowered):
+            continue
+        words = part.split()
+        if 1 <= len(words) <= 3 and all(word[:1].isalpha() for word in words):
+            return words[-1].strip(" ,.-")
+    return ""
+
+
 def extract_location(text: str) -> str:
     if not text:
         return ""
 
-    # cleaned_text = clean_text_pipeline(text)
+    cleaned_text = clean_text_pipeline(text)
     cleaned_text = text or ""
     lines = [line.strip() for line in cleaned_text.splitlines() if line.strip()]
     comma_location_pattern = re.compile(
@@ -1166,6 +1220,11 @@ def extract_location(text: str) -> str:
                 if _looks_like_location_fragment(candidate):
                     logger.debug("Location extracted from explicit pattern: %s", candidate)
                     return candidate
+
+    city_from_address = _extract_city_from_address_block(lines)
+    if city_from_address:
+        logger.debug("Location extracted from address block: %s", city_from_address)
+        return city_from_address
 
     if SPACY_AVAILABLE:
         doc = get_section_doc("\n".join(lines[:15]))

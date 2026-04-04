@@ -1095,6 +1095,27 @@ Phone: +91 9876543210
 
         self.assertEqual(parsed["email"], "rahul.dev@gmail.com")
 
+    def test_email_with_multiple_dots_before_at_is_not_truncated(self):
+        resume_text = """
+Shriya Bose
+shriya.bose.design@gmail.com
+        """
+
+        parsed = self._parse_resume_text(resume_text, "shriya_candidate.txt")
+
+        self.assertEqual(parsed["email"], "shriya.bose.design@gmail.com")
+
+    def test_email_with_name_line_between_local_and_domain_is_recovered(self):
+        resume_text = """
+Email Id: aneeshrudravaram@
+RUDRAVARAM NARESH SAI ANEESH
+gmail.com
+        """
+
+        parsed = self._parse_resume_text(resume_text, "aneesh_candidate.txt")
+
+        self.assertEqual(parsed["email"], "aneeshrudravaram@gmail.com")
+
     def test_current_role_is_trimmed_without_company_and_location_suffix(self):
         resume_text = """
 Rhea Kapoor
