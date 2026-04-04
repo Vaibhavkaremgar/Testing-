@@ -67,6 +67,26 @@ INLINE_ROLE_DATE_PATTERN = re.compile(
 INLINE_ACTION_SPLIT_PATTERN = re.compile(
     r"(?i)\b(?:Own|Owned|Monitor(?:ed)?|Led|Developed|Authored|Achieved|Assisted|Completed|Executed|Validated|Troubleshot|Maintained|Mentored|Ensured|Built|Designed|Conducted|Spearheaded|Performed)\b"
 )
+ACTION_SENTENCE_PATTERN = re.compile(
+    r"(?i)\b(?:designed|built|led|owned|managed|partnered|created|developed|delivered|reduced|defined|ran|spearheaded|implemented|launched|using)\b"
+)
+DATE_RANGE_REGEX = re.compile(
+    rf"(?P<start>{DATE_TOKEN_PATTERN})\s*"
+    rf"(?:-|–|—|\?|to|until|through)\s*"
+    rf"(?P<end>{PRESENT_PATTERN}|{DATE_TOKEN_PATTERN})",
+    re.IGNORECASE,
+)
+INLINE_ROLE_DATE_PATTERN = re.compile(
+    rf"(?P<role>{INLINE_ROLE_PATTERN_TEXT})\s+\|\s+"
+    rf"(?P<start>{DATE_TOKEN_PATTERN})\s*(?:-|–|—|\?|to|until|through)\s*"
+    rf"(?P<end>{PRESENT_PATTERN}|{DATE_TOKEN_PATTERN})\s+"
+    rf"(?P<rest>.+?)"
+    rf"(?=(?P<next>{INLINE_ROLE_PATTERN_TEXT})\s+\|\s+{DATE_TOKEN_PATTERN}\s*(?:-|–|—|\?|to|until|through)\s*(?:{PRESENT_PATTERN}|{DATE_TOKEN_PATTERN})|KEY PROJECTS|PROJECTS|AWARDS|COMMUNITY|$)",
+    re.IGNORECASE,
+)
+LEADING_ROLE_PATTERN = re.compile(
+    r"(?i)^(?P<role>(?:(?:senior|sr|junior|jr|lead|principal|staff|associate|assistant|graphic|brand|visual|creative|content|product|frontend|front-end|backend|back-end|full[- ]stack|data|software|web|mobile|qa|devops|machine learning|ml|human resources|hr|engineering|business|intelligence|sales|marketing|customer|growth)\s+){0,5}(?:engineer|developer|manager|lead|analyst|consultant|architect|specialist|administrator|designer|executive|director|officer|associate|scientist|recruiter|tester|teacher|partner|generalist|coordinator))\b"
+)
 
 
 def _normalize_text(value: str) -> str:
@@ -84,6 +104,12 @@ def _normalize_text(value: str) -> str:
     }
     for source, target in replacements.items():
         normalized = normalized.replace(source, target)
+    normalized = re.sub(
+        rf"(?i)(?P<start>{DATE_TOKEN_PATTERN}|{PRESENT_PATTERN})\s+\?\s+(?P<end>{DATE_TOKEN_PATTERN}|{PRESENT_PATTERN})",
+        r"\g<start> - \g<end>",
+        normalized,
+    )
+    normalized = re.sub(r"\s+\?\s+", " | ", normalized)
     normalized = re.sub(r"[ \t]+", " ", normalized)
     normalized = re.sub(r"\n{3,}", "\n\n", normalized)
     return normalized.strip()
@@ -118,6 +144,8 @@ def _looks_like_experience_heading(value: str) -> bool:
 def _looks_like_company(value: str) -> bool:
     candidate = _normalize_line(value)
     if not candidate:
+        return False
+    if ACTION_SENTENCE_PATTERN.search(candidate):
         return False
     if "," in candidate:
         return False
@@ -378,27 +406,29 @@ def _extract_company_candidate(block_lines: Sequence[str]) -> Optional[str]:
 
     context_lines = _candidate_lines_near_date(block_lines)
     for line in context_lines:
-        if " - " in line:
-            left_part, right_part = [part.strip() for part in line.split(" - ", 1)]
+        normalized_line = _normalize_line(line.replace("?", "|"))
+        if " - " in normalized_line:
+            left_part, right_part = [part.strip() for part in normalized_line.split(" - ", 1)]
             if "," in right_part and _looks_like_company(left_part):
                 return _clean_company_name(left_part)
-        if " at " in line.lower():
-            parts = re.split(r"\bat\b", line, maxsplit=1, flags=re.IGNORECASE)
+        if " at " in normalized_line.lower():
+            parts = re.split(r"\bat\b", normalized_line, maxsplit=1, flags=re.IGNORECASE)
             if len(parts) == 2 and _looks_like_company(parts[1]):
                 return _clean_company_name(parts[1])
-        if " in " in line.lower():
-            parts = re.split(r"\bin\b", line, maxsplit=1, flags=re.IGNORECASE)
+        if " in " in normalized_line.lower():
+            parts = re.split(r"\bin\b", normalized_line, maxsplit=1, flags=re.IGNORECASE)
             if len(parts) == 2 and _looks_like_company(parts[1]):
                 return _clean_company_name(parts[1])
-        if "|" in line:
-            parts = [part.strip() for part in line.split("|") if part.strip()]
+        if "|" in normalized_line:
+            parts = [part.strip() for part in normalized_line.split("|") if part.strip()]
             for part in reversed(parts):
                 if _looks_like_company(part):
                     return _clean_company_name(part)
-        if COMPANY_PATTERN.search(line):
-            return _clean_company_name(line)
-        if _looks_like_company(line):
-            return _clean_company_name(line)
+        extracted = _extract_company_from_heading_line(normalized_line, role_hint)
+        if extracted and _looks_like_company(extracted):
+            return extracted
+        if _looks_like_company(normalized_line):
+            return _clean_company_name(normalized_line)
     if SPACY_AVAILABLE:
         doc = get_experience_doc("\n".join(context_lines))
         if doc is not None:
@@ -412,11 +442,16 @@ def _extract_company_candidate(block_lines: Sequence[str]) -> Optional[str]:
 def _extract_role_candidate(block_lines: Sequence[str], company: Optional[str]) -> Optional[str]:
     context_lines = _candidate_lines_near_date(block_lines)
     for line in context_lines:
-        normalized = _normalize_line(line)
+        normalized = _normalize_line(line.replace("?", "|"))
         if not normalized or _is_bullet_line(line):
             continue
         if company and normalized == company:
             continue
+        leading_match = LEADING_ROLE_PATTERN.search(normalized)
+        if leading_match:
+            candidate = _normalize_line(leading_match.group("role"))
+            if candidate and not _is_skill_like(candidate):
+                return candidate
         if " at " in normalized.lower() and len(normalized.split()) <= 12:
             parts = re.split(r"\bat\b", normalized, maxsplit=1, flags=re.IGNORECASE)
             candidate = _normalize_line(parts[0])
@@ -628,6 +663,7 @@ def _looks_like_global_job_start(line: str, next_line: str = "") -> bool:
         ROLE_HINT_PATTERN.search(normalized)
         or COMPANY_PATTERN.search(normalized)
         or "|" in normalized
+        or "?" in normalized
         or " at " in normalized.lower()
     )
     if line_has_date and role_or_company_hint:
@@ -730,7 +766,7 @@ def extract_experience_entries(text: str, ignore_internships: bool = False) -> L
             if ignore_internships and re.search(r"(?i)\b(?:intern|internship|trainee|apprentice)\b", internship_source):
                 continue
             entries.append(entry)
-    if len(entries) <= 1:
+    if not entries:
         entries.extend(_extract_inline_experience_entries(experience_section or text, ignore_internships=ignore_internships))
     logger.debug("Parsed jobs: %s", entries)
     return _dedupe_entries(entries)

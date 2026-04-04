@@ -9,7 +9,7 @@ BULLET_PREFIX_PATTERN = re.compile(r"^\s*[â€¢â–ªâ—¦â—Â·\-\*]+
 FALLBACK_COMPANY_PATTERN = re.compile(r"^[A-Z][A-Za-z0-9&.,' -]+(?:\s+[A-Z][A-Za-z0-9&.,' -]+)+$")
 SINGLE_TOKEN_COMPANY_PATTERN = re.compile(r"^[A-Z][A-Z0-9&.'-]{3,}$")
 SENTENCE_NOISE_PATTERN = re.compile(
-    r"(?i)\b(?:act as|partnering|support a workforce|recognized for|responsible for|worked on|served as)\b"
+    r"(?i)\b(?:act as|partnering|support a workforce|recognized for|responsible for|worked on|served as|designed|built|led|owned|managed|created|developed|implemented|using)\b"
 )
 LOCATION_CANDIDATE_PATTERN = re.compile(
     r"^[A-Za-z]+(?:[\s-][A-Za-z]+)*(?:,\s*[A-Za-z]+(?:[\s-][A-Za-z]+)*){0,2}$"
@@ -57,6 +57,9 @@ if not _location_noise_terms:
 COMPANY_PATTERN = re.compile(rf"(?i)\b(?:{'|'.join(re.escape(term) for term in _company_terms)})\b")
 ROLE_HINT_PATTERN = re.compile(rf"(?i)\b(?:{'|'.join(re.escape(term) for term in _role_terms)})\b")
 LOCATION_NOISE_PATTERN = re.compile(rf"(?i)\b(?:{'|'.join(re.escape(term) for term in _location_noise_terms)})\b")
+LEADING_ROLE_PATTERN = re.compile(
+    r"(?i)^(?P<role>(?:(?:senior|sr|junior|jr|lead|principal|staff|associate|assistant|graphic|brand|visual|creative|content|product|frontend|front-end|backend|back-end|full[- ]stack|data|software|web|mobile|qa|devops|machine learning|ml|human resources|hr|engineering|business|intelligence|sales|marketing|customer|growth)\s+){0,5}(?:engineer|developer|manager|lead|analyst|consultant|architect|specialist|administrator|designer|executive|director|officer|associate|scientist|recruiter|tester|teacher|partner|generalist|coordinator))\b"
+)
 
 
 def _normalize(value: Optional[str]) -> str:
@@ -68,6 +71,9 @@ def validate_current_role(value: Optional[str], skills: Iterable[str]) -> Option
     skill_set = {str(skill).strip().lower() for skill in skills if str(skill).strip()}
     if not candidate:
         return None
+    leading_match = LEADING_ROLE_PATTERN.search(candidate)
+    if leading_match:
+        candidate = _normalize(leading_match.group("role"))
     if BULLET_PREFIX_PATTERN.match(candidate):
         return None
     if len(candidate.split()) < 2:

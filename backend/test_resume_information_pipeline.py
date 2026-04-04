@@ -1084,6 +1084,52 @@ Jan 2024 - Present
 
         self.assertEqual(parsed["name"], "Abhishek Verma")
 
+    def test_comma_broken_email_is_normalized(self):
+        resume_text = """
+Rahul Candidate
+Email: rahul.dev@gm,ail.com
+Phone: +91 9876543210
+        """
+
+        parsed = self._parse_resume_text(resume_text, "rahul_candidate.txt")
+
+        self.assertEqual(parsed["email"], "rahul.dev@gmail.com")
+
+    def test_current_role_is_trimmed_without_company_and_location_suffix(self):
+        resume_text = """
+Rhea Kapoor
+
+Work Experience
+Senior Graphic Designer Ogilvy India Bengaluru, Karnataka
+Jan 2022 - Present
+Designed brand identity systems.
+        """
+
+        result = extract_resume_information(resume_text)
+
+        self.assertEqual(result["current_role"], "Senior Graphic Designer")
+
+    def test_bullet_separator_experience_extracts_company_role_and_total_years(self):
+        resume_text = """
+WORK EXPERIENCE
+Senior Product Manager · PhonePe Pvt. Ltd. · Mumbai
+Aug 2021 – Present | Insurance & Wealth Products
+Owned the Insurance vertical product.
+Product Manager · Myntra Designs Pvt. Ltd. · Bengaluru
+Jun 2018 – Jul 2021 | Discovery & Search
+Owned Search & Discovery experience.
+Associate Product Manager · OYO Rooms · Gurugram
+Jul 2016 – May 2018 | Supply & Property Management
+Built OYO Krypt
+        """
+
+        result = extract_resume_information(resume_text)
+
+        self.assertEqual(result["current_role"], "Senior Product Manager")
+        self.assertEqual(result["current_company"], "PhonePe Pvt. Ltd")
+        self.assertEqual(result["location"], "")
+        self.assertAlmostEqual(result["total_experience_years"], 9.8, delta=0.2)
+
 
 if __name__ == "__main__":
     unittest.main()

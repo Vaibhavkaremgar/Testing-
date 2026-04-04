@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 
 STRICT_EMAIL_PATTERN = re.compile(r"(?i)(?P<email>[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,})(?=$|[\s,;:|)\]>])")
 ROBUST_EMAIL_PATTERN = re.compile(r"[a-zA-Z0-9._%+-]+\s*@\s*[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
+RELAXED_EMAIL_PATTERN = re.compile(r"[a-zA-Z0-9._%+-]+\s*@\s*[a-zA-Z0-9,._-]+\.[a-zA-Z]{2,}")
 EMAIL_COMMON_TLDS = (
     ".com", ".org", ".net", ".edu", ".gov", ".co", ".io", ".ai", ".in", ".uk", ".us", ".de", ".fr", ".au",
 )
@@ -785,7 +786,13 @@ def extract_email(text: str) -> str:
         return ""
 
     def _clean_email_candidate(candidate: str) -> str:
-        candidate = re.sub(r"\s+", "", candidate).strip(".,;:")
+        candidate = candidate.replace("mailto:", "").replace("MAILTO:", "")
+        candidate = re.sub(r"\s+", "", candidate)
+        candidate = re.sub(r"(?<=\w),(?=\w)", "", candidate)
+        candidate = candidate.strip(".,;:")
+        com_match = re.search(r"\.com(?=[^a-zA-Z]|$)", candidate, re.IGNORECASE)
+        if com_match:
+            return candidate[:com_match.end()]
         tld_match = re.search(r"\.[a-zA-Z]{2,6}(?=[^a-zA-Z]|$)", candidate)
         if tld_match:
             return candidate[:tld_match.end()]
@@ -793,6 +800,14 @@ def extract_email(text: str) -> str:
 
     normalized_text = normalize_common_artifacts(text or "")
     normalized_text = re.sub(r"(\w+)\s*@\s*\n\s*(\w+\.\w+)", r"\1@\2", normalized_text)
+    normalized_text = normalized_text.replace("mailto:", " ").replace("MAILTO:", " ")
+    normalized_text = re.sub(r"([A-Za-z0-9._%+-]+)\s*@\s*([A-Za-z0-9,._-]+\.[A-Za-z]{2,6})", lambda m: f"{m.group(1)}@{m.group(2).replace(',', '')}", normalized_text)
+    relaxed_match = RELAXED_EMAIL_PATTERN.search(normalized_text)
+    if relaxed_match:
+        email = _clean_email_candidate(relaxed_match.group(0))
+        if "@" in email:
+            logger.debug("Email extracted with relaxed pattern: %s", email)
+            return email
     match = ROBUST_EMAIL_PATTERN.search(normalized_text)
     if match:
         email = _clean_email_candidate(match.group(0))
@@ -805,6 +820,12 @@ def extract_email(text: str) -> str:
         return email
     compact_text = normalized_text.replace("(at)", "@").replace("[at]", "@").replace(" at ", "@")
     compact_text = compact_text.replace("(dot)", ".").replace("[dot]", ".").replace(" dot ", ".")
+    relaxed_match = RELAXED_EMAIL_PATTERN.search(compact_text)
+    if relaxed_match:
+        email = _clean_email_candidate(relaxed_match.group(0))
+        if "@" in email:
+            logger.debug("Email extracted after relaxed artifact cleanup: %s", email)
+            return email
     match = ROBUST_EMAIL_PATTERN.search(compact_text)
     if match:
         email = _clean_email_candidate(match.group(0))
@@ -1360,21 +1381,23 @@ def extract_resume_information(text: str) -> Dict:
                 header_role = m.group("role").strip()
                 break
 
-    location = extract_location(sections.get("header", "") or cleaned_text)
+    location = extract_location(sections.get("header", ""))
+    header_context = sections.get("header", "")
     if not location:
         top_window_lines = [line.strip() for line in normalize_document_structure(text or "").splitlines()[:25] if line.strip()]
+        header_only_lines: List[str] = []
         for line in top_window_lines[:8]:
             if re.match(r"(?i)^(?:professional summary|summary|profile summary|skills|technical skills|experience|work experience|education|projects|certifications?)$", line.strip()):
                 break
+            header_only_lines.append(line)
             location = extract_location(line)
             if location:
                 break
         if not location:
-            top_window = "\n".join(top_window_lines)
-            location = extract_location(top_window)
-    if not location and SPACY_AVAILABLE:
-        top_window = "\n".join(line.strip() for line in normalize_document_structure(text or "").splitlines()[:25] if line.strip())
-        doc = get_section_doc((sections.get("header", "") or top_window or text[:200])[:800])
+            header_context = "\n".join(header_only_lines)
+            location = extract_location(header_context)
+    if not location and SPACY_AVAILABLE and header_context:
+        doc = get_section_doc(header_context[:800])
         if doc:
             gpe_entities = [ent.text.strip(" ,.-") for ent in doc.ents if ent.label_ == "GPE"]
             ranked = list(dict.fromkeys(entity for entity in gpe_entities if entity and entity.lower() not in INVALID_LOCATION_WORDS))
