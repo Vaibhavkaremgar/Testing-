@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -95,8 +95,12 @@ export default function Interviews({ superAdminAgencyId = null }) {
   const [selectedJobFilter, setSelectedJobFilter] = useState('all')
   const [videoError, setVideoError] = useState('')
   const [mediaMode, setMediaMode] = useState('video')
+  const [videoDuration, setVideoDuration] = useState(0)
+  const [videoCurrentTime, setVideoCurrentTime] = useState(0)
+  const [isVideoPlaying, setIsVideoPlaying] = useState(false)
   const [decisionLoading, setDecisionLoading] = useState(null)
   const [approveModalOpen, setApproveModalOpen] = useState(false)
+  const videoRef = useRef(null)
   const { toast } = useToast()
   const [scheduleForm, setScheduleForm] = useState({
     name: '',
@@ -364,7 +368,36 @@ export default function Interviews({ superAdminAgencyId = null }) {
   useEffect(() => {
     setVideoError('')
     setMediaMode('video')
+    setVideoDuration(0)
+    setVideoCurrentTime(0)
+    setIsVideoPlaying(false)
   }, [selectedInterview?.id])
+
+  const formatMediaTime = (value) => {
+    const totalSeconds = Math.max(0, Math.floor(Number(value) || 0))
+    const minutes = Math.floor(totalSeconds / 60)
+    const seconds = totalSeconds % 60
+    return `${minutes}:${String(seconds).padStart(2, '0')}`
+  }
+
+  const toggleVideoPlayback = () => {
+    const video = videoRef.current
+    if (!video) return
+
+    if (video.paused) {
+      void video.play()
+    } else {
+      video.pause()
+    }
+  }
+
+  const handleVideoSeek = (event) => {
+    const nextTime = Number(event.target.value)
+    setVideoCurrentTime(nextTime)
+    if (videoRef.current) {
+      videoRef.current.currentTime = nextTime
+    }
+  }
 
   const openScheduleModal = () => {
     setShowScheduleModal(true)
@@ -538,14 +571,15 @@ export default function Interviews({ superAdminAgencyId = null }) {
               </TabsList>
 
               <TabsContent value="video" className="mt-4">
-                <div className="bg-muted rounded-xl aspect-video flex items-center justify-center">
+                <div className="mx-auto w-full max-w-4xl">
+                <div className="bg-muted rounded-xl aspect-video flex items-center justify-center overflow-hidden">
                   {selectedInterview.playback_url && mediaMode === 'video' ? (
                     <video
                       key={selectedInterview.id}
-                      controls
+                      ref={videoRef}
                       preload="metadata"
                       playsInline
-                      className="w-full h-full rounded-xl"
+                      className="h-full w-full object-contain rounded-xl bg-black"
                       src={selectedInterview.playback_url}
                       onError={() => setVideoError('Unable to load interview recording. The video may be missing or in an unsupported format.')}
                       onLoadedMetadata={(e) => {
@@ -556,8 +590,14 @@ export default function Interviews({ superAdminAgencyId = null }) {
                         } else {
                           setMediaMode('video')
                           setVideoError('')
+                          setVideoDuration(element.duration || 0)
+                          setVideoCurrentTime(element.currentTime || 0)
                         }
                       }}
+                      onTimeUpdate={(e) => setVideoCurrentTime(e.currentTarget.currentTime || 0)}
+                      onPlay={() => setIsVideoPlaying(true)}
+                      onPause={() => setIsVideoPlaying(false)}
+                      onEnded={() => setIsVideoPlaying(false)}
                     >
                       Your browser does not support the video tag.
                     </video>
@@ -587,6 +627,37 @@ export default function Interviews({ superAdminAgencyId = null }) {
                       <p>No recording available</p>
                     </div>
                   )}
+                </div>
+                {selectedInterview.playback_url && mediaMode === 'video' && (
+                  <div className="mt-3 rounded-xl border bg-background px-4 py-3">
+                    <div className="flex items-center gap-3">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        onClick={toggleVideoPlayback}
+                      >
+                        <Play className="mr-2 h-4 w-4" />
+                        {isVideoPlaying ? 'Pause' : 'Play'}
+                      </Button>
+                      <span className="w-12 text-sm tabular-nums text-muted-foreground">
+                        {formatMediaTime(videoCurrentTime)}
+                      </span>
+                      <input
+                        type="range"
+                        min="0"
+                        max={Math.max(videoDuration, 0)}
+                        step="0.1"
+                        value={Math.min(videoCurrentTime, videoDuration || 0)}
+                        onChange={handleVideoSeek}
+                        className="h-2 flex-1 cursor-pointer accent-primary"
+                      />
+                      <span className="w-12 text-right text-sm tabular-nums text-muted-foreground">
+                        {formatMediaTime(videoDuration)}
+                      </span>
+                    </div>
+                  </div>
+                )}
                 </div>
                 {videoError && (
                   <p className="mt-3 text-sm text-destructive">{videoError}</p>
