@@ -31,6 +31,10 @@ ALLOWED_SOFT_SKILLS = {"problem-solving", "critical thinking", "stakeholder mana
 EXCLUDED_SOFT_SKILLS = {
     "negotiation", "communication", "leadership", "teamwork", "responsible", "motivated",
 }
+INVALID_LOCATION_WORDS = {"job", "objective", "contact", "details", "summary", "profile", "linkedin", "github", "portfolio"}
+LOCATION_FALSE_POSITIVE_TECH_PATTERN = re.compile(
+    r"(?i)\b(?:python|java|selenium|playwright|robot framework|robot|sql|typescript|react|docker|jenkins|postman|restassured|pytest|fastapi|power bi|tableau)\b"
+)
 KNOWN_LOCATION_SKILLS_BLOCKLIST = {
     "chennai", "hyderabad", "bangalore", "bengaluru", "pune", "mumbai", "delhi", "gurugram", "noida",
     "kolkata", "ahmedabad", "kochi", "coimbatore", "austin", "seattle",
@@ -157,6 +161,12 @@ PIPE_HEADER_LOCATION_PATTERN = re.compile(
 )
 LOCATION_CANDIDATE_PATTERN = re.compile(
     r"^[A-Za-z]+(?:[\s-][A-Za-z]+)*(?:,\s*[A-Za-z]+(?:[\s-][A-Za-z]+)*){0,2}$"
+)
+LOCATION_CONTEXT_PATTERN = re.compile(
+    r"(?i)\b(?:preferably in|based in|located in|from)\s+(?P<value>[A-Z][A-Za-z.-]+(?:\s+[A-Z][A-Za-z.-]+){0,2})\b"
+)
+LOCATION_OR_PATTERN = re.compile(
+    r"(?i)\bor\s+(?P<value>[A-Z][A-Za-z.-]+(?:\s+[A-Z][A-Za-z.-]+){0,2})\b"
 )
 _parser_config_loader = ParserConfigLoader()
 _parser_vocabulary = _parser_config_loader.load_parser_vocabulary()
@@ -812,11 +822,21 @@ def extract_location(text: str) -> str:
         lowered = candidate.lower()
         if lowered in INVALID_LOCATION_LABELS:
             return False
+        if lowered in INVALID_LOCATION_WORDS:
+            return False
+        if lowered.endswith(" or"):
+            return False
         if lowered.startswith(("linkedin", "github", "portfolio", "medium", "kaggle")):
             return False
         if any(char.isdigit() for char in candidate):
             return False
         geo_parts = [part.strip() for part in candidate.split(",") if part.strip()]
+        for part in geo_parts or [candidate]:
+            normalized_part = clean_text_pipeline(part).strip().lower()
+            if normalized_part.startswith("in "):
+                return False
+            if LOCATION_FALSE_POSITIVE_TECH_PATTERN.search(normalized_part):
+                return False
         if len(geo_parts) < 2:
             return bool(
                 LOCATION_CANDIDATE_PATTERN.match(candidate)
@@ -862,6 +882,18 @@ def extract_location(text: str) -> str:
             continue
         if is_valid_location_candidate(compact) and LOCATION_CANDIDATE_PATTERN.match(compact):
             return compact[:80]
+    contextual_candidates: List[str] = []
+    for line in lines[:25]:
+        for match in LOCATION_CONTEXT_PATTERN.finditer(line):
+            candidate = re.sub(r"\s+", " ", match.group("value").strip(" ,.-"))
+            if is_valid_location_candidate(candidate):
+                contextual_candidates.append(candidate)
+        for match in LOCATION_OR_PATTERN.finditer(line):
+            candidate = re.sub(r"\s+", " ", match.group("value").strip(" ,.-"))
+            if is_valid_location_candidate(candidate):
+                contextual_candidates.append(candidate)
+    if contextual_candidates:
+        return contextual_candidates[-1][:80]
     if SPACY_AVAILABLE:
         doc = get_section_doc("\n".join(lines[:20]))
         if doc is not None:
@@ -1023,13 +1055,25 @@ def extract_resume_information(text: str) -> Dict:
                 break
 
     location = extract_location(sections.get("header", ""))
+    if not location:
+        top_window_lines = [line.strip() for line in normalize_document_structure(text or "").splitlines()[:25] if line.strip()]
+        for line in top_window_lines[:8]:
+            if re.match(r"(?i)^(?:professional summary|summary|profile summary|skills|technical skills|experience|work experience|education|projects|certifications?)$", line.strip()):
+                break
+            location = extract_location(line)
+            if location:
+                break
+        if not location:
+            top_window = "\n".join(top_window_lines)
+            location = extract_location(top_window)
     if not location and SPACY_AVAILABLE:
-        doc = get_section_doc((sections.get("header", "") or text[:200])[:300])
+        top_window = "\n".join(line.strip() for line in normalize_document_structure(text or "").splitlines()[:25] if line.strip())
+        doc = get_section_doc((sections.get("header", "") or top_window or text[:200])[:800])
         if doc:
-            for ent in doc.ents:
-                if ent.label_ == "GPE":
-                    location = ent.text
-                    break
+            gpe_entities = [ent.text.strip(" ,.-") for ent in doc.ents if ent.label_ == "GPE"]
+            ranked = list(dict.fromkeys(entity for entity in gpe_entities if entity and entity.lower() not in INVALID_LOCATION_WORDS))
+            if ranked:
+                location = ranked[-1]
     skills = _finalize_skills(
         skills,
         skills_section or sections.get("experience", "") or sections.get("projects", "") or cleaned_text,

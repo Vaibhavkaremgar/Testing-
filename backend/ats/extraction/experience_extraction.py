@@ -46,6 +46,11 @@ COMPANY_STOPWORD_PATTERN = re.compile(r"(?i)\b(?:strategy|analytics|marketing|pl
 BULLET_PREFIX_PATTERN = re.compile(r"^\s*[\u2022\u25aa\u25e6\u25cf\u00b7\-\*]+\s*")
 SECTION_BREAK_PATTERN = re.compile(r"(?i)^(?:education|projects?|skills|technical skills|certifications?|summary|profile|languages?)$")
 EXPERIENCE_HEADER_PATTERN = re.compile(r"(?i)^(?:work experience|professional experience|employment history|employment|career history|experience)$")
+NON_EXPERIENCE_HEADER_PATTERN = re.compile(
+    r"(?i)^(?:certifications?|soft skills?|technical skills|skills|education|projects?|languages?|profile summary|summary|job objective|objective|contact details|areas of expertise)$"
+)
+EXPERIENCE_CONTINUATION_HEADER_PATTERN = re.compile(r"(?i)^(?:previous experience|prior experience|internship|internships?)$")
+CERTIFICATION_ROLE_PATTERN = re.compile(r"(?i)\b(?:certified|certification|certificate|ccna|azure fundamentals|associate - back-end)\b")
 
 
 def _normalize_text(value: str) -> str:
@@ -455,6 +460,10 @@ def _entry_from_block(block_lines: Sequence[str]) -> Optional[Dict[str, Any]]:
         role = None
     if role and _is_skill_like(role):
         role = None
+    if role and CERTIFICATION_ROLE_PATTERN.search(role):
+        return None
+    if company and CERTIFICATION_ROLE_PATTERN.search(company):
+        return None
     start_date = date_range["start_date"]
     end_date = date_range["end_date"]
     duration_years = round(max(0.0, (end_date - start_date).days + 1) / 365.25, 1)
@@ -503,19 +512,48 @@ def _sort_key(entry: Dict[str, Any]) -> Tuple[int, datetime]:
 
 
 def _dedupe_entries(entries: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    seen = set()
     deduped: List[Dict[str, Any]] = []
+    primary_index: Dict[Tuple[str, str, str], int] = {}
     for entry in entries:
-        key = (
+        company = (entry.get("company") or "").lower()
+        start_date = entry.get("start_date")
+        end_date = entry.get("end_date")
+        primary_key = (
+            company,
+            start_date,
+            end_date,
+        )
+        role_key = (
             (entry.get("role") or "").lower(),
-            (entry.get("company") or "").lower(),
+            company,
             entry.get("start_date"),
             entry.get("end_date"),
         )
-        if key in seen:
+        if any(
+            (
+                (existing.get("role") or "").lower(),
+                (existing.get("company") or "").lower(),
+                existing.get("start_date"),
+                existing.get("end_date"),
+            ) == role_key
+            for existing in deduped
+        ):
             continue
-        seen.add(key)
+        if primary_key in primary_index:
+            existing = deduped[primary_index[primary_key]]
+            if existing.get("role") and not entry.get("role"):
+                continue
+            if entry.get("role") and not existing.get("role"):
+                deduped[primary_index[primary_key]] = entry
+                continue
+            existing_role = (existing.get("role") or "").strip()
+            new_role = (entry.get("role") or "").strip()
+            if existing_role and new_role:
+                if len(new_role.split()) > len(existing_role.split()):
+                    deduped[primary_index[primary_key]] = entry
+                continue
         deduped.append(entry)
+        primary_index[primary_key] = len(deduped) - 1
     deduped.sort(key=_sort_key, reverse=True)
     return deduped
 
@@ -527,9 +565,66 @@ def _fallback_blocks_from_full_text(text: str) -> List[List[str]]:
     return _split_experience_blocks(_normalize_text(text))
 
 
+def _looks_like_global_job_start(line: str, next_line: str = "") -> bool:
+    normalized = _normalize_line(line)
+    following = _normalize_line(next_line)
+    if not normalized or _is_bullet_line(normalized):
+        return False
+    if NON_EXPERIENCE_HEADER_PATTERN.match(normalized) or EXPERIENCE_CONTINUATION_HEADER_PATTERN.match(normalized):
+        return False
+    if CERTIFICATION_ROLE_PATTERN.search(normalized):
+        return False
+    line_has_date = bool(extract_date_ranges(normalized))
+    next_has_date = bool(following and extract_date_ranges(following))
+    role_or_company_hint = bool(
+        ROLE_HINT_PATTERN.search(normalized)
+        or COMPANY_PATTERN.search(normalized)
+        or "|" in normalized
+        or " at " in normalized.lower()
+    )
+    if line_has_date and role_or_company_hint:
+        return True
+    if next_has_date and role_or_company_hint:
+        return True
+    return False
+
+
+def _global_experience_blocks(text: str) -> List[List[str]]:
+    lines = [_normalize_line(line) for line in _normalize_text(text).split("\n")]
+    blocks: List[List[str]] = []
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        next_line = lines[index + 1] if index + 1 < len(lines) else ""
+        if not _looks_like_global_job_start(line, next_line):
+            index += 1
+            continue
+        block = [line]
+        cursor = index + 1
+        while cursor < len(lines):
+            candidate = lines[cursor]
+            future = lines[cursor + 1] if cursor + 1 < len(lines) else ""
+            if not candidate:
+                cursor += 1
+                continue
+            if cursor != index and _looks_like_global_job_start(candidate, future):
+                break
+            if NON_EXPERIENCE_HEADER_PATTERN.match(candidate):
+                break
+            if EXPERIENCE_CONTINUATION_HEADER_PATTERN.match(candidate):
+                break
+            block.append(candidate)
+            cursor += 1
+        if len(block) >= 2:
+            blocks.append(block)
+        index = max(cursor, index + 1)
+    return blocks
+
+
 def extract_experience_entries(text: str, ignore_internships: bool = False) -> List[Dict[str, Any]]:
     experience_section = extract_experience_section(text)
     blocks = _split_experience_blocks(experience_section) if experience_section else _fallback_blocks_from_full_text(text)
+    blocks.extend(_global_experience_blocks(text))
     entries = []
     for block in blocks:
         for candidate_block in _split_block_on_multiple_date_ranges(block):
