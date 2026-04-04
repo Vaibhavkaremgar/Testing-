@@ -552,6 +552,58 @@ Managed an escalation queue and vendor support line 1800 555 1111.
         self.assertEqual(result["name"], "Meera Nair")
         self.assertEqual(result["phone"], "")
 
+    def test_email_extraction_stops_before_linkedin_domain_noise(self):
+        resume_text = "Vaibhav Sharma | vaibhav@gmail.com.linkedin.com | Hyderabad, Telangana"
+
+        parsed = self._parse_resume_text(resume_text, "vaibhav.txt")
+
+        self.assertEqual(parsed["email"], "vaibhav@gmail.com")
+
+    def test_context_skill_extraction_works_without_skills_section(self):
+        resume_text = """
+Maya Thomas
+Austin, Texas | maya.thomas.engineer@gmail.com
+
+Work Experience
+Principal Backend Engineer
+Acme Cloud Systems
+2023 - Present
+Worked on FastAPI and PostgreSQL services deployed on AWS with Docker.
+        """
+
+        result = extract_resume_information(resume_text)
+
+        self.assertIn("fastapi", result["skills"])
+        self.assertIn("postgresql", result["skills"])
+        self.assertIn("python", result["skills"])
+        self.assertNotIn("austin", result["skills"])
+
+    def test_locations_and_soft_skills_are_filtered_from_skills(self):
+        resume_text = """
+Rahul Verma
+Chennai, Tamil Nadu | +91 9876543210 | rahul.verma@email.com
+
+Skills
+Python
+FastAPI
+Communication
+Leadership
+Motivated
+Hyderabad
+Bangalore
+Teamwork
+        """
+
+        result = extract_resume_information(resume_text)
+
+        self.assertIn("python", result["skills"])
+        self.assertIn("fastapi", result["skills"])
+        self.assertNotIn("communication", result["skills"])
+        self.assertNotIn("leadership", result["skills"])
+        self.assertNotIn("motivated", result["skills"])
+        self.assertNotIn("hyderabad", result["skills"])
+        self.assertNotIn("bangalore", result["skills"])
+
     def test_pdf_ocr_fallback_is_used_when_native_extraction_is_empty(self):
         with tempfile.NamedTemporaryFile("wb", suffix=".pdf", delete=False) as handle:
             handle.write(b"")

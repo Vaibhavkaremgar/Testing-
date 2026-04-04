@@ -22,6 +22,28 @@ from ats.preprocessing.text_cleaning import (
 from app.spacy_nlp import SPACY_AVAILABLE, get_section_doc
 from ats.extraction.experience_extraction import DATE_RANGE_REGEX
 
+STRICT_EMAIL_PATTERN = re.compile(r"(?i)(?P<email>[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,})(?=$|[\s,;:|)\]>])")
+EMAIL_COMMON_TLDS = (
+    ".com", ".org", ".net", ".edu", ".gov", ".co", ".io", ".ai", ".in", ".uk", ".us", ".de", ".fr", ".au",
+)
+ALLOWED_SOFT_SKILLS = {"problem-solving", "critical thinking", "stakeholder management"}
+EXCLUDED_SOFT_SKILLS = {
+    "negotiation", "communication", "leadership", "teamwork", "responsible", "motivated",
+}
+KNOWN_LOCATION_SKILLS_BLOCKLIST = {
+    "chennai", "hyderabad", "bangalore", "bengaluru", "pune", "mumbai", "delhi", "gurugram", "noida",
+    "kolkata", "ahmedabad", "kochi", "coimbatore", "austin", "seattle",
+}
+PARENT_SKILL_MAP = {
+    "fastapi": ["python"],
+    "django": ["python"],
+    "flask": ["python"],
+    "react": ["javascript"],
+    "nodejs": ["javascript"],
+    "typescript": ["javascript"],
+    "power bi": ["sql"],
+}
+
 def extract_name(text: str) -> str:
     if not text:
         return ""
@@ -417,6 +439,103 @@ def _suppress_generic_overlaps(skills: List[str]) -> List[str]:
     return suppressed
 
 
+def _extract_gpe_entities(text: str) -> List[str]:
+    if not SPACY_AVAILABLE or not text:
+        return []
+    doc = get_section_doc(text[:2000])
+    if doc is None:
+        return []
+    entities: List[str] = []
+    for ent in doc.ents:
+        if ent.label_ == "GPE":
+            normalized = clean_text_pipeline(ent.text).strip().lower()
+            if normalized:
+                entities.append(normalized)
+    return list(dict.fromkeys(entities))
+
+
+def _skill_confidence(skill: str, source_text: str, from_section: bool) -> str:
+    normalized = normalize_skill_name(skill)
+    if not normalized:
+        return "low"
+    if normalized in _skill_intelligence.get_skill_dictionary():
+        return "high" if from_section else "medium"
+    if normalized in _skill_intelligence.get_synonym_dictionary().values():
+        return "medium"
+    if normalized in SKILL_ALIASES.values() or normalized in SKILL_ALIASES:
+        return "medium"
+    lowered_source = clean_text_pipeline(source_text or "").lower()
+    if re.search(rf"(?<!\w){re.escape(normalized)}(?!\w)", lowered_source):
+        return "low"
+    return "low"
+
+
+def _is_validated_skill(skill: str, source_text: str, from_section: bool, blocked_locations: set[str]) -> bool:
+    normalized = normalize_skill_name(skill)
+    if not normalized:
+        return False
+    if normalized in EXCLUDED_SOFT_SKILLS and normalized not in ALLOWED_SOFT_SKILLS:
+        return False
+    if normalized in blocked_locations or normalized in KNOWN_LOCATION_SKILLS_BLOCKLIST:
+        return False
+    if _skill_intelligence._is_noise(normalized):
+        return False
+    if _skill_confidence(normalized, source_text, from_section) == "low":
+        return False
+    in_esco = normalized in _skill_intelligence.get_skill_dictionary()
+    in_synonyms = normalized in _skill_intelligence.get_synonym_dictionary().values()
+    in_custom = normalized in set(SKILL_ALIASES.values()) or normalized in set(SKILL_ALIASES.keys())
+    return in_esco or in_synonyms or in_custom
+
+
+def _expand_parent_skills(skills: List[str]) -> List[str]:
+    expanded = list(skills)
+    seen = set(skills)
+    for skill in skills:
+        for parent in PARENT_SKILL_MAP.get(skill, []):
+            normalized_parent = normalize_skill_name(parent)
+            if normalized_parent and normalized_parent not in seen:
+                seen.add(normalized_parent)
+                expanded.append(normalized_parent)
+    return expanded
+
+
+def _finalize_skills(skills: List[str], source_text: str, location_text: str, from_section: bool) -> List[str]:
+    blocked_locations = set(_extract_gpe_entities(location_text or source_text))
+    normalized_location_text = clean_text_pipeline(location_text or "").lower()
+    for candidate in re.split(r"[,|\n/]+", normalized_location_text):
+        cleaned_candidate = candidate.strip()
+        if cleaned_candidate and cleaned_candidate in KNOWN_LOCATION_SKILLS_BLOCKLIST:
+            blocked_locations.add(cleaned_candidate)
+    validated = [
+        normalize_skill_name(skill)
+        for skill in skills
+        if _is_validated_skill(skill, source_text, from_section, blocked_locations)
+    ]
+    validated = [skill for skill in validated if skill]
+    validated = _expand_parent_skills(_unique_in_order(_suppress_generic_overlaps(validated)))
+    return _unique_in_order(validated)[:50]
+
+
+def _extract_contextual_skills(*sections: str) -> List[str]:
+    matches: List[str] = []
+    for section in sections:
+        normalized_section = clean_text_pipeline(section or "")
+        if not normalized_section:
+            continue
+        matches.extend(_skill_keyword_processor.extract_keywords(normalized_section))
+        matches.extend(_skill_intelligence.extract_skills(normalized_section))
+        for sentence in SKILL_SENTENCE_SPLIT_PATTERN.split(normalized_section):
+            sentence = sentence.strip()
+            if not sentence:
+                continue
+            if not re.search(r"(?i)\b(?:worked on|built|developed|implemented|used|deploy|designed|experience with|services?|apis?)\b", sentence):
+                continue
+            matches.extend(_skill_keyword_processor.extract_keywords(sentence))
+            matches.extend(_skill_intelligence.extract_skills(sentence))
+    return _unique_in_order(matches)
+
+
 def extract_skill_keywords(text: str, section_text: str = "") -> List[str]:
     source = _sanitize_skill_section(section_text or text)
     if not source:
@@ -473,14 +592,30 @@ def extract_email(text: str) -> str:
         return ""
 
     text = re.sub(r'(\w+)\s*@\s*\n\s*(\w+\.\w+)', r'\1@\2', text)
-    match = EMAIL_PATTERN.search(text)
+    match = STRICT_EMAIL_PATTERN.search(text)
     if match:
-        return re.sub(r"\s+", "", match.group(0)).strip(".,;:")
+        candidate = re.sub(r"\s+", "", match.group("email")).strip(".,;:")
+        lowered = candidate.lower()
+        for tld in EMAIL_COMMON_TLDS:
+            marker = f"{tld}."
+            if marker in lowered:
+                cutoff = lowered.find(marker) + len(tld)
+                candidate = candidate[:cutoff]
+                break
+        return candidate
     compact_text = text.replace("(at)", "@").replace("[at]", "@").replace(" at ", "@")
     compact_text = compact_text.replace("(dot)", ".").replace("[dot]", ".").replace(" dot ", ".")
-    match = EMAIL_PATTERN.search(compact_text)
+    match = STRICT_EMAIL_PATTERN.search(compact_text)
     if match:
-        return re.sub(r"\s+", "", match.group(0)).strip(".,;:")
+        candidate = re.sub(r"\s+", "", match.group("email")).strip(".,;:")
+        lowered = candidate.lower()
+        for tld in EMAIL_COMMON_TLDS:
+            marker = f"{tld}."
+            if marker in lowered:
+                cutoff = lowered.find(marker) + len(tld)
+                candidate = candidate[:cutoff]
+                break
+        return candidate
     return ""
 
 
@@ -722,9 +857,16 @@ def extract_resume_information(text: str) -> Dict:
     skills_section = _sanitize_skill_section(raw_sections.get("skills", "") or sections.get("skills", ""))
     
     skills = extract_skill_keywords(skills_section, skills_section)
-    
-    if not skills:
-        skills = extract_skill_keywords(cleaned_text, cleaned_text)
+    contextual_skills = _extract_contextual_skills(
+        sections.get("experience", ""),
+        sections.get("projects", ""),
+        sections.get("summary", ""),
+        cleaned_text,
+    )
+    if skills:
+        skills = _unique_in_order(skills + contextual_skills)
+    else:
+        skills = contextual_skills
     
     experience_result = extract_total_experience(structural_text)
     
@@ -762,10 +904,20 @@ def extract_resume_information(text: str) -> Dict:
                 if ent.label_ == "GPE":
                     location = ent.text
                     break
+    skills = _finalize_skills(
+        skills,
+        skills_section or sections.get("experience", "") or sections.get("projects", "") or cleaned_text,
+        "\n".join(filter(None, [sections.get("header", ""), location])),
+        from_section=bool(skills_section.strip()),
+    )
 
     result = {
         "sections": sections,
         "skills": skills,
+        "skill_confidence": {
+            skill: _skill_confidence(skill, skills_section or cleaned_text, bool(skills_section.strip()))
+            for skill in skills
+        },
         "name": extract_name(text),
         "experience": experience_entries,
         "projects": extract_project_entries(cleaned_text, sections.get("projects", "")),
