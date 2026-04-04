@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import logging
 import re
 import importlib.util
 from typing import Any, Dict, List, Optional
+from dateutil import parser as date_parser
 
 from flashtext import KeywordProcessor
 
@@ -23,15 +25,23 @@ from ats.preprocessing.text_cleaning import (
 from app.spacy_nlp import SPACY_AVAILABLE, get_section_doc
 from ats.extraction.experience_extraction import DATE_RANGE_REGEX
 
+logger = logging.getLogger(__name__)
+
 STRICT_EMAIL_PATTERN = re.compile(r"(?i)(?P<email>[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,})(?=$|[\s,;:|)\]>])")
+ROBUST_EMAIL_PATTERN = re.compile(r"[a-zA-Z0-9._%+-]+\s*@\s*[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
 EMAIL_COMMON_TLDS = (
     ".com", ".org", ".net", ".edu", ".gov", ".co", ".io", ".ai", ".in", ".uk", ".us", ".de", ".fr", ".au",
+)
+PHONE_PATTERNS = (
+    re.compile(r"(?<!\d)(\+91[\s-]?\d{5}[\s-]?\d{5})(?!\d)"),
+    re.compile(r"(?<!\d)(\+91[\s-]?\d{10})(?!\d)"),
+    re.compile(r"(?<!\d)(\d{10})(?!\d)"),
 )
 ALLOWED_SOFT_SKILLS = {"problem-solving", "critical thinking", "stakeholder management"}
 EXCLUDED_SOFT_SKILLS = {
     "negotiation", "communication", "leadership", "teamwork", "responsible", "motivated",
 }
-INVALID_LOCATION_WORDS = {"job", "objective", "contact", "details", "summary", "profile", "linkedin", "github", "portfolio"}
+INVALID_LOCATION_WORDS = {"job", "objective", "contact", "details", "summary", "profile", "linkedin", "github", "portfolio", "career", "passing"}
 LOCATION_FALSE_POSITIVE_TECH_PATTERN = re.compile(
     r"(?i)\b(?:python|java|selenium|playwright|robot framework|robot|sql|typescript|react|docker|jenkins|postman|restassured|pytest|fastapi|power bi|tableau)\b"
 )
@@ -51,6 +61,37 @@ PARENT_SKILL_MAP = {
 INVALID_NAME_LABELS = {"contact", "profile", "summary", "technical", "skills", "experience", "education", "certifications"}
 INVALID_LOCATION_LABELS = {"contact", "profile", "summary", "skills", "experience", "education", "certifications"}
 GEOGRAPHIC_PART_PATTERN = re.compile(r"^[A-Za-z]+(?:[\s.-][A-Za-z]+)*$")
+NAME_IGNORE_TERMS = {
+    "resume", "email", "phone", "mobile", "contact", "profile", "summary", "skills",
+    "experience", "education", "curriculum", "vitae",
+}
+LOCATION_SPLIT_PATTERN = re.compile(r"\s*(?:\||/|,)\s*")
+LOCATION_CONNECTOR_TERMS = {
+    "india", "remote", "telangana", "karnataka", "maharashtra", "delhi", "pune", "hyderabad",
+    "bangalore", "bengaluru", "mumbai", "chennai", "gurugram", "noida",
+}
+LOCATION_ROLE_BLOCKLIST = {
+    "engineer", "analyst", "developer", "tester", "consultant", "manager", "specialist",
+    "architect", "soc", "cybersecurity", "penetration", "software", "data", "business",
+}
+
+
+def _clean_header_lines(text: str, limit: int = 12) -> List[str]:
+    normalized = normalize_document_structure(text or "")
+    return [line.strip() for line in normalized.splitlines() if line.strip()][:limit]
+
+
+def _extract_name_from_email(email: str) -> str:
+    if not email or "@" not in email:
+        return ""
+    prefix = email.split("@", 1)[0]
+    prefix = re.sub(r"[._\-+]+", " ", prefix)
+    tokens = [token for token in prefix.split() if token.isalpha()]
+    if not (1 < len(tokens) <= 4):
+        return ""
+    candidate = " ".join(token.capitalize() for token in tokens)
+    logger.debug("Name fallback extracted from email prefix: %s", candidate)
+    return candidate
 
 def extract_name(text: str) -> str:
     if not text:
@@ -162,6 +203,7 @@ PIPE_HEADER_LOCATION_PATTERN = re.compile(
 LOCATION_CANDIDATE_PATTERN = re.compile(
     r"^[A-Za-z]+(?:[\s-][A-Za-z]+)*(?:,\s*[A-Za-z]+(?:[\s-][A-Za-z]+)*){0,2}$"
 )
+PLACE_LINE_PATTERN = re.compile(r"(?i)\bplace\s*[:\-]?\s*(?P<value>[A-Za-z][A-Za-z\s.-]{1,40})")
 LOCATION_CONTEXT_PATTERN = re.compile(
     r"(?i)\b(?:preferably in|based in|located in|from)\s+(?P<value>[A-Z][A-Za-z.-]+(?:\s+[A-Z][A-Za-z.-]+){0,2})\b"
 )
@@ -441,6 +483,69 @@ def normalize_skill_name(skill: str) -> str:
     return SKILL_ALIASES.get(normalized, normalized)
 
 
+def extract_name(text: str) -> str:
+    if not text:
+        return ""
+
+    lines = _clean_header_lines(text, limit=12)
+    first_five_lines = lines[:5]
+
+    def _is_valid_name_line(candidate: str) -> bool:
+        compact = re.sub(r"\s+", " ", candidate.strip(" ,.-"))
+        lowered = compact.lower()
+        if not compact:
+            return False
+        if any(term in lowered for term in NAME_IGNORE_TERMS):
+            return False
+        if any(char.isdigit() for char in compact):
+            return False
+        if "@" in compact:
+            return False
+        words = compact.split()
+        if not (2 <= len(words) <= 4):
+            return False
+        normalized_candidate = clean_text_pipeline(compact).lower()
+        if (
+            normalized_candidate in _skill_intelligence.get_skill_dictionary()
+            or normalized_candidate in _skill_intelligence.get_synonym_dictionary()
+            or normalized_candidate in _skill_intelligence.get_synonym_dictionary().values()
+        ):
+            return False
+        capitalized_count = sum(1 for word in words if re.match(r"^[A-Z][A-Za-z'`.-]+$", word))
+        return capitalized_count >= max(2, len(words) - 1)
+
+    for line in first_five_lines:
+        leading_candidate = re.match(r"^(?P<value>[A-Z][A-Za-z'`.-]+(?:\s+[A-Z][A-Za-z'`.-]+){1,3})\b", line)
+        if leading_candidate:
+            candidate = leading_candidate.group("value").strip()
+            role_noise = {"engineer", "analyst", "developer", "tester", "consultant", "manager", "specialist", "architect"}
+            candidate_tokens = [token.lower() for token in candidate.split()]
+            if not any(token in role_noise for token in candidate_tokens) and _is_valid_name_line(candidate):
+                resolved = " ".join(part.capitalize() for part in candidate.split())
+                logger.debug("Name extracted from leading header tokens: %s", resolved)
+                return resolved
+        candidate = re.sub(r"(?i)^(?:name)\s*[:\-]\s*", "", line).strip()
+        candidate = re.split(r"\s+\|\s+|\s+[·•]\s+|, (?=\+?\d|[A-Za-z0-9._%+-]+@)", candidate, maxsplit=1)[0].strip()
+        if _is_valid_name_line(candidate):
+            resolved = " ".join(part.capitalize() for part in candidate.split())
+            logger.debug("Name extracted from header line: %s", resolved)
+            return resolved
+
+    if SPACY_AVAILABLE:
+        doc = get_section_doc("\n".join(first_five_lines or lines[:8]))
+        if doc:
+            for ent in doc.ents:
+                if ent.label_ != "PERSON":
+                    continue
+                candidate = re.sub(r"\s+", " ", ent.text).strip(" ,.-")
+                if _is_valid_name_line(candidate):
+                    resolved = " ".join(part.capitalize() for part in candidate.split())
+                    logger.debug("Name extracted with spaCy PERSON: %s", resolved)
+                    return resolved
+
+    return _extract_name_from_email(extract_email(text))
+
+
 def _unique_in_order(values: List[str]) -> List[str]:
     seen = set()
     ordered: List[str] = []
@@ -691,15 +796,44 @@ def extract_email(text: str) -> str:
                 return candidate[:cutoff]
         return candidate
 
-    text = re.sub(r'(\w+)\s*@\s*\n\s*(\w+\.\w+)', r'\1@\2', text)
-    match = STRICT_EMAIL_PATTERN.search(text)
+    normalized_text = normalize_common_artifacts(text or "")
+    normalized_text = re.sub(r"(\w+)\s*@\s*\n\s*(\w+\.\w+)", r"\1@\2", normalized_text)
+    match = ROBUST_EMAIL_PATTERN.search(normalized_text)
     if match:
-        return _clean_email_candidate(match.group("email"))
-    compact_text = text.replace("(at)", "@").replace("[at]", "@").replace(" at ", "@")
+        email = _clean_email_candidate(match.group(0))
+        logger.debug("Email extracted with robust pattern: %s", email)
+        return email
+    match = STRICT_EMAIL_PATTERN.search(normalized_text)
+    if match:
+        email = _clean_email_candidate(match.group("email"))
+        logger.debug("Email extracted with strict pattern: %s", email)
+        return email
+    compact_text = normalized_text.replace("(at)", "@").replace("[at]", "@").replace(" at ", "@")
     compact_text = compact_text.replace("(dot)", ".").replace("[dot]", ".").replace(" dot ", ".")
+    match = ROBUST_EMAIL_PATTERN.search(compact_text)
+    if match:
+        email = _clean_email_candidate(match.group(0))
+        logger.debug("Email extracted after artifact cleanup: %s", email)
+        return email
     match = STRICT_EMAIL_PATTERN.search(compact_text)
     if match:
-        return _clean_email_candidate(match.group("email"))
+        email = _clean_email_candidate(match.group("email"))
+        logger.debug("Email extracted after strict artifact cleanup: %s", email)
+        return email
+    return ""
+
+
+def extract_phone(text: str) -> str:
+    if not text:
+        return ""
+    normalized_text = normalize_common_artifacts(text or "")
+    for pattern in PHONE_PATTERNS:
+        match = pattern.search(normalized_text)
+        if not match:
+            continue
+        candidate = re.sub(r"\s+", " ", match.group(1)).strip()
+        logger.debug("Phone extracted: %s", candidate)
+        return candidate
     return ""
 
 
@@ -792,6 +926,12 @@ def extract_location(text: str) -> str:
         if "," not in compact:
             return compact
         left, right = [part.strip() for part in compact.split(",", 1)]
+        left_tokens = [
+            token for token in left.split()
+            if "@" not in token and "." not in token and not any(ch.isdigit() for ch in token)
+        ]
+        if left_tokens:
+            left = " ".join(left_tokens)
         left_words = left.split()
         if len(left_words) > 2:
             left = " ".join(left_words[-2:]).strip()
@@ -841,10 +981,18 @@ def extract_location(text: str) -> str:
             return bool(
                 LOCATION_CANDIDATE_PATTERN.match(candidate)
                 and len(candidate.split()) <= 3
+                and bool(re.match(r"^[A-Z][A-Za-z.-]*(?:\s+[A-Z][A-Za-z.-]*){0,2}$", candidate))
                 and not re.match(r"^[A-Z][A-Za-z'`.-]+(?:\s+[A-Z][A-Za-z'`.-]+){1,3}$", candidate)
             )
         return all(GEOGRAPHIC_PART_PATTERN.match(part) for part in geo_parts)
 
+    for line in lines[:8]:
+        place_match = PLACE_LINE_PATTERN.search(line)
+        if place_match:
+            compact = re.sub(r"\s+", " ", place_match.group("value").strip(" ,.-"))
+            compact = compact.split()[0].strip(" ,.-")
+            if is_valid_location_candidate(compact):
+                return compact[:80]
     for line in lines[:8]:
         match = LOCATION_PATTERN.search(line)
         if match:
@@ -903,6 +1051,94 @@ def extract_location(text: str) -> str:
                 candidate = normalize_location_candidate(candidate)
                 if is_valid_location_candidate(candidate):
                     return candidate[:80]
+    return ""
+
+
+def _looks_like_location_fragment(value: str) -> bool:
+    candidate = re.sub(r"\s+", " ", (value or "").strip(" ,.|/:-"))
+    lowered = candidate.lower()
+    if not candidate:
+        return False
+    if any(char.isdigit() for char in candidate):
+        return False
+    if lowered in INVALID_LOCATION_WORDS or lowered in INVALID_LOCATION_LABELS:
+        return False
+    if lowered.startswith(("linkedin", "github", "portfolio")):
+        return False
+    if "@" in candidate:
+        return False
+    if LOCATION_FALSE_POSITIVE_TECH_PATTERN.search(lowered):
+        return False
+    parts = [part.strip() for part in LOCATION_SPLIT_PATTERN.split(candidate) if part.strip()]
+    if not parts:
+        return False
+    lowered_parts = [part.lower() for part in parts]
+    if any(part in LOCATION_ROLE_BLOCKLIST for part in lowered_parts):
+        return False
+    if len(parts) == 1:
+        return bool(re.match(r"^[A-Z][A-Za-z.-]*(?:\s+[A-Z][A-Za-z.-]*){0,2}$", candidate))
+    return any(part in LOCATION_CONNECTOR_TERMS for part in lowered_parts)
+
+
+def _normalize_location_value(value: str) -> str:
+    parts = [re.sub(r"\s+", " ", part).strip(" ,.|/:-") for part in LOCATION_SPLIT_PATTERN.split(value or "") if part.strip()]
+    deduped: List[str] = []
+    seen = set()
+    for index, part in enumerate(parts):
+        words = part.split()
+        if len(words) > 2:
+            part = " ".join(words[-2:])
+            words = part.split()
+        if index == 0 and len(words) == 2 and words[0].lower() not in LOCATION_CONNECTOR_TERMS and words[1].lower() in LOCATION_CONNECTOR_TERMS:
+            part = words[1]
+        elif index == 0 and len(words) == 2 and words[0].lower() not in LOCATION_CONNECTOR_TERMS:
+            part = words[-1]
+        lowered = part.lower()
+        if lowered in seen:
+            continue
+        if lowered in INVALID_LOCATION_WORDS or lowered in INVALID_LOCATION_LABELS:
+            continue
+        deduped.append(part)
+        seen.add(lowered)
+    return ", ".join(deduped[:3])
+
+
+def extract_location(text: str) -> str:
+    if not text:
+        return ""
+
+    cleaned_text = clean_text_pipeline(text)
+    lines = [line.strip() for line in cleaned_text.splitlines() if line.strip()]
+    location_patterns = (
+        re.compile(r"\b(?:location|address|based in|city)\b\s*[:\-]?\s*(?P<value>[A-Za-z][A-Za-z\s,|/-]{2,80})", re.IGNORECASE),
+        re.compile(r"(?P<value>[A-Z][A-Za-z.-]+(?:\s+[A-Z][A-Za-z.-]+)?\s*,\s*[A-Z][A-Za-z.-]+(?:\s+[A-Z][A-Za-z.-]+)?)"),
+        re.compile(r"(?P<value>[A-Z][A-Za-z.-]+(?:\s+[A-Z][A-Za-z.-]+)?\s*/\s*[A-Z][A-Za-z.-]+(?:\s*/\s*[A-Z][A-Za-z.-]+)?)"),
+        re.compile(r"(?P<value>[A-Z][A-Za-z.-]+(?:\s+[A-Z][A-Za-z.-]+)?\s*\|\s*[A-Z][A-Za-z.-]+(?:\s*\|\s*[A-Z][A-Za-z.-]+)?)"),
+    )
+
+    for line in lines[:12]:
+        for pattern in location_patterns:
+            for match in pattern.finditer(line):
+                candidate = _normalize_location_value(match.group("value"))
+                if _looks_like_location_fragment(candidate):
+                    logger.debug("Location extracted from explicit pattern: %s", candidate)
+                    return candidate
+
+    if SPACY_AVAILABLE:
+        doc = get_section_doc("\n".join(lines[:15]))
+        if doc is not None:
+            gpe_entities = [re.sub(r"\s+", " ", ent.text).strip(" ,.-") for ent in doc.ents if ent.label_ == "GPE"]
+            if gpe_entities:
+                candidate = _normalize_location_value(" | ".join(gpe_entities[:3]))
+                if _looks_like_location_fragment(candidate):
+                    logger.debug("Location extracted with spaCy GPE: %s", candidate)
+                    return candidate
+
+    for line in lines[:8]:
+        candidate = _normalize_location_value(line)
+        if _looks_like_location_fragment(candidate):
+            logger.debug("Location extracted from fallback line scan: %s", candidate)
+            return candidate
     return ""
 
 
@@ -979,16 +1215,53 @@ def _extract_explicit_total_experience(text: str) -> float | None:
     if not text:
         return None
     month_match = re.search(
-        r"(?i)\b(?P<years>\d+(?:\.\d+)?)\s+years?(?:\s+and\s+(?P<months>\d+)\s+months?)?\s+of\s+experience\b",
+        r"(?i)\b(?P<years>\d+(?:\.\d+)?)\+?\s*(?:years|yrs)(?:\s+and\s+(?P<months>\d+)\s+months?)?(?:\s+of\s+experience|\s+experience)?\b",
         text,
     )
     if month_match:
         years = float(month_match.group("years"))
         months = float(month_match.group("months") or 0)
+        logger.debug("Experience extracted from explicit years/months statement: %s years, %s months", years, months)
         return round(years + (months / 12.0), 1)
-    year_match = re.search(r"(?i)\b(?P<years>\d+(?:\.\d+)?)\+?\s+years?\s+experience\b", text)
+    phrase_match = re.search(r"(?i)\b(?P<years>\d+(?:\.\d+)?)\+?\s*(?:years|yrs)\s+of\s+experience\b", text)
+    if phrase_match:
+        years = round(float(phrase_match.group("years")), 1)
+        logger.debug("Experience extracted from phrase match: %s", years)
+        return years
+    year_match = re.search(r"(?i)\b(?P<years>\d+(?:\.\d+)?)\+?\s*(?:years|yrs)\s+experience\b", text)
     if year_match:
-        return round(float(year_match.group("years")), 1)
+        years = round(float(year_match.group("years")), 1)
+        logger.debug("Experience extracted from years regex: %s", years)
+        return years
+    has_date_range_context = bool(
+        re.search(
+            r"(?im)^\s*(?:work experience|professional experience|experience|employment history|employment)\s*$",
+            text,
+        )
+        or re.search(r"(?i)\b(?:present|current role|current company|worked as|working as)\b", text)
+    )
+    date_ranges = list(DATE_RANGE_REGEX.finditer(text))
+    if date_ranges and has_date_range_context:
+        max_years = 0.0
+        for match in date_ranges:
+            start_raw = match.group("start")
+            end_raw = match.group("end")
+            if not start_raw or not end_raw:
+                continue
+            try:
+                start_date = date_parser.parse(start_raw, default=date_parser.parse("2000-01-01"))
+                if re.search(r"(?i)present|current|now", end_raw):
+                    end_date = date_parser.parse("today")
+                else:
+                    end_date = date_parser.parse(end_raw, default=date_parser.parse("2000-01-01"))
+            except Exception:
+                continue
+            months = max(0, (end_date.year - start_date.year) * 12 + (end_date.month - start_date.month))
+            max_years += months / 12.0
+        if max_years > 0:
+            years = round(max_years, 1)
+            logger.debug("Experience extracted from date ranges: %s", years)
+            return years
     return None
 
 
@@ -1003,6 +1276,12 @@ def extract_resume_information(text: str) -> Dict:
     
     structural_source = normalize_document_structure(text or "")
     raw_sections = segment_resume_sections(structural_source)
+    has_resume_experience_header = bool(
+        re.search(
+            r"(?im)^\s*(?:work experience|professional experience|experience|employment history|employment)\s*$",
+            structural_source,
+        )
+    )
     
     skills_section = _sanitize_skill_section(raw_sections.get("skills", "") or sections.get("skills", ""))
     
@@ -1023,6 +1302,10 @@ def extract_resume_information(text: str) -> Dict:
     else:
         skills = contextual_skills
     
+    primary_name = extract_name(cleaned_text)
+    primary_email = extract_email(cleaned_text)
+    primary_phone = extract_phone(cleaned_text)
+
     experience_result = extract_total_experience(structural_text)
     
     if not experience_result.get("experiences"):
@@ -1033,6 +1316,33 @@ def extract_resume_information(text: str) -> Dict:
     explicit_total_experience = _extract_explicit_total_experience(cleaned_text)
     if total_experience_years is None and explicit_total_experience is not None:
         total_experience_years = explicit_total_experience
+    has_explicit_years_phrase = bool(
+        re.search(r"(?i)\b\d+(?:\.\d+)?\+?\s*(?:years|yrs)(?:\s+of\s+experience|\s+experience)\b", cleaned_text)
+    )
+    has_explicit_experience_section = bool(sections.get("experience", "").strip())
+    if not has_resume_experience_header and explicit_total_experience is None:
+        experience_entries = []
+        total_experience_years = None
+    experience_signal_text = " ".join(
+        filter(
+            None,
+            [
+                sections.get("experience", ""),
+                sections.get("employment", ""),
+                sections.get("summary", ""),
+            ],
+        )
+    )
+    has_experience_signal = bool(
+        re.search(
+            r"(?i)\b(?:experience|employment|worked as|working as|present|current company|current role|years of experience|yrs of experience)\b",
+            experience_signal_text,
+        )
+    )
+    if not experience_entries and explicit_total_experience is None and not has_explicit_years_phrase:
+        total_experience_years = None
+    elif not experience_entries and not has_experience_signal:
+        total_experience_years = None
 
     current_entry = {}
     if experience_entries:
@@ -1054,7 +1364,7 @@ def extract_resume_information(text: str) -> Dict:
                 header_role = m.group("role").strip()
                 break
 
-    location = extract_location(sections.get("header", ""))
+    location = extract_location(sections.get("header", "") or cleaned_text)
     if not location:
         top_window_lines = [line.strip() for line in normalize_document_structure(text or "").splitlines()[:25] if line.strip()]
         for line in top_window_lines[:8]:
@@ -1074,6 +1384,14 @@ def extract_resume_information(text: str) -> Dict:
             ranked = list(dict.fromkeys(entity for entity in gpe_entities if entity and entity.lower() not in INVALID_LOCATION_WORDS))
             if ranked:
                 location = ranked[-1]
+    logger.debug(
+        "Primary contact extraction complete: name=%s email=%s phone=%s location=%s experience=%s",
+        primary_name,
+        primary_email,
+        primary_phone,
+        location,
+        total_experience_years,
+    )
     skills = _finalize_skills(
         skills,
         skills_section or sections.get("experience", "") or sections.get("projects", "") or cleaned_text,
@@ -1088,17 +1406,20 @@ def extract_resume_information(text: str) -> Dict:
             skill: _skill_confidence(skill, skills_section or cleaned_text, bool(skills_section.strip()))
             for skill in skills
         },
-        "name": extract_name(text),
+        "name": primary_name or "",
+        "email": primary_email or "",
+        "phone": primary_phone or "",
         "experience": experience_entries,
         "projects": extract_project_entries(cleaned_text, sections.get("projects", "")),
         "education": extract_education_entries(cleaned_text, sections.get("education", "")),
         "certifications": extract_certification_entries(cleaned_text, sections.get("certifications", "")),
-        "location": location,
+        "location": location or "",
         "current_company": current_entry.get("company"),
         "current_role": current_entry.get("role") or (header_role if not experience_entries else None),
         "designation": current_entry.get("role") or (header_role if not experience_entries else None) or None,
         "experience_years": total_experience_years,
         "total_experience_years": total_experience_years,
+        "total_experience": total_experience_years if total_experience_years is not None else 0.0,
         "experience_level": derive_experience_level(total_experience_years),
         "languages": extract_languages(
             cleaned_text,
@@ -1125,4 +1446,9 @@ def extract_resume_information(text: str) -> Dict:
             "dynamic_context": True,
         },
     }
-    return validate_parsed_fields(result)
+    validated_result = validate_parsed_fields(result)
+    if not has_resume_experience_header and explicit_total_experience is None:
+        validated_result["experience_years"] = None
+        validated_result["total_experience_years"] = None
+        validated_result["total_experience"] = 0.0
+    return validated_result

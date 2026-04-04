@@ -644,6 +644,7 @@ def _extract_inline_header_name(line: str) -> str:
     if not candidate_line:
         return ""
 
+    candidate_line = re.sub(r"(?i)^contact\s+", "", candidate_line).strip()
     candidate_line = INLINE_CONTACT_PATTERN.split(candidate_line, maxsplit=1)[0].strip(" ,|-")
 
     tokens = [token.strip(" ,.-") for token in candidate_line.split() if token.strip(" ,.-")]
@@ -759,6 +760,11 @@ def _extract_name(text: str, original_filename: Optional[str] = None) -> str:
         lowered_line = line.strip().lower()
         if lowered_line in {"contact details", "contact information"}:
             continue
+        contact_match = re.search(r"(?i)\bcontact\s+(?P<name>[A-Z][A-Za-z'`.-]+(?:\s+[A-Z][A-Za-z'`.-]+){1,3})\b", line)
+        if contact_match:
+            contact_name = _normalize_name_candidate(contact_match.group("name"))
+            if contact_name:
+                return contact_name
         if SECTION_START_PATTERN.match(line):
             continue
         label_match = NAME_LABEL_PATTERN.match(line)

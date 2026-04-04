@@ -51,6 +51,22 @@ NON_EXPERIENCE_HEADER_PATTERN = re.compile(
 )
 EXPERIENCE_CONTINUATION_HEADER_PATTERN = re.compile(r"(?i)^(?:previous experience|prior experience|internship|internships?)$")
 CERTIFICATION_ROLE_PATTERN = re.compile(r"(?i)\b(?:certified|certification|certificate|ccna|azure fundamentals|associate - back-end)\b")
+INLINE_ROLE_PATTERN_TEXT = (
+    r"(?:[A-Z][A-Za-z0-9()\/&.-]*\s+){0,6}"
+    r"(?:Engineer|Analyst|Manager|Consultant|Developer|Specialist|Architect|Administrator|Intern|Partner|Teacher|Officer)"
+    r"(?:\s+[A-Z0-9][A-Za-z0-9()\/&.-]*){0,3}"
+)
+INLINE_ROLE_DATE_PATTERN = re.compile(
+    rf"(?P<role>{INLINE_ROLE_PATTERN_TEXT})\s+\|\s+"
+    rf"(?P<start>{DATE_TOKEN_PATTERN})\s*(?:-|â€“|â€”|to|until|through)\s*"
+    rf"(?P<end>{PRESENT_PATTERN}|{DATE_TOKEN_PATTERN})\s+"
+    rf"(?P<rest>.+?)"
+    rf"(?=(?P<next>{INLINE_ROLE_PATTERN_TEXT})\s+\|\s+{DATE_TOKEN_PATTERN}\s*(?:-|â€“|â€”|to|until|through)\s*(?:{PRESENT_PATTERN}|{DATE_TOKEN_PATTERN})|KEY PROJECTS|PROJECTS|AWARDS|COMMUNITY|$)",
+    re.IGNORECASE,
+)
+INLINE_ACTION_SPLIT_PATTERN = re.compile(
+    r"(?i)\b(?:Own|Owned|Monitor(?:ed)?|Led|Developed|Authored|Achieved|Assisted|Completed|Executed|Validated|Troubleshot|Maintained|Mentored|Ensured|Built|Designed|Conducted|Spearheaded|Performed)\b"
+)
 
 
 def _normalize_text(value: str) -> str:
@@ -514,6 +530,21 @@ def _sort_key(entry: Dict[str, Any]) -> Tuple[int, datetime]:
 def _dedupe_entries(entries: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
     deduped: List[Dict[str, Any]] = []
     primary_index: Dict[Tuple[str, str, str], int] = {}
+    role_date_index: Dict[Tuple[str, str, str], int] = {}
+
+    def conflict_score(item: Dict[str, Any]) -> Tuple[int, int, int, int]:
+        raw_text = (item.get("raw_text") or "").lower()
+        company = (item.get("company") or "").lower()
+        company_pos = raw_text.find(company) if company else 99999
+        if company_pos < 0:
+            company_pos = 99999
+        return (
+            1 if item.get("description") else 0,
+            1 if item.get("is_current") else 0,
+            -company_pos,
+            len(company),
+        )
+
     for entry in entries:
         company = (entry.get("company") or "").lower()
         start_date = entry.get("start_date")
@@ -539,6 +570,22 @@ def _dedupe_entries(entries: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
             for existing in deduped
         ):
             continue
+        role_date_key = (
+            (entry.get("role") or "").lower(),
+            start_date,
+            end_date,
+        )
+        if role_date_key in role_date_index:
+            existing = deduped[role_date_index[role_date_key]]
+            if conflict_score(entry) > conflict_score(existing):
+                deduped[role_date_index[role_date_key]] = entry
+                primary_index[(
+                    (existing.get("company") or "").lower(),
+                    existing.get("start_date"),
+                    existing.get("end_date"),
+                )] = role_date_index[role_date_key]
+                primary_index[primary_key] = role_date_index[role_date_key]
+            continue
         if primary_key in primary_index:
             existing = deduped[primary_index[primary_key]]
             if existing.get("role") and not entry.get("role"):
@@ -554,6 +601,7 @@ def _dedupe_entries(entries: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 continue
         deduped.append(entry)
         primary_index[primary_key] = len(deduped) - 1
+        role_date_index[role_date_key] = len(deduped) - 1
     deduped.sort(key=_sort_key, reverse=True)
     return deduped
 
@@ -621,6 +669,51 @@ def _global_experience_blocks(text: str) -> List[List[str]]:
     return blocks
 
 
+def _extract_inline_company_and_description(rest: str) -> Tuple[Optional[str], str]:
+    normalized = _normalize_line(rest)
+    if not normalized:
+        return None, ""
+    action_match = INLINE_ACTION_SPLIT_PATTERN.search(normalized)
+    company_part = normalized[: action_match.start()].strip(" |-,:") if action_match else normalized
+    description = normalized[action_match.start():].strip() if action_match else ""
+    company_part = re.sub(r"\s+-\s+[A-Z][A-Za-z.\s]+(?:,\s*[A-Z][A-Za-z.\s]+)?(?:\s*/\s*Remote)?$", "", company_part).strip(" |-,:")
+    company_part = re.sub(r"\s+/+\s*Remote$", "", company_part).strip(" |-,:")
+    company = _clean_company_name(company_part)
+    return company, description
+
+
+def _extract_inline_experience_entries(text: str, ignore_internships: bool = False) -> List[Dict[str, Any]]:
+    normalized = _normalize_text(text)
+    entries: List[Dict[str, Any]] = []
+    for match in INLINE_ROLE_DATE_PATTERN.finditer(normalized):
+        role = _normalize_line(match.group("role"))
+        start_text = match.group("start")
+        end_text = match.group("end")
+        start_date = parse_date(start_text, is_end=False)
+        end_date = parse_date(end_text, is_end=True)
+        if not start_date or not end_date or end_date < start_date:
+            continue
+        if ignore_internships and re.search(r"(?i)\b(?:intern|internship|trainee|apprentice)\b", role):
+            continue
+        company, description = _extract_inline_company_and_description(match.group("rest"))
+        if not company:
+            continue
+        entries.append(
+            {
+                "role": role,
+                "title": role,
+                "company": company,
+                "start_date": _serialize_year_month(start_date),
+                "end_date": _serialize_year_month(end_date),
+                "duration_years": round(max(0.0, (end_date - start_date).days + 1) / 365.25, 1),
+                "raw_text": _normalize_line(match.group(0))[:1000],
+                "is_current": bool(re.search(PRESENT_PATTERN, end_text, re.IGNORECASE)),
+                "description": description[:600],
+            }
+        )
+    return entries
+
+
 def extract_experience_entries(text: str, ignore_internships: bool = False) -> List[Dict[str, Any]]:
     experience_section = extract_experience_section(text)
     blocks = _split_experience_blocks(experience_section) if experience_section else _fallback_blocks_from_full_text(text)
@@ -637,6 +730,8 @@ def extract_experience_entries(text: str, ignore_internships: bool = False) -> L
             if ignore_internships and re.search(r"(?i)\b(?:intern|internship|trainee|apprentice)\b", internship_source):
                 continue
             entries.append(entry)
+    if len(entries) <= 1:
+        entries.extend(_extract_inline_experience_entries(experience_section or text, ignore_internships=ignore_internships))
     logger.debug("Parsed jobs: %s", entries)
     return _dedupe_entries(entries)
 

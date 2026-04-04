@@ -31,6 +31,7 @@ HEADER_LOCATION_PATTERN = re.compile(
 )
 NAME_LIKE_PATTERN = re.compile(r"^[A-Z][A-Za-z'`.-]+(?:\s+[A-Z][A-Za-z'`.-]+){1,3}$")
 HEADER_NAME_EXCLUDE_TOKENS = {
+    "contact",
     "analyst",
     "architect",
     "assistant",
@@ -244,6 +245,7 @@ def restore_header_line_breaks(text: str) -> str:
         contact_start = _find_contact_start(line)
         if contact_start is not None:
             prefix = line[:contact_start].strip(" ,|-")
+            prefix = re.sub(r"(?i)^contact\s+", "", prefix).strip()
             suffix = line[contact_start:].strip()
             prefix_tokens = [token for token in prefix.split() if token]
             for token_count in range(2, min(5, len(prefix_tokens)) + 1):
