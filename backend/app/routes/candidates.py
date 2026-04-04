@@ -118,6 +118,22 @@ def sanitize_candidate_location(value: Optional[str]) -> Optional[str]:
     return None
 
 
+def sanitize_candidate_email(value: Optional[str]) -> Optional[str]:
+    """Return only a valid compact email string so bad legacy values don't crash API responses."""
+    if not value:
+        return None
+
+    cleaned = re.sub(r"\s+", "", value).strip(".,;:|")
+    if not cleaned:
+        return None
+
+    extracted = extract_email(cleaned)
+    if extracted:
+        return extracted
+
+    return None
+
+
 def resolve_current_company_for_storage(
     work_experience: Optional[List[dict]],
     fallback_company: Optional[str],
@@ -1871,7 +1887,7 @@ def get_candidates(
         candidate_dict = {
             "id": c.id,
             "name": c.name,
-            "email": c.email,
+            "email": sanitize_candidate_email(c.email),
             "phone": c.phone,
             "current_company": c.current_company,
             "current_role": c.current_role,
@@ -1913,7 +1929,7 @@ def get_candidate(
     candidate_dict = {
         "id": candidate.id,
         "name": candidate.name,
-        "email": candidate.email,
+        "email": sanitize_candidate_email(candidate.email),
         "phone": candidate.phone,
         "current_company": candidate.current_company,
         "current_role": candidate.current_role,
