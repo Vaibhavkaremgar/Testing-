@@ -6,6 +6,7 @@ import re
 logger = logging.getLogger(__name__)
 
 URL_PATTERN = re.compile(r"(?:https?://|www\.)\S+", re.IGNORECASE)
+EMAIL_IN_URL_PATTERN = re.compile(r"(?i)[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 BULLET_PREFIX_PATTERN = re.compile(r"(?m)^\s*[\-\*\u2022\u25aa\u25e6\u2043\u2219]+\s*")
 SPECIAL_CHARACTER_PATTERN = re.compile(r"[^\w\s@.,;:/+#&()'\-|\n]")
 CID_ARTIFACT_PATTERN = re.compile(r"\(cid:\d+\)")
@@ -181,7 +182,14 @@ def normalize_common_artifacts(text: str) -> str:
 
 
 def remove_urls(text: str) -> str:
-    return URL_PATTERN.sub(" ", text or "")
+    def replacer(match: re.Match[str]) -> str:
+        value = match.group(0)
+        email_match = EMAIL_IN_URL_PATTERN.search(value)
+        if email_match:
+            return f" {email_match.group(0)} "
+        return " "
+
+    return URL_PATTERN.sub(replacer, text or "")
 
 
 def remove_bullets(text: str) -> str:
