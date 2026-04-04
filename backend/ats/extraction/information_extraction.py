@@ -43,7 +43,7 @@ EXCLUDED_SOFT_SKILLS = {
 }
 INVALID_LOCATION_WORDS = {"job", "objective", "contact", "details", "summary", "profile", "linkedin", "github", "portfolio", "career", "passing"}
 LOCATION_FALSE_POSITIVE_TECH_PATTERN = re.compile(
-    r"(?i)\b(?:python|java|selenium|playwright|robot framework|robot|sql|typescript|react|docker|jenkins|postman|restassured|pytest|fastapi|power bi|tableau)\b"
+    r"(?i)\b(?:python|java|selenium|playwright|robot framework|robot|sql|typescript|react|docker|jenkins|postman|restassured|pytest|fastapi|power bi|tableau|jira|maven)\b"
 )
 KNOWN_LOCATION_SKILLS_BLOCKLIST = {
     "chennai", "hyderabad", "bangalore", "bengaluru", "pune", "mumbai", "delhi", "gurugram", "noida",
@@ -73,6 +73,7 @@ LOCATION_CONNECTOR_TERMS = {
 LOCATION_ROLE_BLOCKLIST = {
     "engineer", "analyst", "developer", "tester", "consultant", "manager", "specialist",
     "architect", "soc", "cybersecurity", "penetration", "software", "data", "business",
+    "intelligence", "visualization",
 }
 
 
@@ -1076,11 +1077,15 @@ def _looks_like_location_fragment(value: str) -> bool:
     if any(part in LOCATION_ROLE_BLOCKLIST for part in lowered_parts):
         return False
     if len(parts) == 1:
-        return bool(re.match(r"^[A-Z][A-Za-z.-]*(?:\s+[A-Z][A-Za-z.-]*){0,2}$", candidate))
-    return any(part in LOCATION_CONNECTOR_TERMS for part in lowered_parts)
+        return lowered in LOCATION_CONNECTOR_TERMS
+    if any(part in LOCATION_CONNECTOR_TERMS for part in lowered_parts):
+        return True
+    return len(parts) <= 3 and all(re.match(r"^[A-Z][A-Za-z.-]*(?:\s+[A-Z][A-Za-z.-]*)*$", part) for part in parts)
 
 
 def _normalize_location_value(value: str) -> str:
+    original_value = value or ""
+    comma_pair = "," in original_value and "|" not in original_value and "/" not in original_value
     parts = [re.sub(r"\s+", " ", part).strip(" ,.|/:-") for part in LOCATION_SPLIT_PATTERN.split(value or "") if part.strip()]
     deduped: List[str] = []
     seen = set()
@@ -1089,7 +1094,9 @@ def _normalize_location_value(value: str) -> str:
         if len(words) > 2:
             part = " ".join(words[-2:])
             words = part.split()
-        if index == 0 and len(words) == 2 and words[0].lower() not in LOCATION_CONNECTOR_TERMS and words[1].lower() in LOCATION_CONNECTOR_TERMS:
+        if comma_pair:
+            pass
+        elif index == 0 and len(words) == 2 and words[0].lower() not in LOCATION_CONNECTOR_TERMS and words[1].lower() in LOCATION_CONNECTOR_TERMS:
             part = words[1]
         elif index == 0 and len(words) == 2 and words[0].lower() not in LOCATION_CONNECTOR_TERMS:
             part = words[-1]
@@ -1103,12 +1110,25 @@ def _normalize_location_value(value: str) -> str:
     return ", ".join(deduped[:3])
 
 
+def _trim_location_segment(value: str) -> str:
+    words = [word for word in re.sub(r"\s+", " ", (value or "").strip()).split() if word]
+    while len(words) > 2 and words[0].lower() not in LOCATION_CONNECTOR_TERMS:
+        words = words[1:]
+    if len(words) == 2 and words[0].lower() in LOCATION_ROLE_BLOCKLIST:
+        words = words[1:]
+    return " ".join(words)
+
+
 def extract_location(text: str) -> str:
     if not text:
         return ""
 
     cleaned_text = clean_text_pipeline(text)
     lines = [line.strip() for line in cleaned_text.splitlines() if line.strip()]
+    comma_location_pattern = re.compile(
+        r"(?P<left>[A-Z][A-Za-z.-]+(?:\s+[A-Z][A-Za-z.-]+){0,3})\s*,\s*"
+        r"(?P<right>[A-Z][A-Za-z.-]+(?:\s+[A-Z][A-Za-z.-]+){0,2})"
+    )
     location_patterns = (
         re.compile(r"\b(?:location|address|based in|city)\b\s*[:\-]?\s*(?P<value>[A-Za-z][A-Za-z\s,|/-]{2,80})", re.IGNORECASE),
         re.compile(r"(?P<value>[A-Z][A-Za-z.-]+(?:\s+[A-Z][A-Za-z.-]+)?\s*,\s*[A-Z][A-Za-z.-]+(?:\s+[A-Z][A-Za-z.-]+)?)"),
@@ -1117,6 +1137,13 @@ def extract_location(text: str) -> str:
     )
 
     for line in lines[:12]:
+        for match in comma_location_pattern.finditer(line):
+            left = _trim_location_segment(match.group("left"))
+            right = re.sub(r"\s+", " ", match.group("right").strip())
+            candidate = f"{left}, {right}".strip(" ,")
+            if _looks_like_location_fragment(candidate):
+                logger.debug("Location extracted from comma header pattern: %s", candidate)
+                return candidate
         for pattern in location_patterns:
             for match in pattern.finditer(line):
                 candidate = _normalize_location_value(match.group("value"))
@@ -1233,35 +1260,6 @@ def _extract_explicit_total_experience(text: str) -> float | None:
         years = round(float(year_match.group("years")), 1)
         logger.debug("Experience extracted from years regex: %s", years)
         return years
-    has_date_range_context = bool(
-        re.search(
-            r"(?im)^\s*(?:work experience|professional experience|experience|employment history|employment)\s*$",
-            text,
-        )
-        or re.search(r"(?i)\b(?:present|current role|current company|worked as|working as)\b", text)
-    )
-    date_ranges = list(DATE_RANGE_REGEX.finditer(text))
-    if date_ranges and has_date_range_context:
-        max_years = 0.0
-        for match in date_ranges:
-            start_raw = match.group("start")
-            end_raw = match.group("end")
-            if not start_raw or not end_raw:
-                continue
-            try:
-                start_date = date_parser.parse(start_raw, default=date_parser.parse("2000-01-01"))
-                if re.search(r"(?i)present|current|now", end_raw):
-                    end_date = date_parser.parse("today")
-                else:
-                    end_date = date_parser.parse(end_raw, default=date_parser.parse("2000-01-01"))
-            except Exception:
-                continue
-            months = max(0, (end_date.year - start_date.year) * 12 + (end_date.month - start_date.month))
-            max_years += months / 12.0
-        if max_years > 0:
-            years = round(max_years, 1)
-            logger.debug("Experience extracted from date ranges: %s", years)
-            return years
     return None
 
 
@@ -1320,9 +1318,6 @@ def extract_resume_information(text: str) -> Dict:
         re.search(r"(?i)\b\d+(?:\.\d+)?\+?\s*(?:years|yrs)(?:\s+of\s+experience|\s+experience)\b", cleaned_text)
     )
     has_explicit_experience_section = bool(sections.get("experience", "").strip())
-    if not has_resume_experience_header and explicit_total_experience is None:
-        experience_entries = []
-        total_experience_years = None
     experience_signal_text = " ".join(
         filter(
             None,
@@ -1346,6 +1341,13 @@ def extract_resume_information(text: str) -> Dict:
 
     current_entry = {}
     if experience_entries:
+        if (
+            explicit_total_experience is not None
+            and len(experience_entries) >= 2
+            and total_experience_years is not None
+            and total_experience_years - explicit_total_experience >= 0.75
+        ):
+            total_experience_years = explicit_total_experience
         experience_entries_sorted = sorted(
             experience_entries,
             key=lambda x: x.get("end_date") or "Present",
@@ -1447,7 +1449,7 @@ def extract_resume_information(text: str) -> Dict:
         },
     }
     validated_result = validate_parsed_fields(result)
-    if not has_resume_experience_header and explicit_total_experience is None:
+    if not has_resume_experience_header and explicit_total_experience is None and not validated_result.get("experience"):
         validated_result["experience_years"] = None
         validated_result["total_experience_years"] = None
         validated_result["total_experience"] = 0.0

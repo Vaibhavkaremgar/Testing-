@@ -637,7 +637,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
                         variant="secondary"
                         onClick={toggleVideoPlayback}
                       >
-                        <Play className="mr-2 h-4 w-4" />
+                        <Play className="mr-2 h-4 w-4" />  
                         {isVideoPlaying ? 'Pause' : 'Play'}
                       </Button>
                       <span className="w-12 text-sm tabular-nums text-muted-foreground">

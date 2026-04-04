@@ -3,6 +3,11 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, Iterable, List
 
+try:
+    import layoutparser as lp  # type: ignore
+except ImportError:  # pragma: no cover - optional dependency
+    lp = None
+
 
 TABLE_DELIMITER_PATTERN = re.compile(r"\s{2,}|\t+|\s+\|\s+")
 LANDSCAPE_RATIO_THRESHOLD = 1.15
@@ -124,6 +129,7 @@ def infer_layout_signals(
         "is_vertical": is_vertical,
         "is_horizontal": is_horizontal,
         "is_table_based": is_table_based,
+        "layoutparser_available": lp is not None,
         "page_count": page_count,
         "multi_column_pages": multi_column_pages,
         "landscape_pages": landscape_pages,
@@ -142,4 +148,10 @@ def infer_layout_signals(
             )
             if enabled
         ],
+    }
+
+
+def get_layout_runtime_status() -> Dict[str, bool]:
+    return {
+        "layoutparser_available": lp is not None,
     }

@@ -31,7 +31,12 @@ class BenchmarkCase:
 
 
 def _normalize_string(value: Any) -> str:
-    return " ".join(str(value or "").strip().split()).lower()
+    normalized = " ".join(str(value or "").strip().split()).lower()
+    normalized = normalized.rstrip(".,;:")
+    normalized = normalized.replace(" pvt ltd.", " pvt ltd")
+    normalized = normalized.replace(" corp.", " corp")
+    normalized = normalized.replace(" ltd.", " ltd")
+    return normalized
 
 
 def _normalize_skill_list(values: Any) -> List[str]:
@@ -152,6 +157,11 @@ class ResumeParsingBenchmark:
             }
             for field, values in exact_field_results.items()
         }
+        exact_accuracy_values = [
+            metric["accuracy"]
+            for metric in exact_metrics.values()
+            if metric["accuracy"] is not None
+        ]
         avg_precision = mean(skill_precisions) if skill_precisions else None
         avg_recall = mean(skill_recalls) if skill_recalls else None
         avg_f1 = (
@@ -159,16 +169,27 @@ class ResumeParsingBenchmark:
             if avg_precision is not None and avg_recall is not None and (avg_precision + avg_recall) > 0
             else None
         )
+        experience_within_half_year = (
+            sum(error <= 0.5 for error in experience_errors) / len(experience_errors)
+            if experience_errors else None
+        )
+        aggregate_components = [value for value in exact_accuracy_values if value is not None]
+        if avg_f1 is not None:
+            aggregate_components.append(avg_f1)
+        if experience_within_half_year is not None:
+            aggregate_components.append(experience_within_half_year)
+        overall_accuracy = round(mean(aggregate_components), 3) if aggregate_components else None
 
         return {
             "dataset_path": str(self.dataset_path),
             "total_cases": len(self.cases),
             "exact_match_metrics": exact_metrics,
+            "overall_accuracy": overall_accuracy,
             "experience_metrics": {
                 "cases": len(experience_errors),
                 "mean_absolute_error_years": round(mean(experience_errors), 3) if experience_errors else None,
-                "within_half_year_rate": round(sum(error <= 0.5 for error in experience_errors) / len(experience_errors), 3)
-                if experience_errors else None,
+                "within_half_year_rate": round(experience_within_half_year, 3)
+                if experience_within_half_year is not None else None,
             },
             "skills_metrics": {
                 "cases": len(skill_precisions),

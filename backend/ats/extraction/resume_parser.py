@@ -19,6 +19,11 @@ except ImportError:  # pragma: no cover - optional dependency
     fitz = None
 
 try:
+    from tika import parser as tika_parser
+except ImportError:  # pragma: no cover - optional dependency
+    tika_parser = None
+
+try:
     import pytesseract
 except ImportError:  # pragma: no cover - optional dependency
     pytesseract = None
@@ -27,7 +32,7 @@ from ats.datasets.parser_config_loader import ParserConfigLoader
 from ats.extraction.experience_extraction import compute_total_experience, parse_date
 from ats.extraction.information_extraction import extract_email as extract_normalized_email
 from ats.extraction.information_extraction import extract_resume_information
-from ats.extraction.layout_detection import infer_layout_signals
+from ats.extraction.layout_detection import get_layout_runtime_status, infer_layout_signals
 from ats.extraction.validation import validate_parsed_fields
 from ats.preprocessing.section_segmentation import segment_resume_sections
 from ats.preprocessing.text_cleaning import clean_text_pipeline, normalize_common_artifacts, normalize_document_structure, split_inline_section_headers
@@ -87,7 +92,7 @@ BROKEN_MONTH_PATTERN = re.compile(
     r"(?i)\b(?:j\s+anuary|f\s+ebruary|m\s+arch|a\s+pril|m\s+ay|j\s+une|j\s+uly|s\s+eptember|o\s+ctober|n\s+ovember|d\s+ecember)\b"
 )
 SPLIT_EMAIL_ARTIFACT_PATTERN = re.compile(r"(?i)\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\s+[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
-PDF_PARSER_PREFERENCE = {"pymupdf": 3, "pdfplumber": 2, "pypdf": 1}
+PDF_PARSER_PREFERENCE = {"pymupdf": 4, "pdfplumber": 3, "pypdf": 2, "tika": 1}
 
 _parser_config_loader = ParserConfigLoader()
 _parser_vocabulary = _parser_config_loader.load_parser_vocabulary()
@@ -320,6 +325,19 @@ def _extract_pdf_text_with_pypdf(file_path: str) -> Tuple[List[str], List[Dict[s
     return [], []
 
 
+def _extract_pdf_text_with_tika(file_path: str) -> Tuple[List[str], List[Dict[str, Any]]]:
+    if tika_parser is None:
+        return [], []
+    try:
+        parsed = tika_parser.from_file(file_path) or {}
+        content = str(parsed.get("content") or "").strip()
+        if content:
+            return [content], []
+    except Exception as exc:
+        logger.warning("Tika extraction failed for %s: %s", file_path, exc)
+    return [], []
+
+
 def _configure_tesseract() -> bool:
     if pytesseract is None:
         return False
@@ -393,7 +411,7 @@ def _select_best_pdf_text(
     scores: Dict[str, float] = {}
     best_layout: Dict[str, Any] = {}
 
-    for parser_name in ("pymupdf", "pdfplumber", "pypdf"):
+    for parser_name in ("pymupdf", "pdfplumber", "pypdf", "tika"):
         parser_payload = parser_outputs.get(parser_name) or {}
         text_parts = parser_payload.get("text_parts") or []
         score = _score_text_quality(text_parts)
@@ -427,7 +445,7 @@ def _select_best_pdf_text(
     if best_parts:
         return best_parts, best_name, scores, best_layout
 
-    for parser_name in ("pymupdf", "pdfplumber", "pypdf"):
+    for parser_name in ("pymupdf", "pdfplumber", "pypdf", "tika"):
         parser_payload = parser_outputs.get(parser_name) or {}
         text_parts = parser_payload.get("text_parts") or []
         if text_parts:
@@ -514,12 +532,15 @@ def _default_layout_signals() -> Dict[str, Any]:
 
 
 def get_parser_runtime_status() -> Dict[str, Any]:
+    layout_runtime = get_layout_runtime_status()
     return {
         "pymupdf_available": fitz is not None,
         "pdfplumber_available": True,
         "pypdf_available": True,
+        "tika_available": tika_parser is not None,
         "pytesseract_available": pytesseract is not None,
         "ocr_ready": _is_ocr_ready(),
+        **layout_runtime,
     }
 
 
@@ -543,6 +564,7 @@ def extract_document(file_path: str) -> Dict[str, Any]:
                     "pymupdf": _extract_pdf_text_with_pymupdf(file_path),
                     "pdfplumber": _extract_pdf_text_with_pdfplumber(file_path),
                     "pypdf": _extract_pdf_text_with_pypdf(file_path),
+                    "tika": _extract_pdf_text_with_tika(file_path),
                 }.items()
             }
             text_parts, selected_parser, parser_scores, selected_layout = _select_best_pdf_text(parser_outputs)
