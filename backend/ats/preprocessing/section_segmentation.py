@@ -43,6 +43,7 @@ HEADER_NORMALIZATION_MAP = {
     "employment details": "experience",
     "professional background": "experience",
     "career journey": "experience",
+    "period": "experience",
     "technical expertise": "skills",
     "skill set": "skills",
     "tools and technologies": "skills",
@@ -76,12 +77,14 @@ INLINE_HEADER_PATTERN = re.compile(r"^(?P<header>[^:]{1,60}?):\s*(?P<content>.+)
 DATE_RANGE_PATTERN = re.compile(
     r"(?i)\b(?:"
     r"(?:jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)[.\-/\s]+\d{2,4}"
+    r"|\d{1,2}[/-]\d{1,2}[/-]\d{2,4}"
     r"|\d{1,2}[/-]\d{2,4}"
     r"|\d{4}[/-]\d{1,2}"
     r"|\d{1,2}\.\d{2,4}"
     r"|\d{4}"
     r")\s*(?:-|to|until)\s*(?:present|current|now|"
     r"(?:jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)[.\-/\s]+\d{2,4}"
+    r"|\d{1,2}[/-]\d{1,2}[/-]\d{2,4}"
     r"|\d{1,2}[/-]\d{2,4}"
     r"|\d{4}[/-]\d{1,2}"
     r"|\d{1,2}\.\d{2,4}"

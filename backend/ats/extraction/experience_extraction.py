@@ -17,6 +17,7 @@ MONTH_PATTERN = r"(?:jan|january|feb|february|mar|march|apr|april|may|jun|june|j
 PRESENT_PATTERN = r"(?:present|current|now|today|till date|till now)"
 DATE_TOKEN_PATTERN = (
     rf"(?:{MONTH_PATTERN}[.\-/\s,']+\d{{2,4}}"
+    rf"|\d{{1,2}}[/-]\d{{1,2}}[/-]\d{{2,4}}"
     rf"|\d{{1,2}}[/-]\d{{2,4}}"
     rf"|\d{{4}}[/-]\d{{1,2}}"
     rf"|\d{{1,2}}\.\d{{2,4}}"
@@ -59,12 +60,15 @@ SKILL_LIKE_PATTERN = re.compile(
 COMPANY_STOPWORD_PATTERN = re.compile(r"(?i)\b(?:strategy|analytics|marketing|platform|pipeline|roadmap|adoption|enterprise)\b")
 BULLET_PREFIX_PATTERN = re.compile(r"^\s*[\u2022\u25aa\u25e6\u25cf\u00b7\-\*]+\s*")
 SECTION_BREAK_PATTERN = re.compile(r"(?i)^(?:education|projects?|skills|technical skills|certifications?|summary|profile|languages?)$")
-EXPERIENCE_HEADER_PATTERN = re.compile(r"(?i)^(?:work experience|professional experience|employment history|employment|career history|experience)$")
+EXPERIENCE_HEADER_PATTERN = re.compile(r"(?i)^(?:work experience|professional experience|employment history|employment|career history|experience|period)$")
 NON_EXPERIENCE_HEADER_PATTERN = re.compile(
     r"(?i)^(?:certifications?|soft skills?|technical skills|skills|education|projects?|languages?|profile summary|summary|job objective|objective|contact details|areas of expertise)$"
 )
 EXPERIENCE_CONTINUATION_HEADER_PATTERN = re.compile(r"(?i)^(?:previous experience|prior experience|internship|internships?)$")
 CERTIFICATION_ROLE_PATTERN = re.compile(r"(?i)\b(?:certified|certification|certificate|ccna|azure fundamentals|associate - back-end)\b")
+ORGANIZATION_LINE_PATTERN = re.compile(r"(?i)^organization\s*:\s*(?P<value>.+)$")
+DESIGNATION_LINE_PATTERN = re.compile(r"(?i)^designation\s*:\s*(?P<value>.+)$")
+PERIOD_LINE_PATTERN = re.compile(r"(?i)^(?:period\s*:?\s*)?(?P<value>.+)$")
 INLINE_ROLE_PATTERN_TEXT = (
     r"(?:[A-Z][A-Za-z0-9()\/&.-]*\s+){0,6}"
     r"(?:Engineer|Analyst|Manager|Consultant|Developer|Specialist|Architect|Administrator|Intern|Partner|Teacher|Officer)"
@@ -106,6 +110,9 @@ LEADING_ROLE_PATTERN = re.compile(
 def _normalize_text(value: str) -> str:
     normalized = (value or "").replace("\r\n", "\n").replace("\r", "\n")
     replacements = {
+        "\u2010": "-",
+        "\u2011": "-",
+        "\u2012": "-",
         "\u2013": "-",
         "\u2014": "-",
         "\u2015": "-",
@@ -192,6 +199,16 @@ def _parse_date_token(token: str, is_end: bool = False, today: Optional[datetime
     if not raw:
         return None
     raw = re.sub(r"(?<=\d)'(?=\d{2}\b)", "", raw)
+    compact_numeric_date = re.fullmatch(r"(?P<day>\d{1,2})[\s/-](?P<month>\d{1,2})[\s/-](?P<year>\d{4})", raw)
+    if compact_numeric_date:
+        month_int = int(compact_numeric_date.group("month"))
+        year_int = int(compact_numeric_date.group("year"))
+        if 1 <= month_int <= 12:
+            if is_end:
+                if month_int == 12:
+                    return datetime(year_int, 12, 31)
+                return datetime(year_int, month_int + 1, 1) - timedelta(days=1)
+            return datetime(year_int, month_int, 1)
     raw = re.sub(r"\b(?P<year>\d{4})[/-](?P<month>\d{1,2})\b", r"\g<month>/\g<year>", raw)
     raw = re.sub(r"\b(?P<month>\d{1,2})\.(?P<year>\d{2,4})\b", r"\g<month>/\g<year>", raw)
     raw = re.sub(rf"\b({MONTH_PATTERN})[-/](\d{{2,4}})\b", r"\1 \2", raw, flags=re.IGNORECASE)
@@ -285,6 +302,8 @@ def _split_experience_blocks(section_text: str) -> List[List[str]]:
         if SECTION_BREAK_PATTERN.match(line):
             flush()
             break
+        if current and seen_date and ORGANIZATION_LINE_PATTERN.match(line):
+            flush()
 
         line_has_date = bool(extract_date_ranges(line))
         next_nonempty = ""
@@ -345,7 +364,7 @@ def _extract_company_from_heading_line(line: str, role: Optional[str] = None) ->
     if not candidate:
         return None
     candidate = re.sub(
-        r"(?i)^(?:work experience|professional experience|employment history|employment|career history|experience)\s+",
+        r"(?i)^(?:work experience|professional experience|employment history|employment|career history|experience|period)\s+",
         "",
         candidate,
     ).strip(" |-,:")
@@ -411,6 +430,13 @@ def _candidate_lines_near_date(block_lines: Sequence[str]) -> List[str]:
 
 
 def _extract_company_candidate(block_lines: Sequence[str]) -> Optional[str]:
+    for line in block_lines[:4]:
+        organization_match = ORGANIZATION_LINE_PATTERN.match(_normalize_line(line))
+        if organization_match:
+            company = _clean_company_name(organization_match.group("value"))
+            if company:
+                return company
+
     headline_lines = [_remove_date_range_text(line) for line in block_lines[:3]]
     headline_lines = [line for line in headline_lines if line]
     role_hint = None
@@ -462,6 +488,13 @@ def _extract_company_candidate(block_lines: Sequence[str]) -> Optional[str]:
 
 
 def _extract_role_candidate(block_lines: Sequence[str], company: Optional[str]) -> Optional[str]:
+    for line in block_lines[:4]:
+        designation_match = DESIGNATION_LINE_PATTERN.match(_normalize_line(line))
+        if designation_match:
+            candidate = _normalize_line(designation_match.group("value"))
+            if candidate and not _is_skill_like(candidate):
+                return candidate
+
     context_lines = _candidate_lines_near_date(block_lines)
     for line in context_lines:
         normalized = _normalize_line(line.replace("?", "|"))
@@ -554,6 +587,85 @@ def _entry_from_block(block_lines: Sequence[str]) -> Optional[Dict[str, Any]]:
         "is_current": bool(re.search(PRESENT_PATTERN, date_range["end"], re.IGNORECASE)),
         "description": description,
     }
+
+
+def _extract_structured_experience_entries(text: str, ignore_internships: bool = False) -> List[Dict[str, Any]]:
+    lines = [_normalize_line(line) for line in _normalize_text(text).split("\n") if _normalize_line(line)]
+    entries: List[Dict[str, Any]] = []
+    current_block: Dict[str, Any] = {}
+
+    def flush() -> None:
+        nonlocal current_block
+        if not current_block:
+            return
+        period_value = str(current_block.get("period") or "").strip()
+        if not period_value:
+            current_block = {}
+            return
+        range_match = DATE_RANGE_REGEX.search(period_value)
+        if not range_match:
+            current_block = {}
+            return
+        start_date = parse_date(range_match.group("start"), is_end=False)
+        end_date = parse_date(range_match.group("end"), is_end=True)
+        if not start_date or not end_date or end_date < start_date:
+            current_block = {}
+            return
+        role = _normalize_line(str(current_block.get("designation") or ""))
+        company = _clean_company_name(str(current_block.get("organization") or ""))
+        internship_source = " ".join(filter(None, [role, company]))
+        if ignore_internships and re.search(r"(?i)\b(?:intern|internship|trainee|apprentice)\b", internship_source):
+            current_block = {}
+            return
+        if not role and not company:
+            current_block = {}
+            return
+        details = " ".join(str(item) for item in current_block.get("details") or [])
+        entries.append(
+            {
+                "role": role or None,
+                "title": role or None,
+                "company": company,
+                "start_date": _serialize_year_month(start_date),
+                "end_date": _serialize_year_month(end_date),
+                "duration_years": round(max(0.0, (end_date - start_date).days + 1) / 365.25, 1),
+                "raw_text": "\n".join(str(item) for item in current_block.get("raw_lines") or [])[:1000],
+                "is_current": bool(re.search(PRESENT_PATTERN, range_match.group("end"), re.IGNORECASE)),
+                "description": details[:600],
+            }
+        )
+        current_block = {}
+
+    for line in lines:
+        organization_match = ORGANIZATION_LINE_PATTERN.match(line)
+        if organization_match:
+            flush()
+            current_block = {
+                "organization": organization_match.group("value"),
+                "details": [],
+                "raw_lines": [line],
+            }
+            continue
+        if not current_block:
+            continue
+        current_block.setdefault("raw_lines", []).append(line)
+        designation_match = DESIGNATION_LINE_PATTERN.match(line)
+        if designation_match:
+            current_block["designation"] = designation_match.group("value")
+            continue
+        normalized_line = line
+        if normalized_line.lower() == "period":
+            continue
+        period_match = PERIOD_LINE_PATTERN.match(normalized_line.lstrip(": ").strip())
+        if period_match and DATE_RANGE_REGEX.search(period_match.group("value")) and not current_block.get("period"):
+            current_block["period"] = period_match.group("value")
+            continue
+        if NON_EXPERIENCE_HEADER_PATTERN.match(normalized_line) or EXPERIENCE_CONTINUATION_HEADER_PATTERN.match(normalized_line):
+            flush()
+            continue
+        current_block.setdefault("details", []).append(normalized_line)
+    flush()
+    return entries
 
 
 def merge_overlapping_ranges(ranges: Sequence[Tuple[datetime, datetime]]) -> List[Tuple[datetime, datetime]]:
@@ -774,9 +886,10 @@ def _extract_inline_experience_entries(text: str, ignore_internships: bool = Fal
 
 def extract_experience_entries(text: str, ignore_internships: bool = False) -> List[Dict[str, Any]]:
     experience_section = extract_experience_section(text)
+    structured_entries = _extract_structured_experience_entries(text, ignore_internships=ignore_internships)
     blocks = _split_experience_blocks(experience_section) if experience_section else _fallback_blocks_from_full_text(text)
     blocks.extend(_global_experience_blocks(text))
-    entries = []
+    entries = list(structured_entries)
     for block in blocks:
         for candidate_block in _split_block_on_multiple_date_ranges(block):
             entry = _entry_from_block(candidate_block)

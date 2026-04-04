@@ -73,7 +73,7 @@ INLINE_CONTACT_PATTERN = re.compile(
 )
 NAME_LABEL_PATTERN = re.compile(r"(?i)^\s*name\s*[:\-]\s*(?P<value>.+)$")
 SECTION_START_PATTERN = re.compile(
-    r"(?i)^(?:work experience|professional experience|employment history|employment|career history|experience|"
+    r"(?i)^(?:work experience|professional experience|employment history|employment|career history|experience|period|"
     r"skills|technical skills|core skills|key skills|education|projects?|summary|profile|languages?|"
     r"certifications?|achievements?|awards?|publications?|references?|professional snapshot|snapshot|overview)$"
 )

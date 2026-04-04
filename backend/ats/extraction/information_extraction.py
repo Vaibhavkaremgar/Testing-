@@ -220,7 +220,7 @@ LOCATION_OR_PATTERN = re.compile(
     r"(?i)\bor\s+(?P<value>[A-Z][A-Za-z.-]+(?:\s+[A-Z][A-Za-z.-]+){0,2})\b"
 )
 PERSONAL_DETAILS_HEADER_PATTERN = re.compile(
-    r"(?i)^\s*(?:personal details?|personal information|contact details?|contact information|address details?)\s*[:\-]*\s*$"
+    r"(?i)^\s*(?:personal details?|personal information|personal profile|contact details?|contact information|address details?)\s*[:\-]*\s*$"
 )
 LOCATION_LINE_LABEL_PATTERN = re.compile(
     r"(?i)\b(?:location|current location|present location|address|place|city|residence)\b\s*[:\-]?\s*(?P<value>.+)$"
@@ -267,6 +267,13 @@ NON_LOCATION_CONTEXT_TERMS = {
     "qualification",
     "qualifications",
     "academic",
+    "power",
+    "apps",
+    "automate",
+    "dataverse",
+    "sharepoint",
+    "technology",
+    "technologies",
 }
 LANGUAGE_LINE_PATTERN = re.compile(r"(?i)^\s*languages?\s*[:\-]?\s*(?P<value>.+)$")
 EMAIL_PATTERN = re.compile(r"\b[A-Za-z0-9._%+-]+\s*@\s*[A-Za-z0-9.-]+\s*\.\s*[A-Za-z]{2,}\b")
@@ -316,7 +323,7 @@ ROLE_TITLE_LINE_PATTERN = re.compile(
     r"(?:engineer|developer|tester|analyst|consultant|manager|intern)(?:\s+[A-Za-z]+){0,3}$"
 )
 SKILL_SECTION_BREAK_PATTERN = re.compile(
-    r"(?i)^(?:profile(?: summary)?|professional summary|summary|work experience|experience|employment|"
+    r"(?i)^(?:profile(?: summary)?|professional summary|summary|work experience|experience|period|employment|"
     r"projects?|education|certifications?|achievements?|awards?|languages?|references?|internship|job objective|objective)$"
 )
 SOFT_SKILLS_HEADER_PATTERN = re.compile(r"(?i)^soft skills?$")
@@ -1240,6 +1247,21 @@ def _pick_primary_location(value: str) -> str:
     if not normalized:
         normalized = raw_value
 
+    if any(char.isdigit() for char in raw_value):
+        parts = [
+            re.sub(r"\s+", " ", part).strip(" ,.|/:-")
+            for part in re.split(r"[\n,]+", raw_value)
+            if re.sub(r"\s+", " ", part).strip(" ,.|/:-")
+        ]
+        for part in reversed(parts):
+            if any(char.isdigit() for char in part):
+                continue
+            if _contains_non_location_context(part):
+                continue
+            words = part.split()
+            if _looks_like_location_fragment(part) or (1 <= len(words) <= 3 and all(word[:1].isalpha() for word in words)):
+                return _canonicalize_location_token(part)
+
     for token in sorted(LOCATION_TAIL_TOKENS | set(LOCATION_CANONICAL_OVERRIDES.keys()), key=len, reverse=True):
         match = re.search(rf"(?i)\b{re.escape(token)}\b", raw_value)
         if not match:
@@ -1272,9 +1294,13 @@ def _extract_personal_detail_lines(lines: List[str], window: int = 20) -> List[s
 
     captured: List[str] = []
     for index, line in enumerate(lines[:80]):
-        if not PERSONAL_DETAILS_HEADER_PATTERN.match(line):
+        combined_header = f"{line} {lines[index + 1]}" if index + 1 < len(lines) else line
+        header_line_count = 1
+        if PERSONAL_DETAILS_HEADER_PATTERN.match(combined_header):
+            header_line_count = 2
+        elif not PERSONAL_DETAILS_HEADER_PATTERN.match(line):
             continue
-        for candidate in lines[index + 1:index + 1 + window]:
+        for candidate in lines[index + header_line_count:index + header_line_count + window]:
             if PERSONAL_DETAILS_HEADER_PATTERN.match(candidate):
                 break
             if re.match(
@@ -1307,7 +1333,7 @@ def extract_location(text: str) -> str:
     lines = [line.strip() for line in cleaned_text.splitlines() if line.strip()]
     personal_detail_lines = _extract_personal_detail_lines(lines)
     prioritized_lines = personal_detail_lines + lines[:25]
-    labeled_search_lines = personal_detail_lines + lines[:80]
+    labeled_search_lines = personal_detail_lines + lines[:120]
     comma_location_pattern = re.compile(
         r"(?P<left>[A-Z][A-Za-z.-]+(?:\s+[A-Z][A-Za-z.-]+){0,3})\s*,\s*"
         r"(?P<right>[A-Z][A-Za-z.-]+(?:\s+[A-Z][A-Za-z.-]+){0,2})"
@@ -1341,6 +1367,8 @@ def extract_location(text: str) -> str:
 
     for line in prioritized_lines[:25]:
         if re.match(r"(?i)^(?:languages?|known|nationality)\b", line):
+            continue
+        if re.search(r"(?i)\b(?:technology|project|responsibilit|power apps|power automate|dataverse|sharepoint)\b", line):
             continue
         for match in comma_location_pattern.finditer(line):
             left = _trim_location_segment(match.group("left"))
@@ -1486,7 +1514,7 @@ def extract_resume_information(text: str) -> Dict:
     raw_sections = segment_resume_sections(structural_source)
     has_resume_experience_header = bool(
         re.search(
-            r"(?im)^\s*(?:work experience|professional experience|experience|employment history|employment)\s*$",
+            r"(?im)^\s*(?:work experience|professional experience|experience|period|employment history|employment)\s*$",
             structural_source,
         )
     )
@@ -1522,6 +1550,9 @@ def extract_resume_information(text: str) -> Dict:
     experience_entries = experience_result.get("experiences", [])
     total_experience_years = experience_result.get("total_experience_years")
     explicit_total_experience = _extract_explicit_total_experience(cleaned_text)
+    explicit_total_experience_has_plus = bool(
+        re.search(r"(?i)\b\d+(?:\.\d+)?\+\s*(?:years|yrs)\b", cleaned_text)
+    )
     if total_experience_years is None and explicit_total_experience is not None:
         total_experience_years = explicit_total_experience
     has_explicit_years_phrase = bool(
@@ -1553,6 +1584,7 @@ def extract_resume_information(text: str) -> Dict:
     if experience_entries:
         if (
             explicit_total_experience is not None
+            and not explicit_total_experience_has_plus
             and len(experience_entries) >= 2
             and total_experience_years is not None
             and total_experience_years - explicit_total_experience >= 0.75
@@ -1582,7 +1614,7 @@ def extract_resume_information(text: str) -> Dict:
         top_window_lines = [line.strip() for line in normalize_document_structure(text or "").splitlines()[:25] if line.strip()]
         header_only_lines: List[str] = []
         for line in top_window_lines[:8]:
-            if re.match(r"(?i)^(?:professional summary|summary|profile summary|skills|technical skills|experience|work experience|education|projects|certifications?)$", line.strip()):
+            if re.match(r"(?i)^(?:professional summary|summary|profile summary|skills|technical skills|experience|work experience|period|education|projects|certifications?)$", line.strip()):
                 break
             header_only_lines.append(line)
             location = extract_location(line)

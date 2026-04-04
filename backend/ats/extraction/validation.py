@@ -7,7 +7,7 @@ from ats.datasets.parser_config_loader import ParserConfigLoader
 
 BULLET_PREFIX_PATTERN = re.compile(r"^\s*[â€¢â–ªâ—¦â—Â·\-\*]+\s*")
 FALLBACK_COMPANY_PATTERN = re.compile(r"^[A-Z][A-Za-z0-9&.,' -]+(?:\s+[A-Z][A-Za-z0-9&.,' -]+)+$")
-SINGLE_TOKEN_COMPANY_PATTERN = re.compile(r"^[A-Z][A-Z0-9&.'-]{3,}$")
+SINGLE_TOKEN_COMPANY_PATTERN = re.compile(r"^[A-Z][A-Z0-9&.'-]{2,}$")
 SENTENCE_NOISE_PATTERN = re.compile(
     r"(?i)\b(?:act as|partnering|support a workforce|recognized for|responsible for|worked on|served as|designed|built|led|owned|managed|created|developed|implemented|using)\b"
 )

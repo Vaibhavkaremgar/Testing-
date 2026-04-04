@@ -78,20 +78,20 @@ HEADER_NAME_EXCLUDE_TOKENS = {
     "tutor",
 }
 HEADER_PATTERN = re.compile(
-    r"(?i)^(?:work experience|professional experience|employment history|employment|experience|skills|technical skills|education|projects?|summary|profile|languages?)$"
+    r"(?i)^(?:work experience|professional experience|employment history|employment|experience|period|skills|technical skills|education|projects?|summary|profile|languages?)$"
 )
 WHITESPACE_PATTERN = re.compile(r"[ \t]+")
 INLINE_SECTION_HEADER_PATTERN = re.compile(
     r"(?i)(?<!\n)(?:\s{2,}|\s)(?P<header>"
     r"career profile|professional summary|profile summary|profile|summary|objective|"
-    r"work experience|professional experience|employment history|"
+    r"work experience|professional experience|employment history|period|"
     r"technical skills|core skills|skills|education|"
     r"achievements?\s*&\s*recognition|awards?\s*&\s*recognition)\b"
 )
 LINE_PREFIX_SECTION_HEADER_PATTERN = re.compile(
     r"(?im)^\s*(?P<header>"
     r"career profile|professional summary|profile summary|profile|summary|objective|"
-    r"work experience|professional experience|employment history|employment|career history|experience|"
+    r"work experience|professional experience|employment history|employment|career history|experience|period|"
     r"technical skills|core skills|key skills|skills|"
     r"education|academic qualifications|qualifications|"
     r"languages?|language proficiency|"
@@ -101,7 +101,7 @@ LINE_PREFIX_SECTION_HEADER_PATTERN = re.compile(
 GLUED_SECTION_HEADER_PATTERN = re.compile(
     r"(?im)^(?P<header>"
     r"TECHNICAL SKILLS|CORE SKILLS|KEY SKILLS|SKILLS|"
-    r"WORK EXPERIENCE|PROFESSIONAL EXPERIENCE|EMPLOYMENT HISTORY|EXPERIENCE|"
+    r"WORK EXPERIENCE|PROFESSIONAL EXPERIENCE|EMPLOYMENT HISTORY|EXPERIENCE|PERIOD|"
     r"EDUCATION|ACADEMIC QUALIFICATIONS|QUALIFICATIONS|"
     r"LANGUAGES|LANGUAGE PROFICIENCY|"
     r"CERTIFICATIONS|PROFESSIONAL CERTIFICATIONS"
@@ -110,7 +110,7 @@ GLUED_SECTION_HEADER_PATTERN = re.compile(
 ATTACHED_SECTION_HEADER_PATTERN = re.compile(
     r"(?i)\|\s*(?P<header>"
     r"summary|profile|objective|"
-    r"work experience|professional experience|employment history|career history|"
+    r"work experience|professional experience|employment history|career history|period|"
     r"technical skills|core skills|key skills|skills|"
     r"education|academic qualifications|qualifications|"
     r"languages?|language proficiency|"
