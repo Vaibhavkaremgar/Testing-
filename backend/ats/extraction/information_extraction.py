@@ -786,15 +786,9 @@ def extract_email(text: str) -> str:
 
     def _clean_email_candidate(candidate: str) -> str:
         candidate = re.sub(r"\s+", "", candidate).strip(".,;:")
-        lowered = candidate.lower()
-        for tld in EMAIL_COMMON_TLDS:
-            marker = f"{tld}."
-            if marker not in lowered:
-                continue
-            cutoff = lowered.find(marker) + len(tld)
-            trailing = lowered[cutoff:]
-            if trailing and re.search(r"[a-z]", trailing):
-                return candidate[:cutoff]
+        tld_match = re.search(r"\.[a-zA-Z]{2,6}(?=[^a-zA-Z]|$)", candidate)
+        if tld_match:
+            return candidate[:tld_match.end()]
         return candidate
 
     normalized_text = normalize_common_artifacts(text or "")
