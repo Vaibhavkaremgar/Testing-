@@ -6,6 +6,12 @@ from typing import Any, Dict, Iterable, List
 
 TABLE_DELIMITER_PATTERN = re.compile(r"\s{2,}|\t+|\s+\|\s+")
 LANDSCAPE_RATIO_THRESHOLD = 1.15
+SECTION_HEADER_PATTERN = re.compile(
+    r"(?i)^(?:contact(?: details| information)?|profile(?: summary)?|professional summary|summary|"
+    r"technical skills|skills|core skills|key skills|work experience|professional experience|"
+    r"employment history|experience|education|certifications?|projects?)$"
+)
+CONTACT_LINE_PATTERN = re.compile(r"(?i)(?:@|linkedin|github|portfolio|\+?\d[\d\s().-]{7,}\d)")
 
 
 def _normalize_bool(value: Any) -> bool:
@@ -24,6 +30,27 @@ def _count_table_like_lines(lines: Iterable[str]) -> int:
         if len(TABLE_DELIMITER_PATTERN.findall(normalized)) >= 2:
             count += 1
     return count
+
+
+def _section_header_positions(lines: List[str]) -> Dict[str, int]:
+    positions: Dict[str, int] = {}
+    for index, line in enumerate(lines):
+        normalized = (line or "").strip()
+        if not normalized:
+            continue
+        if not SECTION_HEADER_PATTERN.match(normalized):
+            continue
+        lowered = normalized.lower()
+        positions.setdefault(lowered, index)
+    return positions
+
+
+def _count_short_lines(lines: Iterable[str], max_words: int = 4) -> int:
+    return sum(1 for line in lines if 0 < len((line or "").split()) <= max_words)
+
+
+def _count_contact_lines(lines: Iterable[str]) -> int:
+    return sum(1 for line in lines if CONTACT_LINE_PATTERN.search(line or ""))
 
 
 def infer_layout_signals(
@@ -52,13 +79,49 @@ def infer_layout_signals(
         for page in page_metrics
     )
     table_like_lines = _count_table_like_lines(lines)
+    section_positions = _section_header_positions(lines[:40])
+    early_lines = [line.strip() for line in lines[:20] if line.strip()]
+    short_line_ratio = (_count_short_lines(early_lines) / max(len(early_lines), 1)) if early_lines else 0.0
+    contact_line_count = _count_contact_lines(early_lines)
 
     is_multi_column = multi_column_pages > 0
     is_horizontal = landscape_pages > 0
     is_table_based = detected_tables > 0 or table_like_lines >= 3
+    has_early_skills = any(
+        header in section_positions
+        for header in ("technical skills", "skills", "core skills", "key skills")
+    )
+    experience_index = min(
+        (
+            position
+            for header, position in section_positions.items()
+            if header in {"work experience", "professional experience", "employment history", "experience"}
+        ),
+        default=999,
+    )
+    skills_index = min(
+        (
+            position
+            for header, position in section_positions.items()
+            if header in {"technical skills", "skills", "core skills", "key skills"}
+        ),
+        default=999,
+    )
+    is_sidebar = (
+        is_multi_column
+        and has_early_skills
+        and skills_index < experience_index
+    ) or (
+        is_multi_column
+        and short_line_ratio >= 0.45
+        and contact_line_count >= 2
+    )
+    is_vertical = not is_horizontal and not is_multi_column and not is_table_based
 
     return {
         "is_multi_column": is_multi_column,
+        "is_sidebar": is_sidebar,
+        "is_vertical": is_vertical,
         "is_horizontal": is_horizontal,
         "is_table_based": is_table_based,
         "page_count": page_count,
@@ -66,10 +129,14 @@ def infer_layout_signals(
         "landscape_pages": landscape_pages,
         "detected_tables": detected_tables,
         "table_like_lines": table_like_lines,
+        "short_line_ratio": round(short_line_ratio, 2),
+        "contact_line_count": contact_line_count,
         "layout_labels": [
             label
             for label, enabled in (
                 ("multi_column", is_multi_column),
+                ("sidebar", is_sidebar),
+                ("vertical", is_vertical),
                 ("horizontal", is_horizontal),
                 ("table_based", is_table_based),
             )
