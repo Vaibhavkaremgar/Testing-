@@ -1138,7 +1138,8 @@ def extract_location(text: str) -> str:
     if not text:
         return ""
 
-    cleaned_text = clean_text_pipeline(text)
+    # cleaned_text = clean_text_pipeline(text)
+    cleaned_text = text or ""
     lines = [line.strip() for line in cleaned_text.splitlines() if line.strip()]
     comma_location_pattern = re.compile(
         r"(?P<left>[A-Z][A-Za-z.-]+(?:\s+[A-Z][A-Za-z.-]+){0,3})\s*,\s*"
