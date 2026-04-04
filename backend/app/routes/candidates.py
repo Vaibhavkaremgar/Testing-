@@ -1,5 +1,6 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status, UploadFile, File, Query
 from fastapi.responses import FileResponse
+from pydantic import ValidationError
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, text
 from typing import Dict, List, Optional
@@ -132,6 +133,16 @@ def sanitize_candidate_email(value: Optional[str]) -> Optional[str]:
         return extracted
 
     return None
+
+
+def build_safe_candidate_response(candidate_dict: Dict) -> CandidateResponse:
+    """Construct candidate responses defensively so one bad legacy field never crashes the API."""
+    try:
+        return CandidateResponse(**candidate_dict)
+    except ValidationError:
+        safe_candidate_dict = dict(candidate_dict)
+        safe_candidate_dict["email"] = None
+        return CandidateResponse(**safe_candidate_dict)
 
 
 def resolve_current_company_for_storage(
@@ -1912,7 +1923,7 @@ def get_candidates(
             "predefined_questions": c.predefined_questions,
             "created_at": c.created_at
         }
-        result.append(CandidateResponse(**candidate_dict))
+        result.append(build_safe_candidate_response(candidate_dict))
     
     return result
 
@@ -1953,7 +1964,7 @@ def get_candidate(
         "predefined_questions": candidate.predefined_questions,
         "created_at": candidate.created_at
     }
-    return CandidateResponse(**candidate_dict)
+    return build_safe_candidate_response(candidate_dict)
 
 @router.post("", response_model=CandidateResponse)
 def create_candidate(
