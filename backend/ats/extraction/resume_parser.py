@@ -4,7 +4,7 @@ import logging
 import os
 import re
 import shutil
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import pdfplumber
 from docx.document import Document as DocxDocument
@@ -12,6 +12,11 @@ from docx.table import Table, _Cell
 from docx.text.paragraph import Paragraph
 from PIL import Image
 from pypdf import PdfReader
+
+try:
+    import fitz
+except ImportError:  # pragma: no cover - optional dependency
+    fitz = None
 
 try:
     import pytesseract
@@ -22,6 +27,7 @@ from ats.datasets.parser_config_loader import ParserConfigLoader
 from ats.extraction.experience_extraction import compute_total_experience, parse_date
 from ats.extraction.information_extraction import extract_email as extract_normalized_email
 from ats.extraction.information_extraction import extract_resume_information
+from ats.extraction.layout_detection import infer_layout_signals
 from ats.extraction.validation import validate_parsed_fields
 from ats.preprocessing.section_segmentation import segment_resume_sections
 from ats.preprocessing.text_cleaning import clean_text_pipeline, normalize_common_artifacts, normalize_document_structure, split_inline_section_headers
@@ -78,6 +84,7 @@ BROKEN_MONTH_PATTERN = re.compile(
     r"(?i)\b(?:j\s+anuary|f\s+ebruary|m\s+arch|a\s+pril|m\s+ay|j\s+une|j\s+uly|s\s+eptember|o\s+ctober|n\s+ovember|d\s+ecember)\b"
 )
 SPLIT_EMAIL_ARTIFACT_PATTERN = re.compile(r"(?i)\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\s+[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
+PDF_PARSER_PREFERENCE = {"pymupdf": 3, "pdfplumber": 2, "pypdf": 1}
 
 _parser_config_loader = ParserConfigLoader()
 _parser_vocabulary = _parser_config_loader.load_parser_vocabulary()
@@ -239,6 +246,77 @@ def _extract_pdf_page_text(page: pdfplumber.page.Page) -> str:
     return "\n".join(line["text"] for line in ordered_lines)
 
 
+def _extract_pdf_text_with_pymupdf(file_path: str) -> Tuple[List[str], List[Dict[str, Any]]]:
+    if fitz is None:
+        return [], []
+
+    text_parts: List[str] = []
+    page_metrics: List[Dict[str, Any]] = []
+    document = None
+    try:
+        document = fitz.open(file_path)
+        for page in document:
+            page_text = (page.get_text("text") or "").strip()
+            if page_text:
+                text_parts.append(page_text)
+            page_metrics.append(
+                {
+                    "width": float(page.rect.width),
+                    "height": float(page.rect.height),
+                    "has_multi_column": False,
+                    "table_count": 0,
+                    "has_table_like_structure": False,
+                }
+            )
+    except Exception as exc:
+        logger.warning("PyMuPDF extraction failed for %s: %s", file_path, exc)
+    finally:
+        if document is not None:
+            document.close()
+    return text_parts, page_metrics
+
+
+def _extract_pdf_text_with_pdfplumber(file_path: str) -> Tuple[List[str], List[Dict[str, Any]]]:
+    text_parts: List[str] = []
+    page_metrics: List[Dict[str, Any]] = []
+    try:
+        with pdfplumber.open(file_path) as pdf:
+            for page in pdf.pages:
+                page_text = _extract_pdf_page_text(page) or ""
+                if page_text.strip():
+                    text_parts.append(page_text)
+                words = page.extract_words(use_text_flow=False, keep_blank_chars=False) or []
+                lines = _group_pdf_words_into_lines(words)
+                split = _detect_pdf_column_split(lines, float(page.width)) if lines else None
+                extracted_tables = page.extract_tables() or []
+                page_metrics.append(
+                    {
+                        "width": float(page.width),
+                        "height": float(page.height),
+                        "has_multi_column": split is not None,
+                        "table_count": len(extracted_tables),
+                        "has_table_like_structure": len(extracted_tables) > 0,
+                    }
+                )
+    except Exception as exc:
+        logger.warning("pdfplumber extraction failed for %s: %s", file_path, exc)
+    return text_parts, page_metrics
+
+
+def _extract_pdf_text_with_pypdf(file_path: str) -> Tuple[List[str], List[Dict[str, Any]]]:
+    text_parts: List[str] = []
+    try:
+        reader = PdfReader(file_path)
+        for page in reader.pages:
+            page_text = page.extract_text() or ""
+            if page_text.strip():
+                text_parts.append(page_text)
+        return text_parts, []
+    except Exception as exc:
+        logger.warning("pypdf extraction failed for %s: %s", file_path, exc)
+    return [], []
+
+
 def _configure_tesseract() -> bool:
     if pytesseract is None:
         return False
@@ -281,15 +359,117 @@ def _score_text_quality(text_parts: List[str]) -> float:
     if re.search(r"(?i)\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec|\d{4})\b", combined):
         score += 0.1
     broken_penalty = 0.0
+    lines = [line.strip() for line in combined.splitlines() if line.strip()]
+    short_line_count = sum(1 for line in lines if len(line.split()) == 1)
+    if lines and (short_line_count / len(lines)) >= 0.3:
+        broken_penalty += 0.14
+    early_lines = lines[:4]
+    if early_lines:
+        seen_contact = False
+        for line in early_lines:
+            if EMAIL_PATTERN.search(line) or PHONE_LINE_PATTERN.search(line):
+                seen_contact = True
+            elif SECTION_START_PATTERN.match(line) and not seen_contact:
+                broken_penalty += 0.12
+                break
     broken_penalty += min(len(BROKEN_MONTH_PATTERN.findall(combined)) * 0.08, 0.16)
     broken_penalty += min(len(SPLIT_EMAIL_ARTIFACT_PATTERN.findall(combined)) * 0.12, 0.24)
     broken_penalty += min(len(BROKEN_TOKEN_PATTERN.findall(combined[:4000])) * 0.005, 0.2)
+    line_count = len(lines)
+    if line_count >= 12:
+        score += 0.05
     return round(max(score - broken_penalty, 0.0), 3)
+
+
+def _select_best_pdf_text(
+    parser_outputs: Dict[str, Dict[str, Any]]
+) -> Tuple[List[str], str, Dict[str, float], Dict[str, Any]]:
+    best_name = ""
+    best_parts: List[str] = []
+    best_score = -1.0
+    scores: Dict[str, float] = {}
+    best_layout: Dict[str, Any] = {}
+
+    for parser_name in ("pymupdf", "pdfplumber", "pypdf"):
+        parser_payload = parser_outputs.get(parser_name) or {}
+        text_parts = parser_payload.get("text_parts") or []
+        score = _score_text_quality(text_parts)
+        scores[parser_name] = score
+        layout = parser_payload.get("layout") or {}
+        if score > best_score:
+            best_name = parser_name
+            best_parts = text_parts
+            best_layout = layout
+            best_score = score
+            continue
+        if (
+            parser_name == "pdfplumber"
+            and text_parts
+            and layout.get("is_multi_column")
+            and score >= best_score - 0.04
+        ):
+            best_name = parser_name
+            best_parts = text_parts
+            best_layout = layout
+            best_score = score
+            continue
+        if score == best_score and text_parts:
+            current_preference = PDF_PARSER_PREFERENCE.get(parser_name, 0)
+            best_preference = PDF_PARSER_PREFERENCE.get(best_name, 0)
+            if current_preference > best_preference:
+                best_name = parser_name
+                best_parts = text_parts
+                best_layout = layout
+
+    if best_parts:
+        return best_parts, best_name, scores, best_layout
+
+    for parser_name in ("pymupdf", "pdfplumber", "pypdf"):
+        parser_payload = parser_outputs.get(parser_name) or {}
+        text_parts = parser_payload.get("text_parts") or []
+        if text_parts:
+            return text_parts, parser_name, scores, parser_payload.get("layout") or {}
+
+    return [], "", scores, {}
 
 
 def _prepare_ocr_image(image: Image.Image) -> Image.Image:
     prepared = image.convert("L")
     return prepared.point(lambda pixel: 255 if pixel > 180 else 0)
+
+
+def _render_pdf_pages_for_ocr(file_path: str) -> List[Image.Image]:
+    rendered_pages: List[Image.Image] = []
+
+    if fitz is not None:
+        document = None
+        try:
+            document = fitz.open(file_path)
+            matrix = fitz.Matrix(2, 2)
+            for page in document:
+                pixmap = page.get_pixmap(matrix=matrix, alpha=False)
+                image = Image.frombytes("RGB", [pixmap.width, pixmap.height], pixmap.samples)
+                rendered_pages.append(image)
+        except Exception as exc:
+            logger.warning("PyMuPDF OCR rendering failed for %s: %s", file_path, exc)
+        finally:
+            if document is not None:
+                document.close()
+
+    if rendered_pages:
+        return rendered_pages
+
+    try:
+        with pdfplumber.open(file_path) as pdf:
+            for page in pdf.pages:
+                try:
+                    rendered_pages.append(page.to_image(resolution=200).original)
+                except Exception as exc:
+                    logger.warning("OCR page rendering failed for %s: %s", file_path, exc)
+    except Exception as exc:
+        logger.warning("OCR PDF open failed for %s: %s", file_path, exc)
+
+    return rendered_pages
 
 
 def _extract_pdf_text_via_ocr(file_path: str) -> List[str]:
@@ -298,48 +478,80 @@ def _extract_pdf_text_via_ocr(file_path: str) -> List[str]:
 
     ocr_parts: List[str] = []
     try:
-        with pdfplumber.open(file_path) as pdf:
-            for page in pdf.pages:
-                try:
-                    page_image = page.to_image(resolution=200).original
-                    prepared_image = _prepare_ocr_image(page_image)
-                    page_text = pytesseract.image_to_string(prepared_image) or ""
-                    if page_text.strip():
-                        ocr_parts.append(page_text)
-                except Exception as exc:
-                    logger.warning("OCR page extraction failed for %s: %s", file_path, exc)
+        for page_image in _render_pdf_pages_for_ocr(file_path):
+            try:
+                prepared_image = _prepare_ocr_image(page_image)
+                page_text = pytesseract.image_to_string(prepared_image) or ""
+                if page_text.strip():
+                    ocr_parts.append(page_text)
+            except Exception as exc:
+                logger.warning("OCR page extraction failed for %s: %s", file_path, exc)
     except Exception as exc:
-        logger.warning("OCR PDF open failed for %s: %s", file_path, exc)
+        logger.warning("OCR extraction failed for %s: %s", file_path, exc)
     return ocr_parts
 
 
-def extract_text(file_path: str) -> str:
+def _extract_image_text_via_ocr(file_path: str) -> List[str]:
+    if not _is_ocr_ready():
+        return []
+
+    try:
+        with Image.open(file_path) as image:
+            prepared_image = _prepare_ocr_image(image)
+            image_text = pytesseract.image_to_string(prepared_image) or ""
+            if image_text.strip():
+                return [image_text]
+    except Exception as exc:
+        logger.warning("Image OCR extraction failed for %s: %s", file_path, exc)
+    return []
+
+
+def _default_layout_signals() -> Dict[str, Any]:
+    return infer_layout_signals(text_parts=[], page_metrics=[])
+
+
+def get_parser_runtime_status() -> Dict[str, Any]:
+    return {
+        "pymupdf_available": fitz is not None,
+        "pdfplumber_available": True,
+        "pypdf_available": True,
+        "pytesseract_available": pytesseract is not None,
+        "ocr_ready": _is_ocr_ready(),
+    }
+
+
+def extract_document(file_path: str) -> Dict[str, Any]:
     if not file_path or not os.path.exists(file_path):
-        return ""
+        return {"text": "", "layout": _default_layout_signals()}
 
     file_ext = os.path.splitext(file_path)[1].lower()
     text_parts: List[str] = []
+    layout_signals = _default_layout_signals()
 
     try:
         if file_ext == ".pdf":
-            try:
-                with pdfplumber.open(file_path) as pdf:
-                    for page in pdf.pages:
-                        page_text = _extract_pdf_page_text(page) or ""
-                        if page_text.strip():
-                            text_parts.append(page_text)
-            except Exception as exc:
-                logger.warning("pdfplumber extraction failed for %s: %s", file_path, exc)
-
-            if not text_parts:
-                try:
-                    reader = PdfReader(file_path)
-                    for page in reader.pages:
-                        page_text = page.extract_text() or ""
-                        if page_text.strip():
-                            text_parts.append(page_text)
-                except Exception as exc:
-                    logger.warning("pypdf extraction failed for %s: %s", file_path, exc)
+            parser_outputs = {
+                parser_name: {
+                    "text_parts": text_parts,
+                    "page_metrics": page_metrics,
+                    "layout": infer_layout_signals(text_parts=text_parts, page_metrics=page_metrics),
+                }
+                for parser_name, (text_parts, page_metrics) in {
+                    "pymupdf": _extract_pdf_text_with_pymupdf(file_path),
+                    "pdfplumber": _extract_pdf_text_with_pdfplumber(file_path),
+                    "pypdf": _extract_pdf_text_with_pypdf(file_path),
+                }.items()
+            }
+            text_parts, selected_parser, parser_scores, selected_layout = _select_best_pdf_text(parser_outputs)
+            if selected_parser:
+                layout_signals = selected_layout or _default_layout_signals()
+                logger.info(
+                    "Selected PDF parser '%s' for %s with scores: %s and layout: %s",
+                    selected_parser,
+                    file_path,
+                    parser_scores,
+                    layout_signals,
+                )
 
             if not _has_meaningful_text(text_parts):
                 ocr_parts = _extract_pdf_text_via_ocr(file_path)
@@ -364,6 +576,7 @@ def extract_text(file_path: str) -> str:
                             text_parts.append(block.text)
                     elif isinstance(block, Table):
                         text_parts.extend(_extract_docx_table_lines(block))
+                layout_signals = infer_layout_signals(text_parts=text_parts, page_metrics=[])
             except Exception as exc:
                 logger.warning("python-docx extraction failed for %s: %s", file_path, exc)
 
@@ -374,19 +587,32 @@ def extract_text(file_path: str) -> str:
                 result = subprocess.run(["antiword", file_path], capture_output=True, text=True)
                 if result.returncode == 0 and result.stdout.strip():
                     text_parts.append(result.stdout)
+                layout_signals = infer_layout_signals(text_parts=text_parts, page_metrics=[])
             except Exception as exc:
                 logger.warning("antiword extraction failed for %s: %s", file_path, exc)
+
+        elif file_ext in {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"}:
+            text_parts = _extract_image_text_via_ocr(file_path)
+            layout_signals = infer_layout_signals(text_parts=text_parts, page_metrics=[])
 
         if not text_parts:
             with open(file_path, "rb") as handle:
                 binary_text = handle.read().decode("utf-8", errors="ignore")
                 if binary_text.strip():
                     text_parts.append(binary_text)
+            layout_signals = infer_layout_signals(text_parts=text_parts, page_metrics=[])
     except Exception as exc:
         logger.exception("Resume text extraction failed for %s: %s", file_path, exc)
-        return ""
+        return {"text": "", "layout": _default_layout_signals()}
 
-    return "\n".join(part.strip() for part in text_parts if part and part.strip())
+    return {
+        "text": "\n".join(part.strip() for part in text_parts if part and part.strip()),
+        "layout": layout_signals,
+    }
+
+
+def extract_text(file_path: str) -> str:
+    return str(extract_document(file_path).get("text") or "")
 
 
 def _normalize_name_candidate(value: str) -> str:
@@ -664,8 +890,12 @@ def _classify_experience_level(total_experience_years: Optional[float]) -> str:
     return "Lead/Expert"
 
 
-def parse_resume(file_path: str, original_filename: Optional[str] = None) -> Dict[str, Any]:
-    raw_text = extract_text(file_path)
+def parse_resume_text(
+    raw_text: str,
+    original_filename: Optional[str] = None,
+    layout_signals: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    layout_signals = layout_signals or _default_layout_signals()
     cleaned_text = clean_text_pipeline(raw_text) if raw_text else ""
     extracted_info = extract_resume_information(raw_text) if raw_text else {
         "sections": segment_resume_sections(""),
@@ -699,6 +929,8 @@ def parse_resume(file_path: str, original_filename: Optional[str] = None) -> Dic
         "summary": extracted_info.get("sections", {}).get("summary", ""),
         "sections": extracted_info.get("sections", {}),
         "experience_entries": extracted_info.get("experience", []),
+        "layout_signals": layout_signals,
+        "runtime_status": get_parser_runtime_status(),
         "full_text": cleaned_text,
         "raw_text": raw_text,
         "field_confidence": {
@@ -720,3 +952,10 @@ def parse_resume(file_path: str, original_filename: Optional[str] = None) -> Dic
         result["location"],
     )
     return result
+
+
+def parse_resume(file_path: str, original_filename: Optional[str] = None) -> Dict[str, Any]:
+    document_payload = extract_document(file_path)
+    raw_text = str(document_payload.get("text") or "")
+    layout_signals = document_payload.get("layout") or _default_layout_signals()
+    return parse_resume_text(raw_text, original_filename=original_filename, layout_signals=layout_signals)

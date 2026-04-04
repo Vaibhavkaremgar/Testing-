@@ -7,7 +7,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from ats.extraction.information_extraction import extract_resume_information  # noqa: E402
-from ats.extraction.resume_parser import extract_text, parse_resume  # noqa: E402
+from ats.extraction.resume_parser import extract_document, extract_text, parse_resume  # noqa: E402
 from app.routes.candidates import resolve_current_company_for_storage, resolve_current_role_for_storage  # noqa: E402
 
 
@@ -582,6 +582,202 @@ Managed an escalation queue and vendor support line 1800 555 1111.
         self.assertEqual(parsed["email"], "ravi.kumar@email.com")
         self.assertEqual(parsed["phone"], "+91 99887 66554")
         self.assertEqual(parsed["location"], "Hyderabad, Telangana")
+
+    def test_pdf_parser_selection_prefers_higher_quality_output(self):
+        with tempfile.NamedTemporaryFile("wb", suffix=".pdf", delete=False) as handle:
+            handle.write(b"")
+            temp_path = handle.name
+
+        pymupdf_text = [
+            "\n".join(
+                [
+                    "Ritika Sharma",
+                    "Bengaluru, Karnataka | +91 90123 45678 | ritika.sharma@email.com",
+                    "WORK EXPERIENCE",
+                    "Training Coordinator",
+                    "Bright Academy",
+                    "2021 - Present",
+                ]
+            )
+        ]
+        noisy_text = ["ri tika sha rma bright aca demy 2021 pre sent"]
+
+        try:
+            with patch("ats.extraction.resume_parser._extract_pdf_text_with_pymupdf", return_value=(pymupdf_text, [])), \
+                 patch("ats.extraction.resume_parser._extract_pdf_text_with_pdfplumber", return_value=(noisy_text, [])), \
+                 patch("ats.extraction.resume_parser._extract_pdf_text_with_pypdf", return_value=(noisy_text, [])), \
+                 patch("ats.extraction.resume_parser._extract_pdf_text_via_ocr", return_value=[]):
+                extracted = extract_text(temp_path)
+        finally:
+            Path(temp_path).unlink(missing_ok=True)
+
+        self.assertIn("Ritika Sharma", extracted)
+        self.assertIn("Bright Academy", extracted)
+        self.assertNotIn("ri tika sha rma", extracted)
+
+    def test_pdf_parser_selection_breaks_ties_in_favor_of_pymupdf(self):
+        with tempfile.NamedTemporaryFile("wb", suffix=".pdf", delete=False) as handle:
+            handle.write(b"")
+            temp_path = handle.name
+
+        shared_text = [
+            "\n".join(
+                [
+                    "Karan Shah",
+                    "Pune, Maharashtra | +91 98989 12121 | karan.shah@email.com",
+                    "WORK EXPERIENCE",
+                    "Senior Engineer",
+                    "Nova Systems",
+                    "2022 - Present",
+                ]
+            )
+        ]
+
+        try:
+            with patch("ats.extraction.resume_parser._extract_pdf_text_with_pymupdf", return_value=(shared_text, [])), \
+                 patch("ats.extraction.resume_parser._extract_pdf_text_with_pdfplumber", return_value=(shared_text, [])), \
+                 patch("ats.extraction.resume_parser._extract_pdf_text_with_pypdf", return_value=(shared_text, [])), \
+                 patch("ats.extraction.resume_parser._extract_pdf_text_via_ocr", return_value=[]), \
+                 patch("ats.extraction.resume_parser.logger.info") as logger_info:
+                extract_text(temp_path)
+        finally:
+            Path(temp_path).unlink(missing_ok=True)
+
+        selected_parser = logger_info.call_args[0][0] if logger_info.call_args else ""
+        self.assertIn("Selected PDF parser '%s'", selected_parser)
+        self.assertEqual(logger_info.call_args[0][1], "pymupdf")
+
+    def test_pdf_ocr_replaces_native_text_when_quality_is_better(self):
+        with tempfile.NamedTemporaryFile("wb", suffix=".pdf", delete=False) as handle:
+            handle.write(b"")
+            temp_path = handle.name
+
+        native_text = ["ravi kum ar hyd erabad back end engi neer 2022 pre sent"]
+        ocr_text = [
+            "\n".join(
+                [
+                    "Ravi Kumar",
+                    "Hyderabad, Telangana | +91 99887 66554 | ravi.kumar@email.com",
+                    "WORK EXPERIENCE",
+                    "Backend Engineer",
+                    "Acme Systems Ltd",
+                    "Jan 2022 - Present",
+                ]
+            )
+        ]
+
+        try:
+            with patch("ats.extraction.resume_parser._extract_pdf_text_with_pymupdf", return_value=(native_text, [])), \
+                 patch("ats.extraction.resume_parser._extract_pdf_text_with_pdfplumber", return_value=([], [])), \
+                 patch("ats.extraction.resume_parser._extract_pdf_text_with_pypdf", return_value=([], [])), \
+                 patch("ats.extraction.resume_parser._extract_pdf_text_via_ocr", return_value=ocr_text):
+                extracted = extract_text(temp_path)
+        finally:
+            Path(temp_path).unlink(missing_ok=True)
+
+        self.assertIn("Ravi Kumar", extracted)
+        self.assertIn("Acme Systems Ltd", extracted)
+        self.assertNotIn("ravi kum ar", extracted)
+
+    def test_image_resume_uses_ocr_extraction(self):
+        with tempfile.NamedTemporaryFile("wb", suffix=".png", delete=False) as handle:
+            handle.write(b"fake-image")
+            temp_path = handle.name
+
+        ocr_text = "\n".join(
+            [
+                "Sneha Iyer",
+                "Chennai, Tamil Nadu | +91 90111 22334 | sneha.iyer@email.com",
+                "WORK EXPERIENCE",
+                "QA Engineer",
+                "Acme Testing Labs",
+                "2023 - Present",
+            ]
+        )
+
+        try:
+            with patch("ats.extraction.resume_parser._extract_image_text_via_ocr", return_value=[ocr_text]):
+                extracted = extract_text(temp_path)
+        finally:
+            Path(temp_path).unlink(missing_ok=True)
+
+        self.assertIn("Sneha Iyer", extracted)
+        self.assertIn("Acme Testing Labs", extracted)
+
+    def test_extract_document_reports_multi_column_and_table_layout(self):
+        with tempfile.NamedTemporaryFile("wb", suffix=".pdf", delete=False) as handle:
+            handle.write(b"")
+            temp_path = handle.name
+
+        parser_text = [
+            "\n".join(
+                [
+                    "Ananya Krishnan",
+                    "Hyderabad, Telangana | +91 98001 23456 | ananya.krishnan@outlook.com",
+                    "TECHNICAL SKILLS | SQL | Python | Power BI",
+                ]
+            )
+        ]
+        page_metrics = [
+            {
+                "width": 612.0,
+                "height": 792.0,
+                "has_multi_column": True,
+                "table_count": 1,
+                "has_table_like_structure": True,
+            }
+        ]
+
+        try:
+            with patch("ats.extraction.resume_parser._extract_pdf_text_with_pymupdf", return_value=([], [])), \
+                 patch("ats.extraction.resume_parser._extract_pdf_text_with_pdfplumber", return_value=(parser_text, page_metrics)), \
+                 patch("ats.extraction.resume_parser._extract_pdf_text_with_pypdf", return_value=([], [])), \
+                 patch("ats.extraction.resume_parser._extract_pdf_text_via_ocr", return_value=[]):
+                document = extract_document(temp_path)
+        finally:
+            Path(temp_path).unlink(missing_ok=True)
+
+        self.assertTrue(document["layout"]["is_multi_column"])
+        self.assertTrue(document["layout"]["is_table_based"])
+        self.assertIn("multi_column", document["layout"]["layout_labels"])
+        self.assertIn("table_based", document["layout"]["layout_labels"])
+
+    def test_parse_resume_reports_horizontal_layout_signal(self):
+        with tempfile.NamedTemporaryFile("wb", suffix=".pdf", delete=False) as handle:
+            handle.write(b"")
+            temp_path = handle.name
+
+        parser_text = [
+            "\n".join(
+                [
+                    "Maya Thomas",
+                    "Austin, Texas | maya.thomas.engineer@gmail.com",
+                    "Principal Backend Engineer at Acme Cloud Systems",
+                    "2023 - Present",
+                ]
+            )
+        ]
+        page_metrics = [
+            {
+                "width": 1000.0,
+                "height": 700.0,
+                "has_multi_column": False,
+                "table_count": 0,
+                "has_table_like_structure": False,
+            }
+        ]
+
+        try:
+            with patch("ats.extraction.resume_parser._extract_pdf_text_with_pymupdf", return_value=(parser_text, page_metrics)), \
+                 patch("ats.extraction.resume_parser._extract_pdf_text_with_pdfplumber", return_value=([], [])), \
+                 patch("ats.extraction.resume_parser._extract_pdf_text_with_pypdf", return_value=([], [])), \
+                 patch("ats.extraction.resume_parser._extract_pdf_text_via_ocr", return_value=[]):
+                parsed = parse_resume(temp_path, "maya_thomas.pdf")
+        finally:
+            Path(temp_path).unlink(missing_ok=True)
+
+        self.assertTrue(parsed["layout_signals"]["is_horizontal"])
+        self.assertIn("horizontal", parsed["layout_signals"]["layout_labels"])
 
     def test_name_falls_back_beyond_contact_block_and_skills_ignore_noise_lines(self):
         resume_text = """
