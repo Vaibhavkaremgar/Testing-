@@ -119,6 +119,7 @@ export function Header() {
   // Handle client selection
   const handleClientChange = (client) => {
     setSelectedClient(client)
+    setSelectedJobId('')
     const nextParams = new URLSearchParams(searchParams)
     if (client) {
       localStorage.setItem(CLIENT_FILTER_STORAGE_KEY, client)
@@ -127,6 +128,8 @@ export function Header() {
       localStorage.removeItem(CLIENT_FILTER_STORAGE_KEY)
       nextParams.delete('client')
     }
+    localStorage.removeItem(JOB_FILTER_STORAGE_KEY)
+    nextParams.delete('job_id')
     setSearchParams(nextParams, { replace: location.pathname !== '/login' })
   }
 

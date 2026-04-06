@@ -98,6 +98,7 @@ export default function Dashboard() {
   const [selectedCard, setSelectedCard] = useState(null)
   const [cardCandidates, setCardCandidates] = useState([])
   const [cardLoading, setCardLoading] = useState(false)
+  const [totalCandidates, setTotalCandidates] = useState([])
   const [shortlistedCandidates, setShortlistedCandidates] = useState([])
   const [interviewCandidates, setInterviewCandidates] = useState([])
   const [selectedInterviewCandidates, setSelectedInterviewCandidates] = useState([])
@@ -198,6 +199,7 @@ export default function Dashboard() {
         console.log('📊 Dashboard Stats:', statsData)
         console.log('📈 Funnel Data:', funnelData)
         setStats(statsData)
+        setTotalCandidates(pipelineDisplayCandidates)
         setFunnel(funnelData)
         setResumeTrend(resumeData)
         setInterviewTrend(interviewData)
@@ -259,6 +261,11 @@ export default function Dashboard() {
     setSelectedCard(card)
     setCardLoading(true)
     try {
+      if (card.title === 'Total Candidates') {
+        setCardCandidates(totalCandidates)
+        return
+      }
+
       if (card.filter?.type === 'pipeline_shortlisted') {
         setCardCandidates(shortlistedCandidates)
         return
@@ -280,6 +287,9 @@ export default function Dashboard() {
       }
 
       const filter = { ...card.filter }
+      if (selectedClient) {
+        filter.client = selectedClient
+      }
       if (selectedDate) {
         filter.date = selectedDate
       } else if (selectedMonth !== 'all') {

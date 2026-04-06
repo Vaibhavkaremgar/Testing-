@@ -31,7 +31,7 @@ import {
 const DEFAULT_LIST_LIMIT = 100
 
 function getResumeDisplayStatus(candidate) {
-  const stage = candidate?.stage
+  const stage = candidate?.display_stage || candidate?.stage
   const resumeScore = candidate?.resume_score
   const threshold = candidate?.score_threshold || 60
 
@@ -39,15 +39,23 @@ function getResumeDisplayStatus(candidate) {
     return { key: 'RESUME_SHORTLISTED', label: 'Selected', badgeClass: 'bg-emerald-600' }
   }
 
+  if (stage === 'REJECTED') {
+    return { key: 'RESUME_REJECTED', label: 'Rejected', badgeClass: 'bg-red-500' }
+  }
+
+  if (stage === 'INTERVIEWED') {
+    return { key: 'INTERVIEWED', label: 'Interviewed', badgeClass: 'bg-violet-500' }
+  }
+
+  if (stage === 'INTERVIEW_SCHEDULED') {
+    return { key: 'INTERVIEW_SCHEDULED', label: 'Interview Scheduled', badgeClass: 'bg-blue-500' }
+  }
+
   if (typeof resumeScore === 'number' && resumeScore <= (threshold - 10)) {
     return { key: 'RESUME_REJECTED', label: 'Rejected', badgeClass: 'bg-red-500' }
   }
 
   if (stage === 'RESUME_REJECTED') {
-    return { key: 'RESUME_REJECTED', label: 'Rejected', badgeClass: 'bg-red-500' }
-  }
-
-  if (stage === 'REJECTED') {
     return { key: 'RESUME_REJECTED', label: 'Rejected', badgeClass: 'bg-red-500' }
   }
 
@@ -61,8 +69,6 @@ function getResumeDisplayStatus(candidate) {
 
   if ([
     'SHORTLISTED',
-    'INTERVIEW_SCHEDULED',
-    'INTERVIEWED',
     'NO_SHOW',
   ].includes(stage)) {
     return { key: 'RESUME_SHORTLISTED', label: 'Shortlisted', badgeClass: 'bg-green-500' }
@@ -992,6 +998,26 @@ export default function Resumes() {
               }}
             >
               In Review
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem
+              checked={statusFilter.includes('INTERVIEW_SCHEDULED')}
+              onCheckedChange={(checked) => {
+                setStatusFilter(prev =>
+                  checked ? [...prev, 'INTERVIEW_SCHEDULED'] : prev.filter(s => s !== 'INTERVIEW_SCHEDULED')
+                )
+              }}
+            >
+              Interview Scheduled
+            </DropdownMenuCheckboxItem>
+            <DropdownMenuCheckboxItem
+              checked={statusFilter.includes('INTERVIEWED')}
+              onCheckedChange={(checked) => {
+                setStatusFilter(prev =>
+                  checked ? [...prev, 'INTERVIEWED'] : prev.filter(s => s !== 'INTERVIEWED')
+                )
+              }}
+            >
+              Interviewed
             </DropdownMenuCheckboxItem>
             <DropdownMenuCheckboxItem
               checked={statusFilter.includes('INTERVIEW_RESCHEDULED')}
