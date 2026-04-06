@@ -122,11 +122,12 @@ export default function Resumes() {
   const [users, setUsers] = useState([])
   const [selectedUser, setSelectedUser] = useState('')
   const [assigning, setAssigning] = useState(false)
+  const [deletingCandidates, setDeletingCandidates] = useState(false)
   const [emailModal, setEmailModal] = useState({ show: false, type: '', subject: '', message: '' })
   const [sending, setSending] = useState(false)
   const [isEditingEmail, setIsEditingEmail] = useState(false)
   const [visibleCount, setVisibleCount] = useState(20)
-  const [deleteCandidateModal, setDeleteCandidateModal] = useState({ open: false, candidate: null })
+  const [deleteCandidateModal, setDeleteCandidateModal] = useState({ open: false, candidates: [] })
   const SHOW_MORE_STEP = 20
   const selectedCandidateStatus = selectedCandidate ? getResumeDisplayStatus(selectedCandidate) : null
 
@@ -247,6 +248,10 @@ export default function Resumes() {
   }, [uploadProgress.show, uploadProgress.uploadId, uploadProgress.status, fetchCandidates])
 
   useEffect(() => { setVisibleCount(20) }, [candidates.length])
+
+  useEffect(() => {
+    setSelectedCandidates((prev) => prev.filter((candidateId) => candidates.some((candidate) => candidate.id === candidateId)))
+  }, [candidates])
 
   const handleDrag = (e) => {
     e.preventDefault()
@@ -439,26 +444,64 @@ export default function Resumes() {
     }
 
     const candidate = candidates.find((item) => item.id === id) || null
-    setDeleteCandidateModal({ open: true, candidate })
+    setDeleteCandidateModal({ open: true, candidates: candidate ? [candidate] : [] })
+  }
+
+  const handleBulkDelete = () => {
+    if (!canDeleteResumes) {
+      setError('Only agency admins can delete resumes')
+      return
+    }
+
+    const candidatesToDelete = candidates.filter((candidate) => selectedCandidates.includes(candidate.id))
+    if (candidatesToDelete.length === 0) return
+    setDeleteCandidateModal({ open: true, candidates: candidatesToDelete })
+  }
+
+  const handleCloseDeleteModal = () => {
+    setDeleteCandidateModal({ open: false, candidates: [] })
   }
 
   const handleConfirmDelete = async () => {
-    const candidateId = deleteCandidateModal.candidate?.id
-    if (!candidateId) return
+    const candidatesToDelete = deleteCandidateModal.candidates || []
+    if (candidatesToDelete.length === 0) return
 
     try {
-      await api.deleteCandidate(candidateId)
-      setDeleteCandidateModal({ open: false, candidate: null })
+      setDeletingCandidates(true)
+
+      const deleteResults = await Promise.allSettled(
+        candidatesToDelete.map((candidate) => api.deleteCandidate(candidate.id))
+      )
+
+      const failedDeletes = deleteResults.filter((result) => result.status === 'rejected')
+      const deletedIds = candidatesToDelete
+        .filter((_, index) => deleteResults[index].status === 'fulfilled')
+        .map((candidate) => candidate.id)
+
+      handleCloseDeleteModal()
+      if (deletedIds.length > 0) {
+        setSelectedCandidates((prev) => prev.filter((candidateId) => !deletedIds.includes(candidateId)))
+      }
       await fetchCandidates()
 
-      try {
-        await api.syncCandidatesToSheets()
-      } catch (syncError) {
-        console.error('Auto-sync to sheets failed:', syncError)
+      if (deletedIds.length > 0) {
+        try {
+          await api.syncCandidatesToSheets()
+        } catch (syncError) {
+          console.error('Auto-sync to sheets failed:', syncError)
+        }
+      }
+
+      if (failedDeletes.length > 0) {
+        setError(`Deleted ${deletedIds.length} candidate${deletedIds.length === 1 ? '' : 's'}, but ${failedDeletes.length} failed.`)
+      } else {
+        setError('')
       }
     } catch (error) {
       console.error('Delete failed:', error)
       setError(`Delete failed: ${error.message}`)
+    } finally {
+      setDeletingCandidates(false)
     }
   }
 
@@ -807,6 +850,16 @@ export default function Resumes() {
               >
                 {assigning ? 'Assigning...' : 'Send to User'}
               </Button>
+              {canDeleteResumes && (
+                <Button
+                  variant="destructive"
+                  onClick={handleBulkDelete}
+                  disabled={deletingCandidates}
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  {deletingCandidates ? 'Deleting...' : `Delete Selected (${selectedCandidates.length})`}
+                </Button>
+              )}
               <Button
                 variant="outline"
                 onClick={() => {
@@ -1497,27 +1550,30 @@ export default function Resumes() {
 
       <Dialog
         open={deleteCandidateModal.open}
-        onOpenChange={(open) => setDeleteCandidateModal({ open, candidate: open ? deleteCandidateModal.candidate : null })}
+        onOpenChange={(open) => setDeleteCandidateModal({ open, candidates: open ? deleteCandidateModal.candidates : [] })}
       >
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Delete Candidate</DialogTitle>
+            <DialogTitle>{deleteCandidateModal.candidates.length > 1 ? 'Delete Candidates' : 'Delete Candidate'}</DialogTitle>
             <DialogDescription>
-              Are you sure you want to delete the candidate{deleteCandidateModal.candidate?.name ? ` "${deleteCandidateModal.candidate.name}"` : ''}?
+              {deleteCandidateModal.candidates.length > 1
+                ? `Are you sure you want to delete ${deleteCandidateModal.candidates.length} selected candidates?`
+                : `Are you sure you want to delete the candidate${deleteCandidateModal.candidates[0]?.name ? ` "${deleteCandidateModal.candidates[0].name}"` : ''}?`}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button
               variant="outline"
-              onClick={() => setDeleteCandidateModal({ open: false, candidate: null })}
+              onClick={handleCloseDeleteModal}
             >
               Cancel
             </Button>
             <Button
               className="bg-red-600 text-white hover:bg-red-700"
               onClick={handleConfirmDelete}
+              disabled={deletingCandidates}
             >
-              Delete
+              {deletingCandidates ? 'Deleting...' : 'Delete'}
             </Button>
           </DialogFooter>
         </DialogContent>

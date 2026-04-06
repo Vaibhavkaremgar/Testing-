@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router-dom'
+import { NavLink, useLocation } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { useTheme } from '@/context/ThemeContext'
 import { useAuth } from '@/context/AuthContext'
@@ -23,9 +23,12 @@ import {
   Tag
 } from 'lucide-react'
 
+const CLIENT_FILTER_STORAGE_KEY = 'selectedClientFilter'
+
 export function Sidebar() {
   const { theme } = useTheme()
   const { user } = useAuth()
+  const location = useLocation()
   const isDark = theme === 'dark'
   
   // Role-based navigation
@@ -78,6 +81,8 @@ export function Sidebar() {
   }
   
   const navigation = getNavigation()
+  const activeClient = new URLSearchParams(location.search).get('client') || localStorage.getItem(CLIENT_FILTER_STORAGE_KEY) || ''
+  const buildNavTarget = (href) => activeClient ? `${href}?client=${encodeURIComponent(activeClient)}` : href
   
   return (
     <div 
@@ -99,7 +104,7 @@ export function Sidebar() {
         {navigation.map((item) => (
           <NavLink
             key={item.name}
-            to={item.href}
+            to={buildNavTarget(item.href)}
             end={item.href === '/' || item.href === '/super-admin'}
             className={({ isActive }) =>
               cn(
@@ -117,14 +122,14 @@ export function Sidebar() {
       </nav>
 
       {/* Footer */}
-      {/*<div className="border-t p-4">
+      <div className="border-t p-4">
         <div className="rounded-lg bg-muted p-3">
           <p className="text-xs font-medium">Need help?</p>
           <p className="text-xs text-muted-foreground mt-1">
             Check our documentation or contact support.
           </p>
         </div>
-      </div>*/}
+      </div>
     </div>
   )
 }

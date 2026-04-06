@@ -14,9 +14,11 @@ from app.spacy_nlp import SPACY_AVAILABLE, get_experience_doc
 logger = logging.getLogger(__name__)
 
 MONTH_PATTERN = r"(?:jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)"
-PRESENT_PATTERN = r"(?:present|current|now|today|till date|till now)"
+PRESENT_PATTERN = r"(?:present|current|now|today|ongoing|till date|till now|till-date|tilldate)"
 DATE_TOKEN_PATTERN = (
     rf"(?:{MONTH_PATTERN}[.\-/\s,']+\d{{2,4}}"
+    rf"|\d{{1,2}}[.\-/\s](?:{MONTH_PATTERN})[.\-/\s,']+\d{{2,4}}"
+    rf"|(?:{MONTH_PATTERN})[.\-/\s,']+\d{{1,2}}(?:st|nd|rd|th)?[,\s.\-/]+\d{{2,4}}"
     rf"|\d{{1,2}}[/-]\d{{1,2}}[/-]\d{{2,4}}"
     rf"|\d{{1,2}}[/-]\d{{2,4}}"
     rf"|\d{{4}}[/-]\d{{1,2}}"
@@ -24,7 +26,7 @@ DATE_TOKEN_PATTERN = (
     rf"|\d{{4}})"
 )
 DATE_RANGE_REGEX = re.compile(
-    rf"(?P<start>{DATE_TOKEN_PATTERN})\s*"
+    rf"(?:\bfrom\s+)?(?P<start>{DATE_TOKEN_PATTERN})\s*"
     rf"(?:-|–|—|to|until|through)\s*"
     rf"(?P<end>{PRESENT_PATTERN}|{DATE_TOKEN_PATTERN})",
     re.IGNORECASE,
@@ -125,6 +127,8 @@ def _normalize_text(value: str) -> str:
     }
     for source, target in replacements.items():
         normalized = normalized.replace(source, target)
+    normalized = re.sub(r"(?i)\bfrom\s+", "", normalized)
+    normalized = re.sub(r"(?i)\btill\b", "to", normalized)
     normalized = re.sub(
         rf"(?i)(?P<start>{DATE_TOKEN_PATTERN}|{PRESENT_PATTERN})\s+\?\s+(?P<end>{DATE_TOKEN_PATTERN}|{PRESENT_PATTERN})",
         r"\g<start> - \g<end>",
@@ -201,14 +205,14 @@ def _parse_date_token(token: str, is_end: bool = False, today: Optional[datetime
     raw = re.sub(r"(?<=\d)'(?=\d{2}\b)", "", raw)
     compact_numeric_date = re.fullmatch(r"(?P<day>\d{1,2})[\s/-](?P<month>\d{1,2})[\s/-](?P<year>\d{4})", raw)
     if compact_numeric_date:
+        day_int = int(compact_numeric_date.group("day"))
         month_int = int(compact_numeric_date.group("month"))
         year_int = int(compact_numeric_date.group("year"))
-        if 1 <= month_int <= 12:
-            if is_end:
-                if month_int == 12:
-                    return datetime(year_int, 12, 31)
-                return datetime(year_int, month_int + 1, 1) - timedelta(days=1)
-            return datetime(year_int, month_int, 1)
+        if 1 <= month_int <= 12 and 1 <= day_int <= 31:
+            try:
+                return datetime(year_int, month_int, day_int)
+            except ValueError:
+                return None
     raw = re.sub(r"\b(?P<year>\d{4})[/-](?P<month>\d{1,2})\b", r"\g<month>/\g<year>", raw)
     raw = re.sub(r"\b(?P<month>\d{1,2})\.(?P<year>\d{2,4})\b", r"\g<month>/\g<year>", raw)
     raw = re.sub(rf"\b({MONTH_PATTERN})[-/](\d{{2,4}})\b", r"\1 \2", raw, flags=re.IGNORECASE)

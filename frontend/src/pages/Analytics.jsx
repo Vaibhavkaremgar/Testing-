@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { cn } from '@/lib/utils'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -135,6 +136,7 @@ function SortableWidgetTile({ item, filters, onResize, onRemove }) {
 
 export default function Analytics() {
   const { user } = useAuth()
+  const [searchParams, setSearchParams] = useSearchParams()
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
 
   const [dateRange, setDateRange] = useState('last_30_days')
@@ -142,7 +144,6 @@ export default function Analytics() {
   const [customEndDate, setCustomEndDate] = useState('')
   const [compareMode, setCompareMode] = useState(false)
   const [compareType, setCompareType] = useState('previous_period')
-  const [selectedClient, setSelectedClient] = useState('all')
   const [selectedRecruiter, setSelectedRecruiter] = useState('all')
   const [selectedDepartment, setSelectedDepartment] = useState('all')
 
@@ -165,6 +166,19 @@ export default function Analytics() {
 
   const isAdmin = user?.role === 'admin'
   const canFilterRecruiters = user?.role === 'admin' || user?.role === 'hiring_manager'
+  const selectedClient = searchParams.get('client') || 'all'
+
+  const handleClientChange = (client) => {
+    const nextParams = new URLSearchParams(searchParams)
+    if (client && client !== 'all') {
+      nextParams.set('client', client)
+      localStorage.setItem('selectedClientFilter', client)
+    } else {
+      nextParams.delete('client')
+      localStorage.removeItem('selectedClientFilter')
+    }
+    setSearchParams(nextParams, { replace: true })
+  }
 
   useEffect(() => {
     const fetchFilterOptions = async () => {
@@ -466,7 +480,7 @@ export default function Analytics() {
             {isAdmin && (
               <div className="min-w-[200px] space-y-1">
                 <p className="text-xs font-medium text-muted-foreground">Client</p>
-                <Select value={selectedClient} onValueChange={setSelectedClient}>
+                <Select value={selectedClient} onValueChange={handleClientChange}>
                   <SelectTrigger>
                     <SelectValue placeholder="All Clients" />
                   </SelectTrigger>

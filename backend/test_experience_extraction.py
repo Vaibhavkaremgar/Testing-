@@ -285,6 +285,46 @@ Delivered hiring workflow automation.
         self.assertEqual(result["experiences"][0]["company"], "Nova Systems")
         self.assertEqual(result["experiences"][1]["company"], "Acme Works")
 
+    def test_parse_date_keeps_exact_day_for_full_numeric_dates(self):
+        self.assertEqual(parse_date("06-10-2025"), datetime(2025, 10, 6))
+        self.assertEqual(parse_date("04-10-2025", is_end=True), datetime(2025, 10, 4))
+
+    def test_extract_date_ranges_supports_from_and_till_phrases(self):
+        text = """
+from Jan 2020 till Present
+from 06-10-2025 till 04-10-2026
+        """
+
+        ranges = extract_date_ranges(text)
+
+        self.assertEqual(len(ranges), 2)
+        self.assertEqual(ranges[0]["start"], "Jan 2020")
+        self.assertEqual(ranges[1]["end"], "04-10-2026")
+
+    def test_structured_organization_designation_period_entries_are_counted_correctly(self):
+        resume_text = """
+Sooram Niharika
+
+PROFESSIONAL EXPERIENCE
+Organization: ODT
+Designation: Senior Power Platform Developer
+Period: 06-10-2025 - Present
+Project - EOL Workflow
+
+Organization: DXC Technology
+Designation: Power Platform Developer
+Period: July 2020 - 04-10-2025
+Project 1 - Trigger Email for Odyssey Data Older than 30 Days
+        """
+
+        result = extract_total_experience(resume_text)
+
+        self.assertEqual(len(result["experiences"]), 2)
+        self.assertEqual(result["experiences"][0]["company"], "ODT")
+        self.assertEqual(result["experiences"][1]["company"], "DXC Technology")
+        self.assertEqual(result["experiences"][1]["start_date"], "2020-07")
+        self.assertGreater(result["total_experience_years"], 5.0)
+
 
 if __name__ == "__main__":
     unittest.main()

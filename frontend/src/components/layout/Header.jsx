@@ -12,14 +12,17 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Search, Bell, Sun, Moon, LogOut, User, Settings, X, Building2 } from 'lucide-react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import { api } from '@/lib/api'
+
+const CLIENT_FILTER_STORAGE_KEY = 'selectedClientFilter'
 
 export function Header() {
   const { user, logout } = useAuth()
   const { theme, setTheme } = useTheme()
   const navigate = useNavigate()
+  const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
   const [notifications, setNotifications] = useState([])
   const [showNotifications, setShowNotifications] = useState(false)
@@ -28,7 +31,11 @@ export function Header() {
   const [showSearchResults, setShowSearchResults] = useState(false)
   const [searching, setSearching] = useState(false)
   const [clients, setClients] = useState([])
-  const [selectedClient, setSelectedClient] = useState(searchParams.get('client') || '')
+  const [selectedClient, setSelectedClient] = useState(() => (
+    searchParams.get('client') ||
+    localStorage.getItem(CLIENT_FILTER_STORAGE_KEY) ||
+    ''
+  ))
   const isDark = theme === 'dark'
 
   // Fetch clients
@@ -45,14 +52,44 @@ export function Header() {
     fetchClients()
   }, [])
 
+  useEffect(() => {
+    const urlClient = searchParams.get('client') || ''
+    const storedClient = localStorage.getItem(CLIENT_FILTER_STORAGE_KEY) || ''
+
+    if (urlClient) {
+      setSelectedClient(urlClient)
+      localStorage.setItem(CLIENT_FILTER_STORAGE_KEY, urlClient)
+      return
+    }
+
+    if (storedClient) {
+      setSelectedClient(storedClient)
+      const nextParams = new URLSearchParams(searchParams)
+      nextParams.set('client', storedClient)
+      setSearchParams(nextParams, { replace: true })
+      return
+    }
+
+    setSelectedClient('')
+  }, [searchParams, setSearchParams])
+
+  const buildClientAwarePath = (pathname) => {
+    const activeClient = searchParams.get('client') || localStorage.getItem(CLIENT_FILTER_STORAGE_KEY) || ''
+    return activeClient ? `${pathname}?client=${encodeURIComponent(activeClient)}` : pathname
+  }
+
   // Handle client selection
   const handleClientChange = (client) => {
     setSelectedClient(client)
+    const nextParams = new URLSearchParams(searchParams)
     if (client) {
-      setSearchParams({ client })
+      localStorage.setItem(CLIENT_FILTER_STORAGE_KEY, client)
+      nextParams.set('client', client)
     } else {
-      setSearchParams({})
+      localStorage.removeItem(CLIENT_FILTER_STORAGE_KEY)
+      nextParams.delete('client')
     }
+    setSearchParams(nextParams, { replace: location.pathname !== '/login' })
   }
 
   // Fetch real notifications
@@ -156,6 +193,7 @@ export function Header() {
 
   const handleLogout = () => {
     logout()
+    localStorage.removeItem(CLIENT_FILTER_STORAGE_KEY)
     navigate('/login')
   }
 
@@ -180,9 +218,9 @@ export function Header() {
     
     // Navigate based on notification type
     if (notification.type === 'candidate') {
-      navigate('/resumes')
+      navigate(buildClientAwarePath('/resumes'))
     } else if (notification.type === 'interview') {
-      navigate('/interviews')
+      navigate(buildClientAwarePath('/interviews'))
     }
     
     setShowNotifications(false)
@@ -247,7 +285,7 @@ export function Header() {
                         key={candidate.id}
                         className="px-3 py-2 hover:bg-accent rounded cursor-pointer"
                         onClick={() => {
-                          navigate('/resumes')
+                          navigate(buildClientAwarePath('/resumes'))
                           setShowSearchResults(false)
                           setSearchQuery('')
                         }}
@@ -268,7 +306,7 @@ export function Header() {
                         key={job.id}
                         className="px-3 py-2 hover:bg-accent rounded cursor-pointer"
                         onClick={() => {
-                          navigate('/jobs')
+                          navigate(buildClientAwarePath('/jobs'))
                           setShowSearchResults(false)
                           setSearchQuery('')
                         }}
@@ -289,7 +327,7 @@ export function Header() {
                         key={interview.id}
                         className="px-3 py-2 hover:bg-accent rounded cursor-pointer"
                         onClick={() => {
-                          navigate('/interviews')
+                          navigate(buildClientAwarePath('/interviews'))
                           setShowSearchResults(false)
                           setSearchQuery('')
                         }}

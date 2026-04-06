@@ -9,7 +9,7 @@ import { api } from '@/lib/api'
 import { cn, formatDateTime, getScoreColor } from '@/lib/utils'
 import { useToast } from '@/hooks/use-toast'
 import {
-  Video, Calendar, Clock, User, FileText, Brain, Star, Send, X, Play, CheckCircle, RotateCcw, Plus, ExternalLink
+  Video, Calendar, Clock, User, FileText, Brain, Star, Send, X, Play, CheckCircle, RotateCcw, Plus, ExternalLink, ChevronDown
 } from 'lucide-react'
 
 const DEFAULT_LIST_LIMIT = 500
@@ -374,10 +374,37 @@ export default function Interviews({ superAdminAgencyId = null }) {
   }, [selectedInterview?.id])
 
   const formatMediaTime = (value) => {
-    const totalSeconds = Math.max(0, Math.floor(Number(value) || 0))
+    const numericValue = Number(value)
+    if (!Number.isFinite(numericValue) || numericValue <= 0) return '00:00'
+    const totalSeconds = Math.max(0, Math.floor(numericValue))
     const minutes = Math.floor(totalSeconds / 60)
     const seconds = totalSeconds % 60
     return `${minutes}:${String(seconds).padStart(2, '0')}`
+  }
+
+  const handleVideoLoadedMetadata = (event) => {
+    const element = event.currentTarget
+    const hasVideoTrack = element.videoWidth > 0 && element.videoHeight > 0
+    const safeDuration = Number.isFinite(element.duration) ? element.duration : 0
+    const safeCurrentTime = Number.isFinite(element.currentTime) ? element.currentTime : 0
+
+    if (!hasVideoTrack) {
+      setMediaMode('audio')
+      setVideoDuration(0)
+      setVideoCurrentTime(0)
+      setVideoError('This recording does not include a video track. Playing audio instead.')
+      return
+    }
+
+    setMediaMode('video')
+    setVideoError('')
+    setVideoDuration(safeDuration)
+    setVideoCurrentTime(safeCurrentTime)
+  }
+
+  const handleVideoTimeUpdate = (event) => {
+    const nextTime = Number(event.currentTarget.currentTime)
+    setVideoCurrentTime(Number.isFinite(nextTime) ? nextTime : 0)
   }
 
   const toggleVideoPlayback = () => {
@@ -393,9 +420,10 @@ export default function Interviews({ superAdminAgencyId = null }) {
 
   const handleVideoSeek = (event) => {
     const nextTime = Number(event.target.value)
-    setVideoCurrentTime(nextTime)
+    const safeNextTime = Number.isFinite(nextTime) ? nextTime : 0
+    setVideoCurrentTime(safeNextTime)
     if (videoRef.current) {
-      videoRef.current.currentTime = nextTime
+      videoRef.current.currentTime = safeNextTime
     }
   }
 
@@ -420,18 +448,21 @@ export default function Interviews({ superAdminAgencyId = null }) {
           <p className="text-muted-foreground">Review interview recordings and AI analysis</p>
         </div>
         <div className="flex items-center gap-3">
-          <select
-            className="h-10 min-w-56 rounded-lg border border-input bg-background pl-3 pr-8 py-2 text-sm"
-            value={selectedJobFilter}
-            onChange={(e) => setSelectedJobFilter(e.target.value)}
-          >
-            <option value="all">All Active Jobs</option>
-            {activeJobs.map((job) => (
-              <option key={job.id} value={job.id}>
-                {job.title}
-              </option>
-            ))}
-          </select>
+          <div className="relative w-64">
+            <ChevronDown className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <select
+              className="h-10 w-full appearance-none rounded-lg border border-input bg-background pl-8 pr-3 py-2 text-sm"
+              value={selectedJobFilter}
+              onChange={(e) => setSelectedJobFilter(e.target.value)}
+            >
+              <option value="all">All Active Jobs</option>
+              {activeJobs.map((job) => (
+                <option key={job.id} value={job.id}>
+                  {job.title}
+                </option>
+              ))}
+            </select>
+          </div>
           <Button onClick={openScheduleModal}>
             <Plus className="h-4 w-4 mr-2" />
             Reschedule Interview
@@ -442,7 +473,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
       {/* Main Content - Side by Side */}
         <div className="flex gap-4 flex-1 overflow-hidden">
         {/* Candidate List - Left Side */}
-        <Card className="w-64 flex-shrink-0 bg-blue-50 dark:bg-blue-950">
+        <Card className="w-80 flex-shrink-0 bg-blue-50 dark:bg-blue-950 xl:w-96">
           <CardHeader className="py-4">
             <CardTitle className="text-base">Interview Queue</CardTitle>
           </CardHeader>
@@ -572,35 +603,26 @@ export default function Interviews({ superAdminAgencyId = null }) {
 
               <TabsContent value="video" className="mt-4">
                 <div className="mx-auto w-full max-w-4xl">
-                <div className="bg-muted rounded-xl aspect-video flex items-center justify-center overflow-hidden">
+                <div className="aspect-video overflow-hidden rounded-xl bg-transparent">
                   {selectedInterview.playback_url && mediaMode === 'video' ? (
-                    <video
-                      key={selectedInterview.id}
-                      ref={videoRef}
-                      preload="metadata"
-                      playsInline
-                      className="h-full w-full object-contain rounded-xl bg-black"
-                      src={selectedInterview.playback_url}
-                      onError={() => setVideoError('Unable to load interview recording. The video may be missing or in an unsupported format.')}
-                      onLoadedMetadata={(e) => {
-                        const element = e.currentTarget
-                        if (element.videoWidth === 0 || element.videoHeight === 0) {
-                          setMediaMode('audio')
-                          setVideoError('This recording does not include a video track. Playing audio instead.')
-                        } else {
-                          setMediaMode('video')
-                          setVideoError('')
-                          setVideoDuration(element.duration || 0)
-                          setVideoCurrentTime(element.currentTime || 0)
-                        }
-                      }}
-                      onTimeUpdate={(e) => setVideoCurrentTime(e.currentTarget.currentTime || 0)}
-                      onPlay={() => setIsVideoPlaying(true)}
-                      onPause={() => setIsVideoPlaying(false)}
-                      onEnded={() => setIsVideoPlaying(false)}
-                    >
-                      Your browser does not support the video tag.
-                    </video>
+                    <div className="flex h-full w-full items-center justify-center bg-transparent">
+                      <video
+                        key={selectedInterview.id}
+                        ref={videoRef}
+                        preload="metadata"
+                        playsInline
+                        className="h-full w-full rounded-lg object-cover"
+                        src={selectedInterview.playback_url}
+                        onError={() => setVideoError('Unable to load interview recording. The video may be missing or in an unsupported format.')}
+                        onLoadedMetadata={handleVideoLoadedMetadata}
+                        onTimeUpdate={handleVideoTimeUpdate}
+                        onPlay={() => setIsVideoPlaying(true)}
+                        onPause={() => setIsVideoPlaying(false)}
+                        onEnded={() => setIsVideoPlaying(false)}
+                      >
+                        Your browser does not support the video tag.
+                      </video>
+                    </div>
                   ) : selectedInterview.playback_url && mediaMode === 'audio' ? (
                     <div className="w-full h-full flex flex-col items-center justify-center gap-4 p-6 text-center">
                       <Video className="h-16 w-16 opacity-40" />
@@ -646,9 +668,9 @@ export default function Interviews({ superAdminAgencyId = null }) {
                       <input
                         type="range"
                         min="0"
-                        max={Math.max(videoDuration, 0)}
+                        max={videoDuration > 0 ? videoDuration : 0}
                         step="0.1"
-                        value={Math.min(videoCurrentTime, videoDuration || 0)}
+                        value={videoDuration > 0 ? Math.min(videoCurrentTime, videoDuration) : 0}
                         onChange={handleVideoSeek}
                         className="h-2 flex-1 cursor-pointer accent-primary"
                       />
