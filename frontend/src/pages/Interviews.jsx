@@ -99,6 +99,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
   const [videoCurrentTime, setVideoCurrentTime] = useState(0)
   const [isVideoPlaying, setIsVideoPlaying] = useState(false)
   const [wasPlayingBeforeSeek, setWasPlayingBeforeSeek] = useState(false)
+  const [isSeeking, setIsSeeking] = useState(false)
   const [decisionLoading, setDecisionLoading] = useState(null)
   const [approveModalOpen, setApproveModalOpen] = useState(false)
   const videoRef = useRef(null)
@@ -383,34 +384,42 @@ export default function Interviews({ superAdminAgencyId = null }) {
     return `${minutes}:${String(seconds).padStart(2, '0')}`
   }
 
-  const handleVideoLoadedMetadata = (event) => {
-    const element = event.currentTarget
-    const hasVideoTrack = element.videoWidth > 0 && element.videoHeight > 0
+  const syncVideoState = (element) => {
+    if (!element) return
+
     const safeDuration = Number.isFinite(element.duration) ? element.duration : 0
     const safeCurrentTime = Number.isFinite(element.currentTime) ? element.currentTime : 0
 
-    if (!hasVideoTrack) {
-      setMediaMode('audio')
-      setVideoDuration(0)
-      setVideoCurrentTime(0)
-      setVideoError('This recording does not include a video track. Playing audio instead.')
-      return
-    }
-
     setMediaMode('video')
     setVideoError('')
-    setVideoDuration(safeDuration)
-    setVideoCurrentTime(safeCurrentTime)
+
+    if (safeDuration > 0) {
+      setVideoDuration(safeDuration)
+    }
+
+    if (!isSeeking) {
+      setVideoCurrentTime(safeCurrentTime)
+    }
+  }
+
+  const handleVideoLoadedMetadata = (event) => {
+    syncVideoState(event.currentTarget)
   }
 
   const handleVideoDurationChange = (event) => {
-    const nextDuration = Number(event.currentTarget.duration)
-    if (Number.isFinite(nextDuration) && nextDuration > 0) {
-      setVideoDuration(nextDuration)
-    }
+    syncVideoState(event.currentTarget)
+  }
+
+  const handleVideoLoadedData = (event) => {
+    syncVideoState(event.currentTarget)
+  }
+
+  const handleVideoCanPlay = (event) => {
+    syncVideoState(event.currentTarget)
   }
 
   const handleVideoTimeUpdate = (event) => {
+    if (isSeeking) return
     const nextTime = Number(event.currentTarget.currentTime)
     setVideoCurrentTime(Number.isFinite(nextTime) ? nextTime : 0)
   }
@@ -436,10 +445,12 @@ export default function Interviews({ superAdminAgencyId = null }) {
   }
 
   const handleSeekStart = () => {
+    setIsSeeking(true)
     setWasPlayingBeforeSeek(Boolean(videoRef.current && !videoRef.current.paused))
   }
 
   const handleSeekCommit = () => {
+    setIsSeeking(false)
     if (wasPlayingBeforeSeek && videoRef.current) {
       void videoRef.current.play()
     }
@@ -634,6 +645,8 @@ export default function Interviews({ superAdminAgencyId = null }) {
                         src={selectedInterview.playback_url}
                         onError={() => setVideoError('Unable to load interview recording. The video may be missing or in an unsupported format.')}
                         onLoadedMetadata={handleVideoLoadedMetadata}
+                        onLoadedData={handleVideoLoadedData}
+                        onCanPlay={handleVideoCanPlay}
                         onDurationChange={handleVideoDurationChange}
                         onTimeUpdate={handleVideoTimeUpdate}
                         onPlay={() => setIsVideoPlaying(true)}
