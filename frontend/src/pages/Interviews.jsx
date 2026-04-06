@@ -98,6 +98,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
   const [videoDuration, setVideoDuration] = useState(0)
   const [videoCurrentTime, setVideoCurrentTime] = useState(0)
   const [isVideoPlaying, setIsVideoPlaying] = useState(false)
+  const [wasPlayingBeforeSeek, setWasPlayingBeforeSeek] = useState(false)
   const [decisionLoading, setDecisionLoading] = useState(null)
   const [approveModalOpen, setApproveModalOpen] = useState(false)
   const videoRef = useRef(null)
@@ -402,6 +403,13 @@ export default function Interviews({ superAdminAgencyId = null }) {
     setVideoCurrentTime(safeCurrentTime)
   }
 
+  const handleVideoDurationChange = (event) => {
+    const nextDuration = Number(event.currentTarget.duration)
+    if (Number.isFinite(nextDuration) && nextDuration > 0) {
+      setVideoDuration(nextDuration)
+    }
+  }
+
   const handleVideoTimeUpdate = (event) => {
     const nextTime = Number(event.currentTarget.currentTime)
     setVideoCurrentTime(Number.isFinite(nextTime) ? nextTime : 0)
@@ -425,6 +433,17 @@ export default function Interviews({ superAdminAgencyId = null }) {
     if (videoRef.current) {
       videoRef.current.currentTime = safeNextTime
     }
+  }
+
+  const handleSeekStart = () => {
+    setWasPlayingBeforeSeek(Boolean(videoRef.current && !videoRef.current.paused))
+  }
+
+  const handleSeekCommit = () => {
+    if (wasPlayingBeforeSeek && videoRef.current) {
+      void videoRef.current.play()
+    }
+    setWasPlayingBeforeSeek(false)
   }
 
   const openScheduleModal = () => {
@@ -615,6 +634,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
                         src={selectedInterview.playback_url}
                         onError={() => setVideoError('Unable to load interview recording. The video may be missing or in an unsupported format.')}
                         onLoadedMetadata={handleVideoLoadedMetadata}
+                        onDurationChange={handleVideoDurationChange}
                         onTimeUpdate={handleVideoTimeUpdate}
                         onPlay={() => setIsVideoPlaying(true)}
                         onPause={() => setIsVideoPlaying(false)}
@@ -671,7 +691,13 @@ export default function Interviews({ superAdminAgencyId = null }) {
                         max={videoDuration > 0 ? videoDuration : 0}
                         step="0.1"
                         value={videoDuration > 0 ? Math.min(videoCurrentTime, videoDuration) : 0}
+                        onMouseDown={handleSeekStart}
+                        onTouchStart={handleSeekStart}
+                        onInput={handleVideoSeek}
                         onChange={handleVideoSeek}
+                        onMouseUp={handleSeekCommit}
+                        onTouchEnd={handleSeekCommit}
+                        onKeyUp={handleSeekCommit}
                         className="h-2 flex-1 cursor-pointer accent-primary"
                       />
                       <span className="w-12 text-right text-sm tabular-nums text-muted-foreground">

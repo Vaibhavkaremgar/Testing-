@@ -11,12 +11,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Search, Bell, Sun, Moon, LogOut, User, Settings, X, Building2 } from 'lucide-react'
+import { Search, Bell, Sun, Moon, LogOut, User, Settings, X } from 'lucide-react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import { api } from '@/lib/api'
 
 const CLIENT_FILTER_STORAGE_KEY = 'selectedClientFilter'
+const JOB_FILTER_STORAGE_KEY = 'selectedJobFilter'
 
 export function Header() {
   const { user, logout } = useAuth()
@@ -31,51 +32,88 @@ export function Header() {
   const [showSearchResults, setShowSearchResults] = useState(false)
   const [searching, setSearching] = useState(false)
   const [clients, setClients] = useState([])
+  const [jobs, setJobs] = useState([])
   const [selectedClient, setSelectedClient] = useState(() => (
     searchParams.get('client') ||
     localStorage.getItem(CLIENT_FILTER_STORAGE_KEY) ||
     ''
   ))
+  const [selectedJobId, setSelectedJobId] = useState(() => (
+    searchParams.get('job_id') ||
+    localStorage.getItem(JOB_FILTER_STORAGE_KEY) ||
+    ''
+  ))
   const isDark = theme === 'dark'
 
-  // Fetch clients
+  // Fetch clients and jobs for the global filters
   useEffect(() => {
-    const fetchClients = async () => {
+    const fetchFilterOptions = async () => {
       try {
-        const jobs = await api.getJobs()
-        const uniqueClients = [...new Set(jobs.map(j => j.company_name).filter(Boolean))]
+        const jobsData = await api.getJobs()
+        const uniqueClients = [...new Set((jobsData || []).map(j => j.company_name).filter(Boolean))]
+        setJobs(jobsData || [])
         setClients(uniqueClients.sort())
       } catch (error) {
-        console.error('Failed to fetch clients:', error)
+        console.error('Failed to fetch global filters:', error)
       }
     }
-    fetchClients()
+    fetchFilterOptions()
   }, [])
 
   useEffect(() => {
     const urlClient = searchParams.get('client') || ''
+    const urlJobId = searchParams.get('job_id') || ''
     const storedClient = localStorage.getItem(CLIENT_FILTER_STORAGE_KEY) || ''
+    const storedJobId = localStorage.getItem(JOB_FILTER_STORAGE_KEY) || ''
+    const nextClient = urlClient || storedClient
+    const nextJobId = urlJobId || storedJobId
+    const nextParams = new URLSearchParams(searchParams)
+    let shouldReplace = false
 
-    if (urlClient) {
-      setSelectedClient(urlClient)
-      localStorage.setItem(CLIENT_FILTER_STORAGE_KEY, urlClient)
-      return
+    setSelectedClient(nextClient)
+    setSelectedJobId(nextJobId)
+
+    if (nextClient) {
+      localStorage.setItem(CLIENT_FILTER_STORAGE_KEY, nextClient)
+      if (urlClient !== nextClient) {
+        nextParams.set('client', nextClient)
+        shouldReplace = true
+      }
+    } else {
+      localStorage.removeItem(CLIENT_FILTER_STORAGE_KEY)
+      if (urlClient) {
+        nextParams.delete('client')
+        shouldReplace = true
+      }
     }
 
-    if (storedClient) {
-      setSelectedClient(storedClient)
-      const nextParams = new URLSearchParams(searchParams)
-      nextParams.set('client', storedClient)
+    if (nextJobId) {
+      localStorage.setItem(JOB_FILTER_STORAGE_KEY, nextJobId)
+      if (urlJobId !== nextJobId) {
+        nextParams.set('job_id', nextJobId)
+        shouldReplace = true
+      }
+    } else {
+      localStorage.removeItem(JOB_FILTER_STORAGE_KEY)
+      if (urlJobId) {
+        nextParams.delete('job_id')
+        shouldReplace = true
+      }
+    }
+
+    if (shouldReplace) {
       setSearchParams(nextParams, { replace: true })
-      return
     }
-
-    setSelectedClient('')
   }, [searchParams, setSearchParams])
 
-  const buildClientAwarePath = (pathname) => {
+  const buildGlobalAwarePath = (pathname) => {
     const activeClient = searchParams.get('client') || localStorage.getItem(CLIENT_FILTER_STORAGE_KEY) || ''
-    return activeClient ? `${pathname}?client=${encodeURIComponent(activeClient)}` : pathname
+    const activeJobId = searchParams.get('job_id') || localStorage.getItem(JOB_FILTER_STORAGE_KEY) || ''
+    const nextParams = new URLSearchParams()
+    if (activeClient) nextParams.set('client', activeClient)
+    if (activeJobId) nextParams.set('job_id', activeJobId)
+    const query = nextParams.toString()
+    return query ? `${pathname}?${query}` : pathname
   }
 
   // Handle client selection
@@ -88,6 +126,19 @@ export function Header() {
     } else {
       localStorage.removeItem(CLIENT_FILTER_STORAGE_KEY)
       nextParams.delete('client')
+    }
+    setSearchParams(nextParams, { replace: location.pathname !== '/login' })
+  }
+
+  const handleJobChange = (jobId) => {
+    setSelectedJobId(jobId)
+    const nextParams = new URLSearchParams(searchParams)
+    if (jobId) {
+      localStorage.setItem(JOB_FILTER_STORAGE_KEY, jobId)
+      nextParams.set('job_id', jobId)
+    } else {
+      localStorage.removeItem(JOB_FILTER_STORAGE_KEY)
+      nextParams.delete('job_id')
     }
     setSearchParams(nextParams, { replace: location.pathname !== '/login' })
   }
@@ -194,6 +245,7 @@ export function Header() {
   const handleLogout = () => {
     logout()
     localStorage.removeItem(CLIENT_FILTER_STORAGE_KEY)
+    localStorage.removeItem(JOB_FILTER_STORAGE_KEY)
     navigate('/login')
   }
 
@@ -218,9 +270,9 @@ export function Header() {
     
     // Navigate based on notification type
     if (notification.type === 'candidate') {
-      navigate(buildClientAwarePath('/resumes'))
+      navigate(buildGlobalAwarePath('/resumes'))
     } else if (notification.type === 'interview') {
-      navigate(buildClientAwarePath('/interviews'))
+      navigate(buildGlobalAwarePath('/interviews'))
     }
     
     setShowNotifications(false)
@@ -285,7 +337,7 @@ export function Header() {
                         key={candidate.id}
                         className="px-3 py-2 hover:bg-accent rounded cursor-pointer"
                         onClick={() => {
-                          navigate(buildClientAwarePath('/resumes'))
+                          navigate(buildGlobalAwarePath('/resumes'))
                           setShowSearchResults(false)
                           setSearchQuery('')
                         }}
@@ -306,7 +358,7 @@ export function Header() {
                         key={job.id}
                         className="px-3 py-2 hover:bg-accent rounded cursor-pointer"
                         onClick={() => {
-                          navigate(buildClientAwarePath('/jobs'))
+                          navigate(buildGlobalAwarePath('/jobs'))
                           setShowSearchResults(false)
                           setSearchQuery('')
                         }}
@@ -327,7 +379,7 @@ export function Header() {
                         key={interview.id}
                         className="px-3 py-2 hover:bg-accent rounded cursor-pointer"
                         onClick={() => {
-                          navigate(buildClientAwarePath('/interviews'))
+                          navigate(buildGlobalAwarePath('/interviews'))
                           setShowSearchResults(false)
                           setSearchQuery('')
                         }}
@@ -365,6 +417,19 @@ export function Header() {
           {clients.map((client) => (
             <option key={client} value={client}>
               {client}
+            </option>
+          ))}
+        </select>
+
+        <select
+          className="h-9 max-w-[260px] rounded-md border border-input bg-background px-3 text-sm"
+          value={selectedJobId}
+          onChange={(e) => handleJobChange(e.target.value)}
+        >
+          <option value="">All Jobs</option>
+          {jobs.map((job) => (
+            <option key={job.id} value={job.id}>
+              {[job.title, job.company_name].filter(Boolean).join(' - ') || 'Untitled Job'}
             </option>
           ))}
         </select>

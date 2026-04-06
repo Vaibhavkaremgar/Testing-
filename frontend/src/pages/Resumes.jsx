@@ -88,6 +88,7 @@ function formatCandidateDisplayName(name) {
 export default function Resumes() {
   const [searchParams] = useSearchParams()
   const selectedClient = searchParams.get('client')
+  const selectedGlobalJobId = searchParams.get('job_id') || ''
   const { user: currentUser } = useAuth()
   const canDeleteResumes = currentUser?.role === 'admin'
   const [candidates, setCandidates] = useState([])
@@ -149,12 +150,28 @@ export default function Resumes() {
     // Removed polling - fetch only once on mount to reduce API calls
   }, [])
 
+  useEffect(() => {
+    if (selectedGlobalJobId) {
+      setSelectedJobForFilter(selectedGlobalJobId)
+      setJobFilter([selectedGlobalJobId])
+      return
+    }
+
+    setSelectedJobForFilter('')
+    setJobFilter([])
+  }, [selectedGlobalJobId])
+
   const fetchCandidates = useCallback(async () => {
     try {
-      const data = await api.getCandidates({ search, client: selectedClient, limit: DEFAULT_LIST_LIMIT })
+      const params = { search, client: selectedClient, limit: DEFAULT_LIST_LIMIT }
+      if (selectedGlobalJobId) {
+        params.job_id = selectedGlobalJobId
+      }
+
+      const data = await api.getCandidates(params)
       let filteredData = (data || [])
       
-      if (jobFilter.length > 0) {
+      if (!selectedGlobalJobId && jobFilter.length > 0) {
         filteredData = filteredData.filter(c => jobFilter.includes(c.job_id?.toString()))
       }
       
@@ -181,14 +198,21 @@ export default function Resumes() {
       console.error('Failed to fetch candidates:', error)
       setCandidates([])
     }
-  }, [search, selectedClient, jobFilter, scoreFilter, statusFilter])
+  }, [search, selectedClient, selectedGlobalJobId, jobFilter, scoreFilter, statusFilter])
 
   useEffect(() => {
     const fetchData = async () => {
       try {
         console.log('Fetching candidates and jobs...')
+        const candidateParams = { limit: DEFAULT_LIST_LIMIT }
+        if (selectedClient) {
+          candidateParams.client = selectedClient
+        }
+        if (selectedGlobalJobId) {
+          candidateParams.job_id = selectedGlobalJobId
+        }
         const [candidatesData, jobsData, usersData] = await Promise.all([
-          api.getCandidates({ limit: DEFAULT_LIST_LIMIT }),
+          api.getCandidates(candidateParams),
           api.getJobs({ limit: DEFAULT_LIST_LIMIT }),
           api.getAllUsers().catch(() => [])
         ])
@@ -212,7 +236,7 @@ export default function Resumes() {
       }
     }
     fetchData()
-  }, [])
+  }, [selectedClient, selectedGlobalJobId])
 
   useEffect(() => {
     const debounce = setTimeout(fetchCandidates, 300)

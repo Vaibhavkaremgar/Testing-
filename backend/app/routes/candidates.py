@@ -2510,6 +2510,7 @@ def get_resume_summary(
 @router.get("/pipeline/stages")
 def get_pipeline_stages(
     client: Optional[str] = None,
+    job_id: Optional[UUID] = None,
     agency_id: Optional[UUID] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
@@ -2524,6 +2525,8 @@ def get_pipeline_stages(
         query = _apply_candidate_list_scope(query, current_user)
     if client:
         query = query.join(JobDescription).filter(JobDescription.company_name == client)
+    if job_id:
+        query = query.filter(Candidate.job_id == job_id)
 
     candidates = query.all()
     stages = {stage.value: [] for stage in CandidateStage}

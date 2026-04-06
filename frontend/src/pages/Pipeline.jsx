@@ -133,6 +133,7 @@ function StageColumn({ stage, candidates, onCardClick, isOver }) {
 export default function Pipeline({ superAdminAgencyId = null }) {
   const [searchParams] = useSearchParams()
   const selectedClient = searchParams.get('client')
+  const selectedJobId = searchParams.get('job_id')
   const [stages, setStages] = useState({})
   const [loading, setLoading] = useState(true)
   const [dragOverStage, setDragOverStage] = useState(null)
@@ -144,6 +145,7 @@ export default function Pipeline({ superAdminAgencyId = null }) {
       try {
         const params = {}
         if (selectedClient) params.client = selectedClient
+        if (selectedJobId) params.job_id = selectedJobId
         if (superAdminAgencyId) params.agency_id = superAdminAgencyId
         const data = await api.getPipelineStages(params)
         setStages(data)
@@ -154,7 +156,7 @@ export default function Pipeline({ superAdminAgencyId = null }) {
       }
     }
     fetchPipeline()
-  }, [selectedClient, superAdminAgencyId])
+  }, [selectedClient, selectedJobId, superAdminAgencyId])
 
   const handleCardClick = async (candidate) => {
     // No special click handling needed
