@@ -2,7 +2,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status, 
 from fastapi.responses import FileResponse
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
-from sqlalchemy import or_, text
+from sqlalchemy import func, or_, text
 from typing import Dict, List, Optional
 from uuid import UUID
 import os
@@ -92,6 +92,19 @@ def _apply_candidate_list_scope(query, current_user):
         return query.filter(Candidate.assigned_to_user_id == current_user.id)
 
     return query
+
+
+def _apply_client_filter(query, client: Optional[str]):
+    if not client:
+        return query
+
+    normalized_client = client.strip().lower()
+    if not normalized_client:
+        return query
+
+    return query.join(JobDescription, Candidate.job_id == JobDescription.id).filter(
+        func.lower(func.trim(JobDescription.company_name)) == normalized_client
+    )
 
 
 def get_bulk_processing_workers(item_count: int) -> int:
@@ -1833,7 +1846,7 @@ def get_candidates_count(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    from app.models import JobDescription, UserRole
+    from app.models import UserRole
     normalize_legacy_candidate_stages(db)
     query = db.query(Candidate)
     if current_user.role == UserRole.SUPER_ADMIN:
@@ -1866,7 +1879,7 @@ def get_candidates(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    from app.models import JobDescription, UserRole
+    from app.models import UserRole
     normalize_legacy_candidate_stages(db)
     query = db.query(Candidate)
 
@@ -1875,8 +1888,7 @@ def get_candidates(
     else:
         query = _apply_candidate_list_scope(query, current_user)
     
-    if client:
-        query = query.join(JobDescription).filter(JobDescription.company_name == client)
+    query = _apply_client_filter(query, client)
     if search:
         query = query.filter(
             or_(
@@ -2523,8 +2535,7 @@ def get_pipeline_stages(
         query = query.filter(Candidate.agency_id == agency_id)
     else:
         query = _apply_candidate_list_scope(query, current_user)
-    if client:
-        query = query.join(JobDescription).filter(JobDescription.company_name == client)
+    query = _apply_client_filter(query, client)
     if job_id:
         query = query.filter(Candidate.job_id == job_id)
 

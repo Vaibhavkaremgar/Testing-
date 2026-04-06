@@ -7,7 +7,7 @@ from docx import Document
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from ats.extraction.resume_parser import extract_docx_tables, extract_docx_text, parse_resume  # noqa: E402
+from ats.extraction.resume_parser import extract_docx, extract_docx_tables, extract_docx_text, extract_name, parse_resume  # noqa: E402
 from ats.preprocessing.text_cleaning import clean_text  # noqa: E402
 
 
@@ -48,6 +48,16 @@ class DocxResumeParserTests(unittest.TestCase):
         self.assertTrue(any("Education | B.Tech | State University | 2019" in line for line in table_lines))
         self.assertTrue(any("Skills | Python | FastAPI" in line or "Skills | SQL | Docker" in line for line in table_lines))
 
+    def test_extract_name_skips_resumev_noise(self):
+        text = "\n".join([
+            "ResumeV",
+            "Vaibhav K",
+            "vaibhav@example.com",
+            "+91 9988776655",
+        ])
+
+        self.assertEqual(extract_name(text), "Vaibhav K")
+
     def test_extract_docx_text_merges_paragraphs_and_tables(self):
         file_path = self._build_sample_docx()
 
@@ -58,6 +68,23 @@ class DocxResumeParserTests(unittest.TestCase):
         self.assertIn("john.doe@example.com", text)
         self.assertIn("Phone | +1 555 123 4567", text)
         self.assertGreaterEqual(len(payload["parsers_used"]), 1)
+
+    def test_extract_docx_includes_headers_and_footers(self):
+        document = Document()
+        section = document.sections[0]
+        section.header.paragraphs[0].text = "Header Candidate"
+        section.footer.paragraphs[0].text = "Footer Contact"
+        document.add_paragraph("Main Body")
+
+        temp_dir = tempfile.mkdtemp()
+        file_path = str(Path(temp_dir) / "header_footer_resume.docx")
+        document.save(file_path)
+
+        payload = extract_docx(file_path)
+
+        self.assertIn("Header Candidate", payload["text"])
+        self.assertIn("Footer Contact", payload["text"])
+        self.assertTrue(payload["headers_footers"])
 
     def test_parse_resume_includes_structured_sections_from_docx_tables(self):
         file_path = self._build_sample_docx()

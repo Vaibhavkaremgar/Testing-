@@ -29,6 +29,11 @@ except ImportError:  # pragma: no cover - optional dependency
     docx2python = None
 
 try:
+    import mammoth
+except ImportError:  # pragma: no cover - optional dependency
+    mammoth = None
+
+try:
     import pytesseract
 except ImportError:  # pragma: no cover - optional dependency
     pytesseract = None
@@ -54,6 +59,10 @@ PHONE_PATTERNS = [
 ]
 EMAIL_PATTERN = re.compile(r"\b[A-Za-z0-9._%+-]+\s*@\s*[A-Za-z0-9.-]+\s*\.\s*[A-Za-z]{2,}\b")
 PHONE_LINE_PATTERN = re.compile(r"(?:\+?\d[\d\s().-]{7,}\d)")
+NAME_LINE_DISALLOWED_PATTERN = re.compile(
+    r"(?i)\b(?:resumev|resume|cv|profile|skills|education|experience|contact)\b"
+)
+TEXTBOX_TEXT_PATTERN = re.compile(r"<w:t[^>]*>(.*?)</w:t>", re.IGNORECASE | re.DOTALL)
 DEFAULT_INVALID_NAME_TOKENS = {
     "about", "machine", "learning", "python", "java", "react", "sql", "developer",
     "engineer", "manager", "analyst", "summary", "profile", "objective", "resume",
@@ -164,6 +173,40 @@ def _dedupe_preserve_order(lines: Iterable[str]) -> List[str]:
     return ordered
 
 
+def _is_valid_name_line(line: str) -> bool:
+    candidate = _normalize_docx_line(line)
+    if not candidate:
+        return False
+    if NAME_LINE_DISALLOWED_PATTERN.search(candidate):
+        return False
+    if EMAIL_PATTERN.search(candidate) or PHONE_LINE_PATTERN.search(candidate):
+        return False
+    if any(char.isdigit() for char in candidate):
+        return False
+    words = [word for word in candidate.split() if word]
+    if not (2 <= len(words) <= 4):
+        return False
+    for word in words:
+        normalized_word = word.strip(".,")
+        if not normalized_word.replace("-", "").replace("'", "").isalpha():
+            return False
+        if not normalized_word[:1].isupper():
+            return False
+    return True
+
+
+def extract_name(text: str) -> str:
+    """Extract the candidate name from the first 10-15 lines, skipping resume/file-name noise."""
+    if not text:
+        return "Unknown Candidate"
+
+    lines = [line.strip() for line in clean_text(text).splitlines() if line.strip()]
+    for line in lines[:15]:
+        if _is_valid_name_line(line):
+            return _normalize_docx_line(line)
+    return "Unknown Candidate"
+
+
 def _flatten_docx2python_node(node: Any, *, depth: int = 0) -> List[str]:
     if node is None:
         return []
@@ -187,6 +230,50 @@ def _flatten_docx2python_node(node: Any, *, depth: int = 0) -> List[str]:
     return flattened
 
 
+def _extract_docx_headers_and_footers(document) -> List[str]:
+    lines: List[str] = []
+    try:
+        for section in document.sections:
+            for container in (section.header, section.first_page_header, section.even_page_header):
+                for paragraph in getattr(container, "paragraphs", []):
+                    text = _normalize_docx_line(paragraph.text)
+                    if text:
+                        lines.append(text)
+                for table in getattr(container, "tables", []):
+                    lines.extend(_extract_docx_table_lines(table))
+            for container in (section.footer, section.first_page_footer, section.even_page_footer):
+                for paragraph in getattr(container, "paragraphs", []):
+                    text = _normalize_docx_line(paragraph.text)
+                    if text:
+                        lines.append(text)
+                for table in getattr(container, "tables", []):
+                    lines.extend(_extract_docx_table_lines(table))
+    except Exception as exc:
+        logger.warning("DOCX header/footer extraction failed: %s", exc)
+    return lines
+
+
+def _extract_docx_textboxes(document) -> List[str]:
+    lines: List[str] = []
+    try:
+        xml_parts = [document.part.element.xml]
+        for relation in getattr(document.part, "rels", {}).values():
+            target_part = getattr(relation, "target_part", None)
+            if target_part is None:
+                continue
+            element = getattr(target_part, "element", None)
+            if element is not None:
+                xml_parts.append(element.xml)
+        for xml in xml_parts:
+            for match in TEXTBOX_TEXT_PATTERN.findall(xml):
+                text = _normalize_docx_line(match)
+                if text:
+                    lines.append(text)
+    except Exception as exc:
+        logger.warning("DOCX textbox extraction failed: %s", exc)
+    return _dedupe_preserve_order(lines)
+
+
 def extract_docx_tables(file_path: str) -> List[str]:
     """Extract DOCX table text row-by-row, including nested tables."""
     table_lines: List[str] = []
@@ -201,19 +288,21 @@ def extract_docx_tables(file_path: str) -> List[str]:
     return _dedupe_preserve_order(table_lines)
 
 
-def extract_docx_text(file_path: str) -> Dict[str, Any]:
+def extract_docx(file_path: str) -> Dict[str, Any]:
     """
-    Extract DOCX text with docx2python as the primary parser and python-docx as a fallback.
+    Extract DOCX content using:
+    1. docx2python
+    2. python-docx
+    3. mammoth
 
-    The merged output preserves:
-    - paragraph text
-    - table rows
-    - multi-column data
-    - nested table content
+    Includes paragraphs, tables, headers, footers, text boxes, and multi-column content.
     """
     parser_traces: List[str] = []
     docx2python_lines: List[str] = []
     python_docx_lines: List[str] = []
+    mammoth_lines: List[str] = []
+    textbox_lines: List[str] = []
+    header_footer_lines: List[str] = []
     merged_lines: List[str] = []
 
     if docx2python is not None:
@@ -227,6 +316,10 @@ def extract_docx_text(file_path: str) -> Dict[str, Any]:
                 body = getattr(extracted, "body", None)
                 if body is not None:
                     docx2python_lines.extend(_flatten_docx2python_node(body))
+                for container_name in ("header", "footer", "footnotes", "endnotes"):
+                    container = getattr(extracted, container_name, None)
+                    if container is not None:
+                        docx2python_lines.extend(_flatten_docx2python_node(container))
         except Exception as exc:
             logger.warning("docx2python extraction failed for %s: %s", file_path, exc)
 
@@ -242,21 +335,43 @@ def extract_docx_text(file_path: str) -> Dict[str, Any]:
                     python_docx_lines.append(text)
             elif isinstance(block, Table):
                 python_docx_lines.extend(_extract_docx_table_lines(block))
+        header_footer_lines.extend(_extract_docx_headers_and_footers(document))
+        textbox_lines.extend(_extract_docx_textboxes(document))
     except Exception as exc:
         logger.warning("python-docx block extraction failed for %s: %s", file_path, exc)
 
+    if not docx2python_lines and not python_docx_lines and mammoth is not None:
+        try:
+            with open(file_path, "rb") as handle:
+                mammoth_result = mammoth.extract_raw_text(handle)
+            parser_traces.append("mammoth")
+            mammoth_lines.extend(
+                [line for line in (_normalize_docx_line(part) for part in str(mammoth_result.value or "").splitlines()) if line]
+            )
+        except Exception as exc:
+            logger.warning("mammoth extraction failed for %s: %s", file_path, exc)
+
     merged_lines.extend(docx2python_lines)
     merged_lines.extend(python_docx_lines)
+    merged_lines.extend(header_footer_lines)
+    merged_lines.extend(textbox_lines)
     table_lines = extract_docx_tables(file_path)
     merged_lines.extend(table_lines)
+    merged_lines.extend(mammoth_lines)
 
     merged_lines = _dedupe_preserve_order(merged_lines)
     return {
         "text": "\n".join(merged_lines),
-        "paragraphs": _dedupe_preserve_order([*docx2python_lines, *python_docx_lines]),
+        "paragraphs": _dedupe_preserve_order([*docx2python_lines, *python_docx_lines, *mammoth_lines]),
         "tables": table_lines,
+        "textboxes": _dedupe_preserve_order(textbox_lines),
+        "headers_footers": _dedupe_preserve_order(header_footer_lines),
         "parsers_used": parser_traces,
     }
+
+
+def extract_docx_text(file_path: str) -> Dict[str, Any]:
+    return extract_docx(file_path)
 
 
 def _group_pdf_words_into_lines(words: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -657,6 +772,7 @@ def get_parser_runtime_status() -> Dict[str, Any]:
         "pdfplumber_available": True,
         "pypdf_available": True,
         "tika_available": tika_parser is not None,
+        "mammoth_available": mammoth is not None,
         "pytesseract_available": pytesseract is not None,
         "ocr_ready": _is_ocr_ready(),
         **layout_runtime,
@@ -711,7 +827,7 @@ def extract_document(file_path: str) -> Dict[str, Any]:
 
         elif file_ext == ".docx":
             try:
-                docx_payload = extract_docx_text(file_path)
+                docx_payload = extract_docx(file_path)
                 extracted_text = str(docx_payload.get("text") or "").strip()
                 if extracted_text:
                     text_parts.append(extracted_text)
@@ -724,6 +840,8 @@ def extract_document(file_path: str) -> Dict[str, Any]:
                         "parsers_used": docx_payload.get("parsers_used") or [],
                         "paragraph_count": len(docx_payload.get("paragraphs") or []),
                         "table_row_count": len(docx_payload.get("tables") or []),
+                        "textbox_count": len(docx_payload.get("textboxes") or []),
+                        "header_footer_count": len(docx_payload.get("headers_footers") or []),
                     },
                 }
             except Exception as exc:
@@ -907,6 +1025,10 @@ def _extract_name_with_spacy(text: str) -> str:
 
 
 def _extract_name(text: str, original_filename: Optional[str] = None) -> str:
+    extracted_name = extract_name(text)
+    if extracted_name != "Unknown Candidate":
+        return extracted_name
+
     for line in _header_name_candidates(text):
         lowered_line = line.strip().lower()
         if lowered_line in {"contact details", "contact information"}:
@@ -1075,8 +1197,10 @@ def parse_resume_text(
         "languages": [],
     }
 
+    extracted_name = _extract_name(raw_text, original_filename)
+
     result = {
-        "name": _extract_name(raw_text, original_filename),
+        "name": extracted_name,
         "email": _extract_email(cleaned_text),
         "phone": _extract_phone(cleaned_text),
         "skills": extracted_info.get("skills", []),
@@ -1096,7 +1220,7 @@ def parse_resume_text(
         "sections": extracted_info.get("sections", {}),
         "experience_entries": extracted_info.get("experience", []),
         "personal_details": {
-            "name": _extract_name(raw_text, original_filename),
+            "name": extracted_name,
             "email": _extract_email(cleaned_text),
             "phone": _extract_phone(cleaned_text),
             "location": extracted_info.get("location", ""),

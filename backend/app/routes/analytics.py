@@ -51,10 +51,12 @@ def _apply_candidate_dashboard_filters(
     date: Optional[str] = None,
 ):
     query = _apply_candidate_visibility(query, current_user)
-    role_name = _role_name(current_user)
 
-    if client and role_name == UserRole.ADMIN.value:
-        job_ids = db.query(JobDescription.id).filter(JobDescription.company_name == client).all()
+    if client:
+        normalized_client = client.strip().lower()
+        job_ids = db.query(JobDescription.id).filter(
+            func.lower(func.trim(JobDescription.company_name)) == normalized_client
+        ).all()
         job_ids = [job_id[0] for job_id in job_ids]
         if job_ids:
             query = query.filter(Candidate.job_id.in_(job_ids))
