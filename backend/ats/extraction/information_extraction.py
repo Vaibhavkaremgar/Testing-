@@ -1608,28 +1608,37 @@ def extract_resume_information(text: str) -> Dict:
                 header_role = m.group("role").strip()
                 break
 
-    location = extract_location(structural_source)
-    header_context = sections.get("header", "")
-    if not location:
-        top_window_lines = [line.strip() for line in normalize_document_structure(text or "").splitlines()[:25] if line.strip()]
-        header_only_lines: List[str] = []
-        for line in top_window_lines[:8]:
-            if re.match(r"(?i)^(?:professional summary|summary|profile summary|skills|technical skills|experience|work experience|period|education|projects|certifications?)$", line.strip()):
-                break
-            header_only_lines.append(line)
-            location = extract_location(line)
-            if location:
-                break
-        if not location:
-            header_context = "\n".join(header_only_lines)
-            location = extract_location(header_context)
-    if not location and SPACY_AVAILABLE and header_context:
-        doc = get_section_doc(header_context[:800])
-        if doc:
+    location = ""
+    structural_lines = [line.strip() for line in normalize_document_structure(text or "").splitlines() if line.strip()]
+    header_only_lines: List[str] = []
+    for line in structural_lines[:8]:
+        if re.match(r"(?i)^(?:professional summary|summary|profile summary|skills|technical skills|experience|work experience|period|education|projects|certifications?)$", line):
+            break
+        header_only_lines.append(line)
+
+    header_context = "\n".join(header_only_lines)
+    personal_detail_lines = _extract_personal_detail_lines(structural_lines)
+    personal_details_context = "\n".join(personal_detail_lines)
+
+    for source in (personal_details_context, header_context):
+        if not source:
+            continue
+        location = extract_location(source)
+        if location:
+            break
+
+    if not location and SPACY_AVAILABLE:
+        for source in (personal_details_context, header_context):
+            if not source:
+                continue
+            doc = get_section_doc(source[:800])
+            if not doc:
+                continue
             gpe_entities = [ent.text.strip(" ,.-") for ent in doc.ents if ent.label_ == "GPE"]
             ranked = list(dict.fromkeys(entity for entity in gpe_entities if entity and entity.lower() not in INVALID_LOCATION_WORDS))
             if ranked:
                 location = ranked[-1]
+                break
     logger.debug(
         "Primary contact extraction complete: name=%s email=%s phone=%s location=%s experience=%s",
         primary_name,

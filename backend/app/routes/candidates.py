@@ -427,10 +427,7 @@ def extract_resume_data(file_path: str, original_filename: str = None) -> dict:
     except Exception as e:
         print(f"Error in resume extraction: {e}")
     
-    # Fallback to filename if no name found in document
-    if not name and original_filename:
-        name = clean_candidate_name(os.path.splitext(original_filename)[0])
-    elif name:
+    if name:
         name = clean_candidate_name(name)
     elif not name:
         name = "Unknown Candidate"

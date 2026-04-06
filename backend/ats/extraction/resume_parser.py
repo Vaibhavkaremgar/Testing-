@@ -1095,12 +1095,6 @@ def _extract_name(text: str, original_filename: Optional[str] = None) -> str:
         inline_header_name = _extract_inline_header_name(line)
         if inline_header_name:
             return inline_header_name
-    if original_filename:
-        filename_name = _normalize_name_candidate(
-            os.path.splitext(original_filename)[0].replace("_", " ").replace("-", " ").title()
-        )
-        if filename_name:
-            return filename_name
     return "Unknown Candidate"
 
 
@@ -1200,7 +1194,7 @@ def parse_resume_text(
     extracted_name = _extract_name(raw_text, original_filename)
 
     result = {
-        "name": extracted_name,
+        "name": extracted_name or "Unknown Candidate",
         "email": _extract_email(cleaned_text),
         "phone": _extract_phone(cleaned_text),
         "skills": extracted_info.get("skills", []),
@@ -1220,7 +1214,7 @@ def parse_resume_text(
         "sections": extracted_info.get("sections", {}),
         "experience_entries": extracted_info.get("experience", []),
         "personal_details": {
-            "name": extracted_name,
+            "name": extracted_name or "Unknown Candidate",
             "email": _extract_email(cleaned_text),
             "phone": _extract_phone(cleaned_text),
             "location": extracted_info.get("location", ""),

@@ -14,12 +14,62 @@ from ats.extraction.experience_extraction import (  # noqa: E402
     merge_overlapping_ranges,
     parse_date,
 )
+from ats.extraction.information_extraction import extract_resume_information  # noqa: E402
+from ats.extraction.resume_parser import parse_resume_text  # noqa: E402
 
 
 logging.basicConfig(level=logging.DEBUG)
 
 
 class ExperienceExtractionTests(unittest.TestCase):
+    def test_parse_resume_does_not_use_filename_as_name_fallback(self):
+        resume_text = """
+Email: candidate@example.com
+Phone: 9876543210
+
+Professional Summary
+Backend engineer with API and SQL experience.
+        """
+
+        parsed = parse_resume_text(resume_text, original_filename="Swapna Resume.pdf")
+
+        self.assertNotEqual(parsed["name"], "Swapna Resume")
+        self.assertNotEqual(parsed["name"], "Swapna")
+
+    def test_location_stays_blank_when_not_in_header_or_personal_details(self):
+        resume_text = """
+John Doe
+john@example.com
++91 9876543210
+
+Professional Summary
+Software engineer with experience working with Hyderabad clients and remote teams.
+
+Work Experience
+Software Engineer | ABC Corp
+Jan 2020 - Present
+Built backend services for a Bengaluru deployment.
+        """
+
+        extracted = extract_resume_information(resume_text)
+
+        self.assertEqual(extracted["location"], "")
+
+    def test_location_is_extracted_from_personal_details(self):
+        resume_text = """
+John Doe
+Email: john@example.com
+Phone: +91 9876543210
+Location: Hyderabad, India
+
+Professional Summary
+Backend engineer with Python and FastAPI experience.
+        """
+
+        extracted = extract_resume_information(resume_text)
+
+        self.assertEqual(extracted["location"], "Hyderabad")
+
     def test_extract_experience_section_ignores_education_and_projects(self):
         resume_text = """
 John Doe
