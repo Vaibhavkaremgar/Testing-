@@ -4,7 +4,7 @@ import logging
 import os
 import re
 import shutil
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import pdfplumber
 from docx.document import Document as DocxDocument
@@ -24,6 +24,11 @@ except ImportError:  # pragma: no cover - optional dependency
     tika_parser = None
 
 try:
+    from docx2python import docx2python
+except ImportError:  # pragma: no cover - optional dependency
+    docx2python = None
+
+try:
     import pytesseract
 except ImportError:  # pragma: no cover - optional dependency
     pytesseract = None
@@ -35,7 +40,7 @@ from ats.extraction.information_extraction import extract_resume_information
 from ats.extraction.layout_detection import get_layout_runtime_status, infer_layout_signals
 from ats.extraction.validation import validate_parsed_fields
 from ats.preprocessing.section_segmentation import segment_resume_sections
-from ats.preprocessing.text_cleaning import clean_text_pipeline, normalize_common_artifacts, normalize_document_structure, split_inline_section_headers
+from ats.preprocessing.text_cleaning import clean_text, clean_text_pipeline, normalize_common_artifacts, normalize_document_structure, split_inline_section_headers
 from app.spacy_nlp import SPACY_AVAILABLE, get_section_doc
 
 logger = logging.getLogger(__name__)
@@ -138,6 +143,120 @@ def _extract_docx_table_lines(table: Table) -> List[str]:
         if row_values:
             lines.append(" | ".join(row_values))
     return lines
+
+
+def _normalize_docx_line(value: str) -> str:
+    line = normalize_common_artifacts(str(value or ""))
+    line = line.replace("\r", "\n")
+    line = re.sub(r"[ \t]+", " ", line)
+    return line.strip()
+
+
+def _dedupe_preserve_order(lines: Iterable[str]) -> List[str]:
+    ordered: List[str] = []
+    seen: set[str] = set()
+    for line in lines:
+        normalized = _normalize_docx_line(line)
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        ordered.append(normalized)
+    return ordered
+
+
+def _flatten_docx2python_node(node: Any, *, depth: int = 0) -> List[str]:
+    if node is None:
+        return []
+    if isinstance(node, str):
+        parts = [part.strip() for part in node.replace("\r", "\n").split("\n")]
+        return [part for part in parts if part]
+    if not isinstance(node, (list, tuple)):
+        return []
+
+    if node and all(isinstance(item, (list, tuple)) for item in node):
+        child_rows = [_flatten_docx2python_node(item, depth=depth + 1) for item in node]
+        if depth >= 2 and any(child_rows):
+            row_values = [" ".join(value for value in row if value).strip() for row in child_rows]
+            row_values = [value for value in row_values if value]
+            if row_values:
+                return [" | ".join(row_values)]
+
+    flattened: List[str] = []
+    for item in node:
+        flattened.extend(_flatten_docx2python_node(item, depth=depth + 1))
+    return flattened
+
+
+def extract_docx_tables(file_path: str) -> List[str]:
+    """Extract DOCX table text row-by-row, including nested tables."""
+    table_lines: List[str] = []
+    try:
+        import docx
+
+        document = docx.Document(file_path)
+        for table in document.tables:
+            table_lines.extend(_extract_docx_table_lines(table))
+    except Exception as exc:
+        logger.warning("python-docx table extraction failed for %s: %s", file_path, exc)
+    return _dedupe_preserve_order(table_lines)
+
+
+def extract_docx_text(file_path: str) -> Dict[str, Any]:
+    """
+    Extract DOCX text with docx2python as the primary parser and python-docx as a fallback.
+
+    The merged output preserves:
+    - paragraph text
+    - table rows
+    - multi-column data
+    - nested table content
+    """
+    parser_traces: List[str] = []
+    docx2python_lines: List[str] = []
+    python_docx_lines: List[str] = []
+    merged_lines: List[str] = []
+
+    if docx2python is not None:
+        try:
+            with docx2python(file_path) as extracted:
+                parser_traces.append("docx2python")
+                raw_text = getattr(extracted, "text", "") or ""
+                docx2python_lines.extend(
+                    [line for line in (_normalize_docx_line(part) for part in raw_text.splitlines()) if line]
+                )
+                body = getattr(extracted, "body", None)
+                if body is not None:
+                    docx2python_lines.extend(_flatten_docx2python_node(body))
+        except Exception as exc:
+            logger.warning("docx2python extraction failed for %s: %s", file_path, exc)
+
+    try:
+        import docx
+
+        document = docx.Document(file_path)
+        parser_traces.append("python-docx")
+        for block in _iter_docx_blocks(document):
+            if isinstance(block, Paragraph):
+                text = _normalize_docx_line(block.text)
+                if text:
+                    python_docx_lines.append(text)
+            elif isinstance(block, Table):
+                python_docx_lines.extend(_extract_docx_table_lines(block))
+    except Exception as exc:
+        logger.warning("python-docx block extraction failed for %s: %s", file_path, exc)
+
+    merged_lines.extend(docx2python_lines)
+    merged_lines.extend(python_docx_lines)
+    table_lines = extract_docx_tables(file_path)
+    merged_lines.extend(table_lines)
+
+    merged_lines = _dedupe_preserve_order(merged_lines)
+    return {
+        "text": "\n".join(merged_lines),
+        "paragraphs": _dedupe_preserve_order([*docx2python_lines, *python_docx_lines]),
+        "tables": table_lines,
+        "parsers_used": parser_traces,
+    }
 
 
 def _group_pdf_words_into_lines(words: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -546,7 +665,7 @@ def get_parser_runtime_status() -> Dict[str, Any]:
 
 def extract_document(file_path: str) -> Dict[str, Any]:
     if not file_path or not os.path.exists(file_path):
-        return {"text": "", "layout": _default_layout_signals()}
+        return {"text": "", "layout": _default_layout_signals(), "tables": [], "metadata": {}}
 
     file_ext = os.path.splitext(file_path)[1].lower()
     text_parts: List[str] = []
@@ -592,16 +711,21 @@ def extract_document(file_path: str) -> Dict[str, Any]:
 
         elif file_ext == ".docx":
             try:
-                import docx
-
-                document = docx.Document(file_path)
-                for block in _iter_docx_blocks(document):
-                    if isinstance(block, Paragraph):
-                        if block.text.strip():
-                            text_parts.append(block.text)
-                    elif isinstance(block, Table):
-                        text_parts.extend(_extract_docx_table_lines(block))
+                docx_payload = extract_docx_text(file_path)
+                extracted_text = str(docx_payload.get("text") or "").strip()
+                if extracted_text:
+                    text_parts.append(extracted_text)
                 layout_signals = infer_layout_signals(text_parts=text_parts, page_metrics=[])
+                return {
+                    "text": "\n".join(part.strip() for part in text_parts if part and part.strip()),
+                    "layout": layout_signals,
+                    "tables": docx_payload.get("tables") or [],
+                    "metadata": {
+                        "parsers_used": docx_payload.get("parsers_used") or [],
+                        "paragraph_count": len(docx_payload.get("paragraphs") or []),
+                        "table_row_count": len(docx_payload.get("tables") or []),
+                    },
+                }
             except Exception as exc:
                 logger.warning("python-docx extraction failed for %s: %s", file_path, exc)
 
@@ -633,6 +757,8 @@ def extract_document(file_path: str) -> Dict[str, Any]:
     return {
         "text": "\n".join(part.strip() for part in text_parts if part and part.strip()),
         "layout": layout_signals,
+        "tables": [],
+        "metadata": {},
     }
 
 
@@ -930,13 +1056,15 @@ def parse_resume_text(
     layout_signals: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     layout_signals = layout_signals or _default_layout_signals()
-    cleaned_text = clean_text_pipeline(raw_text) if raw_text else ""
-    extracted_info = extract_resume_information(raw_text) if raw_text else {
+    cleaned_text = clean_text(raw_text) if raw_text else ""
+    normalized_text = clean_text_pipeline(cleaned_text) if cleaned_text else ""
+    extracted_info = extract_resume_information(cleaned_text) if cleaned_text else {
         "sections": segment_resume_sections(""),
         "skills": [],
         "experience": [],
         "projects": [],
         "education": [],
+        "certifications": [],
         "location": "",
         "current_company": None,
         "current_role": None,
@@ -949,9 +1077,13 @@ def parse_resume_text(
 
     result = {
         "name": _extract_name(raw_text, original_filename),
-        "email": _extract_email(raw_text),
+        "email": _extract_email(cleaned_text),
         "phone": _extract_phone(cleaned_text),
         "skills": extracted_info.get("skills", []),
+        "education": extracted_info.get("education", []),
+        "experience": extracted_info.get("experience", []),
+        "projects": extracted_info.get("projects", []),
+        "certifications": extracted_info.get("certifications", []),
         "total_experience_years": extracted_info.get("total_experience_years"),
         "experience_years": extracted_info.get("experience_years"),
         "experience_level": extracted_info.get("experience_level") or _classify_experience_level(extracted_info.get("total_experience_years")),
@@ -963,9 +1095,18 @@ def parse_resume_text(
         "summary": extracted_info.get("sections", {}).get("summary", ""),
         "sections": extracted_info.get("sections", {}),
         "experience_entries": extracted_info.get("experience", []),
+        "personal_details": {
+            "name": _extract_name(raw_text, original_filename),
+            "email": _extract_email(cleaned_text),
+            "phone": _extract_phone(cleaned_text),
+            "location": extracted_info.get("location", ""),
+            "current_company": extracted_info.get("current_company"),
+            "current_role": extracted_info.get("current_role"),
+        },
         "layout_signals": layout_signals,
         "runtime_status": get_parser_runtime_status(),
         "full_text": cleaned_text,
+        "normalized_text": normalized_text,
         "raw_text": raw_text,
         "field_confidence": {
             "name": 0.0,
@@ -992,4 +1133,19 @@ def parse_resume(file_path: str, original_filename: Optional[str] = None) -> Dic
     document_payload = extract_document(file_path)
     raw_text = str(document_payload.get("text") or "")
     layout_signals = document_payload.get("layout") or _default_layout_signals()
-    return parse_resume_text(raw_text, original_filename=original_filename, layout_signals=layout_signals)
+    parsed_resume = parse_resume_text(raw_text, original_filename=original_filename, layout_signals=layout_signals)
+    parsed_resume["document_tables"] = document_payload.get("tables") or []
+    parsed_resume["document_metadata"] = document_payload.get("metadata") or {}
+    return parsed_resume
+
+
+if __name__ == "__main__":  # pragma: no cover - example usage
+    import json
+    import sys
+
+    if len(sys.argv) < 2:
+        print("Usage: python -m ats.extraction.resume_parser <resume-file>")
+        raise SystemExit(1)
+
+    parsed = parse_resume(sys.argv[1], original_filename=os.path.basename(sys.argv[1]))
+    print(json.dumps(parsed, indent=2, default=str))

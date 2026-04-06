@@ -11,6 +11,7 @@ BULLET_PREFIX_PATTERN = re.compile(r"(?m)^\s*[\-\*\u2022\u25aa\u25e6\u2043\u2219
 SPECIAL_CHARACTER_PATTERN = re.compile(r"[^\w\s@.,;:/+#&()'\-|\n]")
 CID_ARTIFACT_PATTERN = re.compile(r"\(cid:\d+\)")
 ZERO_WIDTH_PATTERN = re.compile(r"[\u200b-\u200d\ufeff]")
+INVISIBLE_CONTROL_PATTERN = re.compile(r"[\u2060\u00ad]")
 DECORATIVE_SYMBOL_PATTERN = re.compile(r"(?:(?<!\w)[@#&=~*_]{2,}|[@#&=~*_]{2,}(?!\w))")
 REPEATED_PUNCTUATION_PATTERN = re.compile(r"([.,;:|/()\-])\1+")
 PIPE_SEPARATOR_PATTERN = re.compile(r"\s*\|\s*")
@@ -81,6 +82,7 @@ HEADER_PATTERN = re.compile(
     r"(?i)^(?:work experience|professional experience|employment history|employment|experience|period|skills|technical skills|education|projects?|summary|profile|languages?)$"
 )
 WHITESPACE_PATTERN = re.compile(r"[ \t]+")
+SAFE_HORIZONTAL_SPACE_PATTERN = re.compile(r"[ \u00a0]{2,}")
 INLINE_SECTION_HEADER_PATTERN = re.compile(
     r"(?i)(?<!\n)(?:\s{2,}|\s)(?P<header>"
     r"career profile|professional summary|profile summary|profile|summary|objective|"
@@ -402,6 +404,24 @@ def clean_text_pipeline(text: str) -> str:
 
 
 def clean_text(text: str) -> str:
-    cleaned_text = clean_text_pipeline(text)
-    logger.info("Text Cleaning Applied")
-    return cleaned_text
+    if not text:
+        return ""
+
+    cleaned_text = normalize_line_breaks(text)
+    cleaned_text = cleaned_text.replace("\u00a0", " ")
+    cleaned_text = cleaned_text.replace("\t", "    ")
+    cleaned_text = ZERO_WIDTH_PATTERN.sub("", cleaned_text)
+    cleaned_text = INVISIBLE_CONTROL_PATTERN.sub("", cleaned_text)
+    cleaned_text = cleaned_text.replace("\f", "\n")
+    cleaned_text = cleaned_text.replace("\v", "\n")
+
+    normalized_lines = []
+    for line in cleaned_text.split("\n"):
+        line = re.sub(r"[ ]+\t", "    ", line)
+        line = SAFE_HORIZONTAL_SPACE_PATTERN.sub(lambda match: " " if len(match.group(0)) <= 2 else "  ", line)
+        normalized_lines.append(line.rstrip())
+
+    cleaned_text = "\n".join(normalized_lines)
+    cleaned_text = re.sub(r"\n{4,}", "\n\n\n", cleaned_text)
+    logger.info("Safe text cleaning applied")
+    return cleaned_text.strip()

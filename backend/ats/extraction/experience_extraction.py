@@ -174,6 +174,8 @@ def _looks_like_company(value: str) -> bool:
         return False
     if ACTION_SENTENCE_PATTERN.search(candidate):
         return False
+    if ROLE_HINT_PATTERN.search(candidate):
+        return False
     if "," in candidate:
         return False
     if COMPANY_STOPWORD_PATTERN.search(candidate):
@@ -376,6 +378,21 @@ def _extract_company_from_heading_line(line: str, role: Optional[str] = None) ->
     if role and candidate.lower().startswith(role.lower()):
         candidate = candidate[len(role):].strip(" |-,:")
 
+    if "|" in candidate:
+        pipe_parts = [part.strip() for part in candidate.split("|") if part.strip()]
+        for part in pipe_parts:
+            part = re.sub(
+                r"\s+-\s+[A-Z][A-Za-z.\s]+(?:,\s*[A-Z][A-Za-z.\s]+)?(?:\s*/\s*Remote)?$",
+                "",
+                part,
+            ).strip(" |-,:")
+            if part and _looks_like_company(part):
+                return _clean_company_name(part)
+            if re.match(r"^[A-Z][A-Za-z0-9&.'-]{2,}$", part) and not ROLE_HINT_PATTERN.search(part):
+                return _clean_company_name(part)
+        if role is None and ROLE_HINT_PATTERN.search(candidate):
+            return None
+
     candidate = re.sub(r"(?i)^previously worked at\s+", "", candidate).strip()
     candidate = re.sub(r"(?i)^at\s+", "", candidate).strip()
     if " in " in candidate.lower():
@@ -474,7 +491,14 @@ def _extract_company_candidate(block_lines: Sequence[str]) -> Optional[str]:
         if "|" in normalized_line:
             parts = [part.strip() for part in normalized_line.split("|") if part.strip()]
             for part in reversed(parts):
+                part = re.sub(
+                    r"\s+-\s+[A-Z][A-Za-z.\s]+(?:,\s*[A-Z][A-Za-z.\s]+)?(?:\s*/\s*Remote)?$",
+                    "",
+                    part,
+                ).strip(" |-,:")
                 if _looks_like_company(part):
+                    return _clean_company_name(part)
+                if re.match(r"^[A-Z][A-Za-z0-9&.'-]{2,}$", part) and not ROLE_HINT_PATTERN.search(part):
                     return _clean_company_name(part)
         extracted = _extract_company_from_heading_line(normalized_line, role_hint)
         if extracted and _looks_like_company(extracted):
