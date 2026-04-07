@@ -18,6 +18,7 @@ export default defineConfig({
     port: parseInt(process.env.PORT) || 4173,
     strictPort: false,
     allowedHosts: [
+      'dashboard.pontis.one',
       'glistening-youth-production.up.railway.app',
       '.railway.app',
       'localhost'
