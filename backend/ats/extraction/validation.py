@@ -81,6 +81,13 @@ def _normalize(value: Optional[str]) -> str:
     return re.sub(r"\s+", " ", (value or "").strip())
 
 
+def _strip_trailing_company_punctuation(value: str) -> str:
+    candidate = _normalize(value)
+    while candidate.endswith((".", ",", ";", ":")):
+        candidate = candidate[:-1].rstrip()
+    return candidate
+
+
 def validate_current_role(value: Optional[str], skills: Iterable[str]) -> Optional[str]:
     candidate = _normalize(value)
     skill_set = {str(skill).strip().lower() for skill in skills if str(skill).strip()}
@@ -106,7 +113,7 @@ def validate_current_role(value: Optional[str], skills: Iterable[str]) -> Option
 
 
 def validate_current_company(value: Optional[str], experience_section: str) -> Optional[str]:
-    candidate = _normalize(value)
+    candidate = _strip_trailing_company_punctuation(value or "")
     if not candidate:
         return None
     if candidate not in (experience_section or ""):

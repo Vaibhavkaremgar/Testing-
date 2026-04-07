@@ -1,5 +1,6 @@
 [phases.setup]
 nixPkgs = ["python311"]
+aptPkgs = ["tesseract-ocr", "libtesseract-dev", "poppler-utils"]
 
 [phases.install]
 cmds = ["pip install -r requirements.txt", "python -m spacy download en_core_web_sm"]

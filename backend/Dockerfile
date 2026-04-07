@@ -2,11 +2,15 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies including LibreOffice for Word to PDF conversion
+# Install system dependencies including OCR + PDF tooling for resume ingestion.
 RUN apt-get update && apt-get install -y \
     gcc \
     libreoffice \
     libreoffice-writer \
+    tesseract-ocr \
+    tesseract-ocr-eng \
+    libtesseract-dev \
+    poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
@@ -21,6 +25,10 @@ COPY . .
 
 # Create uploads directory
 RUN mkdir -p uploads
+
+# Railway production OCR configuration
+ENV TESSERACT_CMD=/usr/bin/tesseract
+RUN tesseract --version
 
 # Expose port
 EXPOSE 8000

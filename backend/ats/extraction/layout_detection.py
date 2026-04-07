@@ -69,6 +69,7 @@ def infer_layout_signals(
 
     page_count = len(page_metrics)
     multi_column_pages = sum(1 for page in page_metrics if _normalize_bool(page.get("has_multi_column")))
+    header_block_pages = sum(1 for page in page_metrics if _normalize_bool(page.get("has_header_block")))
     landscape_pages = sum(
         1
         for page in page_metrics
@@ -84,6 +85,7 @@ def infer_layout_signals(
         for page in page_metrics
     )
     table_like_lines = _count_table_like_lines(lines)
+    scanned_pages = sum(1 for page in page_metrics if _normalize_bool(page.get("is_scanned_pdf")))
     section_positions = _section_header_positions(lines[:40])
     early_lines = [line.strip() for line in lines[:20] if line.strip()]
     short_line_ratio = (_count_short_lines(early_lines) / max(len(early_lines), 1)) if early_lines else 0.0
@@ -92,6 +94,10 @@ def infer_layout_signals(
     is_multi_column = multi_column_pages > 0
     is_horizontal = landscape_pages > 0
     is_table_based = detected_tables > 0 or table_like_lines >= 3
+    has_header_block = header_block_pages > 0 or contact_line_count >= 2 or (
+        bool(early_lines[:3])
+        and any("@" in line or CONTACT_LINE_PATTERN.search(line) for line in early_lines[:3])
+    )
     has_early_skills = any(
         header in section_positions
         for header in ("technical skills", "skills", "core skills", "key skills")
@@ -129,10 +135,14 @@ def infer_layout_signals(
         "is_vertical": is_vertical,
         "is_horizontal": is_horizontal,
         "is_table_based": is_table_based,
+        "has_header_block": has_header_block,
+        "is_scanned_pdf": scanned_pages > 0,
         "layoutparser_available": lp is not None,
         "page_count": page_count,
         "multi_column_pages": multi_column_pages,
+        "header_block_pages": header_block_pages,
         "landscape_pages": landscape_pages,
+        "scanned_pages": scanned_pages,
         "detected_tables": detected_tables,
         "table_like_lines": table_like_lines,
         "short_line_ratio": round(short_line_ratio, 2),
@@ -145,6 +155,8 @@ def infer_layout_signals(
                 ("vertical", is_vertical),
                 ("horizontal", is_horizontal),
                 ("table_based", is_table_based),
+                ("header_block", has_header_block),
+                ("scanned_pdf", scanned_pages > 0),
             )
             if enabled
         ],

@@ -4,13 +4,15 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from statistics import mean
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
+from unittest.mock import patch
 
 import fitz
+from docx import Document
+from PIL import Image, ImageDraw
 
 from ats.extraction.resume_parser import (
     _extract_pdf_text_via_ocr,
-    _extract_pdf_text_with_pdfplumber,
     _extract_pdf_text_with_pypdf,
     _has_meaningful_text,
     extract_document,
@@ -27,9 +29,18 @@ class FormatBenchmarkCase:
     label: str
     filename: str
     expected: Dict[str, Any]
+    mocked_ocr_text: Optional[str] = None
 
 
-def _insert_lines(page: fitz.Page, lines: List[str], x: float, y: float, width: float, color: Tuple[float, float, float] = (0, 0, 0), fontsize: float = 11) -> None:
+def _insert_lines(
+    page: fitz.Page,
+    lines: List[str],
+    x: float,
+    y: float,
+    width: float,
+    color: Tuple[float, float, float] = (0, 0, 0),
+    fontsize: float = 11,
+) -> None:
     cursor_y = y
     for line in lines:
         page.insert_text((x, cursor_y), line, fontsize=fontsize, fontname="helv", color=color)
@@ -50,24 +61,7 @@ def _create_multi_column_resume(path: Path) -> FormatBenchmarkCase:
         500,
         fontsize=12,
     )
-    _insert_lines(
-        page,
-        [
-            "TECHNICAL SKILLS",
-            "SQL",
-            "Python",
-            "Power BI",
-            "Tableau",
-            "Mixpanel",
-            "Git",
-            "",
-            "PROJECTS",
-            "Hiring Analytics Platform",
-        ],
-        320,
-        110,
-        190,
-    )
+    _insert_lines(page, ["TECHNICAL SKILLS", "SQL", "Python", "Power BI", "Tableau", "Mixpanel", "Git"], 320, 110, 190)
     _insert_lines(
         page,
         [
@@ -76,11 +70,6 @@ def _create_multi_column_resume(path: Path) -> FormatBenchmarkCase:
             "Meesho Pvt. Ltd.",
             "Jun 2022 - Present",
             "Built reporting dashboards and business insights.",
-            "",
-            "Data Analyst",
-            "Delhivery Ltd.",
-            "Jan 2020 - May 2022",
-            "Built logistics reporting and KPI scorecards.",
         ],
         40,
         110,
@@ -90,7 +79,7 @@ def _create_multi_column_resume(path: Path) -> FormatBenchmarkCase:
     doc.close()
     return FormatBenchmarkCase(
         case_id="multi_column",
-        label="Multi-column resume",
+        label="Multi-column PDF",
         filename=path.name,
         expected={
             "name": "Ananya Krishnan",
@@ -109,10 +98,7 @@ def _create_colored_resume(path: Path) -> FormatBenchmarkCase:
     page.draw_rect(fitz.Rect(0, 0, 595, 110), color=(0.12, 0.36, 0.64), fill=(0.12, 0.36, 0.64))
     _insert_lines(
         page,
-        [
-            "Priya Menon",
-            "Bengaluru, Karnataka | +91 99887 66554 | priya.menon@email.com",
-        ],
+        ["Priya Menon", "Bengaluru, Karnataka | +91 99887 66554 | priya.menon@email.com"],
         40,
         36,
         500,
@@ -122,28 +108,21 @@ def _create_colored_resume(path: Path) -> FormatBenchmarkCase:
     _insert_lines(
         page,
         [
-            "PROFILE",
-            "Product designer with portfolio-driven UX work.",
-            "",
             "WORK EXPERIENCE",
             "Senior Product Designer",
             "Nova Design Studio",
             "2021 - Present",
             "Led design systems and UX research for hiring tools.",
-            "",
-            "SKILLS",
-            "Figma | Prototyping | UX Design | Design Systems",
         ],
         40,
         140,
         500,
-        color=(0.08, 0.08, 0.08),
     )
     doc.save(path)
     doc.close()
     return FormatBenchmarkCase(
         case_id="colored",
-        label="Colored resume",
+        label="Colored PDF",
         filename=path.name,
         expected={
             "name": "Priya Menon",
@@ -164,35 +143,21 @@ def _create_horizontal_resume(path: Path) -> FormatBenchmarkCase:
         [
             "Maya Thomas",
             "Austin, Texas | +1 (415) 555-0101 | maya.thomas.engineer@gmail.com",
-            "",
             "WORK EXPERIENCE",
             "Principal Backend Engineer",
             "Acme Cloud Systems",
             "2023 - Present",
-            "Built Python and FastAPI services on AWS with Docker.",
         ],
         40,
         50,
         330,
     )
-    _insert_lines(
-        page,
-        [
-            "SUMMARY",
-            "Backend architect focused on reliable distributed systems.",
-            "",
-            "SKILLS",
-            "Python | FastAPI | AWS | Docker | PostgreSQL",
-        ],
-        430,
-        50,
-        320,
-    )
+    _insert_lines(page, ["SKILLS", "Python | FastAPI | AWS | Docker | PostgreSQL"], 430, 50, 320)
     doc.save(path)
     doc.close()
     return FormatBenchmarkCase(
         case_id="horizontal",
-        label="Horizontal resume",
+        label="Horizontal PDF",
         filename=path.name,
         expected={
             "name": "Maya Thomas",
@@ -208,17 +173,7 @@ def _create_horizontal_resume(path: Path) -> FormatBenchmarkCase:
 def _create_table_resume(path: Path) -> FormatBenchmarkCase:
     doc = fitz.open()
     page = doc.new_page(width=595, height=842)
-    _insert_lines(
-        page,
-        [
-            "Rahul Verma",
-            "Pune, Maharashtra | +91 9876543210 | rahul.verma.ai.dev@gmail.com",
-        ],
-        40,
-        40,
-        500,
-        fontsize=12,
-    )
+    _insert_lines(page, ["Rahul Verma", "Pune, Maharashtra | +91 9876543210 | rahul.verma.ai.dev@gmail.com"], 40, 40, 500, fontsize=12)
     left = 40
     top = 120
     row_height = 28
@@ -245,7 +200,7 @@ def _create_table_resume(path: Path) -> FormatBenchmarkCase:
     doc.close()
     return FormatBenchmarkCase(
         case_id="table_based",
-        label="Table-based resume",
+        label="Table-based PDF",
         filename=path.name,
         expected={
             "name": "Rahul Verma",
@@ -258,23 +213,87 @@ def _create_table_resume(path: Path) -> FormatBenchmarkCase:
     )
 
 
+def _create_docx_resume(path: Path) -> FormatBenchmarkCase:
+    document = Document()
+    document.add_paragraph("Nisha Verma")
+    document.add_paragraph("Pune, Maharashtra | +91 98765 11111 | nisha.verma@email.com")
+    document.add_paragraph("Work Experience")
+    document.add_paragraph("Talent Acquisition Specialist")
+    document.add_paragraph("Bright Hire Solutions")
+    document.add_paragraph("2022 - Present")
+    skills_table = document.add_table(rows=2, cols=2)
+    skills_table.cell(0, 0).text = "Skills"
+    skills_table.cell(0, 1).text = "Sourcing | Screening"
+    skills_table.cell(1, 0).text = "Tools"
+    skills_table.cell(1, 1).text = "LinkedIn Recruiter | Greenhouse"
+    document.save(path)
+    return FormatBenchmarkCase(
+        case_id="docx",
+        label="DOCX resume",
+        filename=path.name,
+        expected={
+            "name": "Nisha Verma",
+            "email": "nisha.verma@email.com",
+            "phone": "+91 98765 11111",
+            "location": "Pune, Maharashtra",
+            "current_role": "Talent Acquisition Specialist",
+            "current_company": "Bright Hire Solutions",
+        },
+    )
+
+
+def _create_image_resume(path: Path) -> FormatBenchmarkCase:
+    image = Image.new("RGB", (1200, 1600), color=(255, 255, 255))
+    drawer = ImageDraw.Draw(image)
+    drawer.text((40, 40), "Ravi Kumar", fill=(0, 0, 0))
+    drawer.text((40, 90), "Hyderabad, Telangana", fill=(0, 0, 0))
+    image.save(path)
+    ocr_text = "\n".join(
+        [
+            "Ravi Kumar",
+            "Hyderabad, Telangana | +91 99887 66554 | ravi.kumar@email.com",
+            "WORK EXPERIENCE",
+            "Backend Engineer",
+            "Acme Systems Ltd",
+            "Jan 2022 - Present",
+        ]
+    )
+    return FormatBenchmarkCase(
+        case_id="image_converted",
+        label="Image-converted resume",
+        filename=path.name,
+        expected={
+            "name": "Ravi Kumar",
+            "email": "ravi.kumar@email.com",
+            "phone": "+91 99887 66554",
+            "location": "Hyderabad, Telangana",
+            "current_role": "Backend Engineer",
+            "current_company": "Acme Systems Ltd",
+        },
+        mocked_ocr_text=ocr_text,
+    )
+
+
 def _build_sample_cases(root: Path) -> List[FormatBenchmarkCase]:
-    cases = [
+    return [
         _create_multi_column_resume(root / "multi_column_resume.pdf"),
         _create_colored_resume(root / "colored_resume.pdf"),
         _create_horizontal_resume(root / "horizontal_resume.pdf"),
         _create_table_resume(root / "table_resume.pdf"),
+        _create_docx_resume(root / "docx_resume.docx"),
+        _create_image_resume(root / "image_resume.png"),
     ]
-    return cases
 
 
 def _legacy_extract_text(file_path: str) -> str:
-    text_parts, _ = _extract_pdf_text_with_pypdf(file_path)
-    if not _has_meaningful_text(text_parts):
-        ocr_parts = _extract_pdf_text_via_ocr(file_path)
-        if _has_meaningful_text(ocr_parts):
-            text_parts = ocr_parts
-    return "\n".join(part.strip() for part in text_parts if part and part.strip())
+    if file_path.lower().endswith(".pdf"):
+        text_parts, _ = _extract_pdf_text_with_pypdf(file_path)
+        if not _has_meaningful_text(text_parts):
+            ocr_parts = _extract_pdf_text_via_ocr(file_path)
+            if _has_meaningful_text(ocr_parts):
+                text_parts = ocr_parts
+        return "\n".join(part.strip() for part in text_parts if part and part.strip())
+    return ""
 
 
 def _field_accuracy(parsed: Dict[str, Any], expected: Dict[str, Any]) -> float:
@@ -295,6 +314,27 @@ def _snippet(text: str, limit: int = 220) -> str:
     return compact[: limit - 3] + "..."
 
 
+def _parse_case(case: FormatBenchmarkCase, file_path: Path) -> Dict[str, Any]:
+    if case.mocked_ocr_text is None:
+        document = extract_document(str(file_path))
+    else:
+        mock_parts = [case.mocked_ocr_text]
+        if file_path.suffix.lower() == ".png":
+            with patch("ats.extraction.resume_parser._extract_image_text_via_ocr", return_value=mock_parts):
+                document = extract_document(str(file_path))
+        else:
+            with patch("ats.extraction.resume_parser._extract_pdf_text_via_ocr", return_value=mock_parts):
+                document = extract_document(str(file_path))
+    current_text = str(document.get("text") or "")
+    current_layout = document.get("layout") or {}
+    return {
+        "document": document,
+        "parsed": parse_resume_text(current_text, original_filename=case.filename, layout_signals=current_layout),
+        "text": current_text,
+        "layout": current_layout,
+    }
+
+
 def run_resume_format_benchmark() -> Dict[str, Any]:
     with tempfile.TemporaryDirectory(prefix="resume_format_benchmark_") as temp_dir:
         root = Path(temp_dir)
@@ -306,18 +346,13 @@ def run_resume_format_benchmark() -> Dict[str, Any]:
         for case in cases:
             file_path = root / case.filename
             legacy_text = _legacy_extract_text(str(file_path))
-            current_document = extract_document(str(file_path))
-            current_text = str(current_document.get("text") or "")
-            current_layout = current_document.get("layout") or {}
+            parsed_case = _parse_case(case, file_path)
+            current_parsed = parsed_case["parsed"]
+            current_text = parsed_case["text"]
+            current_layout = parsed_case["layout"]
+            legacy_parsed = parse_resume_text(legacy_text, original_filename=case.filename) if legacy_text else {}
 
-            legacy_parsed = parse_resume_text(legacy_text, original_filename=case.filename)
-            current_parsed = parse_resume_text(
-                current_text,
-                original_filename=case.filename,
-                layout_signals=current_layout,
-            )
-
-            before_score = _field_accuracy(legacy_parsed, case.expected)
+            before_score = _field_accuracy(legacy_parsed, case.expected) if legacy_text else 0.0
             after_score = _field_accuracy(current_parsed, case.expected)
             before_scores.append(before_score)
             after_scores.append(after_score)
@@ -337,6 +372,7 @@ def run_resume_format_benchmark() -> Dict[str, Any]:
                         "parsed": {field: current_parsed.get(field) for field in FIELD_NAMES},
                         "snippet": _snippet(current_text),
                         "layout_signals": current_layout,
+                        "confidence": current_parsed.get("confidence", {}),
                     },
                     "improvement": round(after_score - before_score, 3),
                 }

@@ -16,6 +16,9 @@ def run_migrations():
             def get_columns(table):
                 return [col["name"] for col in inspect(engine).get_columns(table)]
 
+            def get_indexes(table):
+                return {idx["name"] for idx in inspect(engine).get_indexes(table)}
+
             # Ensure agencies table exists first (other tables depend on it)
             if "agencies" not in get_tables():
                 print("Running migration: creating agencies table...")
@@ -125,6 +128,37 @@ def run_migrations():
                 NotificationWorkflowToken.__table__.create(bind=engine, checkfirst=True)
                 conn.commit()
                 print("Migration completed: notification_workflow_tokens created")
+
+            # Performance indexes for dashboard filtering and sorting paths.
+            performance_indexes = {
+                "idx_candidates_agency_id": "CREATE INDEX IF NOT EXISTS idx_candidates_agency_id ON candidates (agency_id)",
+                "idx_candidates_job_id": "CREATE INDEX IF NOT EXISTS idx_candidates_job_id ON candidates (job_id)",
+                "idx_candidates_stage": "CREATE INDEX IF NOT EXISTS idx_candidates_stage ON candidates (stage)",
+                "idx_candidates_assigned_to_user_id": "CREATE INDEX IF NOT EXISTS idx_candidates_assigned_to_user_id ON candidates (assigned_to_user_id)",
+                "idx_candidates_created_at": "CREATE INDEX IF NOT EXISTS idx_candidates_created_at ON candidates (created_at)",
+                "idx_candidates_agency_id_job_id": "CREATE INDEX IF NOT EXISTS idx_candidates_agency_id_job_id ON candidates (agency_id, job_id)",
+                "idx_candidates_agency_id_stage": "CREATE INDEX IF NOT EXISTS idx_candidates_agency_id_stage ON candidates (agency_id, stage)",
+                "idx_interviews_agency_id": "CREATE INDEX IF NOT EXISTS idx_interviews_agency_id ON interviews (agency_id)",
+                "idx_interviews_candidate_id": "CREATE INDEX IF NOT EXISTS idx_interviews_candidate_id ON interviews (candidate_id)",
+                "idx_interviews_scheduled_at": "CREATE INDEX IF NOT EXISTS idx_interviews_scheduled_at ON interviews (scheduled_at)",
+                "idx_interviews_status": "CREATE INDEX IF NOT EXISTS idx_interviews_status ON interviews (status)",
+                "idx_interviews_agency_id_status": "CREATE INDEX IF NOT EXISTS idx_interviews_agency_id_status ON interviews (agency_id, status)",
+                "idx_interviews_candidate_id_scheduled_at": "CREATE INDEX IF NOT EXISTS idx_interviews_candidate_id_scheduled_at ON interviews (candidate_id, scheduled_at)",
+                "idx_job_descriptions_agency_id": "CREATE INDEX IF NOT EXISTS idx_job_descriptions_agency_id ON job_descriptions (agency_id)",
+                "idx_job_descriptions_is_active": "CREATE INDEX IF NOT EXISTS idx_job_descriptions_is_active ON job_descriptions (is_active)",
+                "idx_job_descriptions_agency_id_is_active": "CREATE INDEX IF NOT EXISTS idx_job_descriptions_agency_id_is_active ON job_descriptions (agency_id, is_active)",
+            }
+            existing_indexes = set()
+            for table_name in ("candidates", "interviews", "job_descriptions"):
+                if table_name in get_tables():
+                    existing_indexes.update(get_indexes(table_name))
+
+            for index_name, statement in performance_indexes.items():
+                if index_name not in existing_indexes:
+                    print(f"Running migration: creating index {index_name}...")
+                    conn.execute(text(statement))
+                    conn.commit()
+                    print(f"Migration completed: index {index_name} created")
 
     except Exception as e:
         print(f"Migration warning: {e}")

@@ -11,11 +11,11 @@ class ResumeFormatBenchmarkTests(unittest.TestCase):
     def test_format_benchmark_reports_four_resume_formats(self):
         result = run_resume_format_benchmark()
 
-        self.assertEqual(result["total_cases"], 4)
+        self.assertEqual(result["total_cases"], 6)
         self.assertIn("before_accuracy", result)
         self.assertIn("after_accuracy", result)
         self.assertIn("absolute_improvement", result)
-        self.assertEqual(len(result["case_results"]), 4)
+        self.assertEqual(len(result["case_results"]), 6)
         self.assertGreaterEqual(result["after_accuracy"], result["before_accuracy"])
 
 

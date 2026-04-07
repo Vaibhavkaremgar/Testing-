@@ -39,10 +39,14 @@ except ImportError:  # pragma: no cover - optional dependency
     pytesseract = None
 
 from ats.datasets.parser_config_loader import ParserConfigLoader
+from ats.extraction.entity_extraction import extract_resume_entities
 from ats.extraction.experience_extraction import compute_total_experience, parse_date
 from ats.extraction.information_extraction import extract_email as extract_normalized_email
+from ats.extraction.information_extraction import extract_location
 from ats.extraction.information_extraction import extract_resume_information
 from ats.extraction.layout_detection import get_layout_runtime_status, infer_layout_signals
+from ats.extraction.postprocessing import apply_postprocessing, dedupe_strings
+from ats.extraction.resume_type_detection import detect_resume_type
 from ats.extraction.validation import validate_parsed_fields
 from ats.preprocessing.section_segmentation import segment_resume_sections
 from ats.preprocessing.text_cleaning import clean_text, clean_text_pipeline, normalize_common_artifacts, normalize_document_structure, split_inline_section_headers
@@ -60,14 +64,14 @@ PHONE_PATTERNS = [
 EMAIL_PATTERN = re.compile(r"\b[A-Za-z0-9._%+-]+\s*@\s*[A-Za-z0-9.-]+\s*\.\s*[A-Za-z]{2,}\b")
 PHONE_LINE_PATTERN = re.compile(r"(?:\+?\d[\d\s().-]{7,}\d)")
 NAME_LINE_DISALLOWED_PATTERN = re.compile(
-    r"(?i)\b(?:resumev|resume|cv|profile|skills|education|experience|contact)\b"
+    r"(?i)\b(?:resumev|resume|cv|profile|skills|education|experience|contact|objective|snapshot|summary|details|name)\b"
 )
 TEXTBOX_TEXT_PATTERN = re.compile(r"<w:t[^>]*>(.*?)</w:t>", re.IGNORECASE | re.DOTALL)
 DEFAULT_INVALID_NAME_TOKENS = {
     "about", "machine", "learning", "python", "java", "react", "sql", "developer",
     "engineer", "manager", "analyst", "summary", "profile", "objective", "resume",
     "curriculum", "vitae", "experience", "skills", "education", "project", "projects",
-    "email", "phone", "address", "location", "contact", "details",
+    "email", "phone", "address", "location", "contact", "details", "snapshot", "professional", "job", "name",
 }
 DEFAULT_NAME_STOP_TOKENS = {
     "senior", "sr", "junior", "jr", "principal", "staff", "assistant",
@@ -107,6 +111,7 @@ BROKEN_MONTH_PATTERN = re.compile(
 )
 SPLIT_EMAIL_ARTIFACT_PATTERN = re.compile(r"(?i)\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\s+[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
 PDF_PARSER_PREFERENCE = {"pymupdf": 4, "pdfplumber": 3, "pypdf": 2, "tika": 1}
+CONFIDENCE_RETRY_THRESHOLD = 0.7
 
 _parser_config_loader = ParserConfigLoader()
 _parser_vocabulary = _parser_config_loader.load_parser_vocabulary()
@@ -501,11 +506,33 @@ def _extract_pdf_text_with_pymupdf(file_path: str) -> Tuple[List[str], List[Dict
             page_text = (page.get_text("text") or "").strip()
             if page_text:
                 text_parts.append(page_text)
+            blocks = page.get_text("blocks") or []
+            text_blocks = [block for block in blocks if len(block) >= 5 and str(block[4]).strip()]
+            upper_header_blocks = [
+                block
+                for block in text_blocks
+                if float(block[1]) <= float(page.rect.height) * 0.22
+            ]
+            image_count = len(page.get_images(full=True))
+            block_centers = sorted(
+                float((block[0] + block[2]) / 2.0)
+                for block in text_blocks
+            )
+            has_multi_column = False
+            if len(block_centers) >= 8:
+                left = [center for center in block_centers if center < float(page.rect.width) * 0.45]
+                right = [center for center in block_centers if center > float(page.rect.width) * 0.55]
+                has_multi_column = len(left) >= 4 and len(right) >= 4
+            page_text_alpha = sum(1 for char in page_text if char.isalpha())
+            is_scanned_pdf = image_count > 0 and page_text_alpha < OCR_MIN_ALPHA_CHARS
             page_metrics.append(
                 {
                     "width": float(page.rect.width),
                     "height": float(page.rect.height),
-                    "has_multi_column": False,
+                    "has_multi_column": has_multi_column,
+                    "has_header_block": bool(upper_header_blocks),
+                    "image_count": image_count,
+                    "is_scanned_pdf": is_scanned_pdf,
                     "table_count": 0,
                     "has_table_like_structure": False,
                 }
@@ -536,6 +563,11 @@ def _extract_pdf_text_with_pdfplumber(file_path: str) -> Tuple[List[str], List[D
                         "width": float(page.width),
                         "height": float(page.height),
                         "has_multi_column": split is not None,
+                        "has_header_block": bool(
+                            [line for line in lines if float(line.get("top") or 0.0) <= float(page.height) * 0.22]
+                        ),
+                        "image_count": 0,
+                        "is_scanned_pdf": not page_text.strip(),
                         "table_count": len(extracted_tables),
                         "has_table_like_structure": len(extracted_tables) > 0,
                     }
@@ -570,6 +602,27 @@ def _extract_pdf_text_with_tika(file_path: str) -> Tuple[List[str], List[Dict[st
     except Exception as exc:
         logger.warning("Tika extraction failed for %s: %s", file_path, exc)
     return [], []
+
+
+def detect_scanned_pdf(file_path: str) -> bool:
+    if os.path.splitext(file_path)[1].lower() != ".pdf":
+        return False
+    text_parts, page_metrics = _extract_pdf_text_with_pymupdf(file_path)
+    if any(bool(page.get("is_scanned_pdf")) for page in page_metrics):
+        return True
+    return not _has_meaningful_text(text_parts)
+
+
+def detect_image_resume(file_path: str) -> bool:
+    return os.path.splitext(file_path)[1].lower() in {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"}
+
+
+def run_ocr(file_path: str) -> List[str]:
+    if detect_image_resume(file_path):
+        return _extract_image_text_via_ocr(file_path)
+    if os.path.splitext(file_path)[1].lower() == ".pdf":
+        return _extract_pdf_text_via_ocr(file_path)
+    return []
 
 
 def _configure_tesseract() -> bool:
@@ -775,6 +828,7 @@ def get_parser_runtime_status() -> Dict[str, Any]:
         "mammoth_available": mammoth is not None,
         "pytesseract_available": pytesseract is not None,
         "ocr_ready": _is_ocr_ready(),
+        "tesseract_cmd": getattr(getattr(pytesseract, "pytesseract", None), "tesseract_cmd", "") if pytesseract is not None else "",
         **layout_runtime,
     }
 
@@ -789,6 +843,7 @@ def extract_document(file_path: str) -> Dict[str, Any]:
 
     try:
         if file_ext == ".pdf":
+            scanned_pdf = detect_scanned_pdf(file_path)
             parser_outputs = {
                 parser_name: {
                     "text_parts": text_parts,
@@ -814,16 +869,19 @@ def extract_document(file_path: str) -> Dict[str, Any]:
                 )
 
             if not _has_meaningful_text(text_parts):
-                ocr_parts = _extract_pdf_text_via_ocr(file_path)
+                ocr_parts = run_ocr(file_path)
                 if _has_meaningful_text(ocr_parts):
                     text_parts = ocr_parts
+                    layout_signals["ocr_applied"] = True
             elif _is_ocr_ready():
-                ocr_parts = _extract_pdf_text_via_ocr(file_path)
+                ocr_parts = run_ocr(file_path)
                 if _has_meaningful_text(ocr_parts):
                     native_score = _score_text_quality(text_parts)
                     ocr_score = _score_text_quality(ocr_parts)
                     if ocr_score > native_score + 0.08:
                         text_parts = ocr_parts
+                        layout_signals["ocr_applied"] = True
+            layout_signals["is_scanned_pdf"] = bool(layout_signals.get("is_scanned_pdf")) or scanned_pdf
 
         elif file_ext == ".docx":
             try:
@@ -837,6 +895,7 @@ def extract_document(file_path: str) -> Dict[str, Any]:
                     "layout": layout_signals,
                     "tables": docx_payload.get("tables") or [],
                     "metadata": {
+                        "format": "docx",
                         "parsers_used": docx_payload.get("parsers_used") or [],
                         "paragraph_count": len(docx_payload.get("paragraphs") or []),
                         "table_row_count": len(docx_payload.get("tables") or []),
@@ -859,8 +918,10 @@ def extract_document(file_path: str) -> Dict[str, Any]:
                 logger.warning("antiword extraction failed for %s: %s", file_path, exc)
 
         elif file_ext in {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"}:
-            text_parts = _extract_image_text_via_ocr(file_path)
+            text_parts = run_ocr(file_path)
             layout_signals = infer_layout_signals(text_parts=text_parts, page_metrics=[])
+            layout_signals["is_scanned_pdf"] = False
+            layout_signals["ocr_applied"] = True
 
         if not text_parts:
             with open(file_path, "rb") as handle:
@@ -876,7 +937,11 @@ def extract_document(file_path: str) -> Dict[str, Any]:
         "text": "\n".join(part.strip() for part in text_parts if part and part.strip()),
         "layout": layout_signals,
         "tables": [],
-        "metadata": {},
+        "metadata": {
+            "format": file_ext.lstrip(".") or "text",
+            "ocr_applied": bool(layout_signals.get("ocr_applied")),
+            "is_image_resume": detect_image_resume(file_path),
+        },
     }
 
 
@@ -991,7 +1056,24 @@ def _extract_email(text: str) -> str:
     email = extract_normalized_email(source_text or "")
     if email:
         return email
-    return extract_normalized_email(text or "")
+    structured_text = normalize_document_structure(text or "")
+    early_lines = [line.strip() for line in structured_text.splitlines() if line.strip()][:20]
+    bounded_early_lines: List[str] = []
+    for line in early_lines:
+        if bounded_early_lines and SECTION_START_PATTERN.match(line):
+            break
+        bounded_early_lines.append(line)
+    labeled_candidates: List[str] = []
+    for line in bounded_early_lines:
+        if SECTION_START_PATTERN.match(line):
+            break
+        if re.match(r"(?i)^(?:email|mail|e-mail)\s*[:\-]", line):
+            labeled_candidates.append(line)
+    if labeled_candidates:
+        labeled_email = extract_normalized_email("\n".join(labeled_candidates))
+        if labeled_email:
+            return labeled_email
+    return extract_normalized_email("\n".join(bounded_early_lines)) or ""
 
 
 def _email_to_name(email: str) -> str:
@@ -1025,10 +1107,6 @@ def _extract_name_with_spacy(text: str) -> str:
 
 
 def _extract_name(text: str, original_filename: Optional[str] = None) -> str:
-    extracted_name = extract_name(text)
-    if extracted_name != "Unknown Candidate":
-        return extracted_name
-
     for line in _header_name_candidates(text):
         lowered_line = line.strip().lower()
         if lowered_line in {"contact details", "contact information"}:
@@ -1058,6 +1136,10 @@ def _extract_name(text: str, original_filename: Optional[str] = None) -> str:
         inline_header_name = _extract_inline_header_name(line)
         if inline_header_name:
             return inline_header_name
+    normalized_source = normalize_document_structure(text or "")
+    extracted_name = extract_name(normalized_source)
+    if extracted_name != "Unknown Candidate":
+        return extracted_name
     spacy_name = _extract_name_with_spacy(text)
     if spacy_name:
         return spacy_name
@@ -1120,6 +1202,78 @@ def _score_phone_confidence(phone: str) -> float:
     return 1.0 if _extract_phone(phone) else 0.0
 
 
+def _score_skill_confidence(skills: List[str], entities: Dict[str, Any], from_explicit_section: bool) -> float:
+    if not skills:
+        return 0.0
+    score = 0.35
+    if from_explicit_section:
+        score += 0.35
+    entity_skills = {str(skill).strip().lower() for skill in entities.get("skills", []) if str(skill).strip()}
+    matched = sum(1 for skill in skills if str(skill).strip().lower() in entity_skills)
+    if matched:
+        score += min(0.2, matched * 0.05)
+    if len(skills) >= 3:
+        score += 0.1
+    return round(min(score, 1.0), 2)
+
+
+def _confidence_to_percent(value: float) -> int:
+    return int(round(max(0.0, min(1.0, value)) * 100))
+
+
+def _rerun_low_confidence_fields(
+    result: Dict[str, Any],
+    *,
+    entities: Dict[str, Any],
+    normalized_text: str,
+    original_filename: Optional[str],
+) -> Dict[str, Any]:
+    updated = dict(result)
+    field_confidence = dict(updated.get("field_confidence") or {})
+
+    if field_confidence.get("name", 0.0) < CONFIDENCE_RETRY_THRESHOLD:
+        name_candidates = [
+            entities.get("top_person", ""),
+            _extract_name(normalized_text, original_filename),
+            _email_to_name(updated.get("email", "")),
+        ]
+        for candidate in name_candidates:
+            normalized_candidate = _normalize_name_candidate(candidate)
+            if normalized_candidate:
+                updated["name"] = normalized_candidate
+                break
+
+    if field_confidence.get("location", 0.0) < CONFIDENCE_RETRY_THRESHOLD:
+        location_candidates = [
+            updated.get("sections", {}).get("header", ""),
+            entities.get("top_location", ""),
+            normalized_text,
+        ]
+        for candidate in location_candidates:
+            extracted_location = extract_location(candidate)
+            if extracted_location:
+                updated["location"] = extracted_location
+                break
+
+    if field_confidence.get("skills", 0.0) < CONFIDENCE_RETRY_THRESHOLD:
+        fallback_skill_candidates: List[str] = []
+        normalized_corpus = normalized_text.lower()
+        for skill in entities.get("skills", []) or []:
+            normalized_skill = str(skill).strip().lower()
+            if not normalized_skill:
+                continue
+            if len(normalized_skill.split()) > 3:
+                continue
+            if normalized_skill not in normalized_corpus:
+                continue
+            fallback_skill_candidates.append(skill)
+        merged_skills = dedupe_strings([*(updated.get("skills") or []), *fallback_skill_candidates])
+        if merged_skills:
+            updated["skills"] = merged_skills
+
+    return updated
+
+
 def extract_skills(text: str) -> List[str]:
     info = extract_resume_information(text)
     return info.get("skills", [])
@@ -1174,7 +1328,7 @@ def parse_resume_text(
     layout_signals = layout_signals or _default_layout_signals()
     cleaned_text = clean_text(raw_text) if raw_text else ""
     normalized_text = clean_text_pipeline(cleaned_text) if cleaned_text else ""
-    extracted_info = extract_resume_information(cleaned_text) if cleaned_text else {
+    extracted_info = extract_resume_information(normalized_text or cleaned_text) if cleaned_text else {
         "sections": segment_resume_sections(""),
         "skills": [],
         "experience": [],
@@ -1191,13 +1345,24 @@ def parse_resume_text(
         "languages": [],
     }
 
-    extracted_name = _extract_name(raw_text, original_filename)
+    sections = extracted_info.get("sections", {}) or segment_resume_sections(normalized_text)
+    resume_type_payload = detect_resume_type("\n".join(filter(None, [sections.get("summary", ""), sections.get("skills", ""), sections.get("experience", ""), normalized_text[:2000]])))
+    entities = extract_resume_entities(
+        normalized_text,
+        header_text=sections.get("header", ""),
+        skills_text=sections.get("skills", ""),
+        experience_text=sections.get("experience", ""),
+    )
+    extracted_name = _extract_name(normalized_text or raw_text, original_filename)
+    contact_email = _extract_email(cleaned_text or raw_text)
+    contact_phone = _extract_phone(cleaned_text or raw_text)
+    merged_skills = dedupe_strings(extracted_info.get("skills", []) or [])
 
     result = {
         "name": extracted_name or "Unknown Candidate",
-        "email": _extract_email(cleaned_text),
-        "phone": _extract_phone(cleaned_text),
-        "skills": extracted_info.get("skills", []),
+        "email": contact_email,
+        "phone": contact_phone,
+        "skills": merged_skills,
         "education": extracted_info.get("education", []),
         "experience": extracted_info.get("experience", []),
         "projects": extracted_info.get("projects", []),
@@ -1210,16 +1375,35 @@ def parse_resume_text(
         "designation": extracted_info.get("designation"),
         "location": extracted_info.get("location", ""),
         "languages": extracted_info.get("languages", []),
-        "summary": extracted_info.get("sections", {}).get("summary", ""),
-        "sections": extracted_info.get("sections", {}),
+        "summary": sections.get("summary", ""),
+        "sections": sections,
         "experience_entries": extracted_info.get("experience", []),
+        "entities": entities,
+        "resume_type": resume_type_payload.get("resume_type", "general"),
+        "resume_type_scores": resume_type_payload.get("resume_type_scores", {}),
         "personal_details": {
             "name": extracted_name or "Unknown Candidate",
-            "email": _extract_email(cleaned_text),
-            "phone": _extract_phone(cleaned_text),
+            "email": contact_email,
+            "phone": contact_phone,
             "location": extracted_info.get("location", ""),
             "current_company": extracted_info.get("current_company"),
             "current_role": extracted_info.get("current_role"),
+        },
+        "pipeline_layers": {
+            "file_upload": True,
+            "format_detection": True,
+            "text_extraction": bool(raw_text.strip()),
+            "ocr_layer": bool(layout_signals.get("is_scanned_pdf")) or bool(layout_signals.get("ocr_applied")),
+            "layout_detection": bool(layout_signals),
+            "section_detection": bool(sections),
+            "header_detection": bool(sections.get("header", "").strip()) or bool(layout_signals.get("has_header_block")),
+            "entity_extraction": bool(entities.get("persons") or entities.get("skills") or entities.get("locations")),
+            "field_extraction": True,
+            "validation": True,
+            "deduplication": True,
+            "confidence_scoring": True,
+            "post_processing": True,
+            "final_output": True,
         },
         "layout_signals": layout_signals,
         "runtime_status": get_parser_runtime_status(),
@@ -1232,10 +1416,44 @@ def parse_resume_text(
             "phone": 0.0,
         },
     }
+    result = apply_postprocessing(result)
     result = validate_parsed_fields(result)
     result["field_confidence"]["name"] = _score_name_confidence(result.get("name", ""))
     result["field_confidence"]["email"] = _score_email_confidence(result.get("email", ""))
     result["field_confidence"]["phone"] = _score_phone_confidence(result.get("phone", ""))
+    result["field_confidence"]["skills"] = _score_skill_confidence(
+        result.get("skills", []),
+        entities,
+        bool(sections.get("skills", "").strip()),
+    )
+    result = _rerun_low_confidence_fields(
+        result,
+        entities=entities,
+        normalized_text=normalized_text,
+        original_filename=original_filename,
+    )
+    result = apply_postprocessing(result)
+    result = validate_parsed_fields(result)
+    result["field_confidence"]["name"] = _score_name_confidence(result.get("name", ""))
+    result["field_confidence"]["email"] = _score_email_confidence(result.get("email", ""))
+    result["field_confidence"]["phone"] = _score_phone_confidence(result.get("phone", ""))
+    result["field_confidence"]["skills"] = _score_skill_confidence(
+        result.get("skills", []),
+        entities,
+        bool(sections.get("skills", "").strip()),
+    )
+    result["confidence"] = {
+        field: _confidence_to_percent(score)
+        for field, score in (result.get("field_confidence") or {}).items()
+    }
+    result["pipeline_summary"] = {
+        "format": "text",
+        "retry_applied": any(
+            value < _confidence_to_percent(CONFIDENCE_RETRY_THRESHOLD)
+            for value in result["confidence"].values()
+        ),
+        "all_fields_above_80": all(value >= 80 for value in result["confidence"].values()),
+    }
     logger.info(
         "Parsed resume: name=%s, skills=%s, experience_years=%s, current_company=%s, location=%s",
         result["name"],
@@ -1254,6 +1472,11 @@ def parse_resume(file_path: str, original_filename: Optional[str] = None) -> Dic
     parsed_resume = parse_resume_text(raw_text, original_filename=original_filename, layout_signals=layout_signals)
     parsed_resume["document_tables"] = document_payload.get("tables") or []
     parsed_resume["document_metadata"] = document_payload.get("metadata") or {}
+    parsed_resume["pipeline_summary"]["format"] = (
+        parsed_resume["document_metadata"].get("format")
+        or os.path.splitext(file_path)[1].lstrip(".")
+        or "text"
+    )
     return parsed_resume
 
 

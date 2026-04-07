@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Progress } from '@/components/ui/progress'
+import VideoPlayer from '@/components/VideoPlayer'
 import { api } from '@/lib/api'
 import { cn, formatDateTime, getScoreColor } from '@/lib/utils'
 import { useToast } from '@/hooks/use-toast'
@@ -20,6 +21,16 @@ function getInterviewPlaybackUrl(interview) {
   if (interview.has_recording) return api.getInterviewVideoUrl(interview.async_token || interview.id)
   if (interview.session_token) return api.getDashboardRecordingUrl(interview.session_token)
   return interview.video_url || ''
+}
+
+function getPlaybackSourceType(playbackUrl) {
+  const normalizedUrl = String(playbackUrl || '').split('?')[0].split('#')[0].toLowerCase()
+
+  if (normalizedUrl.endsWith('.m3u8')) {
+    return 'application/x-mpegURL'
+  }
+
+  return 'video/mp4'
 }
 
 function getNumericInterviewScore(interview) {
@@ -384,11 +395,13 @@ export default function Interviews({ superAdminAgencyId = null }) {
     return `${minutes}:${String(seconds).padStart(2, '0')}`
   }
 
-  const syncVideoState = (element) => {
-    if (!element) return
+  const syncVideoState = (player) => {
+    if (!player) return
 
-    const safeDuration = Number.isFinite(element.duration) ? element.duration : 0
-    const safeCurrentTime = Number.isFinite(element.currentTime) ? element.currentTime : 0
+    const duration = Number(player.duration?.())
+    const currentTime = Number(player.currentTime?.())
+    const safeDuration = Number.isFinite(duration) ? duration : 0
+    const safeCurrentTime = Number.isFinite(currentTime) ? currentTime : 0
 
     setMediaMode('video')
     setVideoError('')
@@ -402,36 +415,36 @@ export default function Interviews({ superAdminAgencyId = null }) {
     }
   }
 
-  const handleVideoLoadedMetadata = (event) => {
-    syncVideoState(event.currentTarget)
+  const handleVideoLoadedMetadata = (player) => {
+    syncVideoState(player)
   }
 
-  const handleVideoDurationChange = (event) => {
-    syncVideoState(event.currentTarget)
+  const handleVideoDurationChange = (player) => {
+    syncVideoState(player)
   }
 
-  const handleVideoLoadedData = (event) => {
-    syncVideoState(event.currentTarget)
+  const handleVideoLoadedData = (player) => {
+    syncVideoState(player)
   }
 
-  const handleVideoCanPlay = (event) => {
-    syncVideoState(event.currentTarget)
+  const handleVideoCanPlay = (player) => {
+    syncVideoState(player)
   }
 
-  const handleVideoTimeUpdate = (event) => {
+  const handleVideoTimeUpdate = (player) => {
     if (isSeeking) return
-    const nextTime = Number(event.currentTarget.currentTime)
+    const nextTime = Number(player?.currentTime?.())
     setVideoCurrentTime(Number.isFinite(nextTime) ? nextTime : 0)
   }
 
   const toggleVideoPlayback = () => {
-    const video = videoRef.current
-    if (!video) return
+    const player = videoRef.current
+    if (!player) return
 
-    if (video.paused) {
-      void video.play()
+    if (player.paused()) {
+      void player.play()
     } else {
-      video.pause()
+      player.pause()
     }
   }
 
@@ -440,13 +453,13 @@ export default function Interviews({ superAdminAgencyId = null }) {
     const safeNextTime = Number.isFinite(nextTime) ? nextTime : 0
     setVideoCurrentTime(safeNextTime)
     if (videoRef.current) {
-      videoRef.current.currentTime = safeNextTime
+      videoRef.current.currentTime(safeNextTime)
     }
   }
 
   const handleSeekStart = () => {
     setIsSeeking(true)
-    setWasPlayingBeforeSeek(Boolean(videoRef.current && !videoRef.current.paused))
+    setWasPlayingBeforeSeek(Boolean(videoRef.current && !videoRef.current.paused()))
   }
 
   const handleSeekCommit = () => {
@@ -636,13 +649,19 @@ export default function Interviews({ superAdminAgencyId = null }) {
                 <div className="aspect-video overflow-hidden rounded-xl bg-transparent">
                   {selectedInterview.playback_url && mediaMode === 'video' ? (
                     <div className="flex h-full w-full items-center justify-center bg-transparent">
-                      <video
-                        key={selectedInterview.id}
+                      <VideoPlayer
                         ref={videoRef}
-                        preload="metadata"
-                        playsInline
-                        className="h-full w-full rounded-lg object-cover"
                         src={selectedInterview.playback_url}
+                        type={getPlaybackSourceType(selectedInterview.playback_url)}
+                        playsInline
+                        preload="metadata"
+                        className="h-full w-full rounded-lg"
+                        videoClassName="object-cover"
+                        options={{
+                          controls: false,
+                          fluid: true,
+                          responsive: true,
+                        }}
                         onError={() => setVideoError('Unable to load interview recording. The video may be missing or in an unsupported format.')}
                         onLoadedMetadata={handleVideoLoadedMetadata}
                         onLoadedData={handleVideoLoadedData}
@@ -652,9 +671,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
                         onPlay={() => setIsVideoPlaying(true)}
                         onPause={() => setIsVideoPlaying(false)}
                         onEnded={() => setIsVideoPlaying(false)}
-                      >
-                        Your browser does not support the video tag.
-                      </video>
+                      />
                     </div>
                   ) : selectedInterview.playback_url && mediaMode === 'audio' ? (
                     <div className="w-full h-full flex flex-col items-center justify-center gap-4 p-6 text-center">

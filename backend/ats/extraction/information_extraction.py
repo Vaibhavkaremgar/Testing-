@@ -1241,11 +1241,36 @@ def _canonicalize_location_token(value: str) -> str:
     return lowered.title()
 
 
+def _canonicalize_location_pair(value: str) -> str:
+    compact = re.sub(r"\s+", " ", (value or "").strip(" ,.|/:-"))
+    if not compact:
+        return ""
+    parts = [part.strip(" ,.|/:-") for part in compact.split(",") if part.strip(" ,.|/:-")]
+    if len(parts) < 2:
+        return ""
+    left = _canonicalize_location_token(parts[0])
+    right = _canonicalize_location_token(parts[1])
+    if not left or not right:
+        return ""
+    return f"{left}, {right}"
+
+
 def _pick_primary_location(value: str) -> str:
     raw_value = re.sub(r"\s+", " ", (value or "").strip())
     normalized = _normalize_location_value(value or "")
     if not normalized:
         normalized = raw_value
+
+    comma_pair_match = re.search(
+        r"(?P<left>[A-Z][A-Za-z.-]+(?:\s+[A-Z][A-Za-z.-]+){0,2})\s*,\s*(?P<right>[A-Z][A-Za-z.-]+(?:\s+[A-Z][A-Za-z.-]+){0,2})",
+        raw_value,
+    )
+    if comma_pair_match:
+        pair_value = _canonicalize_location_pair(
+            f"{comma_pair_match.group('left')}, {comma_pair_match.group('right')}"
+        )
+        if pair_value and not _contains_non_location_context(pair_value):
+            return pair_value
 
     if any(char.isdigit() for char in raw_value):
         parts = [

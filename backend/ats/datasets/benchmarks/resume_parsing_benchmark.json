@@ -93,6 +93,74 @@
           "online teaching"
         ]
       }
+    },
+    {
+      "id": "labeled_header_name",
+      "domain": "machine_learning",
+      "filename": "rahul_verma_header.txt",
+      "resume_text": "Name: Rahul Verma\nLocation: Bangalore / Hyderabad / Remote\nEmail: rahul.verma.ai.dev@gmail.com\nPhone: +91 9876543210\n\nWork Experience\nSenior ML Engineer\nAI Labs Pvt Ltd\n2022 - Present",
+      "expected": {
+        "name": "Rahul Verma",
+        "email": "rahul.verma.ai.dev@gmail.com",
+        "phone": "+91 9876543210",
+        "current_role": "Senior ML Engineer",
+        "current_company": "AI Labs Pvt Ltd"
+      }
+    },
+    {
+      "id": "fragmented_sap_resume",
+      "domain": "sap",
+      "filename": "aneesh_sap.txt",
+      "resume_text": "RESUME\nRUDRAVARAM NARE SH SAI ANEESH\nContact: +91 8977816703\nEmail Id: aneeshrudravaram@gma il.com\nCAREER OBJECTIVE\nAn Electronics and Communication professional seeking chal lenging o ppurtunities.\nCERTIFICATIONS\nSAP Certified Application Associate - Extended Warehouse Management in SAP S4/HANA\nSKILLS\nSAP Extended Wareho use Management\nSAP ECC integrations with Extended\nWarehouse Management module\nWORK EXPERIENCE\n1) SAP EWM CON SU LTANT in COGNIZ ANT ( S eptember 2022 - Present)",
+      "expected": {
+        "email": "aneeshrudravaram@gmail.com",
+        "phone": "+91 8977816703",
+        "current_role": "SAP EWM CONSULTANT",
+        "current_company": "COGNIZANT",
+        "skills": ["sap extended warehouse management", "sap ecc"]
+      }
+    },
+    {
+      "id": "tools_section_unstructured_backend",
+      "domain": "backend",
+      "filename": "maya_thomas.txt",
+      "resume_text": "Maya Thomas\nAustin, Texas\nmaya.thomas.engineer@\ngmail.com\n\nPrincipal Backend Engineer at Acme Cloud Systems\n2023/01 - Present\nBuilding Python and FastAPI services on AWS with Docker and PostgreSQL.\n\nTool Stack\nDocker | AWS | GitHub Actions | Terraform",
+      "expected": {
+        "name": "Maya Thomas",
+        "email": "maya.thomas.engineer@gmail.com",
+        "location": "Austin, Texas",
+        "current_role": "Principal Backend Engineer",
+        "current_company": "Acme Cloud Systems",
+        "skills": ["docker", "aws", "python", "fastapi"]
+      }
+    },
+    {
+      "id": "unstructured_resume_no_sections",
+      "domain": "data_engineering",
+      "filename": "neha_kapoor.txt",
+      "resume_text": "Neha Kapoor\nSeattle, Washington | neha.kapoor.data@gmail.com\n\nLead Data Engineer | Northwind Technologies\n2021-03 - Present\nBuilt hiring analytics pipelines and warehouse automation using Python, Airflow, and Snowflake.\n\nSenior Data Engineer | Blue River Labs\n07/2018 - 02/2021\nDesigned ETL systems for enterprise reporting.\n\nBachelor of Technology\nNational Institute of Technology\n2018",
+      "expected": {
+        "name": "Neha Kapoor",
+        "email": "neha.kapoor.data@gmail.com",
+        "location": "Seattle, Washington",
+        "current_role": "Lead Data Engineer",
+        "current_company": "Northwind Technologies",
+        "skills": ["python"]
+      }
+    },
+    {
+      "id": "multiline_hr_resume",
+      "domain": "human_resources",
+      "filename": "divya_menon.txt",
+      "resume_text": "Divya Menon\nHuman Resources Business Partner\nChennai, Tamil Nadu | +91 93210 45678 | divya.menon.hr@gmail.com\n\nWork Experience\nSenior HR Business Partner\nZoho Corporation Pvt. Ltd. | Chennai, Tamil Nadu\nMay 2021 - Present\nAct as strategic HRBP for the Finance Plus division across India and APAC.\n\nHR Business Partner\nCognizant Technology Solutions | Chennai, Tamil Nadu\nJan 2018 - Apr 2021\nServed as HRBP for the Retail & Consumer Goods vertical.",
+      "expected": {
+        "name": "Divya Menon",
+        "email": "divya.menon.hr@gmail.com",
+        "phone": "+91 93210 45678",
+        "location": "Chennai, Tamil Nadu",
+        "current_role": "Senior HR Business Partner",
+        "current_company": "Zoho Corporation Pvt. Ltd."
+      }
     }
   ]
 }

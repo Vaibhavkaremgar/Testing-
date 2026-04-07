@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, Float, DateTime, ForeignKey, Enum, Boolean, JSON, text
+from sqlalchemy import Column, Integer, String, Text, Float, DateTime, ForeignKey, Enum, Boolean, JSON, Index, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -96,9 +96,12 @@ class User(Base):
 
 class JobDescription(Base):
     __tablename__ = "job_descriptions"
+    __table_args__ = (
+        Index("idx_job_descriptions_agency_id_is_active", "agency_id", "is_active"),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-    agency_id = Column(UUID(as_uuid=True), ForeignKey("agencies.id"), nullable=True)
+    agency_id = Column(UUID(as_uuid=True), ForeignKey("agencies.id"), nullable=True, index=True)
     job_id = Column(String(50), unique=True, index=True)
     title = Column(String(255), nullable=False)
     company_name = Column(String(255))
@@ -114,7 +117,7 @@ class JobDescription(Base):
     responsibilities = Column(Text)
     skills = Column(JSON)
     interview_questions = Column(JSON)
-    is_active = Column(Boolean, default=True)
+    is_active = Column(Boolean, default=True, index=True)
     status = Column(String(50), default='open')
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
@@ -124,9 +127,13 @@ class JobDescription(Base):
 
 class Candidate(Base):
     __tablename__ = "candidates"
+    __table_args__ = (
+        Index("idx_candidates_agency_id_job_id", "agency_id", "job_id"),
+        Index("idx_candidates_agency_id_stage", "agency_id", "stage"),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-    agency_id = Column(UUID(as_uuid=True), ForeignKey("agencies.id"), nullable=True)
+    agency_id = Column(UUID(as_uuid=True), ForeignKey("agencies.id"), nullable=True, index=True)
     candidate_id = Column(String(50), unique=True, index=True)
     name = Column(String(255), nullable=False)
     email = Column(String(255), index=True)
@@ -148,7 +155,7 @@ class Candidate(Base):
     work_experience = Column(JSON)
 
     # Pipeline
-    stage = Column(Enum(CandidateStage), default=CandidateStage.APPLIED)
+    stage = Column(Enum(CandidateStage), default=CandidateStage.APPLIED, index=True)
     stage_updated_at = Column(DateTime(timezone=True), server_default=func.now())
     stage_entered_at = Column(DateTime(timezone=True), server_default=func.now())
     applied_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -160,7 +167,7 @@ class Candidate(Base):
     internal_notes = Column(Text)
 
     # Resume review assignment
-    assigned_to_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
+    assigned_to_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True)
     review_status = Column(Enum(ReviewStatus), default=ReviewStatus.UNASSIGNED)
     reviewed_at = Column(DateTime(timezone=True), nullable=True)
     reviewed_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
@@ -171,7 +178,7 @@ class Candidate(Base):
     predefined_questions = Column(Text, nullable=True)
 
     # Relationships
-    job_id = Column(UUID(as_uuid=True), ForeignKey("job_descriptions.id"))
+    job_id = Column(UUID(as_uuid=True), ForeignKey("job_descriptions.id"), index=True)
     job = relationship("JobDescription", back_populates="candidates")
 
     created_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
@@ -179,20 +186,24 @@ class Candidate(Base):
 
     interviews = relationship("Interview", back_populates="candidate")
 
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
 
 class Interview(Base):
     __tablename__ = "interviews"
+    __table_args__ = (
+        Index("idx_interviews_agency_id_status", "agency_id", "status"),
+        Index("idx_interviews_candidate_id_scheduled_at", "candidate_id", "scheduled_at"),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-    agency_id = Column(UUID(as_uuid=True), ForeignKey("agencies.id"), nullable=True)
-    candidate_id = Column(UUID(as_uuid=True), ForeignKey("candidates.id"), nullable=False)
+    agency_id = Column(UUID(as_uuid=True), ForeignKey("agencies.id"), nullable=True, index=True)
+    candidate_id = Column(UUID(as_uuid=True), ForeignKey("candidates.id"), nullable=False, index=True)
     candidate = relationship("Candidate", back_populates="interviews")
 
     interview_type = Column(String(100))
-    scheduled_at = Column(DateTime(timezone=True))
+    scheduled_at = Column(DateTime(timezone=True), index=True)
     duration_minutes = Column(Integer)
     meeting_link = Column(String(500))
 
@@ -206,7 +217,7 @@ class Interview(Base):
     async_answers = Column(JSON)
 
     # Interview Results
-    status = Column(String(50), default="scheduled")
+    status = Column(String(50), default="scheduled", index=True)
     video_url = Column(String(500))
     transcript = Column(Text)
     ai_summary = Column(Text)
