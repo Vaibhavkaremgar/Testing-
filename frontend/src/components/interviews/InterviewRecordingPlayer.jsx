@@ -15,7 +15,13 @@ function buildRecordingUrl(recordingPath) {
     return ''
   }
 
-  return `${DEFAULT_RECORDING_API_BASE}/${encodeURIComponent(normalizedToken)}`
+  try {
+    return new URL(
+      `${DEFAULT_RECORDING_API_BASE}/${encodeURIComponent(normalizedToken)}`
+    ).toString()
+  } catch {
+    return ''
+  }
 }
 
 function buildRecordingSources(videoUrl) {
@@ -30,10 +36,10 @@ function buildRecordingSources(videoUrl) {
 
 function getPlayerErrorMessage(error) {
   if (error?.code === 4) {
-    return 'Recording Not Found'
+    return 'Recording not available or not ready yet'
   }
 
-  return 'Unable to load interview recording.'
+  return 'Unable to load interview recording'
 }
 
 export default function InterviewRecordingPlayer({
@@ -45,12 +51,15 @@ export default function InterviewRecordingPlayer({
   const [errorMessage, setErrorMessage] = useState('')
   const [retryKey, setRetryKey] = useState(0)
   const [isRetryPending, setIsRetryPending] = useState(false)
+  const [availabilityStatus, setAvailabilityStatus] = useState('idle')
   const loadTimeoutRef = useRef(null)
   const retryTimeoutRef = useRef(null)
+  const validationAbortRef = useRef(null)
 
   const videoUrl = useMemo(() => buildRecordingUrl(recordingPath), [recordingPath])
   const sources = useMemo(() => buildRecordingSources(videoUrl), [videoUrl])
   const hasRecording = Boolean(videoUrl)
+  const hasValidRecordingPath = typeof recordingPath === 'string' && recordingPath.trim().length > 0
 
   const clearLoadTimeout = () => {
     if (loadTimeoutRef.current) {
@@ -66,16 +75,87 @@ export default function InterviewRecordingPlayer({
     }
   }
 
+  const clearValidationRequest = () => {
+    if (validationAbortRef.current) {
+      validationAbortRef.current.abort()
+      validationAbortRef.current = null
+    }
+  }
+
   useEffect(() => {
     clearLoadTimeout()
     clearRetryTimeout()
+    clearValidationRequest()
     setErrorMessage('')
     setIsRetryPending(false)
+    setAvailabilityStatus(hasRecording ? 'checking' : 'idle')
     setIsInitializing(hasRecording)
 
-    if (!hasRecording) {
+    if (!hasValidRecordingPath) {
+      setIsInitializing(false)
       return undefined
     }
+
+    if (!hasRecording) {
+      setIsInitializing(false)
+      setAvailabilityStatus('invalid')
+      setErrorMessage('Invalid recording URL')
+      return undefined
+    }
+
+    const abortController = new AbortController()
+    validationAbortRef.current = abortController
+
+    // Validate the URL before player startup so unsupported server responses
+    // fail with a clear message instead of a generic media error.
+    fetch(videoUrl, {
+      method: 'HEAD',
+      signal: abortController.signal,
+    })
+      .then((response) => {
+        const contentType = response.headers.get('content-type') || ''
+
+        console.info('Interview recording HEAD validation:', {
+          recordingPath,
+          videoUrl,
+          status: response.status,
+          contentType,
+        })
+
+        if (response.status === 404) {
+          clearLoadTimeout()
+          setIsInitializing(false)
+          setAvailabilityStatus('not_found')
+          setErrorMessage('Recording Not Found')
+          return
+        }
+
+        if (response.ok) {
+          if (contentType && !contentType.toLowerCase().includes('video')) {
+            setAvailabilityStatus('maybe_invalid')
+          } else {
+            setAvailabilityStatus('available')
+          }
+          return
+        }
+
+        setAvailabilityStatus('unknown')
+      })
+      .catch((error) => {
+        if (error?.name === 'AbortError') {
+          return
+        }
+
+        // HEAD validation is only a UX hint. Ignore network/CORS failures and
+        // let the player attempt real playback with the same URL.
+        console.info('Interview recording HEAD validation skipped:', {
+          recordingPath,
+          videoUrl,
+          errorMessage: error?.message,
+          errorName: error?.name,
+        })
+        setAvailabilityStatus('unknown')
+      })
 
     // Fail fast when the recording service is slow or unreachable so the UI
     // doesn't remain stuck in a spinner forever.
@@ -87,17 +167,20 @@ export default function InterviewRecordingPlayer({
     return () => {
       clearLoadTimeout()
       clearRetryTimeout()
+      clearValidationRequest()
     }
-  }, [hasRecording, retryKey, videoUrl])
+  }, [hasRecording, hasValidRecordingPath, recordingPath, retryKey, videoUrl])
 
   useEffect(() => () => {
     clearLoadTimeout()
     clearRetryTimeout()
+    clearValidationRequest()
   }, [])
 
   const handlePlayerReady = () => {
     clearLoadTimeout()
     setIsInitializing(false)
+    setAvailabilityStatus('available')
     setErrorMessage('')
   }
 
@@ -108,12 +191,17 @@ export default function InterviewRecordingPlayer({
     setIsInitializing(false)
     setErrorMessage(getPlayerErrorMessage(playerError))
 
-    console.error('Interview recording player error:', {
+    console.error('Video playback error:', {
       recordingPath,
       videoUrl,
+      code: playerError?.code,
+      message: playerError?.message,
       error: playerError,
       currentSource: player?.currentSource?.(),
       currentSources: player?.currentSources?.(),
+      currentSrc: player?.currentSrc?.(),
+      networkState: player?.networkState?.(),
+      readyState: player?.readyState?.(),
     })
   }
 
@@ -130,7 +218,7 @@ export default function InterviewRecordingPlayer({
     }, RETRY_DELAY_MS)
   }
 
-  if (!recordingPath) {
+  if (!hasValidRecordingPath) {
     return (
       <div className={cn('flex h-full w-full flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border/70 bg-muted/20 p-6 text-center', className)}>
         <Video className="h-12 w-12 opacity-40" />
@@ -142,9 +230,11 @@ export default function InterviewRecordingPlayer({
     )
   }
 
+  const shouldRenderPlayer = hasRecording && availabilityStatus !== 'not_found'
+
   return (
     <div className={cn('relative h-full w-full rounded-xl border bg-black/95', className)}>
-      {!errorMessage ? (
+      {shouldRenderPlayer && !errorMessage ? (
         <VideoPlayer
           key={`${videoUrl}-${retryKey}`}
           sources={sources}
@@ -182,6 +272,14 @@ export default function InterviewRecordingPlayer({
             <p className="mt-1 text-sm text-white/70">
               {errorMessage === 'Recording Not Found'
                 ? 'The recording endpoint returned 404 for this session token.'
+                : errorMessage === 'Recording not available or not ready yet'
+                  ? 'The recording is not available yet or is still being prepared for playback.'
+                  : errorMessage === 'Server error while fetching recording'
+                    ? 'The recording service returned a server error. Please retry shortly.'
+                    : errorMessage === 'Unsupported media format'
+                      ? 'The recording endpoint responded, but not with a browser-supported video content type.'
+                      : errorMessage === 'Invalid video response from server'
+                        ? 'The recording endpoint responded with an unexpected status or content type.'
                 : 'Please try again. If the issue persists, verify the recording service and session token.'}
             </p>
           </div>
