@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -89,6 +89,10 @@ export default function Interviews({ superAdminAgencyId = null }) {
   const [selectedJobFilter, setSelectedJobFilter] = useState('all')
   const [decisionLoading, setDecisionLoading] = useState(null)
   const [approveModalOpen, setApproveModalOpen] = useState(false)
+  const [candidateDropdownOpen, setCandidateDropdownOpen] = useState(false)
+  const [candidateSelectionLoading, setCandidateSelectionLoading] = useState(false)
+  const [slotBookingLoading, setSlotBookingLoading] = useState(false)
+  const candidateDropdownRef = useRef(null)
   const { toast } = useToast()
   const [scheduleForm, setScheduleForm] = useState({
     name: '',
@@ -198,6 +202,122 @@ export default function Interviews({ superAdminAgencyId = null }) {
   useEffect(() => {
     setVisibleCount(20)
   }, [selectedJobFilter])
+
+  useEffect(() => {
+    if (!candidateDropdownOpen) {
+      return undefined
+    }
+
+    const handlePointerDown = (event) => {
+      if (candidateDropdownRef.current && !candidateDropdownRef.current.contains(event.target)) {
+        setCandidateDropdownOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+    return () => document.removeEventListener('mousedown', handlePointerDown)
+  }, [candidateDropdownOpen])
+
+  const scheduleCandidates = useMemo(
+    () => [...(candidates || [])].sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''))),
+    [candidates]
+  )
+
+  const populateScheduleFormFromCandidate = async (selectedCandidate) => {
+    if (!selectedCandidate) {
+      setScheduleForm((prev) => ({
+        ...prev,
+        name: '',
+        email: '',
+        candidateId: '',
+        jobId: '',
+        jobTitle: '',
+        resumeText: '',
+        jdText: '',
+        predefinedQuestions: '',
+      }))
+      return
+    }
+
+    setCandidateSelectionLoading(true)
+    try {
+      const job = jobs.find((item) => String(item.id) === String(selectedCandidate.job_id))
+      let candidateDetails = selectedCandidate
+
+      try {
+        candidateDetails = await api.getCandidate(selectedCandidate.id)
+      } catch (error) {
+        console.error('Failed to fetch candidate details:', error)
+      }
+
+      setScheduleForm((prev) => ({
+        ...prev,
+        name: selectedCandidate.name || '',
+        email: candidateDetails?.email || selectedCandidate.email || '',
+        candidateId: selectedCandidate.id || '',
+        jobId: selectedCandidate.job_id || '',
+        jobTitle: job?.title || '',
+        resumeText: candidateDetails?.resume_text || selectedCandidate.resume_text || 'No resume text available',
+        jdText: job?.description || 'No job description available',
+        predefinedQuestions: candidateDetails?.predefined_questions || 'No predefined questions available',
+      }))
+    } finally {
+      setCandidateSelectionLoading(false)
+      setCandidateDropdownOpen(false)
+    }
+  }
+
+  const handleBookInterviewSlot = async () => {
+    if (!scheduleForm.candidateId) {
+      toast({
+        title: 'Select a Candidate',
+        description: 'Choose a candidate before opening the booking page.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    setSlotBookingLoading(true)
+    try {
+      const selectedCandidate = candidates.find((candidate) => String(candidate.id) === String(scheduleForm.candidateId))
+      const selectedJob = jobs.find((job) => String(job.id) === String(scheduleForm.jobId))
+      const result = await api.createSlotSelectionLink(scheduleForm.candidateId, {
+        candidateName: scheduleForm.name,
+        candidateEmail: scheduleForm.email,
+        candidateId: scheduleForm.candidateId,
+        jobId: scheduleForm.jobId,
+        jobTitle: scheduleForm.jobTitle,
+        jobRole: scheduleForm.jobTitle,
+        jobDescription: scheduleForm.jdText,
+        resumeText: scheduleForm.resumeText,
+        predefinedQuestions: scheduleForm.predefinedQuestions,
+        skills: Array.isArray(selectedCandidate?.skills) ? selectedCandidate.skills.join(', ') : '',
+        agency_id: selectedCandidate?.agency_id || '',
+        user_id: '',
+        companyName: selectedJob?.company_name || '',
+      })
+
+      if (!result?.slot_link) {
+        throw new Error('Booking link could not be generated')
+      }
+
+      window.open(result.slot_link, '_blank', 'noopener,noreferrer')
+      setShowScheduleModal(false)
+      toast({
+        title: 'Booking Page Opened',
+        description: 'Interview slot page opened with the selected candidate details.',
+      })
+    } catch (error) {
+      console.error('Failed to open slot booking page:', error)
+      toast({
+        title: 'Unable to Open Booking Page',
+        description: error.message || 'The slot selection link could not be created.',
+        variant: 'destructive',
+      })
+    } finally {
+      setSlotBookingLoading(false)
+    }
+  }
 
   const handleScheduleInterview = async () => {
     try {
@@ -343,6 +463,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
   }
 
   const openScheduleModal = () => {
+    setCandidateDropdownOpen(false)
     setShowScheduleModal(true)
   }
 
@@ -457,7 +578,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
 
         {/* Interview Details - Right Side */}
         {selectedInterview ? (
-        <Card className="flex-1 flex flex-col overflow-hidden">
+        <Card className="flex-1 flex flex-col">
           <CardHeader className="py-4">
             <div className="flex items-center justify-between">
               <div>
@@ -499,7 +620,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
               </p>
             )}
           </CardHeader>
-          <CardContent className="flex-1 overflow-auto">
+          <CardContent className="flex-1">
             <Tabs defaultValue="video" className="w-full">
               <TabsList className="w-full">
                 <TabsTrigger value="video" className="flex-1">
@@ -623,7 +744,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
       {/* Schedule Interview Modal */}
       {showScheduleModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowScheduleModal(false)}>
-          <div className="bg-card rounded-lg p-6 max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-card rounded-lg p-6 max-w-md w-full mx-4 max-h-[90vh] overflow-visible" onClick={(e) => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-bold">Schedule Interview</h2>
               <Button variant="ghost" size="icon" onClick={() => setShowScheduleModal(false)}>
@@ -631,50 +752,42 @@ export default function Interviews({ superAdminAgencyId = null }) {
               </Button>
             </div>
             
-            <div className="space-y-4">
+            <div className="space-y-4 max-h-[calc(90vh-7rem)] overflow-y-auto pr-1">
               <div>
                 <label className="text-sm font-medium mb-1 block">Candidate Name</label>
-                <select
-                  className="w-full h-10 rounded-lg border border-input bg-background px-3 py-2 text-sm"
-                  value={scheduleForm.name}
-                  onChange={async (e) => {
-                    const candidateName = e.target.value
-                    const selectedCandidate = candidates.find(c => c.name === candidateName)
-                    const job = jobs.find(j => j.id === selectedCandidate?.job_id)
-                    
-                    console.log('Selected candidate:', selectedCandidate)
-                    console.log('Job found:', job)
-                    
-                    let predefinedQuestions = 'No predefined questions available'
-                    if (selectedCandidate?.id) {
-                      try {
-                        const candidateDetails = await api.getCandidate(selectedCandidate.id)
-                        predefinedQuestions = candidateDetails.predefined_questions || 'No predefined questions available'
-                      } catch (error) {
-                        console.error('Failed to fetch candidate details:', error)
-                      }
-                    }
-                    
-                     setScheduleForm({
-                        ...scheduleForm, 
-                        name: candidateName,
-                        email: selectedCandidate?.email || '',
-                        candidateId: selectedCandidate?.id || '',
-                        jobId: job?.job_id || job?.id || '',
-                        jobTitle: job?.title || '',
-                        resumeText: selectedCandidate?.resume_text || 'No resume text available',
-                      jdText: job?.description || 'No job description available',
-                      predefinedQuestions: predefinedQuestions
-                    })
-                  }}
-                >
-                  <option value="">-- Select a candidate --</option>
-                  {candidates.map((candidate) => (
-                    <option key={candidate.id} value={candidate.name}>
-                      {candidate.name}
-                    </option>
-                  ))}
-                </select>
+                <div className="relative" ref={candidateDropdownRef}>
+                  <button
+                    type="button"
+                    className="flex h-10 w-full items-center justify-between rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                    onClick={() => setCandidateDropdownOpen((prev) => !prev)}
+                  >
+                    <span className={cn('truncate text-left', !scheduleForm.name && 'text-muted-foreground')}>
+                      {scheduleForm.name || '-- Select a candidate --'}
+                    </span>
+                    <ChevronDown className={cn('h-4 w-4 text-muted-foreground transition-transform', candidateDropdownOpen && 'rotate-180')} />
+                  </button>
+
+                  {candidateDropdownOpen && (
+                    <div className="absolute left-0 top-full z-[9999] mt-1 w-full rounded-lg border bg-white shadow-lg dark:bg-slate-950">
+                      <div className="max-h-60 overflow-y-auto py-1">
+                        {scheduleCandidates.map((candidate) => (
+                          <button
+                            key={candidate.id}
+                            type="button"
+                            className="flex w-full flex-col items-start px-3 py-2 text-left text-sm hover:bg-muted"
+                            onClick={() => populateScheduleFormFromCandidate(candidate)}
+                          >
+                            <span className="font-medium">{candidate.name}</span>
+                            <span className="text-xs text-muted-foreground">{candidate.email || 'No email'}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                {candidateSelectionLoading ? (
+                  <p className="mt-2 text-xs text-muted-foreground">Loading candidate details...</p>
+                ) : null}
               </div>
               
                <div>
@@ -780,11 +893,10 @@ export default function Interviews({ superAdminAgencyId = null }) {
                 <Button 
                   className="w-full" 
                   variant="outline"
-                  onClick={() => {
-                    window.open('https://pontis-backend-production.up.railway.app/booking.html', '_blank')
-                  }}
+                  disabled={slotBookingLoading || !scheduleForm.candidateId}
+                  onClick={handleBookInterviewSlot}
                 >
-                  Book Interview Slot
+                  {slotBookingLoading ? 'Opening Booking Page...' : 'Book Interview Slot'}
                 </Button>
               </div>
               {/*

@@ -7,6 +7,7 @@ from app.auth import get_current_active_user, get_current_admin_user
 from app.database import get_db
 from app.models import Candidate, CandidateStage, Interview, User
 from app.notification_service import (
+    build_rendered_notification,
     build_workflow_url,
     queue_notification,
     resolve_workflow_token,
@@ -125,6 +126,37 @@ def resolve_notification_workflow(
         consumed_at=token_record.consumed_at,
         is_active=token_record.is_active,
     )
+
+
+@router.post("/slot-selection-link")
+def create_slot_selection_link(
+    request: NotificationEventRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    candidate = db.query(Candidate).filter(Candidate.id == request.candidate_id).first()
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found")
+
+    rendered = build_rendered_notification(
+        db,
+        candidate=candidate,
+        status="slot_selection",
+        user_id=request.user_id or current_user.id,
+        extra_payload=_compact_workflow_payload(request.payload or {}),
+    )
+    db.commit()
+
+    return {
+        "candidate_id": candidate.id,
+        "workflow_token": rendered["workflow_token"],
+        "slot_link": rendered["payload"].get("slot_link") or (
+            build_workflow_url(rendered["workflow_token"], "slot_selection")
+            if rendered["workflow_token"]
+            else ""
+        ),
+        "payload": _normalize_workflow_payload(rendered["payload"]),
+    }
 
 
 @router.post("/workflows/{token}/slot-confirmation")

@@ -24,6 +24,7 @@ from app.schemas import (
 from app.auth import get_current_active_user
 from app.config import settings
 from ats.extraction.information_extraction import (
+    LANGUAGE_TERMS,
     extract_email,
     extract_education_entries,
     extract_experience_entries,
@@ -168,6 +169,43 @@ def sanitize_candidate_email(value: Optional[str]) -> Optional[str]:
         return extracted
 
     return None
+
+
+def sanitize_resume_skills(skills: Optional[List[str]], languages: Optional[List[str]] = None) -> List[str]:
+    """Remove spoken-language entries from extracted skills for all upload modes."""
+    language_terms = {str(term).strip().lower() for term in LANGUAGE_TERMS}
+    language_terms.update(str(language).strip().lower() for language in (languages or []) if str(language).strip())
+    language_terms.update({
+        "language",
+        "languages",
+        "known languages",
+        "spoken languages",
+        "english",
+        "hindi",
+        "tamil",
+        "telugu",
+        "malayalam",
+        "kannada",
+        "marathi",
+        "gujarati",
+        "bengali",
+        "urdu",
+        "punjabi",
+    })
+
+    sanitized_skills: List[str] = []
+    seen: set[str] = set()
+    for skill in skills or []:
+        normalized = re.sub(r"\s+", " ", str(skill or "")).strip()
+        lowered = normalized.lower()
+        if not normalized or lowered in language_terms:
+            continue
+        if lowered in seen:
+            continue
+        seen.add(lowered)
+        sanitized_skills.append(normalized)
+
+    return sanitized_skills
 
 
 def build_safe_candidate_response(candidate_dict: Dict) -> CandidateResponse:
@@ -411,6 +449,7 @@ def extract_resume_data(file_path: str, original_filename: str = None) -> dict:
         current_role = parsed_resume.get("designation") or None
         current_company = parsed_resume.get("current_company") or None
         languages = parsed_resume.get("languages") or []
+        skills = sanitize_resume_skills(skills, languages)
         experience_level = parsed_resume.get("experience_level") or None
 
         if raw_text.strip():
@@ -419,6 +458,8 @@ def extract_resume_data(file_path: str, original_filename: str = None) -> dict:
             
             # Keep parser-first fields, but preserve extraction fallbacks when parser returns nothing.
             skills = skills or extracted_info["skills"] or extract_skills_from_text(raw_text)
+            languages = languages or extracted_info.get("languages") or []
+            skills = sanitize_resume_skills(skills, languages)
             location = location or sanitize_candidate_location(extracted_info.get("location")) or None
             
             # Extract projects

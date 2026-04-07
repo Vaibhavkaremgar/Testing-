@@ -815,6 +815,17 @@ class ApiClient {
       }),
     })
   }
+
+  async createSlotSelectionLink(candidateId, payload = {}) {
+    return this.request('/notifications/slot-selection-link', {
+      method: 'POST',
+      body: JSON.stringify({
+        candidate_id: candidateId,
+        status: 'slot_selection',
+        payload,
+      }),
+    })
+  }
   // Agencies (Super Admin)
   async getAgencies() {
     return this.request('/agencies')
