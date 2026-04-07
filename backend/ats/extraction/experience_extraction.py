@@ -8,7 +8,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 from dateutil import parser as date_parser
 
 from ats.datasets.parser_config_loader import ParserConfigLoader
-from ats.preprocessing.section_segmentation import get_section_content, segment_resume_sections
+from ats.preprocessing.section_segmentation import get_section_content
 from app.spacy_nlp import SPACY_AVAILABLE, get_experience_doc
 
 logger = logging.getLogger(__name__)
@@ -21,13 +21,14 @@ DATE_TOKEN_PATTERN = (
     rf"|(?:{MONTH_PATTERN})[.\-/\s,']+\d{{1,2}}(?:st|nd|rd|th)?[,\s.\-/]+\d{{2,4}}"
     rf"|\d{{1,2}}[/-]\d{{1,2}}[/-]\d{{2,4}}"
     rf"|\d{{1,2}}[/-]\d{{2,4}}"
+    rf"|\d{{4}}\.\d{{1,2}}"
     rf"|\d{{4}}[/-]\d{{1,2}}"
     rf"|\d{{1,2}}\.\d{{2,4}}"
     rf"|\d{{4}})"
 )
 DATE_RANGE_REGEX = re.compile(
     rf"(?:\bfrom\s+)?(?P<start>{DATE_TOKEN_PATTERN})\s*"
-    rf"(?:-|–|—|to|until|through)\s*"
+    rf"(?:-|–|—|to|till|until|through)\s*"
     rf"(?P<end>{PRESENT_PATTERN}|{DATE_TOKEN_PATTERN})",
     re.IGNORECASE,
 )
@@ -43,13 +44,8 @@ PROSE_ROLE_PATTERN = re.compile(
 PROSE_COMPANY_PATTERN = re.compile(
     rf"(?i)\b(?:worked at|working at|employed at|joined|with|at)\s+"
     rf"(?P<company>[A-Z][A-Za-z0-9&.'-]*(?:\s+[A-Z][A-Za-z0-9&.'-]*){{0,6}}?)\s+"
-    rf"(?:from\s+)?(?P<start>{DATE_TOKEN_PATTERN})\s*(?:-|to|until|through)\s*(?P<end>{PRESENT_PATTERN}|{DATE_TOKEN_PATTERN})"
+    rf"(?:from\s+)?(?P<start>{DATE_TOKEN_PATTERN})\s*(?:-|to|till|until|through)\s*(?P<end>{PRESENT_PATTERN}|{DATE_TOKEN_PATTERN})"
 )
-EXPLICIT_DURATION_PATTERN = re.compile(
-    r"(?i)\b(?P<years>\d+(?:\.\d+)?)\+?\s*(?:years|yrs)"
-    r"(?:\s*(?:and|,)?\s*(?P<months>\d+)\s*(?:months|mos))?"
-)
-EXPLICIT_MONTHS_ONLY_PATTERN = re.compile(r"(?i)\b(?P<months>\d+)\s*(?:months|mos)\b")
 _parser_config_loader = ParserConfigLoader()
 _parser_vocabulary = _parser_config_loader.load_parser_vocabulary()
 _company_hint_terms = [
@@ -138,7 +134,10 @@ def _normalize_text(value: str) -> str:
     for source, target in replacements.items():
         normalized = normalized.replace(source, target)
     normalized = re.sub(r"(?i)\bfrom\s+", "", normalized)
-    normalized = re.sub(r"(?i)\btill\b", "to", normalized)
+    normalized = re.sub(r"(?i)\btill date\b", "Present", normalized)
+    normalized = re.sub(r"(?i)\btill now\b", "Present", normalized)
+    normalized = re.sub(r"(?i)\btill-date\b", "Present", normalized)
+    normalized = re.sub(r"(?i)\btilldate\b", "Present", normalized)
     normalized = re.sub(
         rf"(?i)(?P<start>{DATE_TOKEN_PATTERN}|{PRESENT_PATTERN})\s+\?\s+(?P<end>{DATE_TOKEN_PATTERN}|{PRESENT_PATTERN})",
         r"\g<start> - \g<end>",
@@ -652,7 +651,11 @@ def _is_valid_experience_window(
     if not start_date or not end_date or end_date < start_date:
         return False
     reference_today = today or datetime.utcnow()
-    return start_date <= reference_today
+    if start_date > reference_today:
+        return False
+    if end_date > reference_today and (end_date.year != reference_today.year or end_date.month != reference_today.month):
+        return False
+    return _months_between(start_date, end_date) > 0
 
 
 def _experience_confidence(entry: Dict[str, Any]) -> float:
@@ -718,6 +721,8 @@ def _entry_from_block(block_lines: Sequence[str]) -> Optional[Dict[str, Any]]:
         "role": role,
         "title": role,
         "company": company,
+        "start": _serialize_year_month(start_date),
+        "end": _serialize_year_month(end_date),
         "start_date": _serialize_year_month(start_date),
         "end_date": _serialize_year_month(end_date),
         "duration_years": duration_years,
@@ -731,8 +736,8 @@ def _entry_from_block(block_lines: Sequence[str]) -> Optional[Dict[str, Any]]:
     return entry
 
 
-def _extract_structured_experience_entries(text: str, ignore_internships: bool = False) -> List[Dict[str, Any]]:
-    lines = [_normalize_line(line) for line in _normalize_text(text).split("\n") if _normalize_line(line)]
+def _extract_structured_experience_entries(section_text: str, ignore_internships: bool = False) -> List[Dict[str, Any]]:
+    lines = [_normalize_line(line) for line in _normalize_text(section_text).split("\n") if _normalize_line(line)]
     entries: List[Dict[str, Any]] = []
     current_block: Dict[str, Any] = {}
 
@@ -768,6 +773,8 @@ def _extract_structured_experience_entries(text: str, ignore_internships: bool =
                 "role": role or None,
                 "title": role or None,
                 "company": company,
+                "start": _serialize_year_month(start_date),
+                "end": _serialize_year_month(end_date),
                 "start_date": _serialize_year_month(start_date),
                 "end_date": _serialize_year_month(end_date),
                 "duration_years": round(_months_between(start_date, end_date) / 12.0, 1),
@@ -921,70 +928,6 @@ def _dedupe_entries(entries: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return deduped
 
 
-def _fallback_blocks_from_full_text(text: str) -> List[List[str]]:
-    sections = segment_resume_sections(text)
-    if sections.get("experience"):
-        return _split_experience_blocks(sections["experience"])
-    return _split_experience_blocks(_normalize_text(text))
-
-
-def _looks_like_global_job_start(line: str, next_line: str = "") -> bool:
-    normalized = _normalize_line(line)
-    following = _normalize_line(next_line)
-    if not normalized or _is_bullet_line(normalized):
-        return False
-    if NON_EXPERIENCE_HEADER_PATTERN.match(normalized) or EXPERIENCE_CONTINUATION_HEADER_PATTERN.match(normalized):
-        return False
-    if CERTIFICATION_ROLE_PATTERN.search(normalized):
-        return False
-    line_has_date = bool(extract_date_ranges(normalized))
-    next_has_date = bool(following and extract_date_ranges(following))
-    role_or_company_hint = bool(
-        ROLE_HINT_PATTERN.search(normalized)
-        or COMPANY_PATTERN.search(normalized)
-        or "|" in normalized
-        or "?" in normalized
-        or " at " in normalized.lower()
-    )
-    if line_has_date and role_or_company_hint:
-        return True
-    if next_has_date and role_or_company_hint:
-        return True
-    return False
-
-
-def _global_experience_blocks(text: str) -> List[List[str]]:
-    lines = [_normalize_line(line) for line in _normalize_text(text).split("\n")]
-    blocks: List[List[str]] = []
-    index = 0
-    while index < len(lines):
-        line = lines[index]
-        next_line = lines[index + 1] if index + 1 < len(lines) else ""
-        if not _looks_like_global_job_start(line, next_line):
-            index += 1
-            continue
-        block = [line]
-        cursor = index + 1
-        while cursor < len(lines):
-            candidate = lines[cursor]
-            future = lines[cursor + 1] if cursor + 1 < len(lines) else ""
-            if not candidate:
-                cursor += 1
-                continue
-            if cursor != index and _looks_like_global_job_start(candidate, future):
-                break
-            if NON_EXPERIENCE_HEADER_PATTERN.match(candidate):
-                break
-            if EXPERIENCE_CONTINUATION_HEADER_PATTERN.match(candidate):
-                break
-            block.append(candidate)
-            cursor += 1
-        if len(block) >= 2:
-            blocks.append(block)
-        index = max(cursor, index + 1)
-    return blocks
-
-
 def _extract_inline_company_and_description(rest: str) -> Tuple[Optional[str], str]:
     normalized = _normalize_line(rest)
     if not normalized:
@@ -999,9 +942,14 @@ def _extract_inline_company_and_description(rest: str) -> Tuple[Optional[str], s
 
 
 def _extract_inline_experience_entries(text: str, ignore_internships: bool = False) -> List[Dict[str, Any]]:
-    normalized = _normalize_text(text)
     entries: List[Dict[str, Any]] = []
-    for match in INLINE_ROLE_DATE_PATTERN.finditer(normalized):
+    for raw_line in _normalize_text(text).splitlines():
+        normalized_line = _normalize_line(raw_line)
+        if not normalized_line:
+            continue
+        match = INLINE_ROLE_DATE_PATTERN.search(normalized_line)
+        if not match:
+            continue
         role = _normalize_line(match.group("role"))
         start_text = match.group("start")
         end_text = match.group("end")
@@ -1014,17 +962,21 @@ def _extract_inline_experience_entries(text: str, ignore_internships: bool = Fal
         company, description = _extract_inline_company_and_description(match.group("rest"))
         if not company:
             continue
+        if "," in company and not COMPANY_PATTERN.search(company):
+            continue
         entries.append(
             {
                 "role": role,
                 "title": role,
                 "company": company,
+                "start": _serialize_year_month(start_date),
+                "end": _serialize_year_month(end_date),
                 "start_date": _serialize_year_month(start_date),
                 "end_date": _serialize_year_month(end_date),
                 "duration_years": round(_months_between(start_date, end_date) / 12.0, 1),
                 "duration_months": _months_between(start_date, end_date),
                 "duration": _format_duration(_months_between(start_date, end_date)),
-                "raw_text": _normalize_line(match.group(0))[:1000],
+                "raw_text": normalized_line[:1000],
                 "is_current": bool(re.search(PRESENT_PATTERN, end_text, re.IGNORECASE)),
                 "description": description[:600],
             }
@@ -1053,6 +1005,8 @@ def _extract_prose_experience_entries(text: str, ignore_internships: bool = Fals
             "role": role,
             "title": role,
             "company": company,
+            "start": _serialize_year_month(start_date),
+            "end": _serialize_year_month(end_date),
             "start_date": _serialize_year_month(start_date),
             "end_date": _serialize_year_month(end_date),
             "duration_years": round(duration_months / 12.0, 1),
@@ -1065,23 +1019,6 @@ def _extract_prose_experience_entries(text: str, ignore_internships: bool = Fals
         entry["confidence"] = _experience_confidence(entry)
         entries.append(entry)
     return entries
-
-
-def _extract_explicit_total_experience_months(text: str) -> Optional[int]:
-    normalized = _normalize_text(text)
-    strongest_months: Optional[int] = None
-    for match in EXPLICIT_DURATION_PATTERN.finditer(normalized):
-        years = float(match.group("years"))
-        months = int(match.group("months") or 0)
-        total_months = int(round(years * 12)) + months
-        if strongest_months is None or total_months > strongest_months:
-            strongest_months = total_months
-    if strongest_months is not None:
-        return strongest_months
-    month_only_match = EXPLICIT_MONTHS_ONLY_PATTERN.search(normalized)
-    if month_only_match:
-        return int(month_only_match.group("months"))
-    return None
 
 
 def _select_current_experience(entries: Sequence[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
@@ -1101,9 +1038,11 @@ def _select_current_experience(entries: Sequence[Dict[str, Any]]) -> Optional[Di
 
 def extract_experience_entries(text: str, ignore_internships: bool = False) -> List[Dict[str, Any]]:
     experience_section = extract_experience_section(text)
-    structured_entries = _extract_structured_experience_entries(text, ignore_internships=ignore_internships)
-    blocks = _split_experience_blocks(experience_section) if experience_section else _fallback_blocks_from_full_text(text)
-    blocks.extend(_global_experience_blocks(text))
+    if not experience_section:
+        return []
+
+    structured_entries = _extract_structured_experience_entries(experience_section, ignore_internships=ignore_internships)
+    blocks = _split_experience_blocks(experience_section)
     entries = list(structured_entries)
     for block in blocks:
         for candidate_block in _split_block_on_multiple_date_ranges(block):
@@ -1116,8 +1055,8 @@ def extract_experience_entries(text: str, ignore_internships: bool = False) -> L
             if ignore_internships and re.search(r"(?i)\b(?:intern|internship|trainee|apprentice)\b", internship_source):
                 continue
             entries.append(entry)
-    inline_entries = _extract_inline_experience_entries(experience_section or text, ignore_internships=ignore_internships)
-    prose_entries = _extract_prose_experience_entries(experience_section or text, ignore_internships=ignore_internships)
+    inline_entries = _extract_inline_experience_entries(experience_section, ignore_internships=ignore_internships)
+    prose_entries = _extract_prose_experience_entries(experience_section, ignore_internships=ignore_internships)
     if not entries:
         entries.extend(inline_entries)
         entries.extend(prose_entries)
@@ -1145,15 +1084,13 @@ def extract_total_experience(text: str, ignore_internships: bool = False) -> Dic
         total_months = sum(_months_between(start, end) for start, end in merged_ranges)
         total_years = round(total_months / 12.0, 1)
     else:
-        explicit_total_months = _extract_explicit_total_experience_months(text)
-        total_months = explicit_total_months or 0
-        total_years = round(total_months / 12.0, 1) if total_months else None
+        total_years = None
 
     current_entry = _select_current_experience(normalized_entries)
     average_confidence = round(
         sum(float(entry.get("confidence") or 0.0) for entry in normalized_entries) / len(normalized_entries),
         2,
-    ) if normalized_entries else (0.85 if total_months else 0.0)
+    ) if normalized_entries else 0.0
     years_part, months_part = _duration_parts(total_months)
     return {
         "total_experience_years": total_years,
@@ -1165,5 +1102,6 @@ def extract_total_experience(text: str, ignore_internships: bool = False) -> Dic
         "current_company": current_entry.get("company") if current_entry else None,
         "current_role": current_entry.get("role") if current_entry else None,
         "experience_extraction_confidence": average_confidence,
+        "experience": normalized_entries,
         "experiences": normalized_entries,
     }

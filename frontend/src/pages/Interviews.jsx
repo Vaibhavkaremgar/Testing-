@@ -1,37 +1,20 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Progress } from '@/components/ui/progress'
-import VideoPlayer from '@/components/VideoPlayer'
+import InterviewRecordingPlayer from '@/components/interviews/InterviewRecordingPlayer'
 import { api } from '@/lib/api'
 import { cn, formatDateTime, getScoreColor } from '@/lib/utils'
 import { useToast } from '@/hooks/use-toast'
 import {
-  Video, Calendar, Clock, User, FileText, Brain, Star, Send, X, Play, CheckCircle, RotateCcw, Plus, ExternalLink, ChevronDown
+  Video, Calendar, Clock, User, FileText, Brain, Star, Send, X, CheckCircle, RotateCcw, Plus, ExternalLink, ChevronDown
 } from 'lucide-react'
 
 const DEFAULT_LIST_LIMIT = 20
 const INTERVIEW_REJECTION_SCORE_THRESHOLD = 6
-
-function getInterviewPlaybackUrl(interview) {
-  if (!interview) return ''
-  if (interview.has_recording) return api.getInterviewVideoUrl(interview.async_token || interview.id)
-  if (interview.session_token) return api.getDashboardRecordingUrl(interview.session_token)
-  return interview.video_url || ''
-}
-
-function getPlaybackSourceType(playbackUrl) {
-  const normalizedUrl = String(playbackUrl || '').split('?')[0].split('#')[0].toLowerCase()
-
-  if (normalizedUrl.endsWith('.m3u8')) {
-    return 'application/x-mpegURL'
-  }
-
-  return 'video/mp4'
-}
 
 function getNumericInterviewScore(interview) {
   const rawScore = interview?.interview_score
@@ -104,16 +87,8 @@ export default function Interviews({ superAdminAgencyId = null }) {
   const [candidates, setCandidates] = useState([])
   const [jobs, setJobs] = useState([])
   const [selectedJobFilter, setSelectedJobFilter] = useState('all')
-  const [videoError, setVideoError] = useState('')
-  const [mediaMode, setMediaMode] = useState('video')
-  const [videoDuration, setVideoDuration] = useState(0)
-  const [videoCurrentTime, setVideoCurrentTime] = useState(0)
-  const [isVideoPlaying, setIsVideoPlaying] = useState(false)
-  const [wasPlayingBeforeSeek, setWasPlayingBeforeSeek] = useState(false)
-  const [isSeeking, setIsSeeking] = useState(false)
   const [decisionLoading, setDecisionLoading] = useState(null)
   const [approveModalOpen, setApproveModalOpen] = useState(false)
-  const videoRef = useRef(null)
   const { toast } = useToast()
   const [scheduleForm, setScheduleForm] = useState({
     name: '',
@@ -137,12 +112,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
         const params = {}
         if (selectedClient) params.client = selectedClient
         if (superAdminAgencyId) params.agency_id = superAdminAgencyId
-        const interviewRows = await api.getInterviews({ ...params, limit: DEFAULT_LIST_LIMIT, offset: 0 })
-        const interviewsData = (interviewRows || [])
-          .map(interview => ({
-            ...interview,
-            playback_url: getInterviewPlaybackUrl(interview)
-          }))
+        const interviewsData = (await api.getInterviews({ ...params, limit: DEFAULT_LIST_LIMIT, offset: 0 })) || []
         
         setInterviews(interviewsData)
         if (interviewsData.length > 0) {
@@ -255,13 +225,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
         duration_minutes: Number(scheduleForm.durationMinutes) || 60,
         meeting_link: scheduleForm.meetingLink,
       })
-
-      const interviewWithPlayback = {
-        ...createdInterview,
-        playback_url: getInterviewPlaybackUrl(createdInterview)
-      }
-
-      setInterviews((prev) => [interviewWithPlayback, ...prev])
+      setInterviews((prev) => [createdInterview, ...prev])
       toast({
         title: 'Interview Scheduled',
         description: `Interview created for ${scheduleForm.name}.`,
@@ -376,98 +340,6 @@ export default function Interviews({ superAdminAgencyId = null }) {
     } finally {
       setDecisionLoading(null)
     }
-  }
-
-  useEffect(() => {
-    setVideoError('')
-    setMediaMode('video')
-    setVideoDuration(0)
-    setVideoCurrentTime(0)
-    setIsVideoPlaying(false)
-  }, [selectedInterview?.id])
-
-  const formatMediaTime = (value) => {
-    const numericValue = Number(value)
-    if (!Number.isFinite(numericValue) || numericValue <= 0) return '00:00'
-    const totalSeconds = Math.max(0, Math.floor(numericValue))
-    const minutes = Math.floor(totalSeconds / 60)
-    const seconds = totalSeconds % 60
-    return `${minutes}:${String(seconds).padStart(2, '0')}`
-  }
-
-  const syncVideoState = (player) => {
-    if (!player) return
-
-    const duration = Number(player.duration?.())
-    const currentTime = Number(player.currentTime?.())
-    const safeDuration = Number.isFinite(duration) ? duration : 0
-    const safeCurrentTime = Number.isFinite(currentTime) ? currentTime : 0
-
-    setMediaMode('video')
-    setVideoError('')
-
-    if (safeDuration > 0) {
-      setVideoDuration(safeDuration)
-    }
-
-    if (!isSeeking) {
-      setVideoCurrentTime(safeCurrentTime)
-    }
-  }
-
-  const handleVideoLoadedMetadata = (player) => {
-    syncVideoState(player)
-  }
-
-  const handleVideoDurationChange = (player) => {
-    syncVideoState(player)
-  }
-
-  const handleVideoLoadedData = (player) => {
-    syncVideoState(player)
-  }
-
-  const handleVideoCanPlay = (player) => {
-    syncVideoState(player)
-  }
-
-  const handleVideoTimeUpdate = (player) => {
-    if (isSeeking) return
-    const nextTime = Number(player?.currentTime?.())
-    setVideoCurrentTime(Number.isFinite(nextTime) ? nextTime : 0)
-  }
-
-  const toggleVideoPlayback = () => {
-    const player = videoRef.current
-    if (!player) return
-
-    if (player.paused()) {
-      void player.play()
-    } else {
-      player.pause()
-    }
-  }
-
-  const handleVideoSeek = (event) => {
-    const nextTime = Number(event.target.value)
-    const safeNextTime = Number.isFinite(nextTime) ? nextTime : 0
-    setVideoCurrentTime(safeNextTime)
-    if (videoRef.current) {
-      videoRef.current.currentTime(safeNextTime)
-    }
-  }
-
-  const handleSeekStart = () => {
-    setIsSeeking(true)
-    setWasPlayingBeforeSeek(Boolean(videoRef.current && !videoRef.current.paused()))
-  }
-
-  const handleSeekCommit = () => {
-    setIsSeeking(false)
-    if (wasPlayingBeforeSeek && videoRef.current) {
-      void videoRef.current.play()
-    }
-    setWasPlayingBeforeSeek(false)
   }
 
   const openScheduleModal = () => {
@@ -646,100 +518,13 @@ export default function Interviews({ superAdminAgencyId = null }) {
 
               <TabsContent value="video" className="mt-4">
                 <div className="mx-auto w-full max-w-4xl">
-                <div className="aspect-video overflow-hidden rounded-xl bg-transparent">
-                  {selectedInterview.playback_url && mediaMode === 'video' ? (
-                    <div className="flex h-full w-full items-center justify-center bg-transparent">
-                      <VideoPlayer
-                        ref={videoRef}
-                        src={selectedInterview.playback_url}
-                        type={getPlaybackSourceType(selectedInterview.playback_url)}
-                        playsInline
-                        preload="metadata"
-                        className="h-full w-full rounded-lg"
-                        videoClassName="object-cover"
-                        options={{
-                          controls: false,
-                          fluid: true,
-                          responsive: true,
-                        }}
-                        onError={() => setVideoError('Unable to load interview recording. The video may be missing or in an unsupported format.')}
-                        onLoadedMetadata={handleVideoLoadedMetadata}
-                        onLoadedData={handleVideoLoadedData}
-                        onCanPlay={handleVideoCanPlay}
-                        onDurationChange={handleVideoDurationChange}
-                        onTimeUpdate={handleVideoTimeUpdate}
-                        onPlay={() => setIsVideoPlaying(true)}
-                        onPause={() => setIsVideoPlaying(false)}
-                        onEnded={() => setIsVideoPlaying(false)}
-                      />
-                    </div>
-                  ) : selectedInterview.playback_url && mediaMode === 'audio' ? (
-                    <div className="w-full h-full flex flex-col items-center justify-center gap-4 p-6 text-center">
-                      <Video className="h-16 w-16 opacity-40" />
-                      <div>
-                        <p className="font-medium">Audio-Only Recording</p>
-                        <p className="text-sm text-muted-foreground mt-1">
-                          This interview recording was saved without a video track.
-                        </p>
-                      </div>
-                      <audio
-                        key={`${selectedInterview.id}-audio`}
-                        controls
-                        preload="metadata"
-                        className="w-full max-w-lg"
-                        src={selectedInterview.playback_url}
-                        onError={() => setVideoError('Unable to load interview recording. The audio file may be missing or unsupported.')}
-                      >
-                        Your browser does not support the audio tag.
-                      </audio>
-                    </div>
-                  ) : (
-                    <div className="text-center text-muted-foreground">
-                      <Video className="h-16 w-16 mx-auto mb-4 opacity-50" />
-                      <p>No recording available</p>
-                    </div>
-                  )}
-                </div>
-                {selectedInterview.playback_url && mediaMode === 'video' && (
-                  <div className="mt-3 rounded-xl border bg-background px-4 py-3">
-                    <div className="flex items-center gap-3">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        onClick={toggleVideoPlayback}
-                      >
-                        <Play className="mr-2 h-4 w-4" />  
-                        {isVideoPlaying ? 'Pause' : 'Play'}
-                      </Button>
-                      <span className="w-12 text-sm tabular-nums text-muted-foreground">
-                        {formatMediaTime(videoCurrentTime)}
-                      </span>
-                      <input
-                        type="range"
-                        min="0"
-                        max={videoDuration > 0 ? videoDuration : 0}
-                        step="0.1"
-                        value={videoDuration > 0 ? Math.min(videoCurrentTime, videoDuration) : 0}
-                        onMouseDown={handleSeekStart}
-                        onTouchStart={handleSeekStart}
-                        onInput={handleVideoSeek}
-                        onChange={handleVideoSeek}
-                        onMouseUp={handleSeekCommit}
-                        onTouchEnd={handleSeekCommit}
-                        onKeyUp={handleSeekCommit}
-                        className="h-2 flex-1 cursor-pointer accent-primary"
-                      />
-                      <span className="w-12 text-right text-sm tabular-nums text-muted-foreground">
-                        {formatMediaTime(videoDuration)}
-                      </span>
-                    </div>
+                  <div className="aspect-video overflow-hidden rounded-xl bg-transparent">
+                    <InterviewRecordingPlayer
+                      recordingPath={selectedInterview.recording_path}
+                      className="h-full w-full"
+                    />
                   </div>
-                )}
                 </div>
-                {videoError && (
-                  <p className="mt-3 text-sm text-destructive">{videoError}</p>
-                )}
               </TabsContent>
 
               <TabsContent value="transcript" className="mt-4">

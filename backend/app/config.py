@@ -1,12 +1,14 @@
+import os
+from functools import lru_cache
+from typing import List, Optional
+
 from pydantic import field_validator
 from pydantic_settings import BaseSettings
-from functools import lru_cache
-from typing import List
-import os
 
 class Settings(BaseSettings):
     APP_NAME: str = "TalentAI Recruitment System"
     DEBUG: bool = True
+    ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
 
     @field_validator("DEBUG", mode="before")
     @classmethod
@@ -52,17 +54,44 @@ class Settings(BaseSettings):
     FROM_EMAIL: str = os.getenv("FROM_EMAIL", "noreply@yourcompany.com")
     FROM_NAME: str = os.getenv("FROM_NAME", "TalentAI Recruitment")
     SLOT_BOOKING_URL: str = os.getenv("SLOT_BOOKING_URL", "https://pontis-backend-production.up.railway.app/booking.html")
-    FRONTEND_URL: str = os.getenv("FRONTEND_URL", "https://glistening-youth-production.up.railway.app")
+    FRONTEND_URL: str = os.getenv("FRONTEND_URL", "https://dashboard.pontis.one")
     
     # CORS
-    ALLOWED_ORIGINS: str = "https://glistening-youth-production.up.railway.app,http://localhost:5173,http://localhost:3000,http://localhost:4173,http://localhost:5174"
+    ALLOWED_ORIGINS: str = os.getenv("ALLOWED_ORIGINS", "")
+    CORS_ALLOW_RAILWAY_PREVIEWS: bool = os.getenv("CORS_ALLOW_RAILWAY_PREVIEWS", "false").strip().lower() in {"1", "true", "yes", "on"}
+
+    @property
+    def environment_name(self) -> str:
+        return str(self.ENVIRONMENT or "").strip().lower()
+
+    @property
+    def is_production(self) -> bool:
+        return self.environment_name in {"production", "prod"} or not self.DEBUG
+
+    @property
+    def default_allowed_origins(self) -> List[str]:
+        production_origins = [
+            "https://dashboard.pontis.one",
+        ]
+        development_origins = [
+            "http://localhost:3000",
+            "http://localhost:4173",
+            "http://localhost:5173",
+            "http://localhost:5174",
+        ]
+        return production_origins if self.is_production else [*production_origins, *development_origins]
     
     @property
     def allowed_origins_list(self) -> List[str]:
         origins = []
+        for origin in self.default_allowed_origins:
+            cleaned = origin.strip().rstrip("/")
+            if cleaned and cleaned not in origins:
+                origins.append(cleaned)
+
         for origin in self.ALLOWED_ORIGINS.split(","):
             cleaned = origin.strip().rstrip("/")
-            if cleaned:
+            if cleaned and cleaned not in origins:
                 origins.append(cleaned)
 
         frontend_origin = self.FRONTEND_URL.strip().rstrip("/")
@@ -70,6 +99,12 @@ class Settings(BaseSettings):
             origins.append(frontend_origin)
 
         return origins
+
+    @property
+    def allowed_origin_regex(self) -> Optional[str]:
+        if self.CORS_ALLOW_RAILWAY_PREVIEWS:
+            return r"https://.*\.railway\.app"
+        return None
     
     class Config:
         env_file = ".env"
@@ -81,4 +116,3 @@ def get_settings():
     return Settings()
 
 settings = get_settings()
-

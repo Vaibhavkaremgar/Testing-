@@ -1,7 +1,7 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status, UploadFile, File, Query
 from fastapi.responses import FileResponse
 from pydantic import ValidationError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, load_only
 from sqlalchemy import func, or_, text
 from typing import Dict, List, Optional
 from uuid import UUID
@@ -1901,7 +1901,42 @@ def get_candidates(
     if min_score is not None:
         query = query.filter(Candidate.resume_score >= min_score)
     effective_offset = offset if offset is not None else max(0, (page - 1) * limit)
-    candidates = query.order_by(Candidate.created_at.desc()).offset(effective_offset).limit(limit).all()
+    candidates = (
+        query.options(
+            load_only(
+                Candidate.id,
+                Candidate.name,
+                Candidate.email,
+                Candidate.phone,
+                Candidate.current_company,
+                Candidate.current_role,
+                Candidate.experience_years,
+                Candidate.location,
+                Candidate.linkedin_url,
+                Candidate.resume_file_path,
+                Candidate.resume_text,
+                Candidate.parsing_status,
+                Candidate.resume_score,
+                Candidate.score_threshold,
+                Candidate.skills,
+                Candidate.education,
+                Candidate.work_experience,
+                Candidate.stage,
+                Candidate.stage_updated_at,
+                Candidate.stage_entered_at,
+                Candidate.applied_at,
+                Candidate.job_id,
+                Candidate.summary,
+                Candidate.predefined_questions,
+                Candidate.created_at,
+            ),
+            joinedload(Candidate.job).load_only(JobDescription.id, JobDescription.title),
+        )
+        .order_by(Candidate.created_at.desc())
+        .offset(effective_offset)
+        .limit(limit)
+        .all()
+    )
     
     # Add job title to response
     result = []

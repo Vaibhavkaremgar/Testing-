@@ -1,6 +1,6 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Response
 from fastapi.responses import FileResponse, StreamingResponse
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload, load_only
 from sqlalchemy import or_, text
 from typing import List, Optional
 from datetime import datetime
@@ -748,7 +748,34 @@ def get_interviews(
         query = _apply_interview_scope(query, current_user)
     
     effective_offset = offset if offset is not None else max(0, (page - 1) * limit)
-    interviews = query.order_by(Interview.scheduled_at.desc()).offset(effective_offset).limit(limit).all()
+    interviews = (
+        query.options(
+            load_only(
+                Interview.id,
+                Interview.candidate_id,
+                Interview.async_token,
+                Interview.interview_type,
+                Interview.scheduled_at,
+                Interview.duration_minutes,
+                Interview.meeting_link,
+                Interview.status,
+                Interview.video_url,
+                Interview.transcript,
+                Interview.ai_summary,
+                Interview.interview_score,
+                Interview.feedback,
+                Interview.technical_score,
+                Interview.communication_score,
+                Interview.culture_fit_score,
+                Interview.created_at,
+            ),
+            joinedload(Interview.candidate).load_only(Candidate.id, Candidate.name),
+        )
+        .order_by(Interview.scheduled_at.desc())
+        .offset(effective_offset)
+        .limit(limit)
+        .all()
+    )
     recording_availability = _fetch_recording_availability(interviews)
 
     credits_checked = False

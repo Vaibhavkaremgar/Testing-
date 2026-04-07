@@ -18,7 +18,7 @@ import {
 } from 'lucide-react'
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, FunnelChart, Funnel, LabelList, Cell, PieChart, Pie
+  ResponsiveContainer
 } from 'recharts'
 import {
   Popover,
@@ -26,7 +26,6 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover'
 
-const COLORS = ['#3b82f6', '#8b5cf6', '#06b6d4', '#10b981', '#f59e0b']
 const SAVED_DASHBOARD_VIEWS_KEY = 'dashboardSavedViews'
 const LOW_CREDIT_MODAL_DISMISSED_KEY = 'dashboardLowCreditModalDismissed'
 const INTERVIEW_REJECTION_SCORE_THRESHOLD = 6
@@ -84,7 +83,6 @@ export default function Dashboard() {
   const selectedClient = searchParams.get('client')
   const [loading, setLoading] = useState(true)
   const [statsState, setStats] = useState(null)
-  const [funnelState, setFunnel] = useState([])
   const [resumeTrendState, setResumeTrend] = useState([])
   const [interviewTrendState, setInterviewTrend] = useState([])
   const [activeJobsState, setActiveJobs] = useState([])
@@ -126,14 +124,10 @@ export default function Dashboard() {
     queryKey: ['dashboard-overview', dashboardParams],
     enabled: false,
     queryFn: async () => {
-      const [stats, funnel, resumeTrend, interviewTrend, activeJobs, upcomingInterviews, hiringMetrics, intelligence] = await Promise.all([
+      const [stats, resumeTrend, interviewTrend, activeJobs, upcomingInterviews, hiringMetrics, intelligence] = await Promise.all([
         api.getDashboardStats(dashboardParams).catch((error) => {
           console.error('Stats error:', error)
           return null
-        }),
-        api.getHiringFunnel(dashboardParams).catch((error) => {
-          console.error('Funnel error:', error)
-          return []
         }),
         api.getResumeScoresTrend().catch((error) => {
           console.error('Resume trend error:', error)
@@ -161,13 +155,12 @@ export default function Dashboard() {
         }),
       ])
 
-      return { stats, funnel, resumeTrend, interviewTrend, activeJobs, upcomingInterviews, hiringMetrics, intelligence }
+      return { stats, resumeTrend, interviewTrend, activeJobs, upcomingInterviews, hiringMetrics, intelligence }
     },
   })
 
   const {
     stats = statsState,
-    funnel = funnelState,
     resumeTrend = resumeTrendState,
     interviewTrend = interviewTrendState,
     activeJobs = activeJobsState,
@@ -196,9 +189,8 @@ export default function Dashboard() {
         } else if (selectedMonth !== 'all') {
           params.month = selectedMonth
         }
-        const [statsData, funnelData, resumeData, interviewData, jobs, interviews, metrics, intel, candidatesData, interviewRows] = await Promise.all([
+        const [statsData, resumeData, interviewData, jobs, interviews, metrics, intel, candidatesData, interviewRows] = await Promise.all([
           api.getDashboardStats(params).catch(e => { console.error('Stats error:', e); return null; }),
-          api.getHiringFunnel(params).catch(e => { console.error('Funnel error:', e); return []; }),
           api.getResumeScoresTrend().catch(e => { console.error('Resume trend error:', e); return []; }),
           api.getInterviewScoresTrend().catch(e => { console.error('Interview trend error:', e); return []; }),
           api.getActiveJobs().catch(e => { console.error('Jobs error:', e); return []; }),
@@ -261,10 +253,8 @@ export default function Dashboard() {
           return status === 'completed' && Number(interview?.interview_score) < INTERVIEW_REJECTION_SCORE_THRESHOLD
         }, () => 'REJECTED')
         console.log('📊 Dashboard Stats:', statsData)
-        console.log('📈 Funnel Data:', funnelData)
         setStats(statsData)
         setTotalCandidates(pipelineDisplayCandidates)
-        setFunnel(funnelData)
         setResumeTrend(resumeData)
         setInterviewTrend(interviewData)
         setActiveJobs(jobs)
@@ -308,10 +298,10 @@ export default function Dashboard() {
 
   const kpiCards = stats ? [
     { title: 'Total Candidates', value: stats.total_candidates || 0, icon: Users, color: 'text-blue-600', bg: 'bg-blue-100 dark:bg-blue-900/30', filter: {} },
-    { title: 'Shortlisted', value: shortlistedCandidates.length, icon: UserCheck, color: 'text-purple-600', bg: 'bg-purple-100 dark:bg-purple-900/30', filter: { type: 'pipeline_shortlisted' } },
-    { title: 'Interviews', value: interviewCandidates.length, icon: Calendar, color: 'text-orange-600', bg: 'bg-orange-100 dark:bg-orange-900/30', filter: { type: 'interview_active' } },
-    { title: 'Selected', value: selectedInterviewCandidates.length, icon: Award, color: 'text-green-600', bg: 'bg-green-100 dark:bg-green-900/30', filter: { type: 'interview_selected' } },
-    { title: 'Rejected', value: interviewRejectedCandidates.length, icon: UserX, color: 'text-red-600', bg: 'bg-red-100 dark:bg-red-900/30', filter: { type: 'interview_rejected' } },
+    { title: 'Shortlisted', value: stats.shortlisted || 0, icon: UserCheck, color: 'text-purple-600', bg: 'bg-purple-100 dark:bg-purple-900/30', filter: { type: 'pipeline_shortlisted' } },
+    { title: 'Interviews', value: stats.interviews_scheduled || 0, icon: Calendar, color: 'text-orange-600', bg: 'bg-orange-100 dark:bg-orange-900/30', filter: { type: 'interview_active' } },
+    { title: 'Selected', value: stats.selected || 0, icon: Award, color: 'text-green-600', bg: 'bg-green-100 dark:bg-green-900/30', filter: { type: 'interview_selected' } },
+    { title: 'Rejected', value: stats.rejected || 0, icon: UserX, color: 'text-red-600', bg: 'bg-red-100 dark:bg-red-900/30', filter: { type: 'interview_rejected' } },
   ] : [
     { title: 'Total Candidates', value: 0, icon: Users, color: 'text-blue-600', bg: 'bg-blue-100 dark:bg-blue-900/30', filter: {} },
     { title: 'Shortlisted', value: 0, icon: UserCheck, color: 'text-purple-600', bg: 'bg-purple-100 dark:bg-purple-900/30', filter: { type: 'pipeline_shortlisted' } },
@@ -711,39 +701,6 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       </div>
-
-      {/* Hiring Funnel */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Hiring Funnel</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="h-[300px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <FunnelChart>
-                <Tooltip 
-                  contentStyle={{ 
-                    backgroundColor: 'hsl(var(--card))', 
-                    border: '1px solid hsl(var(--border))',
-                    borderRadius: '8px'
-                  }} 
-                />
-                <Funnel
-                  dataKey="count"
-                  data={funnel}
-                  isAnimationActive
-                >
-                  {funnel.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                  <LabelList position="right" fill="#888" stroke="none" dataKey="stage" />
-                  <LabelList position="center" fill="#fff" stroke="none" dataKey="count" />
-                </Funnel>
-              </FunnelChart>
-            </ResponsiveContainer>
-          </div>
-        </CardContent>
-      </Card>
 
       {/* Modal for Card Details */}
       {selectedCard && selectedCard.title && cardCandidates !== null && (

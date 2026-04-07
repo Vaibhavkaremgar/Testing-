@@ -19,7 +19,11 @@ function normalizeSources({ src, type, sources }) {
       .filter((source) => source?.src)
       .map((source) => ({
         src: source.src,
-        type: source.type || inferSourceType(source.src),
+        // Preserve an omitted type so the server's Content-Type can drive playback.
+        type:
+          Object.prototype.hasOwnProperty.call(source, 'type')
+            ? source.type
+            : inferSourceType(source.src),
       }))
   }
 

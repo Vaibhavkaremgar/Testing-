@@ -53,14 +53,16 @@ app = FastAPI(
     redoc_url="/api/redoc",
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.allowed_origins_list,
-    allow_origin_regex=r"https://.*\.railway\.app",
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+cors_options = {
+    "allow_origins": settings.allowed_origins_list,
+    "allow_credentials": True,
+    "allow_methods": ["*"],
+    "allow_headers": ["*"],
+}
+if settings.allowed_origin_regex:
+    cors_options["allow_origin_regex"] = settings.allowed_origin_regex
+
+app.add_middleware(CORSMiddleware, **cors_options)
 
 try:
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
@@ -126,7 +128,15 @@ async def startup_event():
 
 @app.get("/api/health")
 def health_check():
-    return {"status": "healthy", "app": settings.APP_NAME, "cors": "enabled"}
+    return {
+        "status": "healthy",
+        "app": settings.APP_NAME,
+        "environment": settings.environment_name,
+        "cors": {
+            "enabled": True,
+            "allowed_origins": settings.allowed_origins_list,
+        },
+    }
 
 
 @app.get("/api/test-db")

@@ -23,10 +23,14 @@ from collections import Counter
 import random
 from datetime import datetime, timedelta, timezone
 from pydantic import BaseModel
+from copy import deepcopy
+from threading import Lock
+from time import monotonic
 
 router = APIRouter(prefix="/analytics", tags=["Analytics"])
 
 INTERVIEW_RESULT_THRESHOLD = 6
+ANALYTICS_CACHE_TTL_SECONDS = 30
 CANDIDATE_PIPELINE_STAGES = {
     CandidateStage.REVIEW,
     CandidateStage.SHORTLISTED,
@@ -40,6 +44,145 @@ INTERVIEW_PIPELINE_STAGES = {
     CandidateStage.SELECTED,
     CandidateStage.REJECTED,
 }
+_analytics_cache: dict[tuple, tuple[float, object]] = {}
+_analytics_cache_lock = Lock()
+
+
+def _analytics_cache_key(endpoint: str, current_user: User, **params) -> tuple:
+    return (
+        endpoint,
+        str(getattr(current_user, "id", "") or ""),
+        _role_name(current_user),
+        str(getattr(current_user, "agency_id", "") or ""),
+        _client_org_name(current_user),
+        tuple(sorted((key, str(value or "")) for key, value in params.items())),
+    )
+
+
+def _get_cached_analytics_response(cache_key: tuple):
+    now = monotonic()
+    with _analytics_cache_lock:
+        cached = _analytics_cache.get(cache_key)
+        if not cached:
+            return None
+        expires_at, payload = cached
+        if expires_at <= now:
+            _analytics_cache.pop(cache_key, None)
+            return None
+        return deepcopy(payload)
+
+
+def _set_cached_analytics_response(cache_key: tuple, payload):
+    with _analytics_cache_lock:
+        _analytics_cache[cache_key] = (
+            monotonic() + ANALYTICS_CACHE_TTL_SECONDS,
+            deepcopy(payload),
+        )
+
+
+def _candidate_metrics_subquery(query):
+    return query.with_entities(
+        Candidate.id.label("id"),
+        Candidate.stage.label("stage"),
+        Candidate.resume_score.label("resume_score"),
+        Candidate.job_id.label("job_id"),
+    ).subquery()
+
+
+def _aggregate_candidate_stage_metrics(db: Session, candidate_sq, *, exclude_applied: bool) -> dict:
+    stage_column = candidate_sq.c.stage
+    active_condition = stage_column != CandidateStage.APPLIED
+    base_condition = active_condition if exclude_applied else candidate_sq.c.id.isnot(None)
+
+    row = db.query(
+        func.count(case((base_condition, 1))).label("total_candidates"),
+        func.sum(case(((base_condition & (stage_column == CandidateStage.SHORTLISTED)), 1), else_=0)).label("shortlisted"),
+        func.sum(case(((base_condition & (stage_column == CandidateStage.RESUME_REJECTED)), 1), else_=0)).label("resume_rejected"),
+        func.sum(case(((base_condition & (stage_column == CandidateStage.SELECTED)), 1), else_=0)).label("selected"),
+        func.sum(case(((base_condition & candidate_sq.c.resume_score.isnot(None)), candidate_sq.c.resume_score), else_=0.0)).label("resume_score_sum"),
+        func.sum(case(((base_condition & candidate_sq.c.resume_score.isnot(None)), 1), else_=0)).label("resume_score_count"),
+    ).select_from(candidate_sq).first()
+
+    return {
+        "total_candidates": int(row.total_candidates or 0),
+        "shortlisted": int(row.shortlisted or 0),
+        "resume_rejected": int(row.resume_rejected or 0),
+        "selected": int(row.selected or 0),
+        "resume_score_sum": float(row.resume_score_sum or 0.0),
+        "resume_score_count": int(row.resume_score_count or 0),
+    }
+
+
+def _latest_interview_metrics(
+    db: Session,
+    candidate_query,
+    *,
+    month: Optional[str] = None,
+    date: Optional[str] = None,
+) -> dict:
+    candidate_sq = candidate_query.with_entities(
+        Candidate.id.label("candidate_id"),
+        Candidate.resume_score.label("resume_score"),
+    ).subquery()
+    interview_date_field = func.coalesce(Interview.scheduled_at, Interview.created_at)
+    interview_rank_sq = (
+        db.query(
+            Interview.candidate_id.label("candidate_id"),
+            Interview.status.label("status"),
+            Interview.interview_score.label("interview_score"),
+            func.row_number().over(
+                partition_by=Interview.candidate_id,
+                order_by=(Interview.scheduled_at.desc(), Interview.created_at.desc()),
+            ).label("row_number"),
+        )
+        .join(candidate_sq, Interview.candidate_id == candidate_sq.c.candidate_id)
+    )
+
+    if date:
+        interview_rank_sq = interview_rank_sq.filter(func.date(interview_date_field) == date)
+    elif month:
+        year, month_num = map(int, month.split('-'))
+        interview_rank_sq = interview_rank_sq.filter(
+            extract('year', interview_date_field) == year,
+            extract('month', interview_date_field) == month_num,
+        )
+
+    latest_sq = interview_rank_sq.subquery()
+    status_column = func.lower(func.trim(func.coalesce(latest_sq.c.status, "")))
+
+    row = db.query(
+        func.sum(case(((status_column.in_(["scheduled", "ongoing"]) & (latest_sq.c.row_number == 1)), 1), else_=0)).label("interviews_scheduled"),
+        func.sum(case((((status_column == "completed") & (func.coalesce(latest_sq.c.interview_score, 0) >= INTERVIEW_RESULT_THRESHOLD) & (latest_sq.c.row_number == 1)), 1), else_=0)).label("selected"),
+        func.sum(case((((status_column == "completed") & (func.coalesce(latest_sq.c.interview_score, 0) < INTERVIEW_RESULT_THRESHOLD) & (latest_sq.c.row_number == 1)), 1), else_=0)).label("rejected"),
+        func.avg(case(((latest_sq.c.row_number == 1) & latest_sq.c.interview_score.isnot(None), latest_sq.c.interview_score), else_=None)).label("avg_interview_score"),
+        func.sum(case((((status_column == "completed") & (latest_sq.c.row_number == 1)), 1), else_=0)).label("completed_interviews"),
+        func.sum(
+            case(
+                (
+                    (
+                        (status_column == "completed")
+                        & (func.coalesce(latest_sq.c.interview_score, 0) >= INTERVIEW_RESULT_THRESHOLD)
+                        & (func.coalesce(candidate_sq.c.resume_score, 0) >= 80)
+                        & (latest_sq.c.row_number == 1)
+                    ),
+                    1,
+                ),
+                else_=0,
+            )
+        ).label("offer_ready_candidates"),
+    ).select_from(latest_sq).join(
+        candidate_sq,
+        latest_sq.c.candidate_id == candidate_sq.c.candidate_id,
+    ).first()
+
+    return {
+        "interviews_scheduled": int(row.interviews_scheduled or 0),
+        "selected": int(row.selected or 0),
+        "rejected": int(row.rejected or 0),
+        "completed_interviews": int(row.completed_interviews or 0),
+        "offer_ready_candidates": int(row.offer_ready_candidates or 0),
+        "avg_interview_score": float(row.avg_interview_score or 0.0),
+    }
 
 
 def _apply_candidate_dashboard_filters(
@@ -442,6 +585,25 @@ def _apply_scope_filters_only(
     return query
 
 
+def _candidate_counts_by_job(db: Session, current_user: User, *, active_only: bool = True):
+    query = db.query(
+        Candidate.job_id.label("job_id"),
+        func.sum(case(((Candidate.stage != CandidateStage.APPLIED), 1), else_=0)).label("candidate_count"),
+        func.sum(case(((Candidate.stage == CandidateStage.SHORTLISTED), 1), else_=0)).label("shortlisted_count"),
+        func.sum(case(((Candidate.stage == CandidateStage.SELECTED), 1), else_=0)).label("selected_count"),
+    ).filter(Candidate.job_id.isnot(None))
+    query = _apply_candidate_visibility(query, current_user)
+    rows = query.group_by(Candidate.job_id).all()
+    return {
+        row.job_id: {
+            "candidate_count": int(row.candidate_count or 0),
+            "shortlisted_count": int(row.shortlisted_count or 0),
+            "selected_count": int(row.selected_count or 0),
+        }
+        for row in rows
+    }
+
+
 def _ensure_analytics_widgets(db: Session):
     existing = {
         row.metric_key: row
@@ -578,6 +740,17 @@ def get_dashboard_stats(
     current_user: User = Depends(get_current_active_user)
 ):
     try:
+        cache_key = _analytics_cache_key(
+            "dashboard-stats",
+            current_user,
+            month=month,
+            date=date,
+            client=client,
+        )
+        cached = _get_cached_analytics_response(cache_key)
+        if cached is not None:
+            return DashboardStats(**cached)
+
         query = _apply_candidate_dashboard_filters(
             db.query(Candidate),
             db,
@@ -586,55 +759,31 @@ def get_dashboard_stats(
             month=month,
             date=date,
         )
-
-        all_candidates = query.all()
-        active_candidates = [c for c in all_candidates if c.stage != CandidateStage.APPLIED]
-        total = len(active_candidates)
-
-        shortlisted = sum(1 for c in active_candidates if c.stage == CandidateStage.SHORTLISTED)
-        resume_rejected = sum(1 for c in active_candidates if c.stage == CandidateStage.RESUME_REJECTED)
-
-        latest_interviews_by_candidate = _get_latest_filtered_interviews_by_candidate(
+        candidate_sq = _candidate_metrics_subquery(query)
+        candidate_metrics = _aggregate_candidate_stage_metrics(db, candidate_sq, exclude_applied=True)
+        active_candidate_query = query.filter(Candidate.stage != CandidateStage.APPLIED)
+        interview_metrics = _latest_interview_metrics(
             db,
-            [candidate.id for candidate in active_candidates],
+            active_candidate_query,
             month=month,
             date=date,
         )
-        interview_stages = {
-            candidate_id: _map_interview_to_pipeline_stage(interview)
-            for candidate_id, interview in latest_interviews_by_candidate.items()
+
+        payload = {
+            "total_candidates": candidate_metrics["total_candidates"],
+            "shortlisted": candidate_metrics["shortlisted"],
+            "resume_rejected": candidate_metrics["resume_rejected"],
+            "rejected": interview_metrics["rejected"],
+            "interviews_scheduled": interview_metrics["interviews_scheduled"],
+            "selected": interview_metrics["selected"],
+            "avg_resume_score": round(
+                candidate_metrics["resume_score_sum"] / candidate_metrics["resume_score_count"],
+                1,
+            ) if candidate_metrics["resume_score_count"] else 0.0,
+            "avg_interview_score": round(interview_metrics["avg_interview_score"], 1),
         }
-
-        interview_scheduled = sum(
-            1
-            for stage in interview_stages.values()
-            if stage in {CandidateStage.INTERVIEW_SCHEDULED, CandidateStage.INTERVIEWED}
-        )
-        selected = sum(1 for stage in interview_stages.values() if stage == CandidateStage.SELECTED)
-        rejected = sum(1 for stage in interview_stages.values() if stage == CandidateStage.REJECTED)
-
-        candidate_ids = [c.id for c in active_candidates]
-        avg_resume = db.query(func.avg(Candidate.resume_score)).filter(
-            Candidate.id.in_(candidate_ids) if candidate_ids else False
-        ).scalar() or 0
-
-        interview_scores = [
-            interview.interview_score
-            for interview in latest_interviews_by_candidate.values()
-            if interview and interview.interview_score is not None
-        ]
-        avg_interview = (sum(interview_scores) / len(interview_scores)) if interview_scores else 0
-
-        return DashboardStats(
-            total_candidates=total,
-            shortlisted=shortlisted,
-            resume_rejected=resume_rejected,
-            rejected=rejected,
-            interviews_scheduled=interview_scheduled,
-            selected=selected,
-            avg_resume_score=round(avg_resume, 1),
-            avg_interview_score=round(avg_interview, 1)
-        )
+        _set_cached_analytics_response(cache_key, payload)
+        return DashboardStats(**payload)
     except Exception as e:
         print(f"❌ Dashboard stats error: {e}")
         import traceback
@@ -673,6 +822,17 @@ def get_hiring_funnel(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
+    cache_key = _analytics_cache_key(
+        "hiring-funnel",
+        current_user,
+        month=month,
+        date=date,
+        client=client,
+    )
+    cached = _get_cached_analytics_response(cache_key)
+    if cached is not None:
+        return [HiringFunnelData(**item) for item in cached]
+
     query = _apply_candidate_dashboard_filters(
         db.query(Candidate),
         db,
@@ -681,27 +841,19 @@ def get_hiring_funnel(
         month=month,
         date=date,
     )
-
-    candidates = query.all()
-    active_candidates = [candidate for candidate in candidates if candidate.stage != CandidateStage.APPLIED]
-    total = len(active_candidates) or 1
-    shortlisted = sum(1 for candidate in active_candidates if candidate.stage == CandidateStage.SHORTLISTED)
-
-    latest_interviews_by_candidate = _get_latest_filtered_interviews_by_candidate(
+    candidate_sq = _candidate_metrics_subquery(query)
+    candidate_metrics = _aggregate_candidate_stage_metrics(db, candidate_sq, exclude_applied=True)
+    interview_metrics = _latest_interview_metrics(
         db,
-        [candidate.id for candidate in active_candidates],
+        query.filter(Candidate.stage != CandidateStage.APPLIED),
         month=month,
         date=date,
     )
-    interview_stages = [
-        _map_interview_to_pipeline_stage(interview)
-        for interview in latest_interviews_by_candidate.values()
-    ]
-    interview_scheduled = sum(
-        1 for stage in interview_stages if stage in {CandidateStage.INTERVIEW_SCHEDULED, CandidateStage.INTERVIEWED}
-    )
-    selected = sum(1 for stage in interview_stages if stage == CandidateStage.SELECTED)
-    rejected = sum(1 for stage in interview_stages if stage == CandidateStage.REJECTED)
+    total = candidate_metrics["total_candidates"] or 1
+    shortlisted = candidate_metrics["shortlisted"]
+    interview_scheduled = interview_metrics["interviews_scheduled"]
+    selected = interview_metrics["selected"]
+    rejected = interview_metrics["rejected"]
     
     funnel_stages = [
         ("Total Candidates", total),
@@ -711,7 +863,7 @@ def get_hiring_funnel(
         ("Rejected", rejected),
     ]
     
-    return [
+    payload = [
         HiringFunnelData(
             stage=stage,
             count=count,
@@ -719,6 +871,8 @@ def get_hiring_funnel(
         )
         for stage, count in funnel_stages
     ]
+    _set_cached_analytics_response(cache_key, [item.dict() for item in payload])
+    return payload
 
 
 @router.get("/recruitment-funnel")
@@ -1256,34 +1410,32 @@ def get_hiring_by_department(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    jobs = _apply_job_visibility(db.query(JobDescription), db, current_user).all()
-    
-    # Group by department
+    cache_key = _analytics_cache_key("hiring-by-department", current_user)
+    cached = _get_cached_analytics_response(cache_key)
+    if cached is not None:
+        return cached
+
+    jobs = _apply_job_visibility(db.query(JobDescription), db, current_user).with_entities(
+        JobDescription.id,
+        JobDescription.department,
+        JobDescription.vacancies,
+    ).all()
+    selected_by_job = _candidate_counts_by_job(db, current_user)
+
     dept_data = {}
     for job in jobs:
         dept = job.department or "Other"
-        if dept not in dept_data:
-            dept_data[dept] = {"hired": 0, "open": 0}
-        
-        # Count selected candidates for this job
-        hired = db.query(func.count(Candidate.id)).filter(
-            Candidate.job_id == job.id,
-            Candidate.stage == CandidateStage.SELECTED
-        )
-        hired = _apply_candidate_visibility(hired, current_user).scalar() or 0
-        
-        # Count open positions (vacancies - hired)
+        hired = selected_by_job.get(job.id, {}).get("selected_count", 0)
         open_positions = max(0, (job.vacancies or 1) - hired)
-        
-        dept_data[dept]["hired"] += hired
-        dept_data[dept]["open"] += open_positions
-    
-    # Convert to list format
+        bucket = dept_data.setdefault(dept, {"hired": 0, "open": 0})
+        bucket["hired"] += hired
+        bucket["open"] += open_positions
+
     result = [
         {"department": dept, "hired": data["hired"], "open": data["open"]}
         for dept, data in dept_data.items()
     ]
-    
+    _set_cached_analytics_response(cache_key, result)
     return result
 
 @router.get("/source-breakdown")
@@ -1344,33 +1496,34 @@ def get_active_jobs(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
+    cache_key = _analytics_cache_key("active-jobs", current_user)
+    cached = _get_cached_analytics_response(cache_key)
+    if cached is not None:
+        return cached
+
     jobs = _apply_job_visibility(
         db.query(JobDescription).filter(JobDescription.is_active == True),
         db,
         current_user
+    ).with_entities(
+        JobDescription.id,
+        JobDescription.title,
+        JobDescription.company_name,
+        JobDescription.department,
+        JobDescription.vacancies,
+        JobDescription.status,
     ).all()
     role_name = _role_name(current_user)
-    
+    candidate_counts = _candidate_counts_by_job(db, current_user)
+
     result = []
     for job in jobs:
-        # Count candidates for this job (EXCLUDING APPLIED stage)
-        candidate_query = db.query(func.count(Candidate.id)).filter(
-            Candidate.job_id == job.id,
-            Candidate.stage != CandidateStage.APPLIED
-        )
-        total_candidates = _apply_candidate_visibility(candidate_query, current_user).scalar() or 0
-        
-        # Skip jobs with no assigned candidates for non-admin users
+        metrics = candidate_counts.get(job.id, {})
+        total_candidates = metrics.get("candidate_count", 0)
         if role_name != UserRole.ADMIN.value and total_candidates == 0:
             continue
-        
-        selected_query = db.query(func.count(Candidate.id)).filter(
-            Candidate.job_id == job.id,
-            Candidate.stage == CandidateStage.SHORTLISTED
-        )
-        selected = _apply_candidate_visibility(selected_query, current_user).scalar() or 0
-        
-        # Determine status
+
+        selected = metrics.get("shortlisted_count", 0)
         status = 'open'
         if hasattr(job, 'status') and job.status:
             status = job.status
@@ -1387,7 +1540,7 @@ def get_active_jobs(
             "selected": selected,
             "status": status
         })
-    
+    _set_cached_analytics_response(cache_key, result)
     return result
 
 @router.get("/upcoming-interviews")
@@ -1443,25 +1596,23 @@ def get_hiring_intelligence(
     current_user: User = Depends(get_current_active_user)
 ):
     from datetime import datetime, timedelta
-    
+
+    cache_key = _analytics_cache_key("hiring-intelligence", current_user)
+    cached = _get_cached_analytics_response(cache_key)
+    if cached is not None:
+        return cached
+
     insights = []
-    
-    # 1. Detect candidates stuck in stages (>7 days)
-    stuck_candidates = _apply_candidate_visibility(db.query(Candidate).filter(
+
+    stuck_count = _apply_candidate_visibility(db.query(func.count(Candidate.id)).filter(
         Candidate.stage.in_([CandidateStage.SHORTLISTED, CandidateStage.INTERVIEW_SCHEDULED]),
-        Candidate.stage_entered_at.isnot(None)
-    ), current_user).all()
-    
-    stuck_count = 0
-    for c in stuck_candidates:
-        days_in_stage = (datetime.utcnow() - c.stage_entered_at).days
-        if days_in_stage > 7:
-            stuck_count += 1
-    
+        Candidate.stage_entered_at.isnot(None),
+        Candidate.stage_entered_at < (datetime.utcnow() - timedelta(days=7)),
+    ), current_user).scalar() or 0
+
     if stuck_count > 0:
         insights.append(f"{stuck_count} candidate{'s' if stuck_count > 1 else ''} waiting over 7 days in pipeline - action needed")
-    
-    # 2. High-scoring candidates ready for interview
+
     ready_candidates_query = db.query(Candidate).filter(
         Candidate.stage == CandidateStage.SHORTLISTED,
         Candidate.resume_score >= 85
@@ -1470,81 +1621,88 @@ def get_hiring_intelligence(
     
     if ready_candidates > 0:
         insights.append(f"{ready_candidates} high-scoring candidate{'s' if ready_candidates > 1 else ''} (85+) ready for interview scheduling")
-    
-    visible_candidates = _apply_candidate_visibility(db.query(Candidate), current_user).all()
-    visible_candidate_ids = [candidate.id for candidate in visible_candidates]
-    latest_interviews_by_candidate = _get_latest_filtered_interviews_by_candidate(db, visible_candidate_ids)
 
-    # 3. Interviews completed awaiting decision
-    interviewed = sum(
-        1
-        for interview in latest_interviews_by_candidate.values()
-        if interview and (interview.status or '').strip().lower() == 'completed'
-    )
-    
+    visible_candidate_query = _apply_candidate_visibility(db.query(Candidate), current_user)
+    latest_interview_metrics = _latest_interview_metrics(db, visible_candidate_query)
+    interviewed = latest_interview_metrics["completed_interviews"]
+
     if interviewed > 0:
         insights.append(f"{interviewed} interview{'s' if interviewed > 1 else ''} completed - pending hiring decision")
-    
-    # 4. Jobs with no recent activity
-    jobs = _apply_job_visibility(
+
+    jobs_sq = _apply_job_visibility(
         db.query(JobDescription).filter(JobDescription.is_active == True),
         db,
         current_user
-    ).all()
-    stale_jobs = []
-    for job in jobs:
-        recent_candidates_query = db.query(Candidate).filter(
-            Candidate.job_id == job.id,
+    ).with_entities(JobDescription.id.label("job_id")).subquery()
+    recent_candidates_sq = _apply_candidate_visibility(
+        db.query(
+            Candidate.job_id.label("job_id"),
+            func.count(Candidate.id).label("recent_count"),
+        ).filter(
+            Candidate.job_id.isnot(None),
             Candidate.created_at >= datetime.utcnow() - timedelta(days=14)
-        )
-        recent_candidates = _apply_candidate_visibility(recent_candidates_query, current_user).count()
-        if recent_candidates == 0:
-            stale_jobs.append(job.title)
-    
-    if len(stale_jobs) > 0:
-        insights.append(f"{len(stale_jobs)} role{'s' if len(stale_jobs) > 1 else ''} with no applications in 14 days - review job posting")
-    
-    # 5. Offer-ready candidates
-    candidate_map = {candidate.id: candidate for candidate in visible_candidates}
-    offer_ready = sum(
-        1
-        for candidate_id, interview in latest_interviews_by_candidate.items()
-        if interview
-        and (interview.status or '').strip().lower() == 'completed'
-        and (interview.interview_score or 0) >= INTERVIEW_RESULT_THRESHOLD
-        and (candidate_map.get(candidate_id).resume_score or 0) >= 80
-    )
-    
+        ),
+        current_user,
+    ).group_by(Candidate.job_id).subquery()
+    stale_jobs = db.query(func.count()).select_from(jobs_sq).outerjoin(
+        recent_candidates_sq,
+        jobs_sq.c.job_id == recent_candidates_sq.c.job_id,
+    ).filter(func.coalesce(recent_candidates_sq.c.recent_count, 0) == 0).scalar() or 0
+
+    if stale_jobs > 0:
+        insights.append(f"{stale_jobs} role{'s' if stale_jobs > 1 else ''} with no applications in 14 days - review job posting")
+
+    offer_ready = latest_interview_metrics["offer_ready_candidates"]
+
     if offer_ready > 0:
         insights.append(f"{offer_ready} strong candidate{'s' if offer_ready > 1 else ''} ready for offer - don't lose them to competitors")
-    
-    # If no insights, add positive message
+
     if len(insights) == 0:
         insights.append("Pipeline is healthy - all candidates progressing smoothly")
         insights.append("No urgent actions required today")
-    
-    return {"insights": insights[:5]}
+
+    payload = {"insights": insights[:5]}
+    _set_cached_analytics_response(cache_key, payload)
+    return payload
 
 @router.get("/hiring-metrics")
 def get_hiring_metrics(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    base_candidates = _apply_candidate_visibility(db.query(Candidate), current_user)
-    total_candidates = base_candidates.count() or 0
-    selected_count = base_candidates.filter(Candidate.stage == CandidateStage.SELECTED).count() or 0
-    shortlisted_count = base_candidates.filter(Candidate.stage == CandidateStage.SHORTLISTED).count() or 0
-    offers_made = base_candidates.filter(Candidate.offer_status.in_(['made', 'accepted'])).count() or 0
-    offers_accepted = base_candidates.filter(Candidate.offer_status == 'accepted').count() or 0
+    cache_key = _analytics_cache_key("hiring-metrics", current_user)
+    cached = _get_cached_analytics_response(cache_key)
+    if cached is not None:
+        return cached
+
+    candidate_row = _apply_candidate_visibility(
+        db.query(
+            func.count(Candidate.id).label("total_candidates"),
+            func.sum(case(((Candidate.stage == CandidateStage.SELECTED), 1), else_=0)).label("selected_count"),
+            func.sum(case(((Candidate.stage == CandidateStage.SHORTLISTED), 1), else_=0)).label("shortlisted_count"),
+            func.sum(case(((Candidate.offer_status.in_(['made', 'accepted'])), 1), else_=0)).label("offers_made"),
+            func.sum(case(((Candidate.offer_status == 'accepted'), 1), else_=0)).label("offers_accepted"),
+        ),
+        current_user,
+    ).first()
+
+    total_candidates = int(candidate_row.total_candidates or 0)
+    selected_count = int(candidate_row.selected_count or 0)
+    shortlisted_count = int(candidate_row.shortlisted_count or 0)
+    offers_made = int(candidate_row.offers_made or 0)
+    offers_accepted = int(candidate_row.offers_accepted or 0)
 
     acceptance_rate = round((offers_accepted / offers_made * 100), 1) if offers_made > 0 else 0
     conversion_rate = round((selected_count / total_candidates * 100), 1) if total_candidates > 0 else 0
 
-    visible_jobs = _apply_job_visibility(db.query(JobDescription).filter(JobDescription.is_active == True), db, current_user).all()
-    total_vacancies = sum((j.vacancies or 1) for j in visible_jobs)
+    total_vacancies = _apply_job_visibility(
+        db.query(func.sum(func.coalesce(JobDescription.vacancies, 1))).filter(JobDescription.is_active == True),
+        db,
+        current_user,
+    ).scalar() or 0
     vacancy_fill_rate = round((selected_count / total_vacancies * 100), 1) if total_vacancies > 0 else 0
 
-    return {
+    payload = {
         "all": {
             "time_to_hire": 18,
             "time_to_fill": 25,
@@ -1617,6 +1775,8 @@ def get_hiring_metrics(
             "vacancies": total_vacancies
         }
     }
+    _set_cached_analytics_response(cache_key, payload)
+    return payload
 
 @router.get("/time-to-hire-stages")
 def get_time_to_hire_stages(

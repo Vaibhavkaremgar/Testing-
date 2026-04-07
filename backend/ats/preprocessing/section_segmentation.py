@@ -40,8 +40,11 @@ HEADER_NORMALIZATION_MAP = {
     "professional overview": "summary",
     "executive summary": "summary",
     "work history": "experience",
+    "experience summary": "experience",
     "employment details": "experience",
     "professional background": "experience",
+    "internships": "experience",
+    "internship experience": "experience",
     "career journey": "experience",
     "period": "experience",
     "technical expertise": "skills",
@@ -203,43 +206,6 @@ def _clean_section_content(lines: List[str]) -> str:
     return "\n".join(cleaned).strip()
 
 
-def _collect_inferred_experience(lines: List[str]) -> str:
-    blocks: List[List[str]] = []
-    current: List[str] = []
-    seen_date = False
-
-    def looks_like_employment(block: List[str]) -> bool:
-        joined = " ".join(block[:4])
-        return bool(
-            DATE_RANGE_PATTERN.search(joined)
-            and (ROLE_HINT_PATTERN.search(joined) or COMPANY_HINT_PATTERN.search(joined) or " at " in joined.lower() or "|" in joined)
-        )
-
-    def flush() -> None:
-        nonlocal current, seen_date
-        cleaned = [item for item in current if item.strip()]
-        if cleaned and seen_date and looks_like_employment(cleaned):
-            blocks.append(cleaned)
-        current = []
-        seen_date = False
-
-    for raw_line in lines:
-        line = _normalize_line(raw_line)
-        if not line:
-            flush()
-            continue
-        if _is_boundary_header(line) or _match_section_name(line) in {"education", "projects", "skills"}:
-            flush()
-            continue
-        has_date = bool(DATE_RANGE_PATTERN.search(line))
-        if current and seen_date and has_date:
-            flush()
-        current.append(line)
-        seen_date = seen_date or has_date
-    flush()
-    return "\n\n".join("\n".join(block) for block in blocks[:12]).strip()
-
-
 def segment_resume_sections(text: str) -> Dict[str, str]:
     sections = {name: "" for name in ALL_SECTIONS}
     if not text or not text.strip():
@@ -303,9 +269,6 @@ def segment_resume_sections(text: str) -> Dict[str, str]:
             sections[section] = _clean_section_content(header_buffer[:10])
         else:
             sections[section] = _clean_section_content(buffers[section])
-
-    if not sections["experience"]:
-        sections["experience"] = _collect_inferred_experience(raw_lines)
 
     return sections
 

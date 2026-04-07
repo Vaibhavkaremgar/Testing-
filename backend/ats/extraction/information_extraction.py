@@ -957,7 +957,7 @@ def extract_phone(text: str) -> str:
 
 
 def extract_experience_entries(text: str, experience_section: str = "") -> List[Dict]:
-    source_text = experience_section or text
+    source_text = f"Experience\n{experience_section}" if experience_section else text
     result = extract_total_experience(source_text)
     return result.get("experiences", [])
 
@@ -1553,31 +1553,6 @@ def derive_experience_level(experience_years: float | None) -> str:
     return "Lead/Expert"
 
 
-def _extract_explicit_total_experience(text: str) -> float | None:
-    if not text:
-        return None
-    month_match = re.search(
-        r"(?i)\b(?P<years>\d+(?:\.\d+)?)\+?\s*(?:years|yrs)(?:\s+and\s+(?P<months>\d+)\s+months?)?(?:\s+of\s+experience|\s+experience)?\b",
-        text,
-    )
-    if month_match:
-        years = float(month_match.group("years"))
-        months = float(month_match.group("months") or 0)
-        logger.debug("Experience extracted from explicit years/months statement: %s years, %s months", years, months)
-        return round(years + (months / 12.0), 1)
-    phrase_match = re.search(r"(?i)\b(?P<years>\d+(?:\.\d+)?)\+?\s*(?:years|yrs)\s+of\s+experience\b", text)
-    if phrase_match:
-        years = round(float(phrase_match.group("years")), 1)
-        logger.debug("Experience extracted from phrase match: %s", years)
-        return years
-    year_match = re.search(r"(?i)\b(?P<years>\d+(?:\.\d+)?)\+?\s*(?:years|yrs)\s+experience\b", text)
-    if year_match:
-        years = round(float(year_match.group("years")), 1)
-        logger.debug("Experience extracted from years regex: %s", years)
-        return years
-    return None
-
-
 def extract_resume_information(text: str) -> Dict:
     structural_text = normalize_text(
         merge_broken_lines(
@@ -1621,53 +1596,14 @@ def extract_resume_information(text: str) -> Dict:
 
     experience_result = extract_total_experience(structural_text)
     
-    if not experience_result.get("experiences"):
-        experience_result = extract_total_experience(cleaned_text)
-    
     experience_entries = experience_result.get("experiences", [])
     total_experience_years = experience_result.get("total_experience_years")
     total_experience_months = experience_result.get("total_experience_months")
-    explicit_total_experience = _extract_explicit_total_experience(cleaned_text)
-    explicit_total_experience_has_plus = bool(
-        re.search(r"(?i)\b\d+(?:\.\d+)?\+\s*(?:years|yrs)\b", cleaned_text)
-    )
-    if total_experience_years is None and explicit_total_experience is not None:
-        total_experience_years = explicit_total_experience
-    has_explicit_years_phrase = bool(
-        re.search(r"(?i)\b\d+(?:\.\d+)?\+?\s*(?:years|yrs)(?:\s+of\s+experience|\s+experience)\b", cleaned_text)
-    )
-    has_explicit_experience_section = bool(sections.get("experience", "").strip())
-    experience_signal_text = " ".join(
-        filter(
-            None,
-            [
-                sections.get("experience", ""),
-                sections.get("employment", ""),
-                sections.get("summary", ""),
-            ],
-        )
-    )
-    has_experience_signal = bool(
-        re.search(
-            r"(?i)\b(?:experience|employment|worked as|working as|present|current company|current role|years of experience|yrs of experience)\b",
-            experience_signal_text,
-        )
-    )
-    if not experience_entries and explicit_total_experience is None and not has_explicit_years_phrase:
-        total_experience_years = None
-    elif not experience_entries and not has_experience_signal:
+    if not experience_entries:
         total_experience_years = None
 
     current_entry = {}
     if experience_entries:
-        if (
-            explicit_total_experience is not None
-            and not explicit_total_experience_has_plus
-            and len(experience_entries) >= 2
-            and total_experience_years is not None
-            and total_experience_years - explicit_total_experience >= 0.75
-        ):
-            total_experience_years = explicit_total_experience
         current_company = experience_result.get("current_company")
         current_role = experience_result.get("current_role")
         if current_company or current_role:
@@ -1761,7 +1697,7 @@ def extract_resume_information(text: str) -> Dict:
         "experience_years": total_experience_years,
         "total_experience_years": total_experience_years,
         "total_experience_months": total_experience_months,
-        "total_experience": total_experience_years if total_experience_years is not None else 0.0,
+        "total_experience": experience_result.get("total_experience", ""),
         "experience_level": derive_experience_level(total_experience_years),
         "experience_extraction_confidence": experience_result.get("experience_extraction_confidence", 0.0),
         "languages": extract_languages(
@@ -1790,8 +1726,8 @@ def extract_resume_information(text: str) -> Dict:
         },
     }
     validated_result = validate_parsed_fields(result)
-    if not has_resume_experience_header and explicit_total_experience is None and not validated_result.get("experience"):
+    if not has_resume_experience_header and not validated_result.get("experience"):
         validated_result["experience_years"] = None
         validated_result["total_experience_years"] = None
-        validated_result["total_experience"] = 0.0
+        validated_result["total_experience"] = ""
     return validated_result

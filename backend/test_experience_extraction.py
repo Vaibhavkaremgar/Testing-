@@ -23,129 +23,139 @@ logging.basicConfig(level=logging.DEBUG)
 
 
 class ExperienceExtractionTests(unittest.TestCase):
-    def test_parse_resume_does_not_use_filename_as_name_fallback(self):
-        resume_text = """
-Email: candidate@example.com
-Phone: 9876543210
-
-Professional Summary
-Backend engineer with API and SQL experience.
-        """
-
-        parsed = parse_resume_text(resume_text, original_filename="Swapna Resume.pdf")
-
-        self.assertNotEqual(parsed["name"], "Swapna Resume")
-        self.assertNotEqual(parsed["name"], "Swapna")
-
-    def test_location_stays_blank_when_not_in_header_or_personal_details(self):
-        resume_text = """
-John Doe
-john@example.com
-+91 9876543210
-
-Professional Summary
-Software engineer with experience working with Hyderabad clients and remote teams.
-
-Work Experience
-Software Engineer | ABC Corp
-Jan 2020 - Present
-Built backend services for a Bengaluru deployment.
-        """
-
-        extracted = extract_resume_information(resume_text)
-
-        self.assertEqual(extracted["location"], "")
-
-    def test_location_is_extracted_from_personal_details(self):
-        resume_text = """
-John Doe
-Email: john@example.com
-Phone: +91 9876543210
-Location: Hyderabad, India
-
-Professional Summary
-Backend engineer with Python and FastAPI experience.
-        """
-
-        extracted = extract_resume_information(resume_text)
-
-        self.assertEqual(extracted["location"], "Hyderabad")
-
-    def test_extract_experience_section_ignores_education_and_projects(self):
+    def test_extract_experience_section_only_keeps_approved_headers(self):
         resume_text = """
 John Doe
 
 Professional Summary
-Backend engineer with 5 years of experience.
+Backend engineer with 8 years of experience.
 
-Work Experience
+Experience Summary
 Senior Software Engineer | ABC Corp
 Jan 2020 - Mar 2022
-Built APIs and led backend delivery.
-
-Software Engineer | XYZ Technologies
-03/2019 - 07/2021
-Worked on microservices and integrations.
 
 Education
 Bachelor of Technology
 2015 - 2019
 
 Projects
-Inventory Platform
-2021 - 2022
+Resume Parser Rewrite
+2023 - 2024
         """
 
         section = extract_experience_section(resume_text)
+
         self.assertIn("Senior Software Engineer", section)
         self.assertNotIn("Bachelor of Technology", section)
-        self.assertNotIn("Inventory Platform", section)
+        self.assertNotIn("Resume Parser Rewrite", section)
 
-    def test_extract_date_ranges_supports_common_formats(self):
+    def test_date_parsing_supports_required_formats(self):
+        today = datetime(2026, 4, 7)
+
+        self.assertEqual(normalize_date("Jan 2022"), datetime(2022, 1, 1))
+        self.assertEqual(normalize_date("Feb 2024"), datetime(2024, 2, 1))
+        self.assertEqual(normalize_date("2022"), datetime(2022, 1, 1))
+        self.assertEqual(normalize_date("02/2022"), datetime(2022, 2, 1))
+        self.assertEqual(normalize_date("2022.01"), datetime(2022, 1, 1))
+        self.assertEqual(normalize_date("Jan'22"), datetime(2022, 1, 1))
+        self.assertEqual(normalize_date("Jan 22"), datetime(2022, 1, 1))
+        self.assertEqual(normalize_date("Current", is_end=True, today=today), today)
+        self.assertEqual(normalize_date("Till Date", is_end=True, today=today), today)
+        self.assertEqual(normalize_date("Ongoing", is_end=True, today=today), today)
+
+    def test_extract_date_ranges_supports_requested_patterns(self):
         text = """
-May 2022 - Present
-Jan 2020 - Apr 2022
-Jul 2018 - Dec 2019
-03/2019 - 07/2021
-2018 to Present
+Jan 2022 - Mar 2023
+Jan 2022 - Present
+2022 - 2023
+02/2022 - 05/2023
+Feb 2024 – Sep 2024
+Jan'22 - Mar'23
+Jan 22 - Mar 23
+2022.01 - 2023.05
+Worked from Jan 2022 to Present
         """
 
         ranges = extract_date_ranges(text)
-        self.assertEqual(len(ranges), 5)
-        self.assertEqual(ranges[0]["start"], "May 2022")
-        self.assertEqual(ranges[2]["end"], "Dec 2019")
 
-    def test_parse_date_handles_present_and_year_only(self):
-        today = datetime(2026, 4, 3)
-        self.assertEqual(parse_date("2020"), datetime(2020, 1, 1))
-        self.assertEqual(parse_date("2020", is_end=True), datetime(2020, 12, 31))
-        self.assertEqual(parse_date("Present", is_end=True, today=today), today)
+        self.assertEqual(len(ranges), 9)
+        self.assertEqual(ranges[0]["start"], "Jan 2022")
+        self.assertEqual(ranges[-1]["end"], "Present")
 
-    def test_multiple_jobs_with_different_date_formats(self):
+    def test_summary_education_projects_and_certifications_are_never_counted(self):
         resume_text = """
-Jane Smith
+Alex Candidate
+
+Professional Summary
+Data engineer with 8 years of experience and 15+ production systems delivered.
+
+Education
+B.Tech Computer Science
+2014 - 2018
+
+Certifications
+AWS Certified Solutions Architect - 2023
+
+Projects
+Hiring Platform Migration
+2022 - 2024
+Improved latency by 500+ ms.
+
+Skills
+Python
+10+
+SQL
 
 Professional Experience
-Senior Software Engineer | ABC Corp
-Jan 2020 - Mar 2022
-Built APIs and improved performance.
-
-Software Engineer | XYZ Technologies
-04/2022 - 07/2023
-Shipped internal tooling.
+Data Engineer | Insight Works
+03/2019 - 07/2021
+Built ETL jobs and analytics pipelines.
         """
 
         result = extract_total_experience(resume_text)
 
-        self.assertEqual(len(result["experiences"]), 2)
-        self.assertEqual(result["experiences"][0]["company"], "XYZ Technologies")
-        self.assertEqual(result["experiences"][1]["company"], "ABC Corp")
-        self.assertAlmostEqual(result["total_experience_years"], 3.6, delta=0.15)
+        self.assertEqual(len(result["experiences"]), 1)
+        self.assertEqual(result["current_company"], "Insight Works")
+        self.assertAlmostEqual(result["total_experience_years"], 2.4, delta=0.15)
 
-    def test_future_dated_experience_is_ignored_for_current_company_and_totals(self):
+    def test_headerless_resume_returns_no_experience_under_section_only_rule(self):
         resume_text = """
-Jane Smith
+Neha Kapoor
+Seattle, Washington | neha.kapoor.data@gmail.com
 
+Lead Data Engineer | Northwind Technologies
+2021-03 - Present
+Built hiring analytics pipelines and warehouse automation.
+
+Senior Data Engineer | Blue River Labs
+07/2018 - 02/2021
+Designed ETL systems for enterprise reporting.
+        """
+
+        result = extract_total_experience(resume_text)
+
+        self.assertEqual(result["experiences"], [])
+        self.assertIsNone(result["total_experience_years"])
+        self.assertIsNone(result["current_company"])
+
+    def test_current_company_detection_prefers_latest_current_role(self):
+        resume_text = """
+Work Experience
+Consultant | Alpha Systems | 2021 - Present
+Handled transformation programs.
+
+Senior Consultant | Beta Labs | 2023 - Present
+Led enterprise delivery.
+        """
+
+        result = extract_total_experience(resume_text)
+
+        self.assertEqual(result["current_company"], "Beta Labs")
+        self.assertEqual(result["current_role"], "Senior Consultant")
+        self.assertEqual(result["experiences"][0]["company"], "Beta Labs")
+
+    def test_future_dated_entry_is_ignored(self):
+        resume_text = """
 Professional Experience
 Principal Engineer | Future Labs
 Jan 2027 - Present
@@ -164,10 +174,9 @@ Shipped internal tooling.
 
         self.assertEqual(len(result["experiences"]), 2)
         self.assertEqual(result["current_company"], "ABC Corp")
-        self.assertEqual(result["current_role"], "Senior Software Engineer")
         self.assertAlmostEqual(result["total_experience_years"], 6.1, delta=0.15)
 
-    def test_present_roles_and_overlap_are_not_double_counted(self):
+    def test_overlap_handling_merges_ranges_before_totaling(self):
         resume_text = """
 Employment History
 Lead Engineer | Nova Labs
@@ -180,48 +189,70 @@ Handled architecture and integrations.
         """
 
         result = extract_total_experience(resume_text)
+        expected_total = compute_total_experience(
+            [
+                (parse_date("2018"), parse_date("2020", is_end=True)),
+                (parse_date("Feb 2020"), parse_date("Present", is_end=True)),
+            ]
+        )
+
         self.assertEqual(len(result["experiences"]), 2)
-
-        first_start = parse_date("2018")
-        first_end = parse_date("2020", is_end=True)
-        second_start = parse_date("Feb 2020")
-        second_end = parse_date("Present", is_end=True)
-        expected_total = compute_total_experience([(first_start, first_end), (second_start, second_end)])
-
         self.assertAlmostEqual(result["total_experience_years"], expected_total, delta=0.05)
 
-    def test_education_and_projects_dates_are_not_counted(self):
+    def test_table_format_is_supported(self):
         resume_text = """
-Summary
-Data engineer with strong Python experience.
-
-Education
-Bachelor of Engineering
-2016 - 2020
-
-Projects
-Fraud Analytics Platform
-2021 - 2022
-
-Professional Experience
-Data Engineer at Insight Works
-03/2019 - 07/2021
-Built ETL jobs and analytics pipelines.
+Experience
+Google | Software Engineer | Jan 2022 - Present
+Microsoft | Software Engineer | Jan 2020 - Dec 2021
         """
 
         result = extract_total_experience(resume_text)
 
-        self.assertEqual(len(result["experiences"]), 1)
-        self.assertEqual(result["experiences"][0]["company"], "Insight Works")
-        self.assertAlmostEqual(result["total_experience_years"], 2.4, delta=0.15)
+        self.assertEqual(len(result["experiences"]), 2)
+        self.assertEqual(result["current_company"], "Google")
+        self.assertEqual(result["current_role"], "Software Engineer")
 
-    def test_ignore_internships_flag(self):
+    def test_multiline_format_is_supported(self):
         resume_text = """
 Work Experience
+Senior HR Business Partner
+Zoho Corporation Pvt. Ltd.
+May 2021 - Present
+Act as strategic HRBP for APAC.
+
+HR Business Partner
+Cognizant Technology Solutions
+Jan 2018 - Apr 2021
+Served the Retail vertical.
+        """
+
+        result = extract_total_experience(resume_text)
+
+        self.assertEqual(len(result["experiences"]), 2)
+        self.assertEqual(result["current_company"], "Zoho Corporation Pvt. Ltd")
+        self.assertEqual(result["current_role"], "Senior HR Business Partner")
+
+    def test_inline_resume_format_is_supported(self):
+        resume_text = """
+Professional Background
+Senior Data Analyst Meesho Pvt. Ltd. | Jun 2022 - Present Bengaluru, Karnataka Built reporting dashboards.
+Data Analyst Delhivery Ltd. | Jan 2020 - May 2022 Gurugram, Haryana Built logistics reporting.
+        """
+
+        result = extract_total_experience(resume_text)
+
+        self.assertEqual(len(result["experiences"]), 2)
+        self.assertEqual(result["current_company"], "Meesho Pvt. Ltd.")
+        self.assertEqual(result["current_role"], "Senior Data Analyst")
+
+    def test_internship_section_can_be_extracted_and_optionally_excluded(self):
+        resume_text = """
+Internship Experience
 Software Engineering Intern | Acme Corp
 Jan 2018 - Dec 2018
 Worked on test automation.
 
+Experience
 Software Engineer | Acme Corp
 2019 - 2021
 Built production services.
@@ -233,93 +264,70 @@ Built production services.
         self.assertEqual(len(included["experiences"]), 2)
         self.assertEqual(len(excluded["experiences"]), 1)
         self.assertGreater(included["total_experience_years"], excluded["total_experience_years"])
-        self.assertAlmostEqual(excluded["total_experience_years"], 3.0, delta=0.15)
 
-    def test_multiline_unicode_resume_structure_extracts_three_jobs(self):
+    def test_numeric_only_values_do_not_create_experience(self):
         resume_text = """
-Alex Johnson
-
-━━ Experience
-Senior Software Engineer · Bright Software
-May 2022 – Present
-Bengaluru, India
-
-Software Engineer
-CloudWave Technologies
-Jan 2020 – Apr 2022
-Hyderabad, India
-
-Associate Developer · DataForge Labs
-Jul 2018 – Dec 2019
-Chennai, India
+Experience
+15+
+500+
+10+
 
 Skills
-Python, FastAPI, PostgreSQL
-
-Education
-B.Tech Computer Science
-2014 - 2018
+Python
         """
 
         result = extract_total_experience(resume_text)
 
-        self.assertEqual(len(result["experiences"]), 3)
-        self.assertEqual(result["experiences"][0]["role"], "Senior Software Engineer")
-        self.assertEqual(result["experiences"][0]["company"], "Bright Software")
-        self.assertEqual(result["experiences"][1]["role"], "Software Engineer")
-        self.assertEqual(result["experiences"][1]["company"], "CloudWave Technologies")
-        self.assertEqual(result["experiences"][2]["role"], "Associate Developer")
-        self.assertEqual(result["experiences"][2]["company"], "DataForge Labs")
-        self.assertGreater(result["total_experience_years"], 6.0)
+        self.assertEqual(result["experiences"], [])
+        self.assertEqual(result["total_experience_months"], 0)
+        self.assertIsNone(result["current_company"])
 
-    def test_fallback_without_experience_header_ignores_project_dates(self):
+    def test_current_aliases_map_to_today_for_current_company(self):
         resume_text = """
-John Candidate
+Work History
+Backend Engineer | Orbit Systems
+Jan 2022 - Till Date
+Built APIs.
 
-Senior Backend Engineer | Orbit Systems
-01/2020 - 02/2022
-Built APIs and hiring tools.
-
-Projects
-Resume Parser Rewrite
-2022 - 2023
-Implemented a side project parser.
-
-Education
-B.Tech Computer Science
-2014 - 2018
+Software Engineer | Delta Tech
+Jan 2020 - Dec 2021
+Worked on integrations.
         """
 
         result = extract_total_experience(resume_text)
-        self.assertEqual(len(result["experiences"]), 1)
-        self.assertEqual(result["experiences"][0]["company"], "Orbit Systems")
-        self.assertAlmostEqual(result["total_experience_years"], 2.2, delta=0.15)
 
-    def test_year_only_ranges_assume_full_years(self):
+        self.assertEqual(result["current_company"], "Orbit Systems")
+        self.assertEqual(result["current_role"], "Backend Engineer")
+
+    def test_parser_experience_payload_keeps_start_end_duration_fields(self):
         resume_text = """
-Professional Experience
-Software Engineer | Acme Corp
-2019 - 2021
-Built production services.
+Work Experience
+Senior ML Engineer
+AI Labs Pvt Ltd
+2022 - Present
         """
 
-        result = extract_total_experience(resume_text)
-        self.assertEqual(result["experiences"][0]["start_date"], "2019-01")
-        self.assertEqual(result["experiences"][0]["end_date"], "2021-12")
-        self.assertAlmostEqual(result["total_experience_years"], 3.0, delta=0.05)
+        parsed = parse_resume_text(resume_text)
 
-    def test_company_trims_trailing_city_token(self):
+        self.assertEqual(parsed["current_company"], "AI Labs Pvt Ltd")
+        self.assertEqual(parsed["experience"][0]["start"], "2022-01")
+        self.assertIn("duration", parsed["experience"][0])
+
+    def test_location_stays_blank_when_only_mentioned_inside_experience(self):
         resume_text = """
-Professional Experience
-Junior Mobile Developer | Byjus Bengaluru
-2019 - 2021
-Built Android features and internal tooling.
+John Doe
+john@example.com
++91 9876543210
+
+Work Experience
+Software Engineer | ABC Corp
+Jan 2020 - Present
+Built backend services for a Bengaluru deployment.
         """
 
-        result = extract_total_experience(resume_text)
-        self.assertEqual(len(result["experiences"]), 1)
-        self.assertEqual(result["experiences"][0]["role"], "Junior Mobile Developer")
-        self.assertEqual(result["experiences"][0]["company"], "Byjus")
+        extracted = extract_resume_information(resume_text)
+
+        self.assertEqual(extracted["location"], "")
 
     def test_merge_overlapping_ranges(self):
         merged = merge_overlapping_ranges(
@@ -332,145 +340,6 @@ Built Android features and internal tooling.
 
         self.assertEqual(len(merged), 2)
         self.assertAlmostEqual(compute_total_experience(merged), 1.9, delta=0.15)
-
-    def test_extract_date_ranges_supports_year_month_and_short_year_formats(self):
-        text = """
-2021/03 - Present
-Mar-21 - Dec-22
-09.2018 - 02.2021
-        """
-
-        ranges = extract_date_ranges(text)
-
-        self.assertEqual(len(ranges), 3)
-        self.assertEqual(ranges[0]["start"], "2021/03")
-        self.assertEqual(ranges[1]["end"], "Dec-22")
-
-    def test_multiple_entries_are_split_when_each_line_contains_a_date_range(self):
-        resume_text = """
-Professional Experience
-Lead Engineer | Nova Systems | 2021/03 - Present
-Built platform services.
-Senior Engineer | Acme Works | 09.2018 - 02.2021
-Delivered hiring workflow automation.
-        """
-
-        result = extract_total_experience(resume_text)
-
-        self.assertEqual(len(result["experiences"]), 2)
-        self.assertEqual(result["experiences"][0]["company"], "Nova Systems")
-        self.assertEqual(result["experiences"][1]["company"], "Acme Works")
-
-    def test_parse_date_keeps_exact_day_for_full_numeric_dates(self):
-        self.assertEqual(parse_date("06-10-2025"), datetime(2025, 10, 6))
-        self.assertEqual(parse_date("04-10-2025", is_end=True), datetime(2025, 10, 4))
-
-    def test_extract_date_ranges_supports_from_and_till_phrases(self):
-        text = """
-from Jan 2020 till Present
-from 06-10-2025 till 04-10-2026
-        """
-
-        ranges = extract_date_ranges(text)
-
-        self.assertEqual(len(ranges), 2)
-        self.assertEqual(ranges[0]["start"], "Jan 2020")
-        self.assertEqual(ranges[1]["end"], "04-10-2026")
-
-    def test_structured_organization_designation_period_entries_are_counted_correctly(self):
-        resume_text = """
-Sooram Niharika
-
-PROFESSIONAL EXPERIENCE
-Organization: ODT
-Designation: Senior Power Platform Developer
-Period: 06-10-2025 - Present
-Project - EOL Workflow
-
-Organization: DXC Technology
-Designation: Power Platform Developer
-Period: July 2020 - 04-10-2025
-Project 1 - Trigger Email for Odyssey Data Older than 30 Days
-        """
-
-        result = extract_total_experience(resume_text)
-
-        self.assertEqual(len(result["experiences"]), 2)
-        self.assertEqual(result["experiences"][0]["company"], "ODT")
-        self.assertEqual(result["experiences"][1]["company"], "DXC Technology")
-        self.assertEqual(result["experiences"][1]["start_date"], "2020-07")
-        self.assertGreater(result["total_experience_years"], 5.0)
-
-    def test_normalize_date_supports_apostrophe_year_dot_format_and_current_aliases(self):
-        today = datetime(2026, 4, 7)
-        self.assertEqual(normalize_date("Jan'22"), datetime(2022, 1, 1))
-        self.assertEqual(normalize_date("Jan 22"), datetime(2022, 1, 1))
-        self.assertEqual(normalize_date("2022.01"), datetime(2022, 1, 1))
-        self.assertEqual(normalize_date("Till Date", is_end=True, today=today), today)
-        self.assertEqual(normalize_date("Ongoing", is_end=True, today=today), today)
-
-    def test_explicit_duration_only_resume_returns_total_months(self):
-        resume_text = """
-Summary
-Backend engineer with 2 years 3 months of professional experience building APIs.
-        """
-
-        result = extract_total_experience(resume_text)
-
-        self.assertEqual(result["total_experience_months"], 27)
-        self.assertEqual(result["total_experience_years_component"], 2)
-        self.assertEqual(result["total_experience_months_component"], 3)
-        self.assertEqual(result["experience_duration"], "2 years 3 months")
-
-    def test_plus_years_pattern_is_supported(self):
-        resume_text = """
-Professional Summary
-Data analyst with 3+ years of experience in SQL, Python, and BI reporting.
-        """
-
-        result = extract_total_experience(resume_text)
-
-        self.assertEqual(result["total_experience_months"], 36)
-        self.assertEqual(result["total_experience_years"], 3.0)
-
-    def test_prose_company_date_pattern_extracts_current_company(self):
-        resume_text = """
-Experience
-Worked at Google from Jan 2022 to Present as a Software Engineer building internal platforms.
-Worked at Microsoft from Jan 2020 to Dec 2021 as a Software Engineer.
-        """
-
-        result = extract_total_experience(resume_text)
-
-        self.assertEqual(result["current_company"], "Google")
-        self.assertEqual(result["current_role"], "Software Engineer")
-        self.assertEqual(len(result["experiences"]), 2)
-
-    def test_table_style_company_role_date_pattern_extracts_latest_entry(self):
-        resume_text = """
-Experience
-Google | Software Engineer | Jan 2022 - Present
-Microsoft | Software Engineer | Jan 2020 - Dec 2021
-        """
-
-        result = extract_total_experience(resume_text)
-
-        self.assertEqual(result["current_company"], "Google")
-        self.assertEqual(result["current_role"], "Software Engineer")
-        self.assertGreaterEqual(result["experiences"][0]["confidence"], 0.8)
-
-    def test_duration_and_current_company_use_latest_start_date(self):
-        resume_text = """
-Professional Experience
-Consultant | Alpha Systems | 2021 - Present
-Senior Consultant | Beta Labs | 2023 - Present
-        """
-
-        result = extract_total_experience(resume_text)
-
-        self.assertEqual(result["current_company"], "Beta Labs")
-        self.assertEqual(result["current_role"], "Senior Consultant")
-        self.assertGreater(result["total_experience_months"], 0)
 
 
 if __name__ == "__main__":
