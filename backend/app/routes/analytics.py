@@ -25,7 +25,7 @@ from datetime import datetime, timedelta, timezone
 from pydantic import BaseModel
 from copy import deepcopy
 from threading import Lock
-from time import monotonic
+from time import monotonic, perf_counter
 
 router = APIRouter(prefix="/analytics", tags=["Analytics"])
 
@@ -46,6 +46,14 @@ INTERVIEW_PIPELINE_STAGES = {
 }
 _analytics_cache: dict[tuple, tuple[float, object]] = {}
 _analytics_cache_lock = Lock()
+_table_columns_cache: dict[str, set[str]] = {}
+_table_columns_cache_lock = Lock()
+
+
+def _perf_log(endpoint: str, total_start: float, **fields) -> None:
+    parts = [f"{key}={value}" for key, value in fields.items()]
+    parts.append(f"total={perf_counter() - total_start:.4f}s")
+    print(f"[PERF] {endpoint} " + " ".join(parts))
 
 
 def _analytics_cache_key(endpoint: str, current_user: User, **params) -> tuple:
@@ -64,11 +72,14 @@ def _get_cached_analytics_response(cache_key: tuple):
     with _analytics_cache_lock:
         cached = _analytics_cache.get(cache_key)
         if not cached:
+            print(f"[CACHE] analytics miss endpoint={cache_key[0]}")
             return None
         expires_at, payload = cached
         if expires_at <= now:
             _analytics_cache.pop(cache_key, None)
+            print(f"[CACHE] analytics expired endpoint={cache_key[0]}")
             return None
+        print(f"[CACHE] analytics hit endpoint={cache_key[0]}")
         return deepcopy(payload)
 
 
@@ -267,6 +278,11 @@ def _get_latest_filtered_interviews_by_candidate(
 
 
 def _get_table_columns(db: Session, table_name: str) -> set[str]:
+    with _table_columns_cache_lock:
+        cached_columns = _table_columns_cache.get(table_name)
+    if cached_columns is not None:
+        return cached_columns
+
     rows = db.execute(text(
         """
         SELECT column_name
@@ -274,7 +290,10 @@ def _get_table_columns(db: Session, table_name: str) -> set[str]:
         WHERE table_schema = 'public' AND table_name = :table_name
         """
     ), {"table_name": table_name}).fetchall()
-    return {row[0] for row in rows}
+    columns = {row[0] for row in rows}
+    with _table_columns_cache_lock:
+        _table_columns_cache[table_name] = columns
+    return columns
 
 
 def _fetch_interview_session_metadata(db: Session, interviews: List[Interview]) -> dict[str, dict]:
@@ -739,6 +758,7 @@ def get_dashboard_stats(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
+    total_start = perf_counter()
     try:
         cache_key = _analytics_cache_key(
             "dashboard-stats",
@@ -749,8 +769,10 @@ def get_dashboard_stats(
         )
         cached = _get_cached_analytics_response(cache_key)
         if cached is not None:
+            _perf_log("dashboard-stats", total_start, cache="hit", row_count=1)
             return DashboardStats(**cached)
 
+        query_start = perf_counter()
         query = _apply_candidate_dashboard_filters(
             db.query(Candidate),
             db,
@@ -768,7 +790,10 @@ def get_dashboard_stats(
             month=month,
             date=date,
         )
+        query_time = perf_counter() - query_start
+        print(f"[DB PERF] dashboard-stats query={query_time:.4f}s")
 
+        serialization_start = perf_counter()
         payload = {
             "total_candidates": candidate_metrics["total_candidates"],
             "shortlisted": candidate_metrics["shortlisted"],
@@ -783,11 +808,21 @@ def get_dashboard_stats(
             "avg_interview_score": round(interview_metrics["avg_interview_score"], 1),
         }
         _set_cached_analytics_response(cache_key, payload)
-        return DashboardStats(**payload)
+        response = DashboardStats(**payload)
+        _perf_log(
+            "dashboard-stats",
+            total_start,
+            cache="miss",
+            query=f"{query_time:.4f}s",
+            serialization=f"{perf_counter() - serialization_start:.4f}s",
+            row_count=1,
+        )
+        return response
     except Exception as e:
         print(f"❌ Dashboard stats error: {e}")
         import traceback
         traceback.print_exc()
+        _perf_log("dashboard-stats", total_start, cache="error", row_count=0)
         # Return default values on error
         return DashboardStats(
             total_candidates=0,
@@ -822,6 +857,7 @@ def get_hiring_funnel(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
+    total_start = perf_counter()
     cache_key = _analytics_cache_key(
         "hiring-funnel",
         current_user,
@@ -831,8 +867,10 @@ def get_hiring_funnel(
     )
     cached = _get_cached_analytics_response(cache_key)
     if cached is not None:
+        _perf_log("hiring-funnel", total_start, cache="hit", row_count=len(cached))
         return [HiringFunnelData(**item) for item in cached]
 
+    query_start = perf_counter()
     query = _apply_candidate_dashboard_filters(
         db.query(Candidate),
         db,
@@ -854,6 +892,8 @@ def get_hiring_funnel(
     interview_scheduled = interview_metrics["interviews_scheduled"]
     selected = interview_metrics["selected"]
     rejected = interview_metrics["rejected"]
+    query_time = perf_counter() - query_start
+    print(f"[DB PERF] hiring-funnel query={query_time:.4f}s")
     
     funnel_stages = [
         ("Total Candidates", total),
@@ -863,6 +903,7 @@ def get_hiring_funnel(
         ("Rejected", rejected),
     ]
     
+    serialization_start = perf_counter()
     payload = [
         HiringFunnelData(
             stage=stage,
@@ -872,6 +913,14 @@ def get_hiring_funnel(
         for stage, count in funnel_stages
     ]
     _set_cached_analytics_response(cache_key, [item.dict() for item in payload])
+    _perf_log(
+        "hiring-funnel",
+        total_start,
+        cache="miss",
+        query=f"{query_time:.4f}s",
+        serialization=f"{perf_counter() - serialization_start:.4f}s",
+        row_count=len(payload),
+    )
     return payload
 
 
@@ -1410,18 +1459,24 @@ def get_hiring_by_department(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
+    total_start = perf_counter()
     cache_key = _analytics_cache_key("hiring-by-department", current_user)
     cached = _get_cached_analytics_response(cache_key)
     if cached is not None:
+        _perf_log("hiring-by-department", total_start, cache="hit", row_count=len(cached))
         return cached
 
+    query_start = perf_counter()
     jobs = _apply_job_visibility(db.query(JobDescription), db, current_user).with_entities(
         JobDescription.id,
         JobDescription.department,
         JobDescription.vacancies,
     ).all()
     selected_by_job = _candidate_counts_by_job(db, current_user)
+    query_time = perf_counter() - query_start
+    print(f"[DB PERF] hiring-by-department query={query_time:.4f}s")
 
+    serialization_start = perf_counter()
     dept_data = {}
     for job in jobs:
         dept = job.department or "Other"
@@ -1436,6 +1491,14 @@ def get_hiring_by_department(
         for dept, data in dept_data.items()
     ]
     _set_cached_analytics_response(cache_key, result)
+    _perf_log(
+        "hiring-by-department",
+        total_start,
+        cache="miss",
+        query=f"{query_time:.4f}s",
+        serialization=f"{perf_counter() - serialization_start:.4f}s",
+        row_count=len(result),
+    )
     return result
 
 @router.get("/source-breakdown")
@@ -1496,11 +1559,14 @@ def get_active_jobs(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
+    total_start = perf_counter()
     cache_key = _analytics_cache_key("active-jobs", current_user)
     cached = _get_cached_analytics_response(cache_key)
     if cached is not None:
+        _perf_log("active-jobs", total_start, cache="hit", row_count=len(cached))
         return cached
 
+    query_start = perf_counter()
     jobs = _apply_job_visibility(
         db.query(JobDescription).filter(JobDescription.is_active == True),
         db,
@@ -1515,7 +1581,10 @@ def get_active_jobs(
     ).all()
     role_name = _role_name(current_user)
     candidate_counts = _candidate_counts_by_job(db, current_user)
+    query_time = perf_counter() - query_start
+    print(f"[DB PERF] active-jobs query={query_time:.4f}s")
 
+    serialization_start = perf_counter()
     result = []
     for job in jobs:
         metrics = candidate_counts.get(job.id, {})
@@ -1541,6 +1610,14 @@ def get_active_jobs(
             "status": status
         })
     _set_cached_analytics_response(cache_key, result)
+    _perf_log(
+        "active-jobs",
+        total_start,
+        cache="miss",
+        query=f"{query_time:.4f}s",
+        serialization=f"{perf_counter() - serialization_start:.4f}s",
+        row_count=len(result),
+    )
     return result
 
 @router.get("/upcoming-interviews")
@@ -1597,11 +1674,14 @@ def get_hiring_intelligence(
 ):
     from datetime import datetime, timedelta
 
+    total_start = perf_counter()
     cache_key = _analytics_cache_key("hiring-intelligence", current_user)
     cached = _get_cached_analytics_response(cache_key)
     if cached is not None:
+        _perf_log("hiring-intelligence", total_start, cache="hit", row_count=len(cached.get("insights", [])))
         return cached
 
+    query_start = perf_counter()
     insights = []
 
     stuck_count = _apply_candidate_visibility(db.query(func.count(Candidate.id)).filter(
@@ -1661,8 +1741,19 @@ def get_hiring_intelligence(
         insights.append("Pipeline is healthy - all candidates progressing smoothly")
         insights.append("No urgent actions required today")
 
+    query_time = perf_counter() - query_start
+    print(f"[DB PERF] hiring-intelligence query={query_time:.4f}s")
+    serialization_start = perf_counter()
     payload = {"insights": insights[:5]}
     _set_cached_analytics_response(cache_key, payload)
+    _perf_log(
+        "hiring-intelligence",
+        total_start,
+        cache="miss",
+        query=f"{query_time:.4f}s",
+        serialization=f"{perf_counter() - serialization_start:.4f}s",
+        row_count=len(payload["insights"]),
+    )
     return payload
 
 @router.get("/hiring-metrics")
@@ -1670,11 +1761,14 @@ def get_hiring_metrics(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
+    total_start = perf_counter()
     cache_key = _analytics_cache_key("hiring-metrics", current_user)
     cached = _get_cached_analytics_response(cache_key)
     if cached is not None:
+        _perf_log("hiring-metrics", total_start, cache="hit", row_count=1)
         return cached
 
+    query_start = perf_counter()
     candidate_row = _apply_candidate_visibility(
         db.query(
             func.count(Candidate.id).label("total_candidates"),
@@ -1701,7 +1795,10 @@ def get_hiring_metrics(
         current_user,
     ).scalar() or 0
     vacancy_fill_rate = round((selected_count / total_vacancies * 100), 1) if total_vacancies > 0 else 0
+    query_time = perf_counter() - query_start
+    print(f"[DB PERF] hiring-metrics query={query_time:.4f}s")
 
+    serialization_start = perf_counter()
     payload = {
         "all": {
             "time_to_hire": 18,
@@ -1776,6 +1873,14 @@ def get_hiring_metrics(
         }
     }
     _set_cached_analytics_response(cache_key, payload)
+    _perf_log(
+        "hiring-metrics",
+        total_start,
+        cache="miss",
+        query=f"{query_time:.4f}s",
+        serialization=f"{perf_counter() - serialization_start:.4f}s",
+        row_count=1,
+    )
     return payload
 
 @router.get("/time-to-hire-stages")

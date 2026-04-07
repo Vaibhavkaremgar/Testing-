@@ -13,6 +13,8 @@ import tempfile
 import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
+from threading import Lock
+from time import monotonic, perf_counter
 from app.database import SessionLocal, get_db
 from app.models import Candidate, CandidateStage, Interview, ParsingStatus, User, JobDescription
 from app.notification_service import queue_notification_for_stage, send_email_task
@@ -47,6 +49,9 @@ ALLOWED_RESUME_CONTENT_TYPES = {
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 }
 _skill_intelligence = SkillIntelligence()
+LEGACY_STAGE_NORMALIZATION_INTERVAL_SECONDS = 300
+_legacy_stage_normalization_lock = Lock()
+_legacy_stage_last_checked_at = 0.0
 LOCATION_NOISE_PATTERN = re.compile(
     r"(?i)\b(?:managing|managed|operations|including|across|responsible|experience|years|sales|development|engineer|developer|manager|executive|specialist|lead|worked|work|support|project|projects|regional)\b"
 )
@@ -54,6 +59,17 @@ LOCATION_NOISE_PATTERN = re.compile(
 
 def normalize_legacy_candidate_stages(db: Session) -> None:
     """Self-heal stale enum values that can crash ORM reads on older rows."""
+    global _legacy_stage_last_checked_at
+    now = monotonic()
+    if (now - _legacy_stage_last_checked_at) < LEGACY_STAGE_NORMALIZATION_INTERVAL_SECONDS:
+        return
+
+    with _legacy_stage_normalization_lock:
+        now = monotonic()
+        if (now - _legacy_stage_last_checked_at) < LEGACY_STAGE_NORMALIZATION_INTERVAL_SECONDS:
+            return
+        _legacy_stage_last_checked_at = now
+
     result = db.execute(text(
         "UPDATE candidates "
         "SET stage = 'INTERVIEWED' "
@@ -62,6 +78,12 @@ def normalize_legacy_candidate_stages(db: Session) -> None:
     if result.rowcount:
         print(f"Normalized legacy candidate stages before query: rows_updated={result.rowcount}")
         db.commit()
+
+
+def _perf_log(endpoint: str, total_start: float, **fields) -> None:
+    parts = [f"{key}={value}" for key, value in fields.items()]
+    parts.append(f"total={perf_counter() - total_start:.4f}s")
+    print(f"[PERF] {endpoint} " + " ".join(parts))
 
 
 def _apply_candidate_list_scope(query, current_user):
@@ -1878,7 +1900,10 @@ def get_candidates(
     current_user: User = Depends(get_current_active_user)
 ):
     from app.models import UserRole
+    total_start = perf_counter()
+    normalization_start = perf_counter()
     normalize_legacy_candidate_stages(db)
+    normalization_time = perf_counter() - normalization_start
     query = db.query(Candidate)
 
     if agency_id and current_user.role == UserRole.SUPER_ADMIN:
@@ -1901,6 +1926,7 @@ def get_candidates(
     if min_score is not None:
         query = query.filter(Candidate.resume_score >= min_score)
     effective_offset = offset if offset is not None else max(0, (page - 1) * limit)
+    query_start = perf_counter()
     candidates = (
         query.options(
             load_only(
@@ -1937,8 +1963,11 @@ def get_candidates(
         .limit(limit)
         .all()
     )
+    query_time = perf_counter() - query_start
+    print(f"[DB PERF] candidates query={query_time:.4f}s")
     
     # Add job title to response
+    serialization_start = perf_counter()
     result = []
     for c in candidates:
         candidate_dict = {
@@ -1970,7 +1999,16 @@ def get_candidates(
             "created_at": c.created_at
         }
         result.append(build_safe_candidate_response(candidate_dict))
-    
+    _perf_log(
+        "candidates",
+        total_start,
+        normalization=f"{normalization_time:.4f}s",
+        query=f"{query_time:.4f}s",
+        serialization=f"{perf_counter() - serialization_start:.4f}s",
+        row_count=len(result),
+        limit=limit,
+        offset=effective_offset,
+    )
     return result
 
 @router.get("/{candidate_id}", response_model=CandidateResponse)

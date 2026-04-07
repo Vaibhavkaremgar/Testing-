@@ -17,21 +17,31 @@ function normalizeSources({ src, type, sources }) {
   if (Array.isArray(sources) && sources.length > 0) {
     return sources
       .filter((source) => source?.src)
-      .map((source) => ({
-        src: source.src,
-        // Preserve an omitted type so the server's Content-Type can drive playback.
-        type:
-          Object.prototype.hasOwnProperty.call(source, 'type')
-            ? source.type
-            : inferSourceType(source.src),
-      }))
+      .map((source) => {
+        const normalizedSource = { src: source.src }
+
+        // Preserve an omitted type so the browser can rely on the backend
+        // response Content-Type instead of a guessed MIME.
+        if (Object.prototype.hasOwnProperty.call(source, 'type')) {
+          normalizedSource.type = source.type
+        }
+
+        return normalizedSource
+      })
   }
 
   if (!src) {
     return []
   }
 
-  return [{ src, type: type || inferSourceType(src) }]
+  const normalizedSource = { src }
+  if (type !== undefined) {
+    normalizedSource.type = type
+  } else if (src.includes('.m3u8')) {
+    normalizedSource.type = inferSourceType(src)
+  }
+
+  return [normalizedSource]
 }
 
 const VideoPlayer = forwardRef(function VideoPlayer(

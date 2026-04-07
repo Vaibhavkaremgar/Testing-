@@ -6,6 +6,8 @@ from typing import List, Optional
 from datetime import datetime
 from uuid import UUID
 from pathlib import Path
+from threading import Lock
+from time import monotonic, perf_counter
 import base64
 import binascii
 import mimetypes
@@ -23,6 +25,11 @@ router = APIRouter(prefix="/interviews", tags=["Interviews"])
 recording_router = APIRouter(prefix="/recording", tags=["Interviews"])
 
 VIDEO_CHUNK_SIZE = 1024 * 1024
+LEGACY_STAGE_NORMALIZATION_INTERVAL_SECONDS = 300
+_legacy_stage_normalization_lock = Lock()
+_legacy_stage_last_checked_at = 0.0
+_table_columns_cache: dict[str, set[str]] = {}
+_table_columns_cache_lock = Lock()
 
 # Sample AI summaries for demo
 SAMPLE_SUMMARIES = [
@@ -57,6 +64,17 @@ SAMPLE_TRANSCRIPTS = """
 
 def normalize_legacy_candidate_stages(db: Session) -> None:
     """Self-heal stale candidate enum values before interview queries touch relationships."""
+    global _legacy_stage_last_checked_at
+    now = monotonic()
+    if (now - _legacy_stage_last_checked_at) < LEGACY_STAGE_NORMALIZATION_INTERVAL_SECONDS:
+        return
+
+    with _legacy_stage_normalization_lock:
+        now = monotonic()
+        if (now - _legacy_stage_last_checked_at) < LEGACY_STAGE_NORMALIZATION_INTERVAL_SECONDS:
+            return
+        _legacy_stage_last_checked_at = now
+
     result = db.execute(text(
         "UPDATE candidates "
         "SET stage = 'INTERVIEWED' "
@@ -65,6 +83,12 @@ def normalize_legacy_candidate_stages(db: Session) -> None:
     if result.rowcount:
         print(f"Normalized legacy candidate stages before interview query: rows_updated={result.rowcount}")
         db.commit()
+
+
+def _perf_log(endpoint: str, total_start: float, **fields) -> None:
+    parts = [f"{key}={value}" for key, value in fields.items()]
+    parts.append(f"total={perf_counter() - total_start:.4f}s")
+    print(f"[PERF] {endpoint} " + " ".join(parts))
 
 
 def _derive_candidate_stage_from_interview(interview: Interview) -> Optional[CandidateStage]:
@@ -180,6 +204,103 @@ def _charge_completed_interview_if_needed(db: Session, interview: Interview, has
         return None
 
     return _deduct_interview_completion_credit(db, interview, candidate)
+
+
+def _charge_completed_interviews_in_batch(
+    db: Session,
+    interviews: List[Interview],
+    recording_availability: dict[str, dict],
+) -> bool:
+    from app.models import JobDescription, UserRole, WalletTransaction, TransactionType
+
+    billable_pairs: list[tuple[Interview, Candidate]] = []
+    job_ids_missing_agency = set()
+    for interview in interviews:
+        has_recording = recording_availability.get(str(interview.id), {}).get("has_recording", False)
+        if not _is_interview_completion_billable(interview, has_recording=has_recording):
+            continue
+
+        candidate = interview.candidate
+        if not candidate:
+            candidate = db.query(Candidate).filter(Candidate.id == interview.candidate_id).first()
+        if not candidate:
+            continue
+
+        billable_pairs.append((interview, candidate))
+        if not candidate.agency_id and candidate.job_id:
+            job_ids_missing_agency.add(candidate.job_id)
+
+    if not billable_pairs:
+        return False
+
+    job_agency_by_id = {}
+    if job_ids_missing_agency:
+        job_agency_by_id = {
+            job_id: agency_id
+            for job_id, agency_id in db.query(JobDescription.id, JobDescription.agency_id)
+            .filter(JobDescription.id.in_(job_ids_missing_agency))
+            .all()
+        }
+
+    agency_ids = {
+        candidate.agency_id or job_agency_by_id.get(candidate.job_id)
+        for _, candidate in billable_pairs
+        if candidate.agency_id or job_agency_by_id.get(candidate.job_id)
+    }
+    if not agency_ids:
+        return False
+
+    admin_by_agency = {}
+    for admin in (
+        db.query(User)
+        .filter(User.role == UserRole.ADMIN, User.agency_id.in_(agency_ids))
+        .order_by(User.id.asc())
+        .all()
+    ):
+        admin_by_agency.setdefault(admin.agency_id, admin)
+
+    if not admin_by_agency:
+        return False
+
+    admin_ids = [admin.id for admin in admin_by_agency.values()]
+    descriptions = [f"Interview completed - Interview ID {interview.id}" for interview, _ in billable_pairs]
+    existing_transactions = {
+        (user_id, description)
+        for user_id, description in (
+            db.query(WalletTransaction.user_id, WalletTransaction.description)
+            .filter(
+                WalletTransaction.user_id.in_(admin_ids),
+                WalletTransaction.description.in_(descriptions),
+            )
+            .all()
+        )
+    }
+
+    credits_checked = False
+    for interview, candidate in billable_pairs:
+        agency_id = candidate.agency_id or job_agency_by_id.get(candidate.job_id)
+        admin = admin_by_agency.get(agency_id)
+        if not admin:
+            continue
+
+        transaction_description = f"Interview completed - Interview ID {interview.id}"
+        transaction_key = (admin.id, transaction_description)
+        if transaction_key in existing_transactions:
+            continue
+
+        admin.wallet_balance = max(0, (admin.wallet_balance or 0) - 1)
+        db.add(WalletTransaction(
+            user_id=admin.id,
+            agency_id=agency_id,
+            amount=1,
+            transaction_type=TransactionType.DEBIT,
+            description=transaction_description,
+            balance_after=admin.wallet_balance
+        ))
+        existing_transactions.add(transaction_key)
+        credits_checked = True
+
+    return credits_checked
 
 
 def _apply_interview_scope(query, current_user):
@@ -423,6 +544,11 @@ def _build_video_stream_response(video_bytes: bytes, media_type: str, range_head
 
 
 def _get_table_columns(cursor, table_name: str) -> set[str]:
+    with _table_columns_cache_lock:
+        cached_columns = _table_columns_cache.get(table_name)
+    if cached_columns is not None:
+        return cached_columns
+
     cursor.execute(
         """
         SELECT column_name
@@ -431,7 +557,10 @@ def _get_table_columns(cursor, table_name: str) -> set[str]:
         """,
         (table_name,),
     )
-    return {row[0] for row in cursor.fetchall()}
+    columns = {row[0] for row in cursor.fetchall()}
+    with _table_columns_cache_lock:
+        _table_columns_cache[table_name] = columns
+    return columns
 
 
 def _fetch_interview_recording(cursor, session_keys: List[str]):
@@ -735,7 +864,10 @@ def get_interviews(
     current_user: User = Depends(get_current_active_user)
 ):
     from app.models import UserRole, JobDescription
+    total_start = perf_counter()
+    normalization_start = perf_counter()
     normalize_legacy_candidate_stages(db)
+    normalization_time = perf_counter() - normalization_start
     query = db.query(Interview)
 
     if candidate_id:
@@ -748,6 +880,7 @@ def get_interviews(
         query = _apply_interview_scope(query, current_user)
     
     effective_offset = offset if offset is not None else max(0, (page - 1) * limit)
+    query_start = perf_counter()
     interviews = (
         query.options(
             load_only(
@@ -769,24 +902,25 @@ def get_interviews(
                 Interview.culture_fit_score,
                 Interview.created_at,
             ),
-            joinedload(Interview.candidate).load_only(Candidate.id, Candidate.name),
+            joinedload(Interview.candidate).load_only(Candidate.id, Candidate.name, Candidate.agency_id, Candidate.job_id),
         )
         .order_by(Interview.scheduled_at.desc())
         .offset(effective_offset)
         .limit(limit)
         .all()
     )
+    query_time = perf_counter() - query_start
+    print(f"[DB PERF] interviews query={query_time:.4f}s")
+    enrichment_start = perf_counter()
     recording_availability = _fetch_recording_availability(interviews)
 
-    credits_checked = False
-    for interview in interviews:
-        has_recording = recording_availability.get(str(interview.id), {}).get("has_recording", False)
-        new_balance = _charge_completed_interview_if_needed(db, interview, has_recording=has_recording)
-        if new_balance is not None:
-            credits_checked = True
+    credits_checked = _charge_completed_interviews_in_batch(db, interviews, recording_availability)
     if credits_checked:
         db.commit()
+    enrichment_time = perf_counter() - enrichment_start
+    print(f"[DB PERF] interviews enrichment={enrichment_time:.4f}s")
     
+    serialization_start = perf_counter()
     result = []
     for interview in interviews:
         interview_dict = {
@@ -813,7 +947,17 @@ def get_interviews(
             "created_at": interview.created_at
         }
         result.append(InterviewResponse(**interview_dict))
-    
+    _perf_log(
+        "interviews",
+        total_start,
+        normalization=f"{normalization_time:.4f}s",
+        query=f"{query_time:.4f}s",
+        enrichment=f"{enrichment_time:.4f}s",
+        serialization=f"{perf_counter() - serialization_start:.4f}s",
+        row_count=len(result),
+        limit=limit,
+        offset=effective_offset,
+    )
     return result
 
 
