@@ -75,7 +75,8 @@ def get_jobs_count(
 @router.get("", response_model=List[JobDescriptionResponse])
 def get_jobs(
     page: int = 1,
-    limit: int = 100,
+    limit: int = 20,
+    offset: Optional[int] = None,
     is_active: Optional[bool] = None,
     client: Optional[str] = None,
     agency_id: Optional[UUID] = None,
@@ -96,7 +97,8 @@ def get_jobs(
     if client:
         query = query.filter(JobDescription.company_name == client)
 
-    jobs = query.order_by(JobDescription.created_at.desc()).offset((page - 1) * limit).limit(limit).all()
+    effective_offset = offset if offset is not None else max(0, (page - 1) * limit)
+    jobs = query.order_by(JobDescription.created_at.desc()).offset(effective_offset).limit(limit).all()
     
     print(f"DEBUG: Found {len(jobs)} jobs in database")
     for job in jobs:

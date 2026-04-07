@@ -1866,7 +1866,8 @@ def get_candidates_count(
 @router.get("", response_model=List[CandidateResponse])
 def get_candidates(
     page: int = 1,
-    limit: int = 10,
+    limit: int = 20,
+    offset: Optional[int] = None,
     search: Optional[str] = None,
     stage: Optional[CandidateStage] = None,
     job_id: Optional[UUID] = None,
@@ -1899,7 +1900,8 @@ def get_candidates(
         query = query.filter(Candidate.job_id == job_id)
     if min_score is not None:
         query = query.filter(Candidate.resume_score >= min_score)
-    candidates = query.order_by(Candidate.created_at.desc()).offset((page - 1) * limit).limit(limit).all()
+    effective_offset = offset if offset is not None else max(0, (page - 1) * limit)
+    candidates = query.order_by(Candidate.created_at.desc()).offset(effective_offset).limit(limit).all()
     
     # Add job title to response
     result = []

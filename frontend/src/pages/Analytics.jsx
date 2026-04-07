@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { cn } from '@/lib/utils'
@@ -138,6 +139,7 @@ export default function Analytics() {
   const { user } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
+  const queryClient = useQueryClient()
 
   const [dateRange, setDateRange] = useState('last_30_days')
   const [customStartDate, setCustomStartDate] = useState('')
@@ -147,11 +149,6 @@ export default function Analytics() {
   const [selectedRecruiter, setSelectedRecruiter] = useState('all')
   const [selectedDepartment, setSelectedDepartment] = useState('all')
 
-  const [clients, setClients] = useState([])
-  const [recruiters, setRecruiters] = useState([])
-  const [departments, setDepartments] = useState([])
-  const [loadingFilters, setLoadingFilters] = useState(true)
-
   const allMetrics = useMemo(
     () => METRIC_CATEGORIES.flatMap((category) => category.metrics),
     []
@@ -159,7 +156,6 @@ export default function Analytics() {
   const allMetricIds = useMemo(() => allMetrics.map((m) => m.id), [allMetrics])
 
   const [widgetLayout, setWidgetLayout] = useState(buildDefaultLayout(allMetricIds))
-  const [layoutLoading, setLayoutLoading] = useState(true)
   const [layoutSaving, setLayoutSaving] = useState(false)
   const [isCustomizeOpen, setIsCustomizeOpen] = useState(false)
   const [draftSelectedMetrics, setDraftSelectedMetrics] = useState(DEFAULT_SELECTED_METRICS)
@@ -180,83 +176,71 @@ export default function Analytics() {
     setSearchParams(nextParams, { replace: true })
   }
 
-  useEffect(() => {
-    const fetchFilterOptions = async () => {
-      setLoadingFilters(true)
-      try {
-        const [jobsData, usersData] = await Promise.all([
-          api.getJobs({ limit: DEFAULT_LIST_LIMIT }).catch(() => []),
-          api.getPublicUsers().catch(() => [])
-        ])
+  const filterOptionsQuery = useQuery({
+    queryKey: ['analytics-filter-options'],
+    queryFn: async () => {
+      const [jobsData, usersData] = await Promise.all([
+        api.getJobs({ limit: DEFAULT_LIST_LIMIT, offset: 0 }).catch(() => []),
+        api.getPublicUsers().catch(() => []),
+      ])
 
-        const uniqueClients = Array.from(
-          new Set((jobsData || []).map((job) => job.company_name).filter(Boolean))
-        ).sort((a, b) => a.localeCompare(b))
-
-        const uniqueDepartments = Array.from(
-          new Set((jobsData || []).map((job) => job.department).filter(Boolean))
-        ).sort((a, b) => a.localeCompare(b))
-
-        const recruiterUsers = (usersData || []).filter((u) => u?.role === 'recruiter')
-
-        setClients(uniqueClients)
-        setDepartments(uniqueDepartments)
-        setRecruiters(recruiterUsers)
-
-        if (user?.role === 'recruiter' && user?.id) {
-          setSelectedRecruiter(String(user.id))
-        }
-      } catch (error) {
-        console.error('Failed to fetch analytics filter options:', error)
-      } finally {
-        setLoadingFilters(false)
+      return {
+        clients: Array.from(new Set((jobsData || []).map((job) => job.company_name).filter(Boolean))).sort((a, b) => a.localeCompare(b)),
+        departments: Array.from(new Set((jobsData || []).map((job) => job.department).filter(Boolean))).sort((a, b) => a.localeCompare(b)),
+        recruiters: (usersData || []).filter((userItem) => userItem?.role === 'recruiter'),
       }
-    }
+    },
+  })
 
-    fetchFilterOptions()
+  const layoutQuery = useQuery({
+    queryKey: ['analytics-widget-layout', allMetricIds],
+    queryFn: async () => {
+      await api.getAnalyticsWidgetCatalog().catch(() => [])
+      const response = await api.getAnalyticsWidgetLayout()
+      return Array.isArray(response?.items) ? response.items : []
+    },
+  })
+
+  const clients = filterOptionsQuery.data?.clients || []
+  const recruiters = filterOptionsQuery.data?.recruiters || []
+  const departments = filterOptionsQuery.data?.departments || []
+
+  useEffect(() => {
+    if (user?.role === 'recruiter' && user?.id) {
+      setSelectedRecruiter(String(user.id))
+    }
   }, [user?.id, user?.role])
 
   useEffect(() => {
-    const fetchLayout = async () => {
-      setLayoutLoading(true)
-      try {
-        await api.getAnalyticsWidgetCatalog().catch(() => [])
-        const response = await api.getAnalyticsWidgetLayout()
-        const items = Array.isArray(response?.items) ? response.items : []
-        if (items.length === 0) {
-          setWidgetLayout(buildDefaultLayout(allMetricIds))
-        } else {
-          const normalized = items
-            .filter((item) => allMetricIds.includes(item.metric_key))
-            .map((item, index) => ({
-              metricKey: item.metric_key,
-              position: Number.isFinite(item.position) ? item.position : index,
-              size: ['small', 'medium', 'large'].includes(item.size) ? item.size : 'medium',
-              isEnabled: item.is_enabled !== false,
-            }))
+    const items = layoutQuery.data
+    if (!items) return
 
-          const existingKeys = new Set(normalized.map((item) => item.metricKey))
-          const missing = allMetricIds
-            .filter((metricKey) => !existingKeys.has(metricKey))
-            .map((metricKey, index) => ({
-              metricKey,
-              position: normalized.length + index,
-              size: 'medium',
-              isEnabled: false,
-            }))
-
-          setWidgetLayout([...normalized, ...missing])
-        }
-      } catch (error) {
-        console.error('Failed to fetch widget layout:', error)
-        setWidgetLayout(buildDefaultLayout(allMetricIds))
-      } finally {
-        setLayoutLoading(false)
-      }
+    if (items.length === 0) {
+      setWidgetLayout(buildDefaultLayout(allMetricIds))
+      return
     }
 
-    fetchLayout()
-  }, [allMetricIds])
+    const normalized = items
+      .filter((item) => allMetricIds.includes(item.metric_key))
+      .map((item, index) => ({
+        metricKey: item.metric_key,
+        position: Number.isFinite(item.position) ? item.position : index,
+        size: ['small', 'medium', 'large'].includes(item.size) ? item.size : 'medium',
+        isEnabled: item.is_enabled !== false,
+      }))
+
+    const existingKeys = new Set(normalized.map((item) => item.metricKey))
+    const missing = allMetricIds
+      .filter((metricKey) => !existingKeys.has(metricKey))
+      .map((metricKey, index) => ({
+        metricKey,
+        position: normalized.length + index,
+        size: 'medium',
+        isEnabled: false,
+      }))
+
+    setWidgetLayout([...normalized, ...missing])
+  }, [allMetricIds, layoutQuery.data])
 
   const visibleWidgets = useMemo(() => {
     return widgetLayout
@@ -372,6 +356,7 @@ export default function Analytics() {
         is_enabled: item.isEnabled,
       }))
       await api.saveAnalyticsWidgetLayout(payload)
+      queryClient.invalidateQueries({ queryKey: ['analytics-widget-layout'] })
     } catch (error) {
       console.error('Failed to save dashboard layout:', error)
     } finally {
@@ -379,7 +364,7 @@ export default function Analytics() {
     }
   }
 
-  if (loadingFilters || layoutLoading) {
+  if (filterOptionsQuery.isLoading || layoutQuery.isLoading) {
     return (
       <div className="flex h-full items-center justify-center">
         <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-primary"></div>

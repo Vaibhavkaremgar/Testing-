@@ -1,3 +1,4 @@
+import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '@/context/AuthContext'
 import { useTheme } from '@/context/ThemeContext'
 import { Button } from '@/components/ui/button'
@@ -13,8 +14,9 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Search, Bell, Sun, Moon, LogOut, User, Settings, X } from 'lucide-react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
+import { useDebouncedValue } from '@/hooks/useDebouncedValue'
 
 const CLIENT_FILTER_STORAGE_KEY = 'selectedClientFilter'
 const JOB_FILTER_STORAGE_KEY = 'selectedJobFilter'
@@ -28,11 +30,7 @@ export function Header() {
   const [notifications, setNotifications] = useState([])
   const [showNotifications, setShowNotifications] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
-  const [searchResults, setSearchResults] = useState({ candidates: [], jobs: [], interviews: [] })
   const [showSearchResults, setShowSearchResults] = useState(false)
-  const [searching, setSearching] = useState(false)
-  const [clients, setClients] = useState([])
-  const [jobs, setJobs] = useState([])
   const [selectedClient, setSelectedClient] = useState(() => (
     searchParams.get('client') ||
     localStorage.getItem(CLIENT_FILTER_STORAGE_KEY) ||
@@ -44,21 +42,92 @@ export function Header() {
     ''
   ))
   const isDark = theme === 'dark'
+  const debouncedSearchQuery = useDebouncedValue(searchQuery, 300)
 
-  // Fetch clients and jobs for the global filters
-  useEffect(() => {
-    const fetchFilterOptions = async () => {
-      try {
-        const jobsData = await api.getJobs()
-        const uniqueClients = [...new Set((jobsData || []).map(j => j.company_name).filter(Boolean))]
-        setJobs(jobsData || [])
-        setClients(uniqueClients.sort())
-      } catch (error) {
-        console.error('Failed to fetch global filters:', error)
+  const filterOptionsQuery = useQuery({
+    queryKey: ['header-filter-options'],
+    queryFn: async () => {
+      const jobsData = await api.getJobs({ limit: 100, offset: 0 })
+      const uniqueClients = [...new Set((jobsData || []).map((job) => job.company_name).filter(Boolean))]
+      return {
+        jobs: jobsData || [],
+        clients: uniqueClients.sort(),
       }
-    }
-    fetchFilterOptions()
-  }, [])
+    },
+  })
+
+  const notificationsQuery = useQuery({
+    queryKey: ['header-notifications'],
+    queryFn: async () => {
+      const [candidates, interviews] = await Promise.all([
+        api.getCandidates({ limit: 5, offset: 0 }),
+        api.getInterviews({ limit: 3, offset: 0 }),
+      ])
+
+      const readNotifications = JSON.parse(localStorage.getItem('readNotifications') || '[]')
+      const notificationList = []
+
+      candidates.slice(0, 3).forEach((candidate) => {
+        const timeDiff = new Date() - new Date(candidate.created_at)
+        const hoursAgo = Math.floor(timeDiff / (1000 * 60 * 60))
+        const timeText = hoursAgo < 1 ? 'Just now' : hoursAgo < 24 ? `${hoursAgo}h ago` : `${Math.floor(hoursAgo / 24)}d ago`
+        const notifId = `candidate-${candidate.id}`
+
+        notificationList.push({
+          id: notifId,
+          type: 'candidate',
+          message: `New candidate ${candidate.name} applied${candidate.job_title ? ` for ${candidate.job_title}` : ''}`,
+          time: timeText,
+          unread: hoursAgo < 24 && !readNotifications.includes(notifId),
+          data: candidate,
+        })
+      })
+
+      interviews.slice(0, 2).forEach((interview) => {
+        const timeDiff = new Date() - new Date(interview.created_at)
+        const hoursAgo = Math.floor(timeDiff / (1000 * 60 * 60))
+        const timeText = hoursAgo < 1 ? 'Just now' : hoursAgo < 24 ? `${hoursAgo}h ago` : `${Math.floor(hoursAgo / 24)}d ago`
+        const notifId = `interview-${interview.id}`
+
+        notificationList.push({
+          id: notifId,
+          type: 'interview',
+          message: `Interview ${interview.status === 'completed' ? 'completed' : 'scheduled'} with ${interview.candidate_name}`,
+          time: timeText,
+          unread: hoursAgo < 12 && !readNotifications.includes(notifId),
+          data: interview,
+        })
+      })
+
+      return notificationList.sort((a, b) => b.unread - a.unread)
+    },
+    refetchInterval: 5 * 60 * 1000,
+  })
+
+  const globalSearchQuery = useQuery({
+    queryKey: ['global-search', debouncedSearchQuery],
+    enabled: debouncedSearchQuery.trim().length >= 2,
+    queryFn: async () => {
+      const [candidates, jobs, interviews] = await Promise.all([
+        api.getCandidates({ search: debouncedSearchQuery, limit: 5, offset: 0 }),
+        api.getJobs({ search: debouncedSearchQuery, limit: 5, offset: 0 }),
+        api.getInterviews({ limit: 20, offset: 0 }),
+      ])
+
+      return {
+        candidates,
+        jobs,
+        interviews: interviews
+          .filter((interview) => interview.candidate_name?.toLowerCase().includes(debouncedSearchQuery.toLowerCase()))
+          .slice(0, 5),
+      }
+    },
+  })
+
+  const clients = filterOptionsQuery.data?.clients || []
+  const jobs = filterOptionsQuery.data?.jobs || []
+  const searchResults = globalSearchQuery.data || { candidates: [], jobs: [], interviews: [] }
+  const searching = globalSearchQuery.isFetching
 
   useEffect(() => {
     const urlClient = searchParams.get('client') || ''
@@ -106,6 +175,23 @@ export function Header() {
     }
   }, [searchParams, setSearchParams])
 
+  useEffect(() => {
+    if (notificationsQuery.data) {
+      setNotifications(notificationsQuery.data)
+    }
+  }, [notificationsQuery.data])
+
+  useEffect(() => {
+    if (debouncedSearchQuery.trim().length < 2) {
+      setShowSearchResults(false)
+      return
+    }
+
+    if (globalSearchQuery.data) {
+      setShowSearchResults(true)
+    }
+  }, [debouncedSearchQuery, globalSearchQuery.data])
+
   const buildGlobalAwarePath = (pathname) => {
     const activeClient = searchParams.get('client') || localStorage.getItem(CLIENT_FILTER_STORAGE_KEY) || ''
     const activeJobId = searchParams.get('job_id') || localStorage.getItem(JOB_FILTER_STORAGE_KEY) || ''
@@ -146,104 +232,7 @@ export function Header() {
     setSearchParams(nextParams, { replace: location.pathname !== '/login' })
   }
 
-  // Fetch real notifications
-  useEffect(() => {
-    const fetchNotifications = async () => {
-      try {
-        const [candidates, interviews] = await Promise.all([
-          api.getCandidates({ limit: 5 }),
-          api.getInterviews({ limit: 3 })
-        ])
-        
-        // Get read notifications from localStorage
-        const readNotifications = JSON.parse(localStorage.getItem('readNotifications') || '[]')
-        
-        const notificationList = []
-        
-        // Recent candidates
-        candidates.slice(0, 3).forEach(candidate => {
-          const timeDiff = new Date() - new Date(candidate.created_at)
-          const hoursAgo = Math.floor(timeDiff / (1000 * 60 * 60))
-          const timeText = hoursAgo < 1 ? 'Just now' : hoursAgo < 24 ? `${hoursAgo}h ago` : `${Math.floor(hoursAgo / 24)}d ago`
-          const notifId = `candidate-${candidate.id}`
-          
-          notificationList.push({
-            id: notifId,
-            type: 'candidate',
-            message: `New candidate ${candidate.name} applied${candidate.job_title ? ` for ${candidate.job_title}` : ''}`,
-            time: timeText,
-            unread: hoursAgo < 24 && !readNotifications.includes(notifId),
-            data: candidate
-          })
-        })
-        
-        // Recent interviews
-        interviews.slice(0, 2).forEach(interview => {
-          const timeDiff = new Date() - new Date(interview.created_at)
-          const hoursAgo = Math.floor(timeDiff / (1000 * 60 * 60))
-          const timeText = hoursAgo < 1 ? 'Just now' : hoursAgo < 24 ? `${hoursAgo}h ago` : `${Math.floor(hoursAgo / 24)}d ago`
-          const notifId = `interview-${interview.id}`
-          
-          notificationList.push({
-            id: notifId,
-            type: 'interview',
-            message: `Interview ${interview.status === 'completed' ? 'completed' : 'scheduled'} with ${interview.candidate_name}`,
-            time: timeText,
-            unread: hoursAgo < 12 && !readNotifications.includes(notifId),
-            data: interview
-          })
-        })
-        
-        setNotifications(notificationList.sort((a, b) => b.unread - a.unread))
-      } catch (error) {
-        console.error('Failed to fetch notifications:', error)
-        setNotifications([
-          { id: 1, type: 'system', message: 'Welcome to HireFlow!', time: '1 hour ago', unread: true },
-          { id: 2, type: 'system', message: 'System maintenance scheduled', time: '2 hours ago', unread: false },
-        ])
-      }
-    }
-    
-    fetchNotifications()
-    const interval = setInterval(fetchNotifications, 5 * 60 * 1000)
-    return () => clearInterval(interval)
-  }, [])
-
   const unreadCount = notifications.filter(n => n.unread).length
-
-  // Global search
-  useEffect(() => {
-    const performSearch = async () => {
-      if (!searchQuery || searchQuery.length < 2) {
-        setSearchResults({ candidates: [], jobs: [], interviews: [] })
-        setShowSearchResults(false)
-        return
-      }
-
-      setSearching(true)
-      try {
-        const [candidates, jobs, interviews] = await Promise.all([
-          api.getCandidates({ search: searchQuery, limit: 5 }),
-          api.getJobs({ search: searchQuery, limit: 5 }),
-          api.getInterviews({ limit: 100 })
-        ])
-
-        const filteredInterviews = interviews.filter(i => 
-          i.candidate_name?.toLowerCase().includes(searchQuery.toLowerCase())
-        ).slice(0, 5)
-
-        setSearchResults({ candidates, jobs, interviews: filteredInterviews })
-        setShowSearchResults(true)
-      } catch (error) {
-        console.error('Search failed:', error)
-      } finally {
-        setSearching(false)
-      }
-    }
-
-    const debounce = setTimeout(performSearch, 300)
-    return () => clearTimeout(debounce)
-  }, [searchQuery])
 
   const handleLogout = () => {
     logout()

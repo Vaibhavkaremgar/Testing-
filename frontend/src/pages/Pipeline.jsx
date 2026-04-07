@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -135,28 +136,27 @@ export default function Pipeline({ superAdminAgencyId = null }) {
   const selectedClient = searchParams.get('client')
   const selectedJobId = searchParams.get('job_id')
   const [stages, setStages] = useState({})
-  const [loading, setLoading] = useState(true)
   const [dragOverStage, setDragOverStage] = useState(null)
   const [lastMove, setLastMove] = useState(null)
   const { toast } = useToast()
+  const queryClient = useQueryClient()
+
+  const pipelineQuery = useQuery({
+    queryKey: ['pipeline-stages', selectedClient, selectedJobId, superAdminAgencyId],
+    queryFn: async () => {
+      const params = {}
+      if (selectedClient) params.client = selectedClient
+      if (selectedJobId) params.job_id = selectedJobId
+      if (superAdminAgencyId) params.agency_id = superAdminAgencyId
+      return api.getPipelineStages(params)
+    },
+  })
 
   useEffect(() => {
-    const fetchPipeline = async () => {
-      try {
-        const params = {}
-        if (selectedClient) params.client = selectedClient
-        if (selectedJobId) params.job_id = selectedJobId
-        if (superAdminAgencyId) params.agency_id = superAdminAgencyId
-        const data = await api.getPipelineStages(params)
-        setStages(data)
-      } catch (error) {
-        console.error('Failed to fetch pipeline:', error)
-      } finally {
-        setLoading(false)
-      }
+    if (pipelineQuery.data) {
+      setStages(pipelineQuery.data)
     }
-    fetchPipeline()
-  }, [selectedClient, selectedJobId, superAdminAgencyId])
+  }, [pipelineQuery.data])
 
   const handleCardClick = async (candidate) => {
     // No special click handling needed
@@ -188,11 +188,13 @@ export default function Pipeline({ superAdminAgencyId = null }) {
         const candidate = prev[fromStage]?.find(c => c.id === candidateId)
         if (!candidate) return prev
         
-        return {
+        const nextStages = {
           ...prev,
           [fromStage]: prev[fromStage].filter(c => c.id !== candidateId),
           [toStage]: [...(prev[toStage] || []), { ...candidate, stage: toStage }]
         }
+        queryClient.setQueryData(['pipeline-stages', selectedClient, selectedJobId, superAdminAgencyId], nextStages)
+        return nextStages
       })
       
       toast({
@@ -220,11 +222,13 @@ export default function Pipeline({ superAdminAgencyId = null }) {
         const candidate = prev[lastMove.toStage]?.find(c => c.id === lastMove.candidateId)
         if (!candidate) return prev
         
-        return {
+        const nextStages = {
           ...prev,
           [lastMove.toStage]: prev[lastMove.toStage].filter(c => c.id !== lastMove.candidateId),
           [lastMove.fromStage]: [...(prev[lastMove.fromStage] || []), { ...candidate, stage: lastMove.fromStage }]
         }
+        queryClient.setQueryData(['pipeline-stages', selectedClient, selectedJobId, superAdminAgencyId], nextStages)
+        return nextStages
       })
       
       toast({
@@ -252,7 +256,7 @@ export default function Pipeline({ superAdminAgencyId = null }) {
     setDragOverStage(null)
   }
 
-  if (loading) {
+  if (pipelineQuery.isLoading) {
     return (
       <div className="flex items-center justify-center h-full">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>

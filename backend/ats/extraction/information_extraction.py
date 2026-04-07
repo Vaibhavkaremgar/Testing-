@@ -11,7 +11,7 @@ from flashtext import KeywordProcessor
 from ats.datasets.parser_config_loader import ParserConfigLoader
 from ats.extraction.experience_extraction import extract_total_experience
 from ats.extraction.skill_intelligence import LANGUAGE_TERMS, NOISE_ALIASES, NOISE_TERMS, SkillIntelligence
-from ats.extraction.validation import validate_parsed_fields
+from ats.extraction.validation import validate_parsed_fields, validate_location
 from ats.preprocessing.section_segmentation import segment_resume_sections
 from ats.preprocessing.text_cleaning import (
     clean_text_pipeline,
@@ -101,6 +101,12 @@ def _extract_name_from_email(email: str) -> str:
     candidate = " ".join(token.capitalize() for token in tokens)
     logger.debug("Name fallback extracted from email prefix: %s", candidate)
     return candidate
+
+
+NAME_COMPANY_PATTERN = re.compile(
+    r"(?i)\b(?:pvt|ltd|inc|llc|llp|corp|corporation|technologies|technology|solutions|systems|labs|works|school|college|university|academy|institute|services)\b"
+)
+UPPERCASE_NAME_PATTERN = re.compile(r"^[A-Z][A-Z'`.-]*(?:\s+[A-Z][A-Z'`.-]*){1,3}$")
 
 def extract_name(text: str) -> str:
     if not text:
@@ -322,6 +328,10 @@ ROLE_TITLE_LINE_PATTERN = re.compile(
     r"(?:software|qa|quality assurance|automation|test|backend|frontend|data|machine learning|network|devops)?\s*"
     r"(?:engineer|developer|tester|analyst|consultant|manager|intern)(?:\s+[A-Za-z]+){0,3}$"
 )
+SECTION_START_PATTERN = re.compile(
+    r"(?i)^(?:summary|profile|professional summary|experience|work experience|professional experience|"
+    r"employment history|education|projects?|certifications?|skills|technical skills|languages?)$"
+)
 SKILL_SECTION_BREAK_PATTERN = re.compile(
     r"(?i)^(?:profile(?: summary)?|professional summary|summary|work experience|experience|period|employment|"
     r"projects?|education|certifications?|achievements?|awards?|languages?|references?|internship|job objective|objective)$"
@@ -534,6 +544,7 @@ def extract_name(text: str) -> str:
 
     lines = _clean_header_lines(text, limit=12)
     first_five_lines = lines[:5]
+    first_three_lines = lines[:3]
 
     def _is_valid_name_line(candidate: str) -> bool:
         compact = re.sub(r"\s+", " ", candidate.strip(" ,.-"))
@@ -541,6 +552,12 @@ def extract_name(text: str) -> str:
         if not compact:
             return False
         if any(term in lowered for term in NAME_IGNORE_TERMS):
+            return False
+        if NAME_COMPANY_PATTERN.search(compact):
+            return False
+        if validate_location(compact):
+            return False
+        if ROLE_TITLE_LINE_PATTERN.match(compact):
             return False
         if any(char.isdigit() for char in compact):
             return False
@@ -558,6 +575,37 @@ def extract_name(text: str) -> str:
             return False
         capitalized_count = sum(1 for word in words if re.match(r"^[A-Z][A-Za-z'`.-]+$", word))
         return capitalized_count >= max(2, len(words) - 1)
+
+    for line in first_five_lines:
+        stripped = line.strip()
+        if SECTION_START_PATTERN.match(stripped):
+            continue
+        label_match = re.sub(r"(?i)^(?:name)\s*[:\-]\s*", "", stripped).strip()
+        inline_candidate = re.split(r"\s+\|\s+|\s+[Â·â€¢]\s+|, (?=\+?\d|[A-Za-z0-9._%+-]+@)", label_match, maxsplit=1)[0].strip()
+        if _is_valid_name_line(inline_candidate):
+            resolved = " ".join(part.capitalize() if len(part) > 1 else part.upper() for part in inline_candidate.split())
+            logger.debug("Name extracted from header block: %s", resolved)
+            return resolved
+
+    if SPACY_AVAILABLE:
+        doc = get_section_doc("\n".join(first_five_lines or lines[:8]))
+        if doc:
+            for ent in doc.ents:
+                if ent.label_ != "PERSON":
+                    continue
+                candidate = re.sub(r"\s+", " ", ent.text).strip(" ,.-")
+                if _is_valid_name_line(candidate):
+                    resolved = " ".join(part.capitalize() if len(part) > 1 else part.upper() for part in candidate.split())
+                    logger.debug("Name extracted with spaCy PERSON in header: %s", resolved)
+                    return resolved
+
+    for line in first_three_lines:
+        candidate = re.sub(r"(?i)^(?:name)\s*[:\-]\s*", "", line).strip()
+        candidate = re.split(r"\s+\|\s+|\s+[Â·â€¢]\s+|, (?=\+?\d|[A-Za-z0-9._%+-]+@)", candidate, maxsplit=1)[0].strip()
+        if UPPERCASE_NAME_PATTERN.match(candidate) and _is_valid_name_line(candidate):
+            resolved = " ".join(part if len(part) == 1 else part.capitalize() for part in candidate.split())
+            logger.debug("Name extracted from uppercase header line: %s", resolved)
+            return resolved
 
     for line in first_five_lines:
         leading_candidate = re.match(r"^(?P<value>[A-Z][A-Za-z'`.-]+(?:\s+[A-Z][A-Za-z'`.-]+){1,3})\b", line)
@@ -588,7 +636,7 @@ def extract_name(text: str) -> str:
                     logger.debug("Name extracted with spaCy PERSON: %s", resolved)
                     return resolved
 
-    return _extract_name_from_email(extract_email(text))
+    return ""
 
 
 def _unique_in_order(values: List[str]) -> List[str]:
@@ -1261,6 +1309,10 @@ def _pick_primary_location(value: str) -> str:
     if not normalized:
         normalized = raw_value
 
+    normalized_parts = [part.strip() for part in normalized.split(",") if part.strip()]
+    if len(normalized_parts) == 2 and normalized_parts[1].lower() == "india":
+        return _canonicalize_location_token(normalized_parts[0])
+
     comma_pair_match = re.search(
         r"(?P<left>[A-Z][A-Za-z.-]+(?:\s+[A-Z][A-Za-z.-]+){0,2})\s*,\s*(?P<right>[A-Z][A-Za-z.-]+(?:\s+[A-Z][A-Za-z.-]+){0,2})",
         raw_value,
@@ -1574,6 +1626,7 @@ def extract_resume_information(text: str) -> Dict:
     
     experience_entries = experience_result.get("experiences", [])
     total_experience_years = experience_result.get("total_experience_years")
+    total_experience_months = experience_result.get("total_experience_months")
     explicit_total_experience = _extract_explicit_total_experience(cleaned_text)
     explicit_total_experience_has_plus = bool(
         re.search(r"(?i)\b\d+(?:\.\d+)?\+\s*(?:years|yrs)\b", cleaned_text)
@@ -1615,12 +1668,20 @@ def extract_resume_information(text: str) -> Dict:
             and total_experience_years - explicit_total_experience >= 0.75
         ):
             total_experience_years = explicit_total_experience
-        experience_entries_sorted = sorted(
-            experience_entries,
-            key=lambda x: x.get("end_date") or "Present",
-            reverse=True,
-        )
-        current_entry = experience_entries_sorted[0]
+        current_company = experience_result.get("current_company")
+        current_role = experience_result.get("current_role")
+        if current_company or current_role:
+            for entry in experience_entries:
+                if entry.get("company") == current_company and entry.get("role") == current_role:
+                    current_entry = entry
+                    break
+        if not current_entry:
+            experience_entries_sorted = sorted(
+                experience_entries,
+                key=lambda x: (x.get("is_current"), x.get("start_date") or "", x.get("end_date") or ""),
+                reverse=True,
+            )
+            current_entry = experience_entries_sorted[0]
 
     # Fallback current_role from header when no experience entries parsed.
     header_role = ""
@@ -1699,8 +1760,10 @@ def extract_resume_information(text: str) -> Dict:
         "designation": current_entry.get("role") or (header_role if not experience_entries else None) or None,
         "experience_years": total_experience_years,
         "total_experience_years": total_experience_years,
+        "total_experience_months": total_experience_months,
         "total_experience": total_experience_years if total_experience_years is not None else 0.0,
         "experience_level": derive_experience_level(total_experience_years),
+        "experience_extraction_confidence": experience_result.get("experience_extraction_confidence", 0.0),
         "languages": extract_languages(
             cleaned_text,
             "\n".join(

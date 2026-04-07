@@ -15,7 +15,7 @@ LOCATION_CANDIDATE_PATTERN = re.compile(
     r"^[A-Za-z]+(?:[\s-][A-Za-z]+)*(?:,\s*[A-Za-z]+(?:[\s-][A-Za-z]+)*){0,2}$"
 )
 EMAIL_PATTERN = re.compile(r"(?i)^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$")
-NAME_PATTERN = re.compile(r"^[A-Z][A-Za-z'`.-]+(?:\s+[A-Z][A-Za-z'`.-]+){1,3}$")
+NAME_PATTERN = re.compile(r"^[A-Z][A-Za-z'`.-]*(?:\s+[A-Z][A-Za-z'`.-]*){1,3}$")
 INVALID_LOCATION_TOKENS = {"contact", "profile", "summary", "skills", "experience", "education", "certifications"}
 NON_LOCATION_CONTEXT_TERMS = {
     "university",
@@ -159,7 +159,15 @@ def validate_location(value: Optional[str]) -> str:
     return candidate
 
 
-def validate_name(value: Optional[str], skills: Iterable[str]) -> str:
+def validate_name(
+    value: Optional[str],
+    skills: Iterable[str],
+    *,
+    organizations: Iterable[str] = (),
+    locations: Iterable[str] = (),
+    experience_companies: Iterable[str] = (),
+    current_role: Optional[str] = None,
+) -> str:
     candidate = _normalize(value)
     if not candidate or not NAME_PATTERN.match(candidate):
         return ""
@@ -169,8 +177,21 @@ def validate_name(value: Optional[str], skills: Iterable[str]) -> str:
     }
     if any(token in invalid_tokens for token in lowered.split()):
         return ""
+    if ROLE_HINT_PATTERN.search(candidate):
+        return ""
+    if COMPANY_PATTERN.search(candidate):
+        return ""
     skill_set = {str(skill).strip().lower() for skill in skills if str(skill).strip()}
     if lowered in skill_set:
+        return ""
+    blocked_values = {
+        _normalize(item).lower()
+        for item in [*organizations, *locations, *experience_companies, current_role or ""]
+        if _normalize(item)
+    }
+    if lowered in blocked_values:
+        return ""
+    if validate_location(candidate):
         return ""
     return candidate
 
@@ -270,17 +291,47 @@ def _score_experience_confidence(value: Any) -> float:
     return round(min(score, 1.0), 2)
 
 
+def _score_name_confidence(value: Optional[str]) -> float:
+    candidate = _normalize(value)
+    if not candidate:
+        return 0.0
+    score = 0.45
+    if 2 <= len(candidate.split()) <= 4:
+        score += 0.2
+    if NAME_PATTERN.match(candidate):
+        score += 0.2
+    if not COMPANY_PATTERN.search(candidate) and not ROLE_HINT_PATTERN.search(candidate):
+        score += 0.15
+    return round(min(score, 1.0), 2)
+
+
 def validate_parsed_fields(data: Dict[str, Any]) -> Dict[str, Any]:
     skills = data.get("skills") or []
     experience_section = data.get("sections", {}).get("experience", "")
     experience_entries = data.get("experience_entries") or data.get("experience") or []
+    entities = data.get("entities") or {}
     experience_entry_text = "\n".join(
         str(entry.get("raw_text") or "")
         for entry in experience_entries
         if isinstance(entry, dict)
     )
     experience_source = "\n".join(part for part in [experience_section, experience_entry_text] if part)
-    data["name"] = validate_name(data.get("name"), skills)
+    experience_companies = [
+        str(entry.get("company") or "")
+        for entry in experience_entries
+        if isinstance(entry, dict)
+    ]
+    entity_locations = [*entities.get("locations", [])]
+    if data.get("location"):
+        entity_locations.append(data.get("location"))
+    data["name"] = validate_name(
+        data.get("name"),
+        skills,
+        organizations=entities.get("organizations", []),
+        locations=entity_locations,
+        experience_companies=experience_companies,
+        current_role=data.get("current_role"),
+    )
     data["email"] = validate_email(data.get("email"))
     data["current_role"] = validate_current_role(data.get("current_role"), skills)
     data["designation"] = data["current_role"]
@@ -299,7 +350,7 @@ def validate_parsed_fields(data: Dict[str, Any]) -> Dict[str, Any]:
             "current_company": _score_company_confidence(data.get("current_company"), experience_source),
             "location": _score_location_confidence(data.get("location")),
             "experience_years": _score_experience_confidence(data.get("total_experience_years")),
-            "name": 1.0 if data.get("name") else 0.0,
+            "name": _score_name_confidence(data.get("name")),
             "email": 1.0 if data.get("email") else 0.0,
             "skills": 1.0 if data.get("skills") else 0.0,
         }

@@ -73,7 +73,8 @@ def get_clients_count(
 @router.get("", response_model=List[ClientResponse])
 def get_clients(
     page: int = 1,
-    limit: int = 100,
+    limit: int = 20,
+    offset: Optional[int] = None,
     agency_id: Optional[UUID] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
@@ -83,7 +84,8 @@ def get_clients(
         query = query.filter(Client.agency_id == agency_id)
     elif current_user.agency_id:
         query = query.filter(Client.agency_id == current_user.agency_id)
-    return query.offset((page - 1) * limit).limit(limit).all()
+    effective_offset = offset if offset is not None else max(0, (page - 1) * limit)
+    return query.offset(effective_offset).limit(limit).all()
 
 @router.post("", response_model=ClientResponse)
 def create_client(

@@ -40,6 +40,16 @@ ROLE_TITLE_PATTERN = re.compile(
 PROSE_ROLE_PATTERN = re.compile(
     r"(?i)\b(?:i\s+was|worked\s+as|work(?:ed)?\s+as|joined\s+as|served\s+as|role\s+was|position\s+was)\s+(?:an?\s+)?(?P<role>[A-Za-z][A-Za-z/&\-\s]{1,80}?(?:engineer|developer|manager|lead|analyst|consultant|architect|specialist|administrator|designer|executive|director|officer|associate|scientist|recruiter|sales|product|qa|tester|intern|teacher|partner|generalist|coordinator))\b"
 )
+PROSE_COMPANY_PATTERN = re.compile(
+    rf"(?i)\b(?:worked at|working at|employed at|joined|with|at)\s+"
+    rf"(?P<company>[A-Z][A-Za-z0-9&.'-]*(?:\s+[A-Z][A-Za-z0-9&.'-]*){{0,6}}?)\s+"
+    rf"(?:from\s+)?(?P<start>{DATE_TOKEN_PATTERN})\s*(?:-|to|until|through)\s*(?P<end>{PRESENT_PATTERN}|{DATE_TOKEN_PATTERN})"
+)
+EXPLICIT_DURATION_PATTERN = re.compile(
+    r"(?i)\b(?P<years>\d+(?:\.\d+)?)\+?\s*(?:years|yrs)"
+    r"(?:\s*(?:and|,)?\s*(?P<months>\d+)\s*(?:months|mos))?"
+)
+EXPLICIT_MONTHS_ONLY_PATTERN = re.compile(r"(?i)\b(?P<months>\d+)\s*(?:months|mos)\b")
 _parser_config_loader = ParserConfigLoader()
 _parser_vocabulary = _parser_config_loader.load_parser_vocabulary()
 _company_hint_terms = [
@@ -201,10 +211,25 @@ def _clean_company_name(value: Optional[str]) -> Optional[str]:
 
 
 def _parse_date_token(token: str, is_end: bool = False, today: Optional[datetime] = None) -> Optional[datetime]:
-    raw = _normalize_line(token).lower().replace(".", "")
+    direct_token = re.sub(r"\s+", "", str(token or "").strip().lower())
+    if direct_token in {"present", "current", "now", "today", "ongoing", "tilldate", "tillnow"}:
+        return today or datetime.utcnow()
+    year_dot_month_match = re.fullmatch(r"(?P<year>\d{4})\.(?P<month>\d{1,2})", direct_token)
+    if year_dot_month_match:
+        year_value = int(year_dot_month_match.group("year"))
+        month_value = int(year_dot_month_match.group("month"))
+        if is_end:
+            if month_value == 12:
+                return datetime(year_value, 12, 31)
+            return datetime(year_value, month_value + 1, 1) - timedelta(days=1)
+        return datetime(year_value, month_value, 1)
+    normalized_token = _normalize_line(token).lower()
+    raw = normalized_token.replace(".", "")
     if not raw:
         return None
+    raw = re.sub(rf"(?i)\b({MONTH_PATTERN})'(\d{{2}})\b", r"\1 \2", raw)
     raw = re.sub(r"(?<=\d)'(?=\d{2}\b)", "", raw)
+    raw = re.sub(r"\b(?P<year>\d{4})\.(?P<month>\d{1,2})\b", r"\g<month>/\g<year>", raw)
     compact_numeric_date = re.fullmatch(r"(?P<day>\d{1,2})[\s/-](?P<month>\d{1,2})[\s/-](?P<year>\d{4})", raw)
     if compact_numeric_date:
         day_int = int(compact_numeric_date.group("day"))
@@ -219,6 +244,19 @@ def _parse_date_token(token: str, is_end: bool = False, today: Optional[datetime
     raw = re.sub(r"\b(?P<month>\d{1,2})\.(?P<year>\d{2,4})\b", r"\g<month>/\g<year>", raw)
     raw = re.sub(rf"\b({MONTH_PATTERN})[-/](\d{{2,4}})\b", r"\1 \2", raw, flags=re.IGNORECASE)
     raw = re.sub(rf"\b({MONTH_PATTERN})\s*,\s*(\d{{2,4}})\b", r"\1 \2", raw, flags=re.IGNORECASE)
+    compact_month_name_year = re.fullmatch(rf"(?i)(?P<month>{MONTH_PATTERN})\s+(?P<year>\d{{2}}|\d{{4}})", raw)
+    if compact_month_name_year:
+        month_label = compact_month_name_year.group("month")
+        year_fragment = compact_month_name_year.group("year")
+        year_value = int(year_fragment)
+        if len(year_fragment) == 2:
+            year_value = 2000 + year_value if year_value <= 49 else 1900 + year_value
+        month_value = date_parser.parse(month_label, fuzzy=True, default=datetime(2000, 1, 1)).month
+        if is_end:
+            if month_value == 12:
+                return datetime(year_value, 12, 31)
+            return datetime(year_value, month_value + 1, 1) - timedelta(days=1)
+        return datetime(year_value, month_value, 1)
     compact_month_year_match = re.fullmatch(r"(?P<month>\d{1,2})/(?P<year>\d{2,4})", raw)
     if compact_month_year_match and len(compact_month_year_match.group("year")) == 2:
         year_fragment = int(compact_month_year_match.group("year"))
@@ -258,6 +296,10 @@ def parse_date(date_string: str, is_end: bool = False, today: Optional[datetime]
     return _parse_date_token(date_string, is_end=is_end, today=today)
 
 
+def normalize_date(date_string: str, is_end: bool = False, today: Optional[datetime] = None) -> Optional[datetime]:
+    return parse_date(date_string, is_end=is_end, today=today)
+
+
 def extract_experience_section(text: str) -> str:
     cleaned = _normalize_text(text)
     if not cleaned:
@@ -272,7 +314,7 @@ def extract_date_ranges(text: str) -> List[Dict[str, Any]]:
         end_text = match.group("end")
         start_date = parse_date(start_text, is_end=False)
         end_date = parse_date(end_text, is_end=True)
-        if not start_date or not end_date or end_date < start_date:
+        if not _is_valid_experience_window(start_date, end_date):
             continue
         matches.append(
             {
@@ -576,6 +618,56 @@ def _serialize_year_month(date_value: datetime) -> str:
     return date_value.strftime("%Y-%m")
 
 
+def _months_between(start_date: datetime, end_date: datetime) -> int:
+    if not start_date or not end_date or end_date < start_date:
+        return 0
+    months = (end_date.year - start_date.year) * 12 + (end_date.month - start_date.month)
+    if end_date.day >= start_date.day:
+        months += 1
+    return max(months, 1)
+
+
+def _duration_parts(total_months: int) -> Tuple[int, int]:
+    years = max(total_months, 0) // 12
+    months = max(total_months, 0) % 12
+    return years, months
+
+
+def _format_duration(total_months: int) -> str:
+    years, months = _duration_parts(total_months)
+    parts: List[str] = []
+    if years:
+        parts.append(f"{years} year" + ("s" if years != 1 else ""))
+    if months:
+        parts.append(f"{months} month" + ("s" if months != 1 else ""))
+    return " ".join(parts) if parts else "0 months"
+
+
+def _is_valid_experience_window(
+    start_date: Optional[datetime],
+    end_date: Optional[datetime],
+    *,
+    today: Optional[datetime] = None,
+) -> bool:
+    if not start_date or not end_date or end_date < start_date:
+        return False
+    reference_today = today or datetime.utcnow()
+    return start_date <= reference_today
+
+
+def _experience_confidence(entry: Dict[str, Any]) -> float:
+    score = 0.2
+    if entry.get("company"):
+        score += 0.25
+    if entry.get("role"):
+        score += 0.25
+    if entry.get("start_date") and entry.get("end_date"):
+        score += 0.2
+    if entry.get("duration_months", 0) > 0:
+        score += 0.1
+    return round(min(score, 1.0), 2)
+
+
 def _entry_from_block(block_lines: Sequence[str]) -> Optional[Dict[str, Any]]:
     if not block_lines:
         return None
@@ -590,6 +682,21 @@ def _entry_from_block(block_lines: Sequence[str]) -> Optional[Dict[str, Any]]:
         return None
     company = _extract_company_candidate(block_lines)
     role = _extract_role_candidate(block_lines, company)
+    if not company and role and block_lines:
+        first_line = _normalize_line(block_lines[0])
+        if first_line.lower().startswith(role.lower()):
+            remainder = first_line[len(role):].strip(" |-,:")
+            remainder = re.sub(r"\s+[A-Z][A-Za-z.\s]+,\s*[A-Z][A-Za-z.\s]+$", "", remainder).strip(" |-,:")
+            remainder = re.sub(
+                r"\b(?:Bengaluru|Bangalore|Chennai|Hyderabad|Pune|Mumbai|Delhi|Gurugram|Noida|Karnataka|Tamil Nadu|Maharashtra|Haryana)\b.*$",
+                "",
+                remainder,
+            ).strip(" |-,:")
+            fallback_company = _clean_company_name(remainder)
+            if fallback_company and len(fallback_company.split()) >= 1:
+                company = fallback_company
+    if not company:
+        return None
     if role and len(role.split()) < 2:
         role = None
     if role and _is_skill_like(role):
@@ -600,21 +707,28 @@ def _entry_from_block(block_lines: Sequence[str]) -> Optional[Dict[str, Any]]:
         return None
     start_date = date_range["start_date"]
     end_date = date_range["end_date"]
-    duration_years = round(max(0.0, (end_date - start_date).days + 1) / 365.25, 1)
+    if not _is_valid_experience_window(start_date, end_date):
+        return None
+    duration_months = _months_between(start_date, end_date)
+    duration_years = round(duration_months / 12.0, 1)
     description = " ".join(
         line for line in block_lines if not DATE_RANGE_REGEX.search(line) and line not in {role, company}
     )[:600]
-    return {
+    entry = {
         "role": role,
         "title": role,
         "company": company,
         "start_date": _serialize_year_month(start_date),
         "end_date": _serialize_year_month(end_date),
         "duration_years": duration_years,
+        "duration_months": duration_months,
+        "duration": _format_duration(duration_months),
         "raw_text": "\n".join(block_lines)[:1000],
         "is_current": bool(re.search(PRESENT_PATTERN, date_range["end"], re.IGNORECASE)),
         "description": description,
     }
+    entry["confidence"] = _experience_confidence(entry)
+    return entry
 
 
 def _extract_structured_experience_entries(text: str, ignore_internships: bool = False) -> List[Dict[str, Any]]:
@@ -636,7 +750,7 @@ def _extract_structured_experience_entries(text: str, ignore_internships: bool =
             return
         start_date = parse_date(range_match.group("start"), is_end=False)
         end_date = parse_date(range_match.group("end"), is_end=True)
-        if not start_date or not end_date or end_date < start_date:
+        if not _is_valid_experience_window(start_date, end_date):
             current_block = {}
             return
         role = _normalize_line(str(current_block.get("designation") or ""))
@@ -656,12 +770,15 @@ def _extract_structured_experience_entries(text: str, ignore_internships: bool =
                 "company": company,
                 "start_date": _serialize_year_month(start_date),
                 "end_date": _serialize_year_month(end_date),
-                "duration_years": round(max(0.0, (end_date - start_date).days + 1) / 365.25, 1),
+                "duration_years": round(_months_between(start_date, end_date) / 12.0, 1),
+                "duration_months": _months_between(start_date, end_date),
+                "duration": _format_duration(_months_between(start_date, end_date)),
                 "raw_text": "\n".join(str(item) for item in current_block.get("raw_lines") or [])[:1000],
                 "is_current": bool(re.search(PRESENT_PATTERN, range_match.group("end"), re.IGNORECASE)),
                 "description": details[:600],
             }
         )
+        entries[-1]["confidence"] = _experience_confidence(entries[-1])
         current_block = {}
 
     for line in lines:
@@ -719,9 +836,10 @@ def compute_total_experience(ranges: Sequence[Tuple[datetime, datetime]]) -> flo
     return round(total_days / 365.25, 1) if total_days > 0 else 0.0
 
 
-def _sort_key(entry: Dict[str, Any]) -> Tuple[int, datetime]:
+def _sort_key(entry: Dict[str, Any]) -> Tuple[int, datetime, datetime]:
+    start_date = parse_date(entry.get("start_date", ""), is_end=False) or datetime(1900, 1, 1)
     end_date = parse_date(entry.get("end_date", ""), is_end=True) or datetime(1900, 1, 1)
-    return (1 if entry.get("is_current") else 0, end_date)
+    return (1 if entry.get("is_current") else 0, start_date, end_date)
 
 
 def _dedupe_entries(entries: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -889,7 +1007,7 @@ def _extract_inline_experience_entries(text: str, ignore_internships: bool = Fal
         end_text = match.group("end")
         start_date = parse_date(start_text, is_end=False)
         end_date = parse_date(end_text, is_end=True)
-        if not start_date or not end_date or end_date < start_date:
+        if not _is_valid_experience_window(start_date, end_date):
             continue
         if ignore_internships and re.search(r"(?i)\b(?:intern|internship|trainee|apprentice)\b", role):
             continue
@@ -903,13 +1021,82 @@ def _extract_inline_experience_entries(text: str, ignore_internships: bool = Fal
                 "company": company,
                 "start_date": _serialize_year_month(start_date),
                 "end_date": _serialize_year_month(end_date),
-                "duration_years": round(max(0.0, (end_date - start_date).days + 1) / 365.25, 1),
+                "duration_years": round(_months_between(start_date, end_date) / 12.0, 1),
+                "duration_months": _months_between(start_date, end_date),
+                "duration": _format_duration(_months_between(start_date, end_date)),
                 "raw_text": _normalize_line(match.group(0))[:1000],
                 "is_current": bool(re.search(PRESENT_PATTERN, end_text, re.IGNORECASE)),
                 "description": description[:600],
             }
         )
+        entries[-1]["confidence"] = _experience_confidence(entries[-1])
     return entries
+
+
+def _extract_prose_experience_entries(text: str, ignore_internships: bool = False) -> List[Dict[str, Any]]:
+    normalized = _normalize_text(text)
+    entries: List[Dict[str, Any]] = []
+    for match in PROSE_COMPANY_PATTERN.finditer(normalized):
+        company = _clean_company_name(match.group("company"))
+        start_date = parse_date(match.group("start"), is_end=False)
+        end_date = parse_date(match.group("end"), is_end=True)
+        if not company or not _is_valid_experience_window(start_date, end_date):
+            continue
+        surrounding_text = normalized[max(0, match.start() - 120): min(len(normalized), match.end() + 120)]
+        role_match = PROSE_ROLE_PATTERN.search(surrounding_text) or ROLE_TITLE_PATTERN.search(surrounding_text)
+        role = _normalize_line(role_match.group("role")) if role_match and role_match.groupdict().get("role") else None
+        internship_source = " ".join(filter(None, [role or "", company]))
+        if ignore_internships and re.search(r"(?i)\b(?:intern|internship|trainee|apprentice)\b", internship_source):
+            continue
+        duration_months = _months_between(start_date, end_date)
+        entry = {
+            "role": role,
+            "title": role,
+            "company": company,
+            "start_date": _serialize_year_month(start_date),
+            "end_date": _serialize_year_month(end_date),
+            "duration_years": round(duration_months / 12.0, 1),
+            "duration_months": duration_months,
+            "duration": _format_duration(duration_months),
+            "raw_text": _normalize_line(match.group(0))[:1000],
+            "is_current": bool(re.search(PRESENT_PATTERN, match.group("end"), re.IGNORECASE)),
+            "description": "",
+        }
+        entry["confidence"] = _experience_confidence(entry)
+        entries.append(entry)
+    return entries
+
+
+def _extract_explicit_total_experience_months(text: str) -> Optional[int]:
+    normalized = _normalize_text(text)
+    strongest_months: Optional[int] = None
+    for match in EXPLICIT_DURATION_PATTERN.finditer(normalized):
+        years = float(match.group("years"))
+        months = int(match.group("months") or 0)
+        total_months = int(round(years * 12)) + months
+        if strongest_months is None or total_months > strongest_months:
+            strongest_months = total_months
+    if strongest_months is not None:
+        return strongest_months
+    month_only_match = EXPLICIT_MONTHS_ONLY_PATTERN.search(normalized)
+    if month_only_match:
+        return int(month_only_match.group("months"))
+    return None
+
+
+def _select_current_experience(entries: Sequence[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if not entries:
+        return None
+    valid_entries = [
+        entry
+        for entry in entries
+        if _is_valid_experience_window(
+            parse_date(entry.get("start_date", ""), is_end=False),
+            parse_date(entry.get("end_date", ""), is_end=True),
+        )
+    ]
+    ordered = sorted(valid_entries, key=_sort_key, reverse=True)
+    return ordered[0] if ordered else None
 
 
 def extract_experience_entries(text: str, ignore_internships: bool = False) -> List[Dict[str, Any]]:
@@ -929,8 +1116,14 @@ def extract_experience_entries(text: str, ignore_internships: bool = False) -> L
             if ignore_internships and re.search(r"(?i)\b(?:intern|internship|trainee|apprentice)\b", internship_source):
                 continue
             entries.append(entry)
+    inline_entries = _extract_inline_experience_entries(experience_section or text, ignore_internships=ignore_internships)
+    prose_entries = _extract_prose_experience_entries(experience_section or text, ignore_internships=ignore_internships)
     if not entries:
-        entries.extend(_extract_inline_experience_entries(experience_section or text, ignore_internships=ignore_internships))
+        entries.extend(inline_entries)
+        entries.extend(prose_entries)
+    else:
+        entries.extend(inline_entries)
+        entries.extend(prose_entries)
     logger.debug("Parsed jobs: %s", entries)
     return _dedupe_entries(entries)
 
@@ -939,14 +1132,38 @@ def extract_total_experience(text: str, ignore_internships: bool = False) -> Dic
     entries = extract_experience_entries(text, ignore_internships=ignore_internships)
     ranges = []
     normalized_entries = []
+    total_months = 0
     for entry in entries:
         start = parse_date(entry["start_date"], is_end=False)
         end = parse_date(entry["end_date"], is_end=True)
-        if not start or not end or end < start:
+        if not _is_valid_experience_window(start, end):
             continue
         ranges.append((start, end))
         normalized_entries.append(entry)
+    if ranges:
+        merged_ranges = merge_overlapping_ranges(ranges)
+        total_months = sum(_months_between(start, end) for start, end in merged_ranges)
+        total_years = round(total_months / 12.0, 1)
+    else:
+        explicit_total_months = _extract_explicit_total_experience_months(text)
+        total_months = explicit_total_months or 0
+        total_years = round(total_months / 12.0, 1) if total_months else None
+
+    current_entry = _select_current_experience(normalized_entries)
+    average_confidence = round(
+        sum(float(entry.get("confidence") or 0.0) for entry in normalized_entries) / len(normalized_entries),
+        2,
+    ) if normalized_entries else (0.85 if total_months else 0.0)
+    years_part, months_part = _duration_parts(total_months)
     return {
-        "total_experience_years": compute_total_experience(ranges) if ranges else None,
+        "total_experience_years": total_years,
+        "total_experience_months": total_months,
+        "total_experience_years_component": years_part,
+        "total_experience_months_component": months_part,
+        "total_experience": _format_duration(total_months) if total_months else "",
+        "experience_duration": _format_duration(total_months) if total_months else "",
+        "current_company": current_entry.get("company") if current_entry else None,
+        "current_role": current_entry.get("role") if current_entry else None,
+        "experience_extraction_confidence": average_confidence,
         "experiences": normalized_entries,
     }

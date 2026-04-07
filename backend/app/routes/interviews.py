@@ -726,7 +726,8 @@ def get_interviews_count(
 @router.get("", response_model=List[InterviewResponse])
 def get_interviews(
     page: int = 1,
-    limit: int = 10,
+    limit: int = 20,
+    offset: Optional[int] = None,
     candidate_id: Optional[UUID] = None,
     status: Optional[str] = None,
     agency_id: Optional[UUID] = None,
@@ -746,7 +747,8 @@ def get_interviews(
     else:
         query = _apply_interview_scope(query, current_user)
     
-    interviews = query.order_by(Interview.scheduled_at.desc()).offset((page - 1) * limit).limit(limit).all()
+    effective_offset = offset if offset is not None else max(0, (page - 1) * limit)
+    interviews = query.order_by(Interview.scheduled_at.desc()).offset(effective_offset).limit(limit).all()
     recording_availability = _fetch_recording_availability(interviews)
 
     credits_checked = False

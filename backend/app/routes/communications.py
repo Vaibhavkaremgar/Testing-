@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
-from typing import List
+from typing import List, Optional
 from datetime import datetime
 from uuid import UUID
 from app.database import get_db
@@ -13,10 +13,13 @@ router = APIRouter(prefix="/api/communications", tags=["communications"])
 
 @router.get("", response_model=List[EmailCommunicationResponse])
 def get_communications(
-    candidate_id: UUID = None,
-    status: str = None,
-    email_type: str = None,
-    client: str = None,
+    candidate_id: Optional[UUID] = None,
+    status: Optional[str] = None,
+    email_type: Optional[str] = None,
+    client: Optional[str] = None,
+    page: int = 1,
+    limit: int = 20,
+    offset: Optional[int] = None,
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
@@ -41,7 +44,8 @@ def get_communications(
         else:
             query = query.join(JobDescription).filter(JobDescription.company_name == client)
     
-    return query.order_by(desc(EmailCommunication.created_at)).all()
+    effective_offset = offset if offset is not None else max(0, (page - 1) * limit)
+    return query.order_by(desc(EmailCommunication.created_at)).offset(effective_offset).limit(limit).all()
 
 
 @router.delete("/{comm_id}")

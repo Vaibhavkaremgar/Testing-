@@ -98,6 +98,10 @@ SECTION_START_PATTERN = re.compile(
 NAME_CONTEXT_ROLE_PATTERN = re.compile(
     r"(?i)\b(?:engineer|developer|tester|analyst|consultant|manager|architect|specialist|intern)\b"
 )
+NAME_COMPANY_PATTERN = re.compile(
+    r"(?i)\b(?:pvt|ltd|inc|llc|llp|corp|corporation|technologies|technology|solutions|systems|labs|works|school|college|university|academy|institute|services)\b"
+)
+UPPERCASE_NAME_PATTERN = re.compile(r"^[A-Z][A-Z'`.-]*(?:\s+[A-Z][A-Z'`.-]*){1,3}$")
 PDF_LINE_TOLERANCE = 3.0
 PDF_MIN_COLUMN_GAP = 60.0
 PDF_MIN_LINES_PER_COLUMN = 8
@@ -203,13 +207,13 @@ def _is_valid_name_line(line: str) -> bool:
 def extract_name(text: str) -> str:
     """Extract the candidate name from the first 10-15 lines, skipping resume/file-name noise."""
     if not text:
-        return "Unknown Candidate"
+        return ""
 
     lines = [line.strip() for line in clean_text(text).splitlines() if line.strip()]
     for line in lines[:15]:
         if _is_valid_name_line(line):
             return _normalize_docx_line(line)
-    return "Unknown Candidate"
+    return ""
 
 
 def _flatten_docx2python_node(node: Any, *, depth: int = 0) -> List[str]:
@@ -961,13 +965,19 @@ def _normalize_name_candidate(value: str) -> str:
     lowered_words = [word.lower().strip(".,") for word in words]
     if any(word in INVALID_NAME_TOKENS for word in lowered_words):
         return ""
+    if NAME_COMPANY_PATTERN.search(candidate):
+        return ""
+    if extract_location(candidate):
+        return ""
+    if NAME_CONTEXT_ROLE_PATTERN.search(candidate):
+        return ""
     if "@" in candidate or PHONE_LINE_PATTERN.search(candidate):
         return ""
     if not all(word.replace(".", "").replace("'", "").isalpha() for word in words):
         return ""
     if not all(word.isupper() or word[:1].isupper() for word in words):
         return ""
-    return candidate.title()
+    return " ".join(word if len(word) == 1 else word.title() for word in words)
 
 
 def _extract_inline_header_name(line: str) -> str:
@@ -1076,14 +1086,6 @@ def _extract_email(text: str) -> str:
     return extract_normalized_email("\n".join(bounded_early_lines)) or ""
 
 
-def _email_to_name(email: str) -> str:
-    local_part = (email or "").split("@")[0]
-    tokens = [token for token in re.split(r"[._\-]+", local_part) if token]
-    if not (2 <= len(tokens) <= 4):
-        return ""
-    return _normalize_name_candidate(" ".join(token.title() for token in tokens))
-
-
 def _extract_name_with_spacy(text: str) -> str:
     if not SPACY_AVAILABLE:
         return ""
@@ -1138,7 +1140,7 @@ def _extract_name(text: str, original_filename: Optional[str] = None) -> str:
             return inline_header_name
     normalized_source = normalize_document_structure(text or "")
     extracted_name = extract_name(normalized_source)
-    if extracted_name != "Unknown Candidate":
+    if extracted_name:
         return extracted_name
     spacy_name = _extract_name_with_spacy(text)
     if spacy_name:
@@ -1177,7 +1179,7 @@ def _extract_name(text: str, original_filename: Optional[str] = None) -> str:
         inline_header_name = _extract_inline_header_name(line)
         if inline_header_name:
             return inline_header_name
-    return "Unknown Candidate"
+    return ""
 
 
 def _score_name_confidence(name: str) -> float:
@@ -1185,12 +1187,12 @@ def _score_name_confidence(name: str) -> float:
     if not normalized:
         return 0.0
     score = 0.45
-    if 2 <= len(normalized.split()) <= 3:
-        score += 0.25
+    if 2 <= len(normalized.split()) <= 4:
+        score += 0.2
     if not any(token.lower() in INVALID_NAME_TOKENS for token in normalized.split()):
         score += 0.15
-    if normalized != "Unknown Candidate":
-        score += 0.15
+    if not NAME_COMPANY_PATTERN.search(normalized) and not NAME_CONTEXT_ROLE_PATTERN.search(normalized):
+        score += 0.2
     return round(min(score, 1.0), 2)
 
 
@@ -1232,16 +1234,7 @@ def _rerun_low_confidence_fields(
     field_confidence = dict(updated.get("field_confidence") or {})
 
     if field_confidence.get("name", 0.0) < CONFIDENCE_RETRY_THRESHOLD:
-        name_candidates = [
-            entities.get("top_person", ""),
-            _extract_name(normalized_text, original_filename),
-            _email_to_name(updated.get("email", "")),
-        ]
-        for candidate in name_candidates:
-            normalized_candidate = _normalize_name_candidate(candidate)
-            if normalized_candidate:
-                updated["name"] = normalized_candidate
-                break
+        updated["name"] = ""
 
     if field_confidence.get("location", 0.0) < CONFIDENCE_RETRY_THRESHOLD:
         location_candidates = [
@@ -1359,7 +1352,7 @@ def parse_resume_text(
     merged_skills = dedupe_strings(extracted_info.get("skills", []) or [])
 
     result = {
-        "name": extracted_name or "Unknown Candidate",
+        "name": extracted_name or None,
         "email": contact_email,
         "phone": contact_phone,
         "skills": merged_skills,
@@ -1367,7 +1360,9 @@ def parse_resume_text(
         "experience": extracted_info.get("experience", []),
         "projects": extracted_info.get("projects", []),
         "certifications": extracted_info.get("certifications", []),
+        "total_experience": extracted_info.get("total_experience"),
         "total_experience_years": extracted_info.get("total_experience_years"),
+        "total_experience_months": extracted_info.get("total_experience_months"),
         "experience_years": extracted_info.get("experience_years"),
         "experience_level": extracted_info.get("experience_level") or _classify_experience_level(extracted_info.get("total_experience_years")),
         "current_company": extracted_info.get("current_company"),
@@ -1382,7 +1377,7 @@ def parse_resume_text(
         "resume_type": resume_type_payload.get("resume_type", "general"),
         "resume_type_scores": resume_type_payload.get("resume_type_scores", {}),
         "personal_details": {
-            "name": extracted_name or "Unknown Candidate",
+            "name": extracted_name or None,
             "email": contact_email,
             "phone": contact_phone,
             "location": extracted_info.get("location", ""),
@@ -1414,11 +1409,16 @@ def parse_resume_text(
             "name": 0.0,
             "email": 0.0,
             "phone": 0.0,
+            "experience": extracted_info.get("experience_extraction_confidence", 0.0),
         },
     }
     result = apply_postprocessing(result)
     result = validate_parsed_fields(result)
     result["field_confidence"]["name"] = _score_name_confidence(result.get("name", ""))
+    if result["field_confidence"]["name"] < CONFIDENCE_RETRY_THRESHOLD:
+        result["name"] = None
+        result["personal_details"]["name"] = None
+        result["field_confidence"]["name"] = 0.0
     result["field_confidence"]["email"] = _score_email_confidence(result.get("email", ""))
     result["field_confidence"]["phone"] = _score_phone_confidence(result.get("phone", ""))
     result["field_confidence"]["skills"] = _score_skill_confidence(
@@ -1426,6 +1426,8 @@ def parse_resume_text(
         entities,
         bool(sections.get("skills", "").strip()),
     )
+    if not result.get("experience_entries") and result.get("total_experience_years") is None:
+        result["field_confidence"]["experience"] = 1.0
     result = _rerun_low_confidence_fields(
         result,
         entities=entities,
@@ -1435,6 +1437,10 @@ def parse_resume_text(
     result = apply_postprocessing(result)
     result = validate_parsed_fields(result)
     result["field_confidence"]["name"] = _score_name_confidence(result.get("name", ""))
+    if result["field_confidence"]["name"] < CONFIDENCE_RETRY_THRESHOLD:
+        result["name"] = None
+        result["personal_details"]["name"] = None
+        result["field_confidence"]["name"] = 0.0
     result["field_confidence"]["email"] = _score_email_confidence(result.get("email", ""))
     result["field_confidence"]["phone"] = _score_phone_confidence(result.get("phone", ""))
     result["field_confidence"]["skills"] = _score_skill_confidence(
@@ -1442,6 +1448,8 @@ def parse_resume_text(
         entities,
         bool(sections.get("skills", "").strip()),
     )
+    if not result.get("experience_entries") and result.get("total_experience_years") is None:
+        result["field_confidence"]["experience"] = 1.0
     result["confidence"] = {
         field: _confidence_to_percent(score)
         for field, score in (result.get("field_confidence") or {}).items()

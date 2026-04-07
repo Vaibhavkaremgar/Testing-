@@ -4,7 +4,7 @@ const DEFAULT_API_ORIGIN = import.meta.env.DEV
 const API_ORIGIN = (import.meta.env.VITE_API_URL || DEFAULT_API_ORIGIN).replace(/\/$/, '')
 const API_BASE = `${API_ORIGIN}/api`
 const RECORDING_API_BASE = import.meta.env.VITE_RECORDING_API_URL || 'https://pontis-backend-production.up.railway.app/api'
-const DEFAULT_LIST_LIMIT = 100
+const DEFAULT_LIST_LIMIT = 20
 const APP_BASE = API_BASE.replace(/\/api$/, '')
 
 // Debug logging
@@ -188,6 +188,10 @@ class ApiClient {
 
   async getAllUsers() {
     return this.request('/auth/users')
+  }
+
+  async getPublicUsers() {
+    return this.request('/auth/users/public')
   }
 
   async updateUser(userId, userData) {

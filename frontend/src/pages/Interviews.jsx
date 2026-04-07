@@ -13,7 +13,7 @@ import {
   Video, Calendar, Clock, User, FileText, Brain, Star, Send, X, Play, CheckCircle, RotateCcw, Plus, ExternalLink, ChevronDown
 } from 'lucide-react'
 
-const DEFAULT_LIST_LIMIT = 500
+const DEFAULT_LIST_LIMIT = 20
 const INTERVIEW_REJECTION_SCORE_THRESHOLD = 6
 
 function getInterviewPlaybackUrl(interview) {
@@ -137,7 +137,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
         const params = {}
         if (selectedClient) params.client = selectedClient
         if (superAdminAgencyId) params.agency_id = superAdminAgencyId
-        const interviewRows = await api.getInterviews({ ...params, limit: DEFAULT_LIST_LIMIT })
+        const interviewRows = await api.getInterviews({ ...params, limit: DEFAULT_LIST_LIMIT, offset: 0 })
         const interviewsData = (interviewRows || [])
           .map(interview => ({
             ...interview,
@@ -157,7 +157,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
     
     const fetchCandidates = async () => {
       try {
-        const params = { limit: DEFAULT_LIST_LIMIT }
+        const params = { limit: DEFAULT_LIST_LIMIT, offset: 0 }
         if (superAdminAgencyId) params.agency_id = superAdminAgencyId
         const data = await api.getCandidates(params)
         setCandidates(data)
@@ -168,7 +168,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
     
     const fetchJobs = async () => {
       try {
-        const params = { limit: DEFAULT_LIST_LIMIT }
+        const params = { limit: DEFAULT_LIST_LIMIT, offset: 0 }
         if (superAdminAgencyId) params.agency_id = superAdminAgencyId
         const data = await api.getJobs(params)
         setJobs(data)

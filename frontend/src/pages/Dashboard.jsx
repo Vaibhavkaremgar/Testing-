@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -6,7 +7,6 @@ import { Input } from '@/components/ui/input'
 import { api } from '@/lib/api'
 import { cn, getScoreColor, formatDate } from '@/lib/utils'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { useToast } from '@/hooks/use-toast'
 import { useAuth } from '@/context/AuthContext'
 import MetricCard from '@/components/analytics/MetricCard'
 import ComparisonPanel from '@/components/analytics/ComparisonPanel'
@@ -79,38 +79,102 @@ const getDefaultView = () => ({
 
 export default function Dashboard() {
   const { user } = useAuth()
-  const { toast } = useToast()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const selectedClient = searchParams.get('client')
-  const [stats, setStats] = useState(null)
-  const [funnel, setFunnel] = useState([])
-  const [resumeTrend, setResumeTrend] = useState([])
-  const [interviewTrend, setInterviewTrend] = useState([])
   const [loading, setLoading] = useState(true)
-  const [selectedMonth, setSelectedMonth] = useState('all')
-  const [selectedDate, setSelectedDate] = useState(null)
-  const [calendarOpen, setCalendarOpen] = useState(false)
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear())
-  const [selectedMonthNum, setSelectedMonthNum] = useState(null)
-  const [activeJobs, setActiveJobs] = useState([])
-  const [upcomingInterviews, setUpcomingInterviews] = useState([])
-  const [selectedCard, setSelectedCard] = useState(null)
-  const [cardCandidates, setCardCandidates] = useState([])
-  const [cardLoading, setCardLoading] = useState(false)
+  const [statsState, setStats] = useState(null)
+  const [funnelState, setFunnel] = useState([])
+  const [resumeTrendState, setResumeTrend] = useState([])
+  const [interviewTrendState, setInterviewTrend] = useState([])
+  const [activeJobsState, setActiveJobs] = useState([])
+  const [upcomingInterviewsState, setUpcomingInterviews] = useState([])
   const [totalCandidates, setTotalCandidates] = useState([])
   const [shortlistedCandidates, setShortlistedCandidates] = useState([])
   const [interviewCandidates, setInterviewCandidates] = useState([])
   const [selectedInterviewCandidates, setSelectedInterviewCandidates] = useState([])
   const [interviewRejectedCandidates, setInterviewRejectedCandidates] = useState([])
-  const [hiringMetrics, setHiringMetrics] = useState(null)
+  const [hiringMetricsState, setHiringMetrics] = useState(null)
+  const [intelligenceState, setIntelligence] = useState(null)
+  const [selectedMonth, setSelectedMonth] = useState('all')
+  const [selectedDate, setSelectedDate] = useState(null)
+  const [calendarOpen, setCalendarOpen] = useState(false)
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear())
+  const [selectedMonthNum, setSelectedMonthNum] = useState(null)
+  const [selectedCard, setSelectedCard] = useState(null)
+  const [cardCandidates, setCardCandidates] = useState([])
+  const [cardLoading, setCardLoading] = useState(false)
   const [departmentFilter, setDepartmentFilter] = useState('all')
-  const [intelligence, setIntelligence] = useState(null)
   const [showLowCreditModal, setShowLowCreditModal] = useState(false)
   const [lowCreditDismissed, setLowCreditDismissed] = useState(() => {
     if (typeof window === 'undefined') return false
     return window.sessionStorage.getItem(LOW_CREDIT_MODAL_DISMISSED_KEY) === 'true'
   })
+
+  const dashboardParams = useMemo(() => {
+    const params = {}
+    if (selectedClient) params.client = selectedClient
+    if (selectedDate) {
+      params.date = selectedDate
+    } else if (selectedMonth !== 'all') {
+      params.month = selectedMonth
+    }
+    return params
+  }, [selectedClient, selectedDate, selectedMonth])
+
+  const dashboardQuery = useQuery({
+    queryKey: ['dashboard-overview', dashboardParams],
+    enabled: false,
+    queryFn: async () => {
+      const [stats, funnel, resumeTrend, interviewTrend, activeJobs, upcomingInterviews, hiringMetrics, intelligence] = await Promise.all([
+        api.getDashboardStats(dashboardParams).catch((error) => {
+          console.error('Stats error:', error)
+          return null
+        }),
+        api.getHiringFunnel(dashboardParams).catch((error) => {
+          console.error('Funnel error:', error)
+          return []
+        }),
+        api.getResumeScoresTrend().catch((error) => {
+          console.error('Resume trend error:', error)
+          return []
+        }),
+        api.getInterviewScoresTrend().catch((error) => {
+          console.error('Interview trend error:', error)
+          return []
+        }),
+        api.getActiveJobs().catch((error) => {
+          console.error('Jobs error:', error)
+          return []
+        }),
+        api.getUpcomingInterviews().catch((error) => {
+          console.error('Interviews error:', error)
+          return []
+        }),
+        api.getHiringMetrics().catch((error) => {
+          console.error('Metrics error:', error)
+          return null
+        }),
+        api.getHiringIntelligence().catch((error) => {
+          console.error('Intelligence error:', error)
+          return null
+        }),
+      ])
+
+      return { stats, funnel, resumeTrend, interviewTrend, activeJobs, upcomingInterviews, hiringMetrics, intelligence }
+    },
+  })
+
+  const {
+    stats = statsState,
+    funnel = funnelState,
+    resumeTrend = resumeTrendState,
+    interviewTrend = interviewTrendState,
+    activeJobs = activeJobsState,
+    upcomingInterviews = upcomingInterviewsState,
+    hiringMetrics = hiringMetricsState,
+    intelligence = intelligenceState,
+  } = dashboardQuery.data || {}
 
 
   // Force close modal on mount and prevent any stuck state
@@ -141,8 +205,8 @@ export default function Dashboard() {
           api.getUpcomingInterviews().catch(e => { console.error('Interviews error:', e); return []; }),
           api.getHiringMetrics().catch(e => { console.error('Metrics error:', e); return null; }),
           api.getHiringIntelligence().catch(e => { console.error('Intelligence error:', e); return null; }),
-          api.getCandidates({ ...params, limit: 500 }).catch(e => { console.error('Candidates error:', e); return []; }),
-          api.getInterviews({ limit: 500 }).catch(e => { console.error('Interviews list error:', e); return []; })
+          api.getCandidates({ ...params, limit: 20, offset: 0 }).catch(e => { console.error('Candidates error:', e); return []; }),
+          api.getInterviews({ limit: 20, offset: 0 }).catch(e => { console.error('Interviews list error:', e); return []; })
         ])
         const candidateMap = new Map((candidatesData || []).map(candidate => [candidate.id, candidate]))
         const latestInterviewsByCandidate = new Map()

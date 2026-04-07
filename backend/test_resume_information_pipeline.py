@@ -239,6 +239,40 @@ TECHNICAL SKILLS SQL | Python | Power BI | Tableau
         self.assertEqual(result["name"], "Priyanka Nair")
         self.assertNotEqual(result["name"], "Talent Pool")
 
+    def test_parse_resume_rejects_company_name_as_candidate_name(self):
+        resume_text = """
+COGNIZANT TECHNOLOGY SOLUTIONS
+Senior Software Engineer
+Hyderabad, Telangana | +91 99887 66554 | engineer@example.com
+
+Work Experience
+Senior Software Engineer | Cognizant Technology Solutions
+Jan 2022 - Present
+Built hiring workflow APIs.
+        """
+
+        result = self._parse_resume_text(resume_text, "cognizant_resume.txt")
+
+        self.assertIsNone(result["name"])
+        self.assertEqual(result["current_company"], "Cognizant Technology Solutions")
+
+    def test_parse_resume_extracts_uppercase_header_name_without_company_fallback(self):
+        resume_text = """
+A K REDDY
+Lead QA Engineer
+Chennai, Tamil Nadu | +91 98765 43210 | ak.reddy@example.com
+
+Professional Experience
+Lead QA Engineer | Nova Systems Ltd
+Jan 2021 - Present
+Led automation initiatives across release trains.
+        """
+
+        result = self._parse_resume_text(resume_text, "ak_reddy_resume.txt")
+
+        self.assertEqual(result["name"], "A K Reddy")
+        self.assertEqual(result["current_company"], "Nova Systems Ltd")
+
     def test_technical_skills_section_keeps_real_skills_and_drops_noise(self):
         resume_text = """
 Karan Shah
