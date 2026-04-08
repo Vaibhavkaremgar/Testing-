@@ -401,6 +401,8 @@ def _stream_upstream_response(upstream_response: requests.Response):
 
 def _proxy_recording_stream(session_token: str, request_method: str, range_header: Optional[str]) -> Response:
     upstream_headers = {}
+    if settings.INTERNAL_SERVICE_TOKEN:
+        upstream_headers["Authorization"] = f"Bearer {settings.INTERNAL_SERVICE_TOKEN}"
     if range_header:
         upstream_headers["Range"] = range_header
 

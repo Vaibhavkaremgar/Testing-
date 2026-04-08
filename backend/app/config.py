@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     FROM_NAME: str = os.getenv("FROM_NAME", "TalentAI Recruitment")
     SLOT_BOOKING_URL: str = os.getenv("SLOT_BOOKING_URL", "https://pontis-backend-production.up.railway.app/booking.html")
     FRONTEND_URL: str = os.getenv("FRONTEND_URL", "https://dashboard.pontis.one")
+    INTERNAL_SERVICE_TOKEN: str = os.getenv("INTERNAL_SERVICE_TOKEN", "")
     
     # CORS
     ALLOWED_ORIGINS: str = os.getenv("ALLOWED_ORIGINS", "")
