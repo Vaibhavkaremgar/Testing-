@@ -84,6 +84,7 @@ class Settings(BaseSettings):
         ]
         return production_origins if self.is_production else [*production_origins, *development_origins]
     
+    
     @property
     def allowed_origins_list(self) -> List[str]:
         origins = []

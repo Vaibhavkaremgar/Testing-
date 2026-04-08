@@ -20,6 +20,7 @@ from app.schemas import InterviewCreate, InterviewUpdate, InterviewResponse, Int
 from app.auth import get_current_active_user
 from app.auth import verify_token
 
+
 router = APIRouter(prefix="/interviews", tags=["Interviews"])
 recording_router = APIRouter(prefix="/recording", tags=["Interviews"])
 

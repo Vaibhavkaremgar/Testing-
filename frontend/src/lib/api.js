@@ -360,6 +360,7 @@ class ApiClient {
     })
   }
 
+  
   async deleteCandidate(id) {
     return this.request(`/candidates/${id}`, { method: 'DELETE' })
   }

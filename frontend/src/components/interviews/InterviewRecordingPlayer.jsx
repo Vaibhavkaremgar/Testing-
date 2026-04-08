@@ -137,6 +137,7 @@ export default function InterviewRecordingPlayer({
     setActiveUrlIndex(0)
   }, [candidateUrls])
 
+  
   useEffect(() => {
     clearLoadTimeout()
     clearRetryTimeout()
