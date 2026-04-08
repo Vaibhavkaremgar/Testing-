@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session, joinedload, load_only
 from sqlalchemy import func, or_, text
 from typing import Dict, List, Optional
 from uuid import UUID
+import hashlib
 import os
 import re
 import uuid
@@ -52,6 +53,9 @@ ALLOWED_RESUME_CONTENT_TYPES = {
 LEGACY_STAGE_NORMALIZATION_INTERVAL_SECONDS = 300
 _legacy_stage_normalization_lock = Lock()
 _legacy_stage_last_checked_at = 0.0
+UPLOAD_REQUEST_DEDUPLICATION_WINDOW_SECONDS = 180
+_recent_upload_requests: dict[tuple[str, str, str, str], tuple[float, str]] = {}
+_recent_upload_requests_lock = Lock()
 LOCATION_NOISE_PATTERN = re.compile(
     r"(?i)\b(?:managing|managed|operations|including|across|responsible|experience|years|sales|development|engineer|developer|manager|executive|specialist|lead|worked|work|support|project|projects|regional)\b"
 )
@@ -84,6 +88,43 @@ def _perf_log(endpoint: str, total_start: float, **fields) -> None:
     parts = [f"{key}={value}" for key, value in fields.items()]
     parts.append(f"total={perf_counter() - total_start:.4f}s")
     print(f"[PERF] {endpoint} " + " ".join(parts))
+
+
+def _cleanup_recent_upload_requests(now: Optional[float] = None) -> None:
+    current_time = now if now is not None else monotonic()
+    expired_keys = [
+        key for key, (created_at, _upload_id) in _recent_upload_requests.items()
+        if (current_time - created_at) > UPLOAD_REQUEST_DEDUPLICATION_WINDOW_SECONDS
+    ]
+    for key in expired_keys:
+        _recent_upload_requests.pop(key, None)
+
+
+def _register_recent_upload_request(
+    *,
+    current_user: User,
+    job_id: Optional[UUID],
+    original_filename: str,
+    file_bytes: bytes,
+    upload_id: str,
+) -> Optional[str]:
+    fingerprint = hashlib.sha256(file_bytes).hexdigest()
+    dedupe_key = (
+        str(current_user.id),
+        str(job_id or ""),
+        str(original_filename or "").strip().lower(),
+        fingerprint,
+    )
+    now = monotonic()
+
+    with _recent_upload_requests_lock:
+        _cleanup_recent_upload_requests(now)
+        existing = _recent_upload_requests.get(dedupe_key)
+        if existing is not None:
+            return existing[1]
+
+        _recent_upload_requests[dedupe_key] = (now, upload_id)
+        return None
 
 
 def _resolve_pagination(page: Optional[int], limit: Optional[int], offset: Optional[int]) -> tuple[Optional[int], int]:
@@ -407,6 +448,15 @@ def clean_candidate_name(raw_name: str) -> str:
     return normalized.title() if normalized else "Unknown Candidate"
 
 
+def derive_candidate_name_from_filename(original_filename: Optional[str]) -> Optional[str]:
+    if not original_filename:
+        return None
+
+    filename_without_extension = os.path.splitext(os.path.basename(original_filename))[0]
+    normalized_name = clean_candidate_name(filename_without_extension)
+    return normalized_name if normalized_name and normalized_name != "Unknown Candidate" else None
+
+
 def extract_email_from_raw_file(file_path: str) -> Optional[str]:
     """Fallback email extraction for files where text parsing misses the address."""
     import re
@@ -495,6 +545,12 @@ def extract_resume_data(file_path: str, original_filename: str = None) -> dict:
             email = extract_email_from_raw_file(file_path)
             if email:
                 print(f"   Recovered email via raw file scan: {email}")
+
+        if not name:
+            name = derive_candidate_name_from_filename(original_filename)
+        if not name and email:
+            email_local_part = email.split('@', 1)[0].replace('.', ' ').replace('_', ' ').replace('-', ' ')
+            name = clean_candidate_name(email_local_part)
                     
     except Exception as e:
         print(f"Error in resume extraction: {e}")
@@ -2162,6 +2218,28 @@ async def upload_resume(
             buffer.write(content)
         
         upload_id = str(uuid.uuid4())
+        existing_upload_id = _register_recent_upload_request(
+            current_user=current_user,
+            job_id=job_id,
+            original_filename=file.filename,
+            file_bytes=content,
+            upload_id=upload_id,
+        )
+        if existing_upload_id:
+            try:
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+            except OSError:
+                pass
+            existing_progress = upload_progress_store.get(existing_upload_id) or {}
+            return {
+                "message": "Duplicate upload ignored. Returning the existing upload job.",
+                "upload_id": existing_upload_id,
+                "queued": 0,
+                "duplicate": True,
+                "status": existing_progress.get("status", "queued"),
+            }
+
         set_upload_progress(
             upload_id,
             current=0,

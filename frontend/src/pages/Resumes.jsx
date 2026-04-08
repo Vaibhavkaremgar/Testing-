@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react'
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -139,6 +139,7 @@ export default function Resumes() {
   const [isEditingEmail, setIsEditingEmail] = useState(false)
   const [visibleCount, setVisibleCount] = useState(20)
   const [deleteCandidateModal, setDeleteCandidateModal] = useState({ open: false, candidates: [] })
+  const uploadInFlightRef = useRef(false)
   const SHOW_MORE_STEP = 20
   const selectedCandidateStatus = selectedCandidate ? getResumeDisplayStatus(selectedCandidate) : null
 
@@ -325,6 +326,9 @@ export default function Resumes() {
   }
 
   const handleManualUpload = async () => {
+    if (uploadInFlightRef.current) {
+      return
+    }
     if (selectedFiles.length === 0) {
       setError('Please select files to upload')
       return
@@ -334,6 +338,10 @@ export default function Resumes() {
   }
 
   const handleUpload = async (files) => {
+    if (uploadInFlightRef.current) {
+      return
+    }
+    uploadInFlightRef.current = true
     setUploading(true)
     setError('')
     
@@ -406,6 +414,7 @@ export default function Resumes() {
       setError(`Upload failed: ${error.message}`)
       setUploadProgress(prev => ({ ...prev, show: true, status: 'error', message: error.message || 'Upload failed' }))
     } finally {
+      uploadInFlightRef.current = false
       setUploading(false)
     }
   }
