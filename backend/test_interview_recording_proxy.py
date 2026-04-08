@@ -72,7 +72,7 @@ def test_recording_proxy_streams_range_requests_for_authorized_user(client, monk
     interview = SimpleNamespace(id=uuid4(), async_token="async-session-token")
     monkeypatch.setattr(interviews_route.settings, "INTERNAL_SERVICE_TOKEN", "internal-secret")
     monkeypatch.setattr(interviews_route.settings, "INTERNAL_RECORDING_BASE_URL", "http://pontis-backend.railway.internal")
-    monkeypatch.setattr(interviews_route.settings, "INTERNAL_RECORDING_FALLBACK_BASE_URL", "https://pontis-backend-production.up.railway.app")
+    monkeypatch.setattr(interviews_route.settings, "INTERNAL_RECORDING_FALLBACK_BASE_URL", "https://interview.pontis.one")
 
     monkeypatch.setattr(interviews_route, "_resolve_video_request_user", lambda db, access_token, user: current_user)
     monkeypatch.setattr(
@@ -125,7 +125,7 @@ def test_recording_proxy_supports_head_requests_for_player_validation(client, mo
     interview = SimpleNamespace(id=uuid4(), async_token="async-session-token")
     monkeypatch.setattr(interviews_route.settings, "INTERNAL_SERVICE_TOKEN", "internal-secret")
     monkeypatch.setattr(interviews_route.settings, "INTERNAL_RECORDING_BASE_URL", "http://pontis-backend.railway.internal")
-    monkeypatch.setattr(interviews_route.settings, "INTERNAL_RECORDING_FALLBACK_BASE_URL", "https://pontis-backend-production.up.railway.app")
+    monkeypatch.setattr(interviews_route.settings, "INTERNAL_RECORDING_FALLBACK_BASE_URL", "https://interview.pontis.one")
 
     monkeypatch.setattr(interviews_route, "_resolve_video_request_user", lambda db, access_token, user: current_user)
     monkeypatch.setattr(
@@ -177,7 +177,7 @@ def test_recording_proxy_requires_authentication(client):
 def test_recording_proxy_blocks_cross_agency_access(client, monkeypatch):
     current_user = SimpleNamespace(id=uuid4())
     monkeypatch.setattr(interviews_route.settings, "INTERNAL_RECORDING_BASE_URL", "http://pontis-backend.railway.internal")
-    monkeypatch.setattr(interviews_route.settings, "INTERNAL_RECORDING_FALLBACK_BASE_URL", "https://pontis-backend-production.up.railway.app")
+    monkeypatch.setattr(interviews_route.settings, "INTERNAL_RECORDING_FALLBACK_BASE_URL", "https://interview.pontis.one")
 
     monkeypatch.setattr(interviews_route, "_resolve_video_request_user", lambda db, access_token, user: current_user)
     monkeypatch.setattr(
@@ -211,7 +211,7 @@ def test_interview_video_endpoint_proxies_by_interview_id(client, monkeypatch):
     interview = SimpleNamespace(id=uuid4(), async_token="async-session-token")
     monkeypatch.setattr(interviews_route.settings, "INTERNAL_SERVICE_TOKEN", "internal-secret")
     monkeypatch.setattr(interviews_route.settings, "INTERNAL_RECORDING_BASE_URL", "http://pontis-backend.railway.internal")
-    monkeypatch.setattr(interviews_route.settings, "INTERNAL_RECORDING_FALLBACK_BASE_URL", "https://pontis-backend-production.up.railway.app")
+    monkeypatch.setattr(interviews_route.settings, "INTERNAL_RECORDING_FALLBACK_BASE_URL", "https://interview.pontis.one")
 
     monkeypatch.setattr(interviews_route, "_resolve_video_request_user", lambda db, access_token, user: current_user)
     monkeypatch.setattr(
@@ -257,7 +257,7 @@ def test_recording_proxy_retries_public_fallback_when_internal_host_is_unreachab
     interview = SimpleNamespace(id=uuid4(), async_token="async-session-token")
     monkeypatch.setattr(interviews_route.settings, "INTERNAL_SERVICE_TOKEN", "internal-secret")
     monkeypatch.setattr(interviews_route.settings, "INTERNAL_RECORDING_BASE_URL", "http://pontis-backend.railway.internal")
-    monkeypatch.setattr(interviews_route.settings, "INTERNAL_RECORDING_FALLBACK_BASE_URL", "https://pontis-backend-production.up.railway.app")
+    monkeypatch.setattr(interviews_route.settings, "INTERNAL_RECORDING_FALLBACK_BASE_URL", "https://interview.pontis.one")
 
     monkeypatch.setattr(interviews_route, "_resolve_video_request_user", lambda db, access_token, user: current_user)
     monkeypatch.setattr(
@@ -281,7 +281,7 @@ def test_recording_proxy_retries_public_fallback_when_internal_host_is_unreachab
         attempted_urls.append(url)
         if url == "http://pontis-backend.railway.internal/api/internal/recording/session-fallback":
             raise interviews_route.requests.RequestException("internal host unreachable")
-        assert url == "https://pontis-backend-production.up.railway.app/api/internal/recording/session-fallback"
+        assert url == "https://interview.pontis.one/api/recording/session-fallback"
         assert headers == {"Authorization": "Bearer internal-secret"}
         return FakeUpstreamResponse(
             status_code=200,
@@ -299,7 +299,7 @@ def test_recording_proxy_retries_public_fallback_when_internal_host_is_unreachab
 
     assert attempted_urls == [
         "http://pontis-backend.railway.internal/api/internal/recording/session-fallback",
-        "https://pontis-backend-production.up.railway.app/api/internal/recording/session-fallback",
+        "https://interview.pontis.one/api/recording/session-fallback",
     ]
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("video/webm")

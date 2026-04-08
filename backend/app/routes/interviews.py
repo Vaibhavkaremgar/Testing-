@@ -376,21 +376,22 @@ def _resolve_scoped_interview_from_session_row(db: Session, session_row: dict, c
     return None
 
 
-def _get_internal_recording_base_urls() -> list[str]:
-    configured_urls = [
-        settings.INTERNAL_RECORDING_BASE_URL,
-        settings.INTERNAL_RECORDING_FALLBACK_BASE_URL,
+def _get_internal_recording_targets() -> list[tuple[str, str]]:
+    configured_targets = [
+        (settings.INTERNAL_RECORDING_BASE_URL, "/api/internal/recording"),
+        (settings.INTERNAL_RECORDING_FALLBACK_BASE_URL, "/api/recording"),
     ]
-    normalized_urls: list[str] = []
-    for base_url in configured_urls:
-        cleaned = str(base_url or "").strip().rstrip("/")
-        if cleaned and cleaned not in normalized_urls:
-            normalized_urls.append(cleaned)
-    return normalized_urls
+    normalized_targets: list[tuple[str, str]] = []
+    for base_url, path_prefix in configured_targets:
+        cleaned_base_url = str(base_url or "").strip().rstrip("/")
+        cleaned_path_prefix = str(path_prefix or "").strip().rstrip("/")
+        if cleaned_base_url and cleaned_path_prefix and (cleaned_base_url, cleaned_path_prefix) not in normalized_targets:
+            normalized_targets.append((cleaned_base_url, cleaned_path_prefix))
+    return normalized_targets
 
 
-def _build_internal_recording_url(session_token: str, base_url: str) -> str:
-    return f"{base_url}/api/internal/recording/{session_token}"
+def _build_internal_recording_url(session_token: str, base_url: str, path_prefix: str) -> str:
+    return f"{base_url}{path_prefix}/{session_token}"
 
 
 def _collect_upstream_stream_headers(upstream_response: requests.Response) -> dict[str, str]:
@@ -421,8 +422,8 @@ def _proxy_recording_stream(session_token: str, request_method: str, range_heade
     upstream_response = None
     last_request_exception = None
     selected_upstream_url = None
-    for base_url in _get_internal_recording_base_urls():
-        upstream_url = _build_internal_recording_url(session_token, base_url)
+    for base_url, path_prefix in _get_internal_recording_targets():
+        upstream_url = _build_internal_recording_url(session_token, base_url, path_prefix)
         try:
             _log_recording_debug(
                 "proxy_recording_stream.attempt",
