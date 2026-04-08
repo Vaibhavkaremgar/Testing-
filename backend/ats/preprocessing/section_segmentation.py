@@ -6,7 +6,7 @@ from typing import Dict, List
 from ats.datasets.parser_config_loader import ParserConfigLoader
 
 CORE_SECTIONS = ("experience", "skills", "education", "projects")
-OPTIONAL_SECTIONS = ("header", "summary", "languages", "achievements", "certifications", "awards", "publications", "interests", "references")
+OPTIONAL_SECTIONS = ("header", "contact", "summary", "languages", "achievements", "certifications", "awards", "publications", "interests", "references")
 ALL_SECTIONS = CORE_SECTIONS + OPTIONAL_SECTIONS
 
 _parser_config_loader = ParserConfigLoader()
@@ -47,6 +47,10 @@ HEADER_NORMALIZATION_MAP = {
     "internship experience": "experience",
     "career journey": "experience",
     "period": "experience",
+    "contact details": "contact",
+    "contact information": "contact",
+    "personal details": "contact",
+    "personal information": "contact",
     "technical expertise": "skills",
     "skill set": "skills",
     "tools and technologies": "skills",
@@ -255,6 +259,10 @@ def segment_resume_sections(text: str) -> Dict[str, str]:
 
         if index < 12 and collecting_header and not current_section:
             header_buffer.append(line)
+            continue
+
+        if current_section == "contact" and index < 20 and CONTACT_HEADER_PATTERN.match(line):
+            buffers["contact"].append(line)
             continue
 
         if current_section == "summary" and index < 12 and CONTACT_HEADER_PATTERN.match(line):

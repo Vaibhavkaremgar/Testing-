@@ -31,8 +31,6 @@ def run_pipeline_audit(
     checks: List[AuditCheck] = [
         AuditCheck("document_parsing.pymupdf", bool(runtime_status.get("pymupdf_available")), "Primary PDF parser"),
         AuditCheck("document_parsing.pdfplumber", bool(runtime_status.get("pdfplumber_available")), "Secondary PDF parser"),
-        AuditCheck("document_parsing.pypdf", bool(runtime_status.get("pypdf_available")), "Fallback PDF parser"),
-        AuditCheck("document_parsing.tika", bool(runtime_status.get("tika_available")), "Optional parser fallback"),
         AuditCheck("layout_detection.layoutparser", bool(runtime_status.get("layoutparser_available")), "Optional layout library"),
         AuditCheck("ocr.pytesseract", bool(runtime_status.get("pytesseract_available")), "OCR package"),
         AuditCheck("ocr.runtime_ready", bool(runtime_status.get("ocr_ready")), "Executable OCR runtime"),

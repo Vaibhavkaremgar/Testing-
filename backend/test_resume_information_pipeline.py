@@ -656,7 +656,6 @@ Teamwork
 
         try:
             with patch("ats.extraction.resume_parser.pdfplumber.open", side_effect=Exception("no text layer")), \
-                 patch("ats.extraction.resume_parser.PdfReader", side_effect=Exception("no text layer")), \
                  patch("ats.extraction.resume_parser._extract_pdf_text_via_ocr", return_value=[ocr_text]):
                 extracted = extract_text(temp_path)
                 parsed = parse_resume(temp_path, "ravi_kumar.pdf")
@@ -691,7 +690,6 @@ Teamwork
         try:
             with patch("ats.extraction.resume_parser._extract_pdf_text_with_pymupdf", return_value=(pymupdf_text, [])), \
                  patch("ats.extraction.resume_parser._extract_pdf_text_with_pdfplumber", return_value=(noisy_text, [])), \
-                 patch("ats.extraction.resume_parser._extract_pdf_text_with_pypdf", return_value=(noisy_text, [])), \
                  patch("ats.extraction.resume_parser._extract_pdf_text_via_ocr", return_value=[]):
                 extracted = extract_text(temp_path)
         finally:
@@ -722,7 +720,6 @@ Teamwork
         try:
             with patch("ats.extraction.resume_parser._extract_pdf_text_with_pymupdf", return_value=(shared_text, [])), \
                  patch("ats.extraction.resume_parser._extract_pdf_text_with_pdfplumber", return_value=(shared_text, [])), \
-                 patch("ats.extraction.resume_parser._extract_pdf_text_with_pypdf", return_value=(shared_text, [])), \
                  patch("ats.extraction.resume_parser._extract_pdf_text_via_ocr", return_value=[]), \
                  patch("ats.extraction.resume_parser.logger.info") as logger_info:
                 extract_text(temp_path)
@@ -755,7 +752,6 @@ Teamwork
         try:
             with patch("ats.extraction.resume_parser._extract_pdf_text_with_pymupdf", return_value=(native_text, [])), \
                  patch("ats.extraction.resume_parser._extract_pdf_text_with_pdfplumber", return_value=([], [])), \
-                 patch("ats.extraction.resume_parser._extract_pdf_text_with_pypdf", return_value=([], [])), \
                  patch("ats.extraction.resume_parser._extract_pdf_text_via_ocr", return_value=ocr_text):
                 extracted = extract_text(temp_path)
         finally:

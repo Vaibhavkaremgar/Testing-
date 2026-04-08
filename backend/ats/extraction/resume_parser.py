@@ -4,7 +4,8 @@ import logging
 import os
 import re
 import shutil
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import pdfplumber
@@ -12,17 +13,10 @@ from docx.document import Document as DocxDocument
 from docx.table import Table, _Cell
 from docx.text.paragraph import Paragraph
 from PIL import Image
-from pypdf import PdfReader
-
 try:
     import fitz
 except ImportError:  # pragma: no cover - optional dependency
     fitz = None
-
-try:
-    from tika import parser as tika_parser
-except ImportError:  # pragma: no cover - optional dependency
-    tika_parser = None
 
 try:
     from docx2python import docx2python
@@ -43,12 +37,12 @@ from ats.datasets.parser_config_loader import ParserConfigLoader
 from ats.extraction.entity_extraction import extract_resume_entities
 from ats.extraction.experience_extraction import compute_total_experience, parse_date
 from ats.extraction.information_extraction import extract_email as extract_normalized_email
-from ats.extraction.information_extraction import extract_location
+from ats.extraction.information_extraction import extract_location as extract_normalized_location
 from ats.extraction.information_extraction import extract_resume_information
 from ats.extraction.layout_detection import get_layout_runtime_status, infer_layout_signals
 from ats.extraction.postprocessing import apply_postprocessing, dedupe_strings
 from ats.extraction.resume_type_detection import detect_resume_type
-from ats.extraction.validation import validate_parsed_fields
+from ats.extraction.validation import validate_location, validate_parsed_fields
 from ats.preprocessing.section_segmentation import segment_resume_sections
 from ats.preprocessing.text_cleaning import clean_text, clean_text_pipeline, normalize_common_artifacts, normalize_document_structure, split_inline_section_headers
 from app.spacy_nlp import SPACY_AVAILABLE, get_section_doc
@@ -115,7 +109,7 @@ BROKEN_MONTH_PATTERN = re.compile(
     r"(?i)\b(?:j\s+anuary|f\s+ebruary|m\s+arch|a\s+pril|m\s+ay|j\s+une|j\s+uly|s\s+eptember|o\s+ctober|n\s+ovember|d\s+ecember)\b"
 )
 SPLIT_EMAIL_ARTIFACT_PATTERN = re.compile(r"(?i)\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\s+[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
-PDF_PARSER_PREFERENCE = {"pymupdf": 4, "pdfplumber": 3, "pypdf": 2, "tika": 1}
+PDF_PARSER_PREFERENCE = {"pymupdf": 2, "pdfplumber": 1}
 CONFIDENCE_RETRY_THRESHOLD = 0.7
 
 _parser_config_loader = ParserConfigLoader()
@@ -582,33 +576,6 @@ def _extract_pdf_text_with_pdfplumber(file_path: str) -> Tuple[List[str], List[D
     return text_parts, page_metrics
 
 
-def _extract_pdf_text_with_pypdf(file_path: str) -> Tuple[List[str], List[Dict[str, Any]]]:
-    text_parts: List[str] = []
-    try:
-        reader = PdfReader(file_path)
-        for page in reader.pages:
-            page_text = page.extract_text() or ""
-            if page_text.strip():
-                text_parts.append(page_text)
-        return text_parts, []
-    except Exception as exc:
-        logger.warning("pypdf extraction failed for %s: %s", file_path, exc)
-    return [], []
-
-
-def _extract_pdf_text_with_tika(file_path: str) -> Tuple[List[str], List[Dict[str, Any]]]:
-    if tika_parser is None:
-        return [], []
-    try:
-        parsed = tika_parser.from_file(file_path) or {}
-        content = str(parsed.get("content") or "").strip()
-        if content:
-            return [content], []
-    except Exception as exc:
-        logger.warning("Tika extraction failed for %s: %s", file_path, exc)
-    return [], []
-
-
 def detect_scanned_pdf(file_path: str) -> bool:
     if os.path.splitext(file_path)[1].lower() != ".pdf":
         return False
@@ -703,7 +670,7 @@ def _select_best_pdf_text(
     scores: Dict[str, float] = {}
     best_layout: Dict[str, Any] = {}
 
-    for parser_name in ("pymupdf", "pdfplumber", "pypdf", "tika"):
+    for parser_name in ("pymupdf", "pdfplumber"):
         parser_payload = parser_outputs.get(parser_name) or {}
         text_parts = parser_payload.get("text_parts") or []
         score = _score_text_quality(text_parts)
@@ -737,7 +704,7 @@ def _select_best_pdf_text(
     if best_parts:
         return best_parts, best_name, scores, best_layout
 
-    for parser_name in ("pymupdf", "pdfplumber", "pypdf", "tika"):
+    for parser_name in ("pymupdf", "pdfplumber"):
         parser_payload = parser_outputs.get(parser_name) or {}
         text_parts = parser_payload.get("text_parts") or []
         if text_parts:
@@ -819,8 +786,17 @@ def _extract_image_text_via_ocr(file_path: str) -> List[str]:
     return []
 
 
+def _extract_pdf_text_with_pypdf(file_path: str) -> Tuple[List[str], List[Dict[str, Any]]]:
+    # Compatibility shim kept intentionally unused in the production extraction stack.
+    return [], []
+
+
 def _default_layout_signals() -> Dict[str, Any]:
     return infer_layout_signals(text_parts=[], page_metrics=[])
+
+
+def _record_stage_time(performance: Dict[str, float], stage: str, started_at: float) -> None:
+    performance[stage] = round((time.perf_counter() - started_at) * 1000.0, 2)
 
 
 def get_parser_runtime_status() -> Dict[str, Any]:
@@ -828,8 +804,6 @@ def get_parser_runtime_status() -> Dict[str, Any]:
     return {
         "pymupdf_available": fitz is not None,
         "pdfplumber_available": True,
-        "pypdf_available": True,
-        "tika_available": tika_parser is not None,
         "mammoth_available": mammoth is not None,
         "pytesseract_available": pytesseract is not None,
         "ocr_ready": _is_ocr_ready(),
@@ -845,32 +819,62 @@ def extract_document(file_path: str) -> Dict[str, Any]:
     file_ext = os.path.splitext(file_path)[1].lower()
     text_parts: List[str] = []
     layout_signals = _default_layout_signals()
+    performance: Dict[str, float] = {
+        "file_upload_ms": 0.0,
+        "pdf_extraction_ms": 0.0,
+        "docx_extraction_ms": 0.0,
+        "ocr_ms": 0.0,
+    }
 
     try:
         if file_ext == ".pdf":
-            scanned_pdf = detect_scanned_pdf(file_path)
             parser_outputs: Dict[str, Dict[str, Any]] = {}
-            parser_functions = {
-                "pymupdf": _extract_pdf_text_with_pymupdf,
-                "pdfplumber": _extract_pdf_text_with_pdfplumber,
-                "pypdf": _extract_pdf_text_with_pypdf,
+            primary_started_at = time.perf_counter()
+            primary_text_parts, primary_page_metrics = _extract_pdf_text_with_pymupdf(file_path)
+            _record_stage_time(performance, "pdf_extraction_ms", primary_started_at)
+            parser_outputs["pymupdf"] = {
+                "text_parts": primary_text_parts,
+                "page_metrics": primary_page_metrics,
+                "layout": infer_layout_signals(text_parts=primary_text_parts, page_metrics=primary_page_metrics),
             }
-            with ThreadPoolExecutor(max_workers=len(parser_functions)) as executor:
-                future_map = {
-                    executor.submit(parser_fn, file_path): parser_name
-                    for parser_name, parser_fn in parser_functions.items()
-                }
-                for future in as_completed(future_map):
-                    parser_name = future_map[future]
-                    parser_text_parts, page_metrics = future.result()
-                    parser_outputs[parser_name] = {
-                        "text_parts": parser_text_parts,
-                        "page_metrics": page_metrics,
-                        "layout": infer_layout_signals(text_parts=parser_text_parts, page_metrics=page_metrics),
-                    }
             text_parts, selected_parser, parser_scores, selected_layout = _select_best_pdf_text(parser_outputs)
+            layout_signals = selected_layout or _default_layout_signals()
+            native_score = _score_text_quality(text_parts)
+            scanned_pdf = bool(layout_signals.get("is_scanned_pdf")) or detect_scanned_pdf(file_path)
+
+            should_run_pdf_fallback = (
+                not _has_meaningful_text(text_parts)
+                or native_score < 0.45
+                or bool(layout_signals.get("is_multi_column"))
+            )
+            if should_run_pdf_fallback:
+                fallback_started_at = time.perf_counter()
+                fallback_text_parts, fallback_page_metrics = _extract_pdf_text_with_pdfplumber(file_path)
+                performance["pdf_extraction_ms"] = round(
+                    performance.get("pdf_extraction_ms", 0.0) + (time.perf_counter() - fallback_started_at) * 1000.0,
+                    2,
+                )
+                parser_outputs["pdfplumber"] = {
+                    "text_parts": fallback_text_parts,
+                    "page_metrics": fallback_page_metrics,
+                    "layout": infer_layout_signals(text_parts=fallback_text_parts, page_metrics=fallback_page_metrics),
+                }
+                text_parts, selected_parser, parser_scores, selected_layout = _select_best_pdf_text(parser_outputs)
+                layout_signals = selected_layout or layout_signals
+                native_score = _score_text_quality(text_parts)
+                scanned_pdf = bool(layout_signals.get("is_scanned_pdf")) or scanned_pdf
+
+            if scanned_pdf or not _has_meaningful_text(text_parts):
+                ocr_started_at = time.perf_counter()
+                ocr_parts = run_ocr(file_path)
+                _record_stage_time(performance, "ocr_ms", ocr_started_at)
+                if _has_meaningful_text(ocr_parts):
+                    ocr_score = _score_text_quality(ocr_parts)
+                    if ocr_score > native_score + 0.08:
+                        text_parts = ocr_parts
+                        layout_signals["ocr_applied"] = True
+
             if selected_parser:
-                layout_signals = selected_layout or _default_layout_signals()
                 logger.info(
                     "Selected PDF parser '%s' for %s with scores: %s and layout: %s",
                     selected_parser,
@@ -878,36 +882,13 @@ def extract_document(file_path: str) -> Dict[str, Any]:
                     parser_scores,
                     layout_signals,
                 )
-
-            if not _has_meaningful_text(text_parts):
-                if tika_parser is not None:
-                    tika_text_parts, tika_page_metrics = _extract_pdf_text_with_tika(file_path)
-                    if tika_text_parts:
-                        parser_outputs["tika"] = {
-                            "text_parts": tika_text_parts,
-                            "page_metrics": tika_page_metrics,
-                            "layout": infer_layout_signals(text_parts=tika_text_parts, page_metrics=tika_page_metrics),
-                        }
-                        text_parts, selected_parser, parser_scores, selected_layout = _select_best_pdf_text(parser_outputs)
-                        if selected_parser:
-                            layout_signals = selected_layout or layout_signals
-                ocr_parts = run_ocr(file_path)
-                if _has_meaningful_text(ocr_parts):
-                    text_parts = ocr_parts
-                    layout_signals["ocr_applied"] = True
-            elif scanned_pdf and _is_ocr_ready():
-                ocr_parts = run_ocr(file_path)
-                if _has_meaningful_text(ocr_parts):
-                    native_score = _score_text_quality(text_parts)
-                    ocr_score = _score_text_quality(ocr_parts)
-                    if ocr_score > native_score + 0.08:
-                        text_parts = ocr_parts
-                        layout_signals["ocr_applied"] = True
             layout_signals["is_scanned_pdf"] = bool(layout_signals.get("is_scanned_pdf")) or scanned_pdf
 
         elif file_ext == ".docx":
             try:
+                docx_started_at = time.perf_counter()
                 docx_payload = extract_docx(file_path)
+                _record_stage_time(performance, "docx_extraction_ms", docx_started_at)
                 extracted_text = str(docx_payload.get("text") or "").strip()
                 if extracted_text:
                     text_parts.append(extracted_text)
@@ -923,6 +904,7 @@ def extract_document(file_path: str) -> Dict[str, Any]:
                         "table_row_count": len(docx_payload.get("tables") or []),
                         "textbox_count": len(docx_payload.get("textboxes") or []),
                         "header_footer_count": len(docx_payload.get("headers_footers") or []),
+                        "performance": performance,
                     },
                 }
             except Exception as exc:
@@ -940,7 +922,9 @@ def extract_document(file_path: str) -> Dict[str, Any]:
                 logger.warning("antiword extraction failed for %s: %s", file_path, exc)
 
         elif file_ext in {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"}:
+            ocr_started_at = time.perf_counter()
             text_parts = run_ocr(file_path)
+            _record_stage_time(performance, "ocr_ms", ocr_started_at)
             layout_signals = infer_layout_signals(text_parts=text_parts, page_metrics=[])
             layout_signals["is_scanned_pdf"] = False
             layout_signals["ocr_applied"] = True
@@ -963,6 +947,7 @@ def extract_document(file_path: str) -> Dict[str, Any]:
             "format": file_ext.lstrip(".") or "text",
             "ocr_applied": bool(layout_signals.get("ocr_applied")),
             "is_image_resume": detect_image_resume(file_path),
+            "performance": performance,
         },
     }
 
@@ -985,7 +970,7 @@ def _normalize_name_candidate(value: str) -> str:
         return ""
     if NAME_COMPANY_PATTERN.search(candidate):
         return ""
-    if extract_location(candidate):
+    if extract_normalized_location(candidate, use_spacy=False) or validate_location(candidate):
         return ""
     if NAME_CONTEXT_ROLE_PATTERN.search(candidate):
         return ""
@@ -1274,7 +1259,14 @@ def _rerun_low_confidence_fields(
             normalized_text,
         ]
         for candidate in location_candidates:
-            extracted_location = extract_location(candidate)
+            extracted_location = extract_normalized_location(candidate, use_spacy=False)
+            if not extracted_location and SPACY_AVAILABLE:
+                extracted_location = extract_normalized_location(candidate, use_spacy=True)
+            if not extracted_location:
+                for line in [line.strip() for line in str(candidate or "").splitlines() if line.strip()][:8]:
+                    extracted_location = validate_location(line)
+                    if extracted_location:
+                        break
             if extracted_location:
                 updated["location"] = extracted_location
                 break

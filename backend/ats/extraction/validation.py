@@ -17,6 +17,19 @@ LOCATION_CANDIDATE_PATTERN = re.compile(
 EMAIL_PATTERN = re.compile(r"(?i)^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$")
 NAME_PATTERN = re.compile(r"^[A-Z][A-Za-z'`.-]*(?:\s+[A-Z][A-Za-z'`.-]*){1,3}$")
 INVALID_LOCATION_TOKENS = {"contact", "profile", "summary", "skills", "experience", "education", "certifications"}
+INVALID_LOCATION_WORDS = {
+    "job",
+    "objective",
+    "contact",
+    "details",
+    "summary",
+    "profile",
+    "linkedin",
+    "github",
+    "portfolio",
+    "career",
+    "passing",
+}
 NON_LOCATION_CONTEXT_TERMS = {
     "university",
     "board",
@@ -32,6 +45,9 @@ NON_LOCATION_CONTEXT_TERMS = {
     "qualifications",
     "academic",
 }
+LOCATION_FALSE_POSITIVE_TECH_PATTERN = re.compile(
+    r"(?i)\b(?:python|java|selenium|playwright|robot framework|robot|sql|typescript|react|docker|jenkins|postman|restassured|pytest|fastapi|power bi|tableau|jira|maven|ui)\b"
+)
 
 _parser_config_loader = ParserConfigLoader()
 _parser_vocabulary = _parser_config_loader.load_parser_vocabulary()
@@ -134,7 +150,7 @@ def validate_location(value: Optional[str]) -> str:
     if len(candidate) > 80:
         return ""
     lowered = candidate.lower()
-    if lowered in INVALID_LOCATION_TOKENS:
+    if lowered in INVALID_LOCATION_TOKENS or lowered in INVALID_LOCATION_WORDS:
         return ""
     tokens = {
         token.strip(".,:-").lower()
@@ -143,11 +159,19 @@ def validate_location(value: Optional[str]) -> str:
     }
     if tokens & NON_LOCATION_CONTEXT_TERMS:
         return ""
+    if tokens & INVALID_LOCATION_WORDS:
+        return ""
     if LOCATION_NOISE_PATTERN.search(candidate):
+        return ""
+    if LOCATION_FALSE_POSITIVE_TECH_PATTERN.search(candidate):
         return ""
     if any(char.isdigit() for char in candidate):
         return ""
     if len(candidate.split()) > 5:
+        return ""
+    if len(candidate.split()) == 1 and len(candidate) < 3:
+        return ""
+    if len(candidate.split()) == 1 and candidate.isupper():
         return ""
     if "," not in candidate and NAME_PATTERN.match(candidate):
         return ""

@@ -46,7 +46,7 @@ EXCLUDED_SOFT_SKILLS = {
 }
 INVALID_LOCATION_WORDS = {"job", "objective", "contact", "details", "summary", "profile", "linkedin", "github", "portfolio", "career", "passing"}
 LOCATION_FALSE_POSITIVE_TECH_PATTERN = re.compile(
-    r"(?i)\b(?:python|java|selenium|playwright|robot framework|robot|sql|typescript|react|docker|jenkins|postman|restassured|pytest|fastapi|power bi|tableau|jira|maven)\b"
+    r"(?i)\b(?:python|java|selenium|playwright|robot framework|robot|sql|typescript|react|docker|jenkins|postman|restassured|pytest|fastapi|power bi|tableau|jira|maven|ui)\b"
 )
 KNOWN_LOCATION_SKILLS_BLOCKLIST = {
     "chennai", "hyderabad", "bangalore", "bengaluru", "pune", "mumbai", "delhi", "gurugram", "noida",
@@ -85,6 +85,9 @@ ADDRESS_PIN_CITY_PATTERN = re.compile(
     r"(?i)\b(?P<city>[A-Za-z][A-Za-z\s.-]{1,40})\s*[-,]\s*\d{5,6}\b"
 )
 ADDRESS_LABEL_PATTERN = re.compile(r"(?i)\baddress\b\s*[:\-]?\s*(?P<value>.+)")
+EXPLICIT_TOTAL_EXPERIENCE_PATTERN = re.compile(
+    r"(?i)\b(?P<years>\d+(?:\.\d+)?)\s+years?(?:\s+(?:and|&)\s+(?P<months>\d+)\s+months?)?\s+of\s+experience\b"
+)
 
 
 def _clean_header_lines(text: str, limit: int = 12) -> List[str]:
@@ -838,7 +841,7 @@ def _finalize_skills(
     experience_text: str = "",
     skills_text: str = "",
 ) -> List[str]:
-    blocked_locations = set(_extract_gpe_entities(location_text or source_text))
+    blocked_locations = set(_extract_gpe_entities(location_text)) if location_text else set()
     normalized_location_text = clean_text_pipeline(location_text or "").lower()
     for candidate in re.split(r"[,|\n/]+", normalized_location_text):
         cleaned_candidate = candidate.strip()
@@ -1420,8 +1423,7 @@ def _pick_primary_location(value: str) -> str:
                 continue
             if _contains_non_location_context(part):
                 continue
-            words = part.split()
-            if _looks_like_location_fragment(part) or (1 <= len(words) <= 3 and all(word[:1].isalpha() for word in words)):
+            if _looks_like_location_fragment(part):
                 return _canonicalize_location_token(part)
 
     for token in sorted(LOCATION_TAIL_TOKENS | set(LOCATION_CANONICAL_OVERRIDES.keys()), key=len, reverse=True):
@@ -1655,6 +1657,7 @@ def extract_resume_information(text: str) -> Dict:
         )
     )
     
+    contact_section = raw_sections.get("contact", "") or sections.get("contact", "")
     skills_section = _sanitize_skill_section(raw_sections.get("skills", "") or sections.get("skills", ""))
     
     has_explicit_skills_header = bool(
@@ -1678,18 +1681,93 @@ def extract_resume_information(text: str) -> Dict:
         sections.get("summary", ""),
         cleaned_text,
     )
-    if skills and (has_explicit_skills_header or len(skills) > 3):
+    if skills_section.strip():
         skills = _unique_in_order(skills)
+        if len(skills) <= 3 and not has_explicit_skills_header:
+            skills = _unique_in_order(skills + contextual_skills)
     elif skills:
         skills = _unique_in_order(skills + contextual_skills)
     else:
         skills = contextual_skills
     
     experience_entries = experience_result.get("experiences", [])
+    if sections:
+        from ats.extraction.experience_extraction import ROLE_TITLE_PATTERN
+
+        supplemental_entries: List[Dict[str, Any]] = []
+        for section_name in ("certifications", "skills", "awards", "achievements", "summary"):
+            section_text = raw_sections.get(section_name, "")
+            if not section_text or not DATE_RANGE_REGEX.search(section_text):
+                continue
+            if not ROLE_TITLE_PATTERN.search(section_text):
+                continue
+            supplemental_entries.extend(extract_experience_entries(cleaned_text, section_text))
+        if supplemental_entries:
+            seen_experience_keys = {
+                (
+                    str(entry.get("role") or "").strip().lower(),
+                    str(entry.get("company") or "").strip().lower(),
+                    str(entry.get("start_date") or "").strip().lower(),
+                    str(entry.get("end_date") or "").strip().lower(),
+                )
+                for entry in experience_entries
+                if isinstance(entry, dict)
+            }
+            for entry in supplemental_entries:
+                identity = (
+                    str(entry.get("role") or "").strip().lower(),
+                    str(entry.get("company") or "").strip().lower(),
+                    str(entry.get("start_date") or "").strip().lower(),
+                    str(entry.get("end_date") or "").strip().lower(),
+                )
+                if not any(identity) or identity in seen_experience_keys:
+                    continue
+                seen_experience_keys.add(identity)
+                experience_entries.append(entry)
     total_experience_years = experience_result.get("total_experience_years")
     total_experience_months = experience_result.get("total_experience_months")
     if not experience_entries:
+        full_text_entries = extract_experience_entries(cleaned_text, cleaned_text)
+        if full_text_entries:
+            experience_entries = full_text_entries
         total_experience_years = None
+    elif experience_entries:
+        from ats.extraction.experience_extraction import compute_total_experience, parse_date
+
+        date_ranges = []
+        for entry in experience_entries:
+            start = parse_date(entry.get("start_date", ""), is_end=False)
+            end = parse_date(entry.get("end_date", ""), is_end=True)
+            if not start or not end or end < start:
+                continue
+            date_ranges.append((start, end))
+        if date_ranges:
+            total_experience_years = compute_total_experience(date_ranges)
+            total_experience_months = int(round(total_experience_years * 12))
+
+    if experience_entries and total_experience_years is None:
+        from ats.extraction.experience_extraction import compute_total_experience, parse_date
+
+        date_ranges = []
+        for entry in experience_entries:
+            start = parse_date(entry.get("start_date", ""), is_end=False)
+            end = parse_date(entry.get("end_date", ""), is_end=True)
+            if not start or not end or end < start:
+                continue
+            date_ranges.append((start, end))
+        if date_ranges:
+            total_experience_years = compute_total_experience(date_ranges)
+            total_experience_months = int(round(total_experience_years * 12))
+
+    if total_experience_years is None:
+        explicit_match = EXPLICIT_TOTAL_EXPERIENCE_PATTERN.search(
+            "\n".join(part for part in [sections.get("summary", ""), cleaned_text[:1200]] if part)
+        )
+        if explicit_match:
+            years = float(explicit_match.group("years"))
+            months = int(explicit_match.group("months") or 0)
+            total_experience_years = round(years + (months / 12.0), 1)
+            total_experience_months = int(round(total_experience_years * 12))
 
     current_entry = {}
     if experience_entries:
@@ -1729,7 +1807,7 @@ def extract_resume_information(text: str) -> Dict:
 
     header_context = "\n".join(header_only_lines)
     personal_detail_lines = _extract_personal_detail_lines(structural_lines)
-    personal_details_context = "\n".join(personal_detail_lines)
+    personal_details_context = "\n".join([contact_section, *personal_detail_lines]).strip()
 
     header_present = bool(header_context.strip()) or bool(sections.get("header", "").strip())
     for source in (header_context, personal_details_context):
@@ -1738,6 +1816,14 @@ def extract_resume_information(text: str) -> Dict:
         location = extract_location(source, use_spacy=False)
         if location:
             break
+    if not location:
+        for source in (header_context, personal_details_context):
+            for line in [line.strip() for line in source.splitlines() if line.strip()][:10]:
+                location = validate_location(line)
+                if location:
+                    break
+            if location:
+                break
 
     need_slow_path = (not primary_name) or (not experience_entries) or (not header_present)
     if need_slow_path and not primary_name:
@@ -1758,9 +1844,11 @@ def extract_resume_information(text: str) -> Dict:
         location,
         total_experience_years,
     )
+    use_broader_skill_context = bool(skills_section.strip()) and len(skills) <= 3 and not has_explicit_skills_header
+    skills_source_text = cleaned_text if use_broader_skill_context or not skills_section.strip() else skills_section
     skills = _finalize_skills(
         skills,
-        skills_section or sections.get("experience", "") or sections.get("projects", "") or cleaned_text,
+        skills_source_text,
         "\n".join(filter(None, [sections.get("header", ""), location])),
         from_section=bool(skills_section.strip()),
         name_text=primary_name,
@@ -1769,12 +1857,25 @@ def extract_resume_information(text: str) -> Dict:
         experience_text=sections.get("experience", ""),
         skills_text=skills_section,
     )
+    if skills_section.strip() and len(skills) <= 3 and not has_explicit_skills_header:
+        blocked_location_terms = {
+            part.strip().lower()
+            for part in re.split(r"[\s,|/]+", location or "")
+            if part.strip()
+        }
+        supplemental_skills: List[str] = []
+        for candidate in contextual_skills:
+            normalized_candidate = normalize_skill_name(candidate)
+            if not normalized_candidate or normalized_candidate in blocked_location_terms:
+                continue
+            supplemental_skills.append(normalized_candidate)
+        skills = _unique_in_order([*skills, *supplemental_skills])
 
     result = {
         "sections": sections,
         "skills": skills,
         "skill_confidence": {
-            skill: _skill_confidence(skill, skills_section or cleaned_text, bool(skills_section.strip()))
+            skill: _skill_confidence(skill, skills_source_text, bool(skills_section.strip()))
             for skill in skills
         },
         "name": primary_name or "",
@@ -1820,7 +1921,11 @@ def extract_resume_information(text: str) -> Dict:
         },
     }
     validated_result = validate_parsed_fields(result)
-    if not has_resume_experience_header and not validated_result.get("experience"):
+    if (
+        not has_resume_experience_header
+        and not validated_result.get("experience")
+        and validated_result.get("total_experience_years") is None
+    ):
         validated_result["experience_years"] = None
         validated_result["total_experience_years"] = None
         validated_result["total_experience"] = ""

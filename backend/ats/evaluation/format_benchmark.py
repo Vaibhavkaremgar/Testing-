@@ -13,7 +13,7 @@ from PIL import Image, ImageDraw
 
 from ats.extraction.resume_parser import (
     _extract_pdf_text_via_ocr,
-    _extract_pdf_text_with_pypdf,
+    _extract_pdf_text_with_pdfplumber,
     _has_meaningful_text,
     extract_document,
     parse_resume_text,
@@ -287,7 +287,7 @@ def _build_sample_cases(root: Path) -> List[FormatBenchmarkCase]:
 
 def _legacy_extract_text(file_path: str) -> str:
     if file_path.lower().endswith(".pdf"):
-        text_parts, _ = _extract_pdf_text_with_pypdf(file_path)
+        text_parts, _ = _extract_pdf_text_with_pdfplumber(file_path)
         if not _has_meaningful_text(text_parts):
             ocr_parts = _extract_pdf_text_via_ocr(file_path)
             if _has_meaningful_text(ocr_parts):
