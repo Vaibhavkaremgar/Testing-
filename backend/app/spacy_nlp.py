@@ -1,30 +1,57 @@
 """
 spaCy NLP helpers used by the ATS extraction pipeline.
-The ATS pipeline only runs NER against isolated experience or skills sections.
+The model is loaded lazily so API startup stays fast in production.
 """
 
 from __future__ import annotations
 
+from threading import Lock
 from typing import Dict
-
-import spacy
 
 from app.config import settings
 
 try:
-    nlp = spacy.load("en_core_web_sm")
-    SPACY_AVAILABLE = True
-    print("[OK] spaCy model loaded successfully")
-except (OSError, ImportError) as e:
-    print(f"[ERROR] spaCy not available: {e}")
-    print("   ERROR: spaCy is required. Install with: pip install spacy && python -m spacy download en_core_web_sm")
-    nlp = None
-    SPACY_AVAILABLE = False
-    raise ImportError("spaCy is required for resume analysis. Please install it.")
+    import spacy
+except ImportError:
+    spacy = None
+
+
+SPACY_AVAILABLE = spacy is not None
+_nlp = None
+_nlp_lock = Lock()
+_nlp_load_error = None
+
+
+def get_nlp():
+    """Return a shared spaCy model, loading it only on first use."""
+    global _nlp, _nlp_load_error
+
+    if _nlp is not None:
+        return _nlp
+    if not SPACY_AVAILABLE:
+        return None
+
+    with _nlp_lock:
+        if _nlp is not None:
+            return _nlp
+        if _nlp_load_error is not None:
+            return None
+
+        try:
+            _nlp = spacy.load("en_core_web_sm")
+            print("[OK] spaCy model loaded lazily")
+        except (OSError, ImportError) as exc:
+            _nlp_load_error = exc
+            print(f"[ERROR] spaCy model unavailable: {exc}")
+            print("   Install with: pip install spacy && python -m spacy download en_core_web_sm")
+            return None
+
+    return _nlp
 
 
 def get_section_doc(section_text: str):
-    if not SPACY_AVAILABLE or nlp is None or not section_text:
+    nlp = get_nlp()
+    if nlp is None or not section_text:
         return None
     return nlp(section_text[: settings.NLP_MAX_TEXT_LENGTH])
 

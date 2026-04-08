@@ -1,20 +1,20 @@
 from __future__ import annotations
 
 import re
+from threading import Lock
 from typing import Any, Dict, Iterable, List, Tuple
 
-from ats.extraction.skill_intelligence import SkillIntelligence
-from app.spacy_nlp import SPACY_AVAILABLE, get_section_doc, nlp
+from ats.extraction.skill_intelligence import get_skill_engine
+from app.spacy_nlp import SPACY_AVAILABLE, get_nlp, get_section_doc
 
 try:
     from spacy.matcher import PhraseMatcher
 except ImportError:  # pragma: no cover - spaCy is a hard dependency in this repo, but keep import-safe.
     PhraseMatcher = None
 
-
-_skill_intelligence = SkillIntelligence()
 _skill_matcher = None
 _skill_patterns_loaded = False
+_skill_matcher_lock = Lock()
 _whitespace_pattern = re.compile(r"\s+")
 
 
@@ -39,18 +39,27 @@ def _dedupe(values: Iterable[str]) -> List[str]:
 
 def _ensure_skill_matcher() -> None:
     global _skill_matcher, _skill_patterns_loaded
-    if _skill_patterns_loaded or not SPACY_AVAILABLE or nlp is None or PhraseMatcher is None:
-        _skill_patterns_loaded = True
+    if _skill_patterns_loaded:
         return
 
-    matcher = PhraseMatcher(nlp.vocab, attr="LOWER")
-    skill_terms = _skill_intelligence.get_skill_dictionary()
-    synonym_terms = list(_skill_intelligence.get_synonym_dictionary().keys())
-    patterns = list(nlp.pipe(_dedupe([*skill_terms, *synonym_terms]), disable=["parser", "tagger", "ner"]))
-    if patterns:
-        matcher.add("SKILL", patterns)
-    _skill_matcher = matcher
-    _skill_patterns_loaded = True
+    with _skill_matcher_lock:
+        if _skill_patterns_loaded:
+            return
+
+        nlp = get_nlp()
+        if not SPACY_AVAILABLE or nlp is None or PhraseMatcher is None:
+            _skill_patterns_loaded = True
+            return
+
+        skill_engine = get_skill_engine()
+        matcher = PhraseMatcher(nlp.vocab, attr="LOWER")
+        skill_terms = skill_engine.get_skill_dictionary()
+        synonym_terms = list(skill_engine.get_synonym_dictionary().keys())
+        patterns = list(nlp.pipe(_dedupe([*skill_terms, *synonym_terms]), disable=["parser", "tagger", "ner"]))
+        if patterns:
+            matcher.add("SKILL", patterns)
+        _skill_matcher = matcher
+        _skill_patterns_loaded = True
 
 
 def _collect_person_candidates(window: str, *, prefer_first: bool = False) -> List[Tuple[int, str]]:
@@ -136,6 +145,7 @@ def extract_resume_entities(
     _ensure_skill_matcher()
     skill_hits: List[str] = []
     if _skill_matcher is not None:
+        skill_engine = get_skill_engine()
         skill_sources = [skills_text, header_text, experience_text, text]
         for source in skill_sources:
             normalized_source = _normalize_text(source)
@@ -145,8 +155,8 @@ def extract_resume_entities(
             if doc is None:
                 continue
             for _, start, end in _skill_matcher(doc):
-                candidate = _skill_intelligence.normalize_skill(doc[start:end].text)
-                canonical = _skill_intelligence.get_synonym_dictionary().get(candidate, candidate)
+                candidate = skill_engine.normalize_skill(doc[start:end].text)
+                canonical = skill_engine.get_synonym_dictionary().get(candidate, candidate)
                 if canonical:
                     skill_hits.append(canonical)
 

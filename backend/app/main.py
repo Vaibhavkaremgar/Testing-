@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 import os
 
@@ -14,6 +15,7 @@ from app.routes import (
     candidates,
     clients,
     communications,
+    dashboard,
     email,
     email_templates,
     interviews,
@@ -63,6 +65,8 @@ if settings.allowed_origin_regex:
     cors_options["allow_origin_regex"] = settings.allowed_origin_regex
 
 app.add_middleware(CORSMiddleware, **cors_options)
+# Compress JSON-heavy list responses so refreshes move less data over the wire.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 try:
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
@@ -76,6 +80,7 @@ except Exception as exc:
 
 
 app.include_router(auth.router, prefix="/api")
+app.include_router(dashboard.router, prefix="/api")
 app.include_router(candidates.router, prefix="/api")
 app.include_router(jobs.router, prefix="/api")
 app.include_router(interviews.router, prefix="/api")
@@ -102,26 +107,6 @@ async def startup_event():
         ensure_default_email_templates(db)
     finally:
         db.close()
-
-    try:
-        # Warm expensive scoring imports at boot so the first resume upload is faster.
-        from app.balanced_scoring import evaluate_resume_balanced
-        from app.spacy_nlp import get_nlp_signals
-
-        get_nlp_signals("Built scalable APIs, improved performance by 20%, and collaborated across teams.")
-        evaluate_resume_balanced(
-            {"full_text": "Python FastAPI SQL Docker AWS", "years_of_experience": 3},
-            {
-                "required_skills": ["Python", "FastAPI", "SQL"],
-                "experience_min": 2,
-                "experience_max": 5,
-                "description": "Backend role",
-                "title": "Backend Engineer",
-            },
-        )
-        print("Resume scoring warmup complete")
-    except Exception as exc:
-        print(f"Resume scoring warmup skipped: {exc}")
 
     print("Application started successfully")
 

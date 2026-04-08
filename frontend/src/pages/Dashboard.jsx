@@ -1,17 +1,12 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { api } from '@/lib/api'
 import { cn, getScoreColor, formatDate } from '@/lib/utils'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
-import MetricCard from '@/components/analytics/MetricCard'
-import ComparisonPanel from '@/components/analytics/ComparisonPanel'
-import PipelineTable from '@/components/analytics/PipelineTable'
-import OfferStatsCard from '@/components/analytics/OfferStatsCard'
 import HiringIntelligence from '@/components/HiringIntelligence'
 import {
   Users, UserCheck, UserX, Calendar, Award, FileText, X, CalendarIcon, Briefcase, Clock, CheckCircle, DollarSign, Target, TrendingDown
@@ -76,24 +71,75 @@ const getDefaultView = () => ({
   selectedMonthNum: null
 })
 
+function buildDashboardCandidateBuckets(candidatesData = [], interviewRows = []) {
+  const candidateMap = new Map((candidatesData || []).map((candidate) => [candidate.id, candidate]))
+  const latestInterviewsByCandidate = new Map()
+
+  for (const interview of interviewRows || []) {
+    if (!interview?.candidate_id) continue
+    const previousInterview = latestInterviewsByCandidate.get(interview.candidate_id)
+    const previousDate = previousInterview?.scheduled_at || previousInterview?.created_at || ''
+    const currentDate = interview.scheduled_at || interview.created_at || ''
+    if (!previousInterview || new Date(currentDate) > new Date(previousDate)) {
+      latestInterviewsByCandidate.set(interview.candidate_id, interview)
+    }
+  }
+
+  const pipelineDisplayCandidates = (candidatesData || [])
+    .map((candidate) => ({
+      ...candidate,
+      display_stage: resolveDashboardDisplayStage(candidate, latestInterviewsByCandidate.get(candidate.id)),
+    }))
+
+  const shortlistedPipelineCandidates = pipelineDisplayCandidates
+    .filter((candidate) => candidate.display_stage === 'SHORTLISTED')
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+
+  const mapInterviewCandidates = (predicate, getDisplayStage) => Array.from(latestInterviewsByCandidate.values())
+    .filter(predicate)
+    .map((interview) => {
+      const candidate = candidateMap.get(interview.candidate_id)
+      if (!candidate) return null
+
+      return {
+        ...candidate,
+        display_score: interview?.interview_score,
+        display_stage: getDisplayStage(interview),
+        rejected_at: interview?.scheduled_at || interview?.created_at || candidate.created_at,
+      }
+    })
+    .filter(Boolean)
+    .sort((a, b) => new Date(b.rejected_at) - new Date(a.rejected_at))
+
+  const activeInterviewCandidates = mapInterviewCandidates((interview) => {
+    const status = (interview?.status || '').toLowerCase()
+    return status === 'scheduled' || status === 'ongoing'
+  }, (interview) => ((interview?.status || '').toLowerCase() === 'scheduled' ? 'INTERVIEW_SCHEDULED' : 'INTERVIEW'))
+
+  const selectedCandidates = mapInterviewCandidates((interview) => {
+    const status = (interview?.status || '').toLowerCase()
+    return status === 'completed' && Number(interview?.interview_score) >= INTERVIEW_REJECTION_SCORE_THRESHOLD
+  }, () => 'SELECTED')
+
+  const rejectedCandidates = mapInterviewCandidates((interview) => {
+    const status = (interview?.status || '').toLowerCase()
+    return status === 'completed' && Number(interview?.interview_score) < INTERVIEW_REJECTION_SCORE_THRESHOLD
+  }, () => 'REJECTED')
+
+  return {
+    totalCandidates: pipelineDisplayCandidates,
+    shortlistedCandidates: shortlistedPipelineCandidates,
+    interviewCandidates: activeInterviewCandidates,
+    selectedInterviewCandidates: selectedCandidates,
+    interviewRejectedCandidates: rejectedCandidates,
+  }
+}
+
 export default function Dashboard() {
   const { user } = useAuth()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const selectedClient = searchParams.get('client')
-  const [loading, setLoading] = useState(true)
-  const [statsState, setStats] = useState(null)
-  const [resumeTrendState, setResumeTrend] = useState([])
-  const [interviewTrendState, setInterviewTrend] = useState([])
-  const [activeJobsState, setActiveJobs] = useState([])
-  const [upcomingInterviewsState, setUpcomingInterviews] = useState([])
-  const [totalCandidates, setTotalCandidates] = useState([])
-  const [shortlistedCandidates, setShortlistedCandidates] = useState([])
-  const [interviewCandidates, setInterviewCandidates] = useState([])
-  const [selectedInterviewCandidates, setSelectedInterviewCandidates] = useState([])
-  const [interviewRejectedCandidates, setInterviewRejectedCandidates] = useState([])
-  const [hiringMetricsState, setHiringMetrics] = useState(null)
-  const [intelligenceState, setIntelligence] = useState(null)
   const [selectedMonth, setSelectedMonth] = useState('all')
   const [selectedDate, setSelectedDate] = useState(null)
   const [calendarOpen, setCalendarOpen] = useState(false)
@@ -102,7 +148,8 @@ export default function Dashboard() {
   const [selectedCard, setSelectedCard] = useState(null)
   const [cardCandidates, setCardCandidates] = useState([])
   const [cardLoading, setCardLoading] = useState(false)
-  const [departmentFilter, setDepartmentFilter] = useState('all')
+  const [lazyCardData, setLazyCardData] = useState(null)
+  const [shouldLoadDeferredAnalytics, setShouldLoadDeferredAnalytics] = useState(false)
   const [showLowCreditModal, setShowLowCreditModal] = useState(false)
   const [lowCreditDismissed, setLowCreditDismissed] = useState(() => {
     if (typeof window === 'undefined') return false
@@ -120,22 +167,13 @@ export default function Dashboard() {
     return params
   }, [selectedClient, selectedDate, selectedMonth])
 
-  const dashboardQuery = useQuery({
-    queryKey: ['dashboard-overview', dashboardParams],
-    enabled: false,
+  const overviewQuery = useQuery({
+    queryKey: ['dashboard-overview-core', dashboardParams],
     queryFn: async () => {
-      const [stats, resumeTrend, interviewTrend, activeJobs, upcomingInterviews, hiringMetrics, intelligence] = await Promise.all([
+      const [stats, activeJobs, upcomingInterviews, hiringMetrics, intelligence] = await Promise.all([
         api.getDashboardStats(dashboardParams).catch((error) => {
           console.error('Stats error:', error)
           return null
-        }),
-        api.getResumeScoresTrend().catch((error) => {
-          console.error('Resume trend error:', error)
-          return []
-        }),
-        api.getInterviewScoresTrend().catch((error) => {
-          console.error('Interview trend error:', error)
-          return []
         }),
         api.getActiveJobs().catch((error) => {
           console.error('Jobs error:', error)
@@ -155,19 +193,41 @@ export default function Dashboard() {
         }),
       ])
 
-      return { stats, resumeTrend, interviewTrend, activeJobs, upcomingInterviews, hiringMetrics, intelligence }
+      return { stats, activeJobs, upcomingInterviews, hiringMetrics, intelligence }
     },
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: false,
   })
 
-  const {
-    stats = statsState,
-    resumeTrend = resumeTrendState,
-    interviewTrend = interviewTrendState,
-    activeJobs = activeJobsState,
-    upcomingInterviews = upcomingInterviewsState,
-    hiringMetrics = hiringMetricsState,
-    intelligence = intelligenceState,
-  } = dashboardQuery.data || {}
+  const deferredAnalyticsQuery = useQuery({
+    queryKey: ['dashboard-overview-deferred', dashboardParams],
+    enabled: shouldLoadDeferredAnalytics,
+    queryFn: async () => {
+      const [resumeTrend, interviewTrend] = await Promise.all([
+        api.getResumeScoresTrend().catch((error) => {
+          console.error('Resume trend error:', error)
+          return []
+        }),
+        api.getInterviewScoresTrend().catch((error) => {
+          console.error('Interview trend error:', error)
+          return []
+        }),
+      ])
+
+      return { resumeTrend, interviewTrend }
+    },
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: false,
+  })
+
+  const stats = overviewQuery.data?.stats || null
+  const activeJobs = overviewQuery.data?.activeJobs || []
+  const upcomingInterviews = overviewQuery.data?.upcomingInterviews || []
+  const hiringMetrics = overviewQuery.data?.hiringMetrics || null
+  const intelligence = overviewQuery.data?.intelligence || null
+  const resumeTrend = deferredAnalyticsQuery.data?.resumeTrend || []
+  const interviewTrend = deferredAnalyticsQuery.data?.interviewTrend || []
+  const loading = overviewQuery.isLoading && !overviewQuery.data
 
 
   // Force close modal on mount and prevent any stuck state
@@ -178,101 +238,34 @@ export default function Dashboard() {
   }, [])
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const params = {}
-        if (selectedClient) {
-          params.client = selectedClient
-        }
-        if (selectedDate) {
-          params.date = selectedDate
-        } else if (selectedMonth !== 'all') {
-          params.month = selectedMonth
-        }
-        const [statsData, resumeData, interviewData, jobs, interviews, metrics, intel, candidatesData, interviewRows] = await Promise.all([
-          api.getDashboardStats(params).catch(e => { console.error('Stats error:', e); return null; }),
-          api.getResumeScoresTrend().catch(e => { console.error('Resume trend error:', e); return []; }),
-          api.getInterviewScoresTrend().catch(e => { console.error('Interview trend error:', e); return []; }),
-          api.getActiveJobs().catch(e => { console.error('Jobs error:', e); return []; }),
-          api.getUpcomingInterviews().catch(e => { console.error('Interviews error:', e); return []; }),
-          api.getHiringMetrics().catch(e => { console.error('Metrics error:', e); return null; }),
-          api.getHiringIntelligence().catch(e => { console.error('Intelligence error:', e); return null; }),
-          api.getCandidates({ ...params, limit: 20, offset: 0 }).catch(e => { console.error('Candidates error:', e); return []; }),
-          api.getInterviews({ limit: 20, offset: 0 }).catch(e => { console.error('Interviews list error:', e); return []; })
-        ])
-        const candidateMap = new Map((candidatesData || []).map(candidate => [candidate.id, candidate]))
-        const latestInterviewsByCandidate = new Map()
-        for (const interview of interviewRows || []) {
-          if (!interview?.candidate_id) continue
-          const previousInterview = latestInterviewsByCandidate.get(interview.candidate_id)
-          const previousDate = previousInterview?.scheduled_at || previousInterview?.created_at || ''
-          const currentDate = interview.scheduled_at || interview.created_at || ''
-          if (!previousInterview || new Date(currentDate) > new Date(previousDate)) {
-            latestInterviewsByCandidate.set(interview.candidate_id, interview)
-          }
-        }
+    setShouldLoadDeferredAnalytics(false)
+    setLazyCardData(null)
+  }, [dashboardParams])
 
-        const pipelineDisplayCandidates = (candidatesData || [])
-          .map(candidate => ({
-            ...candidate,
-            display_stage: resolveDashboardDisplayStage(candidate, latestInterviewsByCandidate.get(candidate.id)),
-          }))
+  useEffect(() => {
+    if (!overviewQuery.isSuccess) return undefined
 
-        const shortlistedPipelineCandidates = pipelineDisplayCandidates
-          .filter(candidate => candidate.display_stage === 'SHORTLISTED')
-          .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-
-        const mapInterviewCandidates = (predicate, getDisplayStage) => Array.from(latestInterviewsByCandidate.values())
-          .filter(predicate)
-          .map(interview => {
-            const candidate = candidateMap.get(interview.candidate_id)
-            if (!candidate) return null
-
-            return {
-              ...candidate,
-              display_score: interview?.interview_score,
-              display_stage: getDisplayStage(interview),
-              rejected_at: interview?.scheduled_at || interview?.created_at || candidate.created_at
-            }
-          })
-          .filter(Boolean)
-          .sort((a, b) => new Date(b.rejected_at) - new Date(a.rejected_at))
-
-        const activeInterviewCandidates = mapInterviewCandidates((interview) => {
-          const status = (interview?.status || '').toLowerCase()
-          return status === 'scheduled' || status === 'ongoing'
-        }, (interview) => ((interview?.status || '').toLowerCase() === 'scheduled' ? 'INTERVIEW_SCHEDULED' : 'INTERVIEW'))
-
-        const selectedCandidates = mapInterviewCandidates((interview) => {
-          const status = (interview?.status || '').toLowerCase()
-          return status === 'completed' && Number(interview?.interview_score) >= INTERVIEW_REJECTION_SCORE_THRESHOLD
-        }, () => 'SELECTED')
-
-        const rejectedCandidates = mapInterviewCandidates((interview) => {
-          const status = (interview?.status || '').toLowerCase()
-          return status === 'completed' && Number(interview?.interview_score) < INTERVIEW_REJECTION_SCORE_THRESHOLD
-        }, () => 'REJECTED')
-        console.log('📊 Dashboard Stats:', statsData)
-        setStats(statsData)
-        setTotalCandidates(pipelineDisplayCandidates)
-        setResumeTrend(resumeData)
-        setInterviewTrend(interviewData)
-        setActiveJobs(jobs)
-        setUpcomingInterviews(interviews)
-        setShortlistedCandidates(shortlistedPipelineCandidates)
-        setInterviewCandidates(activeInterviewCandidates)
-        setSelectedInterviewCandidates(selectedCandidates)
-        setInterviewRejectedCandidates(rejectedCandidates)
-        setHiringMetrics(metrics)
-        setIntelligence(intel)
-      } catch (error) {
-        console.error('Failed to fetch dashboard data:', error)
-      } finally {
-        setLoading(false)
+    let cancelled = false
+    const loadDeferredAnalytics = () => {
+      if (!cancelled) {
+        setShouldLoadDeferredAnalytics(true)
       }
     }
-    fetchData()
-  }, [selectedMonth, selectedDate, selectedClient])
+
+    if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+      const idleId = window.requestIdleCallback(loadDeferredAnalytics, { timeout: 500 })
+      return () => {
+        cancelled = true
+        window.cancelIdleCallback(idleId)
+      }
+    }
+
+    const timeoutId = window.setTimeout(loadDeferredAnalytics, 250)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timeoutId)
+    }
+  }, [overviewQuery.isSuccess, dashboardParams])
 
   useEffect(() => {
     if (user?.role === 'admin' && typeof user?.wallet_balance === 'number' && user.wallet_balance <= 10) {
@@ -310,34 +303,64 @@ export default function Dashboard() {
     { title: 'Rejected', value: 0, icon: UserX, color: 'text-red-600', bg: 'bg-red-100 dark:bg-red-900/30', filter: { type: 'interview_rejected' } },
   ]
 
-  const handleCardClick = async (card) => {
-    console.log('Card clicked:', card)
+  const loadCardBuckets = useCallback(async () => {
+    if (lazyCardData) {
+      return lazyCardData
+    }
+
+    const [candidatesData, interviewRows] = await Promise.all([
+      api.getCandidates({ ...dashboardParams, limit: 20, offset: 0 }).catch((error) => {
+        console.error('Candidates error:', error)
+        return []
+      }),
+      api.getInterviews({ limit: 20, offset: 0 }).catch((error) => {
+        console.error('Interviews list error:', error)
+        return []
+      }),
+    ])
+
+    const nextBuckets = buildDashboardCandidateBuckets(candidatesData, interviewRows)
+    setLazyCardData(nextBuckets)
+    return nextBuckets
+  }, [dashboardParams, lazyCardData])
+
+  const handleCardClick = useCallback(async (card) => {
     setSelectedCard(card)
     setCardLoading(true)
     try {
-      if (card.title === 'Total Candidates') {
-        setCardCandidates(totalCandidates)
-        return
-      }
+      if (
+        card.title === 'Total Candidates'
+        || card.filter?.type === 'pipeline_shortlisted'
+        || card.filter?.type === 'interview_active'
+        || card.filter?.type === 'interview_selected'
+        || card.filter?.type === 'interview_rejected'
+      ) {
+        const buckets = await loadCardBuckets()
 
-      if (card.filter?.type === 'pipeline_shortlisted') {
-        setCardCandidates(shortlistedCandidates)
-        return
-      }
+        if (card.title === 'Total Candidates') {
+          setCardCandidates(buckets.totalCandidates)
+          return
+        }
 
-      if (card.filter?.type === 'interview_active') {
-        setCardCandidates(interviewCandidates)
-        return
-      }
+        if (card.filter?.type === 'pipeline_shortlisted') {
+          setCardCandidates(buckets.shortlistedCandidates)
+          return
+        }
 
-      if (card.filter?.type === 'interview_selected') {
-        setCardCandidates(selectedInterviewCandidates)
-        return
-      }
+        if (card.filter?.type === 'interview_active') {
+          setCardCandidates(buckets.interviewCandidates)
+          return
+        }
 
-      if (card.filter?.type === 'interview_rejected') {
-        setCardCandidates(interviewRejectedCandidates)
-        return
+        if (card.filter?.type === 'interview_selected') {
+          setCardCandidates(buckets.selectedInterviewCandidates)
+          return
+        }
+
+        if (card.filter?.type === 'interview_rejected') {
+          setCardCandidates(buckets.interviewRejectedCandidates)
+          return
+        }
       }
 
       const filter = { ...card.filter }
@@ -371,7 +394,7 @@ export default function Dashboard() {
     } finally {
       setCardLoading(false)
     }
-  }
+  }, [dashboardParams, loadCardBuckets, selectedClient, selectedDate, selectedMonth])
 
   const closeModal = () => {
     console.log('Closing modal')

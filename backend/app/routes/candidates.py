@@ -32,7 +32,7 @@ from ats.extraction.information_extraction import (
     extract_skill_keywords,
 )
 from ats.extraction.resume_parser import parse_resume
-from ats.extraction.skill_intelligence import SkillIntelligence
+from ats.extraction.skill_intelligence import get_skill_engine
 from ats.extraction.summary_generator import generate_summary
 from ats.extraction.validation import validate_current_company, validate_current_role
 from ats.features import build_feature_vector
@@ -49,7 +49,6 @@ ALLOWED_RESUME_CONTENT_TYPES = {
     "application/msword",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 }
-_skill_intelligence = SkillIntelligence()
 LEGACY_STAGE_NORMALIZATION_INTERVAL_SECONDS = 300
 _legacy_stage_normalization_lock = Lock()
 _legacy_stage_last_checked_at = 0.0
@@ -85,6 +84,16 @@ def _perf_log(endpoint: str, total_start: float, **fields) -> None:
     parts = [f"{key}={value}" for key, value in fields.items()]
     parts.append(f"total={perf_counter() - total_start:.4f}s")
     print(f"[PERF] {endpoint} " + " ".join(parts))
+
+
+def _resolve_pagination(page: Optional[int], limit: Optional[int], offset: Optional[int]) -> tuple[Optional[int], int]:
+    """Support page/limit while keeping legacy unpaginated calls working."""
+    if offset is not None or limit is not None or page is not None:
+        safe_limit = max(1, min(limit or 20, 200))
+        safe_page = max(page or 1, 1)
+        effective_offset = offset if offset is not None else (safe_page - 1) * safe_limit
+        return safe_limit, max(0, effective_offset)
+    return None, 0
 
 
 def _apply_candidate_list_scope(query, current_user):
@@ -524,7 +533,7 @@ def extract_skills_from_text(text: str) -> list:
     extracted_skills = extract_skill_keywords(text, skills_text)
     if extracted_skills:
         return extracted_skills
-    extracted_skills = _skill_intelligence.extract_skills(text)[:30]
+    extracted_skills = get_skill_engine().extract_skills(text)[:30]
     print(f"   Extracted {len(extracted_skills)} skills via shared extractor: {extracted_skills[:10]}")
     return extracted_skills
 
@@ -1676,7 +1685,7 @@ def enhanced_fallback_evaluation(
 
 def extract_skills_from_job_text(job_text: str) -> list:
     """Extract JD skills using the same shared ATS skill extraction pipeline."""
-    return _skill_intelligence.extract_skills(job_text)[:30]
+    return get_skill_engine().extract_skills(job_text)[:30]
 
 def simulate_resume_parsing(
     candidate: Candidate,
@@ -1928,8 +1937,8 @@ def get_candidates_count(
 
 @router.get("", response_model=List[CandidateResponse])
 def get_candidates(
-    page: int = 1,
-    limit: int = 20,
+    page: Optional[int] = None,
+    limit: Optional[int] = None,
     offset: Optional[int] = None,
     search: Optional[str] = None,
     stage: Optional[CandidateStage] = None,
@@ -1966,9 +1975,9 @@ def get_candidates(
         query = query.filter(Candidate.job_id == job_id)
     if min_score is not None:
         query = query.filter(Candidate.resume_score >= min_score)
-    effective_offset = offset if offset is not None else max(0, (page - 1) * limit)
+    effective_limit, effective_offset = _resolve_pagination(page, limit, offset)
     query_start = perf_counter()
-    candidates = (
+    query = (
         query.options(
             load_only(
                 Candidate.id,
@@ -2000,10 +2009,10 @@ def get_candidates(
             joinedload(Candidate.job).load_only(JobDescription.id, JobDescription.title),
         )
         .order_by(Candidate.created_at.desc())
-        .offset(effective_offset)
-        .limit(limit)
-        .all()
     )
+    if effective_limit is not None:
+        query = query.offset(effective_offset).limit(effective_limit)
+    candidates = query.all()
     query_time = perf_counter() - query_start
     print(f"[DB PERF] candidates query={query_time:.4f}s")
     
@@ -2047,7 +2056,7 @@ def get_candidates(
         query=f"{query_time:.4f}s",
         serialization=f"{perf_counter() - serialization_start:.4f}s",
         row_count=len(result),
-        limit=limit,
+        limit=effective_limit or "all",
         offset=effective_offset,
     )
     return result

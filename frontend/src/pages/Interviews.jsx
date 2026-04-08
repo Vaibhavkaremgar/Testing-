@@ -469,16 +469,16 @@ export default function Interviews({ superAdminAgencyId = null }) {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-full">
+      <div className="flex h-screen items-center justify-center overflow-hidden">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
       </div>
     )
   }
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="flex h-screen flex-col overflow-hidden">
       {/* Header */}
-      <div className="mb-6 flex items-center justify-between">
+      <div className="flex shrink-0 items-center justify-between border-b bg-background px-6 py-4">
         <div>
           <h1 className="text-2xl font-bold">Interviews</h1>
           <p className="text-muted-foreground">Review interview recordings and AI analysis</p>
@@ -507,13 +507,13 @@ export default function Interviews({ superAdminAgencyId = null }) {
       </div>
 
       {/* Main Content - Side by Side */}
-        <div className="flex gap-4 flex-1 overflow-hidden">
+      <div className="flex flex-1 gap-4 overflow-hidden p-4">
         {/* Candidate List - Left Side */}
-        <Card className="w-80 flex-shrink-0 bg-blue-50 dark:bg-blue-950 xl:w-96">
-          <CardHeader className="py-4">
+        <Card className="flex h-full w-1/3 max-w-sm min-w-[300px] flex-shrink-0 flex-col overflow-hidden bg-blue-50 dark:bg-blue-950">
+          <CardHeader className="shrink-0 py-4">
             <CardTitle className="text-base">Interview Queue</CardTitle>
           </CardHeader>
-          <CardContent className="p-0">
+          <CardContent className="min-h-0 flex-1 overflow-y-auto p-0">
             {filteredInterviews.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground px-4">
                 <Video className="h-12 w-12 mx-auto mb-3 opacity-50" />
@@ -578,8 +578,8 @@ export default function Interviews({ superAdminAgencyId = null }) {
 
         {/* Interview Details - Right Side */}
         {selectedInterview ? (
-        <Card className="flex-1 flex flex-col">
-          <CardHeader className="py-4">
+        <Card className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+          <CardHeader className="shrink-0 py-4">
             <div className="flex items-center justify-between">
               <div>
                 <CardTitle>{selectedInterview.candidate_name}</CardTitle>
@@ -620,9 +620,9 @@ export default function Interviews({ superAdminAgencyId = null }) {
               </p>
             )}
           </CardHeader>
-          <CardContent className="flex-1">
-            <Tabs defaultValue="video" className="w-full">
-              <TabsList className="w-full">
+          <CardContent className="min-h-0 flex-1 overflow-hidden p-4">
+            <Tabs defaultValue="video" className="flex h-full w-full flex-col overflow-hidden">
+              <TabsList className="grid w-full shrink-0 grid-cols-3">
                 <TabsTrigger value="video" className="flex-1">
                   <Video className="h-4 w-4 mr-2" />
                   Video
@@ -637,33 +637,52 @@ export default function Interviews({ superAdminAgencyId = null }) {
                 </TabsTrigger>
               </TabsList>
 
-              <TabsContent value="video" className="mt-4">
-                <div className="mx-auto w-full max-w-4xl">
-                  <div className="aspect-video overflow-hidden rounded-xl bg-transparent">
+              <TabsContent value="video" className="mt-4 min-h-0 flex-1 overflow-hidden">
+                <div className="flex h-full flex-col overflow-hidden">
+                  <div className="h-[400px] w-full overflow-hidden rounded-xl bg-black">
                     <InterviewRecordingPlayer
                       recordingPath={selectedInterview.recording_path}
                       className="h-full w-full"
                     />
                   </div>
+                  <div className="mt-4 min-h-0 flex-1 overflow-hidden rounded-xl border bg-muted/30 p-4">
+                    <div className="grid gap-3 md:grid-cols-3">
+                      <div className="rounded-lg bg-background p-4">
+                        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Interview Type</p>
+                        <p className="mt-2 text-sm font-medium">{selectedInterview.interview_type || 'General'}</p>
+                      </div>
+                      <div className="rounded-lg bg-background p-4">
+                        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Scheduled</p>
+                        <p className="mt-2 text-sm font-medium">{formatDateTime(selectedInterview.scheduled_at)}</p>
+                      </div>
+                      <div className="rounded-lg bg-background p-4">
+                        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Result</p>
+                        <p className="mt-2 text-sm font-medium">{selectedInterviewResultMeta?.label || 'Pending'}</p>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </TabsContent>
 
-              <TabsContent value="transcript" className="mt-4">
+              <TabsContent value="transcript" className="mt-4 min-h-0 flex-1 overflow-hidden">
                 {selectedInterview.transcript ? (
-                  <div className="bg-muted rounded-xl p-4 font-mono text-sm whitespace-pre-wrap max-h-96 overflow-auto">
-                    {selectedInterview.transcript}
+                  <div className="h-full overflow-hidden rounded-xl bg-muted p-4">
+                    <div className="h-full overflow-y-auto font-mono text-sm whitespace-pre-wrap">
+                      {selectedInterview.transcript}
+                    </div>
                   </div>
                 ) : (
-                  <div className="text-center py-12 text-muted-foreground">
+                  <div className="flex h-full items-center justify-center text-center text-muted-foreground">
                     <FileText className="h-16 w-16 mx-auto mb-4 opacity-50" />
                     <p>No transcript available</p>
                   </div>
                 )}
               </TabsContent>
 
-              <TabsContent value="analysis" className="mt-4">
+              <TabsContent value="analysis" className="mt-4 min-h-0 flex-1 overflow-hidden">
                 {selectedInterview.ai_summary ? (
-                  <div className="space-y-4">
+                  <div className="h-full overflow-y-auto pr-1">
+                    <div className="space-y-4">
                     {/* AI Summary */}
                     <div className="bg-muted rounded-xl p-4">
                       <h4 className="font-medium mb-2 flex items-center gap-2">
@@ -720,9 +739,10 @@ export default function Interviews({ superAdminAgencyId = null }) {
                         </CardContent>
                       </Card>
                     </div>
+                    </div>
                   </div>
                 ) : (
-                  <div className="text-center py-12 text-muted-foreground">
+                  <div className="flex h-full items-center justify-center text-center text-muted-foreground">
                     <Brain className="h-16 w-16 mx-auto mb-4 opacity-50" />
                     <p>No AI analysis available</p>
                   </div>
@@ -732,7 +752,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
           </CardContent>
         </Card>
         ) : filteredInterviews.length > 0 ? (
-          <Card className="flex-1 flex items-center justify-center">
+          <Card className="flex h-full flex-1 items-center justify-center overflow-hidden">
             <div className="text-center text-muted-foreground">
               <Video className="h-16 w-16 mx-auto mb-4 opacity-50" />
               <p>Select a candidate to view interview details</p>

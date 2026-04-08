@@ -1,16 +1,13 @@
-from ats.extraction.skill_intelligence import SkillIntelligence
+from ats.extraction.skill_intelligence import get_skill_engine
 
 
 def get_skill_dictionary():
-    intelligence = SkillIntelligence()
-    return intelligence.get_skill_dictionary()
+    return get_skill_engine().get_skill_dictionary()
 
 
 def get_synonym_dictionary():
-    intelligence = SkillIntelligence()
-    return intelligence.get_synonym_dictionary()
+    return get_skill_engine().get_synonym_dictionary()
 
 
 def get_skill_ontology():
-    intelligence = SkillIntelligence()
-    return intelligence.get_ontology()
+    return get_skill_engine().get_ontology()

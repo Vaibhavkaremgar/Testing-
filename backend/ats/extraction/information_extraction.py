@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import re
 import importlib.util
+from threading import Lock
 from typing import Any, Dict, List, Optional
 from dateutil import parser as date_parser
 
@@ -10,7 +11,7 @@ from flashtext import KeywordProcessor
 
 from ats.datasets.parser_config_loader import ParserConfigLoader
 from ats.extraction.experience_extraction import extract_total_experience
-from ats.extraction.skill_intelligence import LANGUAGE_TERMS, NOISE_ALIASES, NOISE_TERMS, SkillIntelligence
+from ats.extraction.skill_intelligence import LANGUAGE_TERMS, get_skill_engine
 from ats.extraction.validation import validate_parsed_fields, validate_location
 from ats.preprocessing.section_segmentation import segment_resume_sections
 from ats.preprocessing.text_cleaning import (
@@ -398,14 +399,45 @@ def _looks_like_person_name_line(value: str) -> bool:
         return False
     return True
 
-_skill_intelligence = SkillIntelligence()
-_skill_keyword_processor = KeywordProcessor(case_sensitive=False)
 _skillner_extractor = None
 _skillner_state = {
     "checked": False,
     "installed": False,
     "usable": False,
 }
+_skill_keyword_processor = None
+_skill_keyword_processor_lock = Lock()
+
+
+def _get_skill_intelligence():
+    return get_skill_engine()
+
+
+def _get_skill_keyword_processor() -> KeywordProcessor:
+    global _skill_keyword_processor
+
+    if _skill_keyword_processor is not None:
+        return _skill_keyword_processor
+
+    with _skill_keyword_processor_lock:
+        if _skill_keyword_processor is not None:
+            return _skill_keyword_processor
+
+        skill_engine = _get_skill_intelligence()
+        processor = KeywordProcessor(case_sensitive=False)
+        for skill in skill_engine.get_skill_dictionary():
+            if _is_valid_skill_candidate(skill):
+                processor.add_keyword(skill, skill)
+        for synonym, canonical in skill_engine.get_synonym_dictionary().items():
+            if _is_valid_skill_candidate(synonym) and _is_valid_skill_candidate(canonical):
+                processor.add_keyword(synonym, canonical)
+        for alias, canonical in SKILL_ALIASES.items():
+            if _is_valid_skill_candidate(alias) and _is_valid_skill_candidate(canonical):
+                processor.add_keyword(alias, canonical)
+
+        _skill_keyword_processor = processor
+
+    return _skill_keyword_processor
 
 
 def _skillner_installed() -> bool:
@@ -414,7 +446,9 @@ def _skillner_installed() -> bool:
 
 def _is_valid_skill_candidate(skill: str) -> bool:
     normalized = (skill or "").strip().lower()
-    return bool(normalized and normalized not in LANGUAGE_TERMS and normalized not in NOISE_TERMS and normalized not in NOISE_ALIASES)
+    if not normalized or normalized in LANGUAGE_TERMS:
+        return False
+    return not _get_skill_intelligence()._is_noise(normalized)
 
 
 def _looks_like_skill_chunk(chunk: str) -> bool:
@@ -481,8 +515,9 @@ def _fallback_skill_from_chunk(chunk: str) -> str:
     if re.search(r"\b(worked in|worked as|door to door|walk-in)\b", normalized):
         return ""
     normalized_tokens = normalized.split()
-    canonical_skill = _skill_intelligence.get_synonym_dictionary().get(normalized, normalized)
-    if len(normalized_tokens) > 2 and canonical_skill not in _skill_intelligence.get_skill_dictionary():
+    skill_engine = _get_skill_intelligence()
+    canonical_skill = skill_engine.get_synonym_dictionary().get(normalized, normalized)
+    if len(normalized_tokens) > 2 and canonical_skill not in skill_engine.get_skill_dictionary():
         return ""
     if len(normalized_tokens) > 4:
         return ""
@@ -496,10 +531,11 @@ def _is_supported_extracted_skill(skill: str, chunk: str) -> bool:
     normalized_skill = normalize_skill_name(skill)
     normalized_chunk = clean_text_pipeline(chunk or "").strip().lower()
     aliased_chunk = SKILL_ALIASES.get(normalized_chunk, normalized_chunk)
-    canonical_chunk = _skill_intelligence.get_synonym_dictionary().get(aliased_chunk, aliased_chunk)
+    skill_engine = _get_skill_intelligence()
+    canonical_chunk = skill_engine.get_synonym_dictionary().get(aliased_chunk, aliased_chunk)
     if not normalized_skill or not normalized_chunk:
         return False
-    if _skill_intelligence._is_noise(normalized_skill):
+    if skill_engine._is_noise(normalized_skill):
         return False
     if re.search(r"\b[a-z]\b", normalized_skill) and normalized_skill not in {"c", "r"}:
         return False
@@ -512,17 +548,6 @@ def _is_supported_extracted_skill(skill: str, chunk: str) -> bool:
     if re.search(rf"(?<!\w){re.escape(normalized_skill)}(?!\w)", normalized_chunk):
         return True
     return normalized_skill.replace(" ", "") in normalized_chunk.replace(" ", "")
-
-
-for skill in _skill_intelligence.get_skill_dictionary():
-    if _is_valid_skill_candidate(skill):
-        _skill_keyword_processor.add_keyword(skill, skill)
-for synonym, canonical in _skill_intelligence.get_synonym_dictionary().items():
-    if _is_valid_skill_candidate(synonym) and _is_valid_skill_candidate(canonical):
-        _skill_keyword_processor.add_keyword(synonym, canonical)
-for alias, canonical in SKILL_ALIASES.items():
-    if _is_valid_skill_candidate(alias) and _is_valid_skill_candidate(canonical):
-        _skill_keyword_processor.add_keyword(alias, canonical)
 
 
 def normalize_skill_name(skill: str) -> str:
@@ -567,10 +592,11 @@ def extract_name(text: str) -> str:
         if not (2 <= len(words) <= 4):
             return False
         normalized_candidate = clean_text_pipeline(compact).lower()
+        skill_engine = _get_skill_intelligence()
         if (
-            normalized_candidate in _skill_intelligence.get_skill_dictionary()
-            or normalized_candidate in _skill_intelligence.get_synonym_dictionary()
-            or normalized_candidate in _skill_intelligence.get_synonym_dictionary().values()
+            normalized_candidate in skill_engine.get_skill_dictionary()
+            or normalized_candidate in skill_engine.get_synonym_dictionary()
+            or normalized_candidate in skill_engine.get_synonym_dictionary().values()
         ):
             return False
         capitalized_count = sum(1 for word in words if re.match(r"^[A-Z][A-Za-z'`.-]+$", word))
@@ -658,7 +684,7 @@ def _filter_section_level_matches(matches: List[str], source_text: str) -> List[
         normalized = normalize_skill_name(match)
         if not normalized:
             continue
-        category = _skill_intelligence.category_map.get(normalized)
+        category = _get_skill_intelligence().category_map.get(normalized)
         if category == "industry":
             continue
         if normalized not in filtered and re.search(rf"(?<!\w){re.escape(normalized)}(?!\w)", source_lower):
@@ -737,9 +763,10 @@ def _skill_confidence(skill: str, source_text: str, from_section: bool) -> str:
     normalized = normalize_skill_name(skill)
     if not normalized:
         return "low"
-    if normalized in _skill_intelligence.get_skill_dictionary():
+    skill_engine = _get_skill_intelligence()
+    if normalized in skill_engine.get_skill_dictionary():
         return "high" if from_section else "medium"
-    if normalized in _skill_intelligence.get_synonym_dictionary().values():
+    if normalized in skill_engine.get_synonym_dictionary().values():
         return "medium"
     if normalized in SKILL_ALIASES.values() or normalized in SKILL_ALIASES:
         return "medium"
@@ -759,12 +786,13 @@ def _is_validated_skill(skill: str, source_text: str, from_section: bool, blocke
         return False
     if normalized in blocked_locations or normalized in KNOWN_LOCATION_SKILLS_BLOCKLIST:
         return False
-    if _skill_intelligence._is_noise(normalized):
+    skill_engine = _get_skill_intelligence()
+    if skill_engine._is_noise(normalized):
         return False
     if _skill_confidence(normalized, source_text, from_section) == "low":
         return False
-    in_esco = normalized in _skill_intelligence.get_skill_dictionary()
-    in_synonyms = normalized in _skill_intelligence.get_synonym_dictionary().values()
+    in_esco = normalized in skill_engine.get_skill_dictionary()
+    in_synonyms = normalized in skill_engine.get_synonym_dictionary().values()
     in_custom = normalized in set(SKILL_ALIASES.values()) or normalized in set(SKILL_ALIASES.keys())
     return in_esco or in_synonyms or in_custom
 
@@ -799,13 +827,15 @@ def _finalize_skills(skills: List[str], source_text: str, location_text: str, fr
 
 
 def _extract_contextual_skills(*sections: str) -> List[str]:
+    skill_engine = _get_skill_intelligence()
+    skill_keyword_processor = _get_skill_keyword_processor()
     matches: List[str] = []
     for section in sections:
         normalized_section = clean_text_pipeline(section or "")
         if not normalized_section:
             continue
-        matches.extend(_skill_keyword_processor.extract_keywords(normalized_section))
-        matches.extend(_skill_intelligence.extract_skills(normalized_section))
+        matches.extend(skill_keyword_processor.extract_keywords(normalized_section))
+        matches.extend(skill_engine.extract_skills(normalized_section))
         matches.extend(_extract_skillner_keywords(normalized_section))
         for sentence in SKILL_SENTENCE_SPLIT_PATTERN.split(normalized_section):
             sentence = sentence.strip()
@@ -813,13 +843,15 @@ def _extract_contextual_skills(*sections: str) -> List[str]:
                 continue
             if not re.search(r"(?i)\b(?:worked on|built|developed|implemented|used|deploy|designed|experience with|services?|apis?)\b", sentence):
                 continue
-            matches.extend(_skill_keyword_processor.extract_keywords(sentence))
-            matches.extend(_skill_intelligence.extract_skills(sentence))
+            matches.extend(skill_keyword_processor.extract_keywords(sentence))
+            matches.extend(skill_engine.extract_skills(sentence))
             matches.extend(_extract_skillner_keywords(sentence))
     return _unique_in_order(matches)
 
 
 def extract_skill_keywords(text: str, section_text: str = "") -> List[str]:
+    skill_engine = _get_skill_intelligence()
+    skill_keyword_processor = _get_skill_keyword_processor()
     source = _sanitize_skill_section(section_text or text)
     if not source:
         return []
@@ -838,8 +870,8 @@ def extract_skill_keywords(text: str, section_text: str = "") -> List[str]:
         if len(chunk) < 2 or not _looks_like_skill_chunk(chunk):
             continue
         chunk_matches = []
-        chunk_matches.extend(_skill_keyword_processor.extract_keywords(chunk))
-        chunk_matches.extend(_skill_intelligence.extract_skills(chunk))
+        chunk_matches.extend(skill_keyword_processor.extract_keywords(chunk))
+        chunk_matches.extend(skill_engine.extract_skills(chunk))
         chunk_matches.extend(_extract_skillner_keywords(chunk))
         if not chunk_matches:
             fallback_skill = _fallback_skill_from_chunk(chunk)
@@ -851,8 +883,8 @@ def extract_skill_keywords(text: str, section_text: str = "") -> List[str]:
         )
 
     section_matches = []
-    section_matches.extend(_skill_keyword_processor.extract_keywords(normalized_section))
-    section_matches.extend(_skill_intelligence.extract_skills(normalized_section))
+    section_matches.extend(skill_keyword_processor.extract_keywords(normalized_section))
+    section_matches.extend(skill_engine.extract_skills(normalized_section))
     section_matches.extend(_extract_skillner_keywords(normalized_section))
     matches.extend(_filter_section_level_matches(section_matches, normalized_section))
 
@@ -863,12 +895,12 @@ def extract_skill_keywords(text: str, section_text: str = "") -> List[str]:
                 candidate = normalize_skill_name(chunk.text)
                 if len(candidate.split()) > 4:
                     continue
-                if candidate in _skill_intelligence.get_synonym_dictionary():
-                    matches.append(_skill_intelligence.get_synonym_dictionary()[candidate])
-                elif candidate in _skill_intelligence.get_skill_dictionary():
+                if candidate in skill_engine.get_synonym_dictionary():
+                    matches.append(skill_engine.get_synonym_dictionary()[candidate])
+                elif candidate in skill_engine.get_skill_dictionary():
                     matches.append(candidate)
 
-    normalized_matches = _skill_intelligence.map_skills(matches)
+    normalized_matches = skill_engine.map_skills(matches)
     return _unique_in_order(_suppress_generic_overlaps(normalized_matches))[:50]
 
 

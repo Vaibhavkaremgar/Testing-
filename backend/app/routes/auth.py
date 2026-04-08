@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from datetime import timedelta
-from typing import List
+from typing import List, Optional
 from uuid import UUID
 from app.database import get_db
 from app.models import User, Agency
@@ -16,6 +16,16 @@ from app.auth import (
 from app.config import settings
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+
+def _resolve_pagination(page: Optional[int], limit: Optional[int], offset: Optional[int]) -> tuple[Optional[int], int]:
+    """Support page/limit while keeping legacy unpaginated calls working."""
+    if offset is not None or limit is not None or page is not None:
+        safe_limit = max(1, min(limit or 20, 200))
+        safe_page = max(page or 1, 1)
+        effective_offset = offset if offset is not None else (safe_page - 1) * safe_limit
+        return safe_limit, max(0, effective_offset)
+    return None, 0
 
 @router.post("/register", response_model=UserResponse)
 def register(user: UserCreate, db: Session = Depends(get_db)):
@@ -241,12 +251,25 @@ async def get_avatar(filename: str):
 
 # Admin endpoints
 @router.get("/users/public")
-def get_public_users(db: Session = Depends(get_db)):
+def get_public_users(
+    page: Optional[int] = None,
+    limit: Optional[int] = None,
+    offset: Optional[int] = None,
+    db: Session = Depends(get_db),
+):
     """Get super_admin and admin users only for tenant selection screen"""
     from sqlalchemy import text
-    rows = db.execute(text(
-        "SELECT id, full_name, email, role::text, agency_id FROM users WHERE is_active = true AND role::text IN ('super_admin', 'admin')"
-    )).fetchall()
+    query = (
+        "SELECT id, full_name, email, role::text, agency_id FROM users "
+        "WHERE is_active = true AND role::text IN ('super_admin', 'admin') "
+        "ORDER BY full_name"
+    )
+    params = {}
+    effective_limit, effective_offset = _resolve_pagination(page, limit, offset)
+    if effective_limit is not None:
+        query += " LIMIT :limit OFFSET :offset"
+        params.update({"limit": effective_limit, "offset": effective_offset})
+    rows = db.execute(text(query), params).fetchall()
     return [{"id": r[0], "full_name": r[1], "email": r[2], "role": r[3], "agency_id": r[4]} for r in rows]
 
 @router.get("/login-screen")
@@ -265,16 +288,33 @@ def get_login_screen(db: Session = Depends(get_db)):
     }
 
 @router.get("/users/by-agency/{agency_id}")
-def get_users_by_agency(agency_id: UUID, db: Session = Depends(get_db)):
+def get_users_by_agency(
+    agency_id: UUID,
+    page: Optional[int] = None,
+    limit: Optional[int] = None,
+    offset: Optional[int] = None,
+    db: Session = Depends(get_db),
+):
     """Get all users (admin + team members) for a specific agency"""
     from sqlalchemy import text
-    rows = db.execute(text(
-        "SELECT id, full_name, email, role::text FROM users WHERE is_active = true AND agency_id = :agency_id ORDER BY role::text, full_name"
-    ), {"agency_id": agency_id}).fetchall()
+    query = (
+        "SELECT id, full_name, email, role::text FROM users "
+        "WHERE is_active = true AND agency_id = :agency_id "
+        "ORDER BY role::text, full_name"
+    )
+    params = {"agency_id": agency_id}
+    effective_limit, effective_offset = _resolve_pagination(page, limit, offset)
+    if effective_limit is not None:
+        query += " LIMIT :limit OFFSET :offset"
+        params.update({"limit": effective_limit, "offset": effective_offset})
+    rows = db.execute(text(query), params).fetchall()
     return [{"id": r[0], "full_name": r[1], "email": r[2], "role": r[3]} for r in rows]
 
 @router.get("/users", response_model=List[UserResponse])
 def get_all_users(
+    page: Optional[int] = None,
+    limit: Optional[int] = None,
+    offset: Optional[int] = None,
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
@@ -288,9 +328,15 @@ def get_all_users(
         )
     
     if current_user.role == UserRole.SUPER_ADMIN:
-        users = db.query(User).all()
+        query = db.query(User)
     else:
-        users = db.query(User).filter(User.agency_id == current_user.agency_id).all()
+        query = db.query(User).filter(User.agency_id == current_user.agency_id)
+
+    query = query.order_by(User.created_at.desc())
+    effective_limit, effective_offset = _resolve_pagination(page, limit, offset)
+    if effective_limit is not None:
+        query = query.offset(effective_offset).limit(effective_limit)
+    users = query.all()
 
     agency_map = {
         str(agency.id): agency.name

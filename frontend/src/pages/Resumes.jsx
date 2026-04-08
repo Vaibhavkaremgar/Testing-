@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useMemo } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -29,6 +30,15 @@ import {
 } from '@/components/ui/dialog'
 
 const DEFAULT_LIST_LIMIT = 100
+
+const ResumeStatusBadge = React.memo(function ResumeStatusBadge({ candidate }) {
+  const status = getResumeDisplayStatus(candidate)
+  return (
+    <Badge className={status.badgeClass}>
+      {status.label}
+    </Badge>
+  )
+})
 
 function getResumeDisplayStatus(candidate) {
   const stage = candidate?.display_stage || candidate?.stage
@@ -97,10 +107,6 @@ export default function Resumes() {
   const selectedGlobalJobId = searchParams.get('job_id') || ''
   const { user: currentUser } = useAuth()
   const canDeleteResumes = currentUser?.role === 'admin'
-  const [candidates, setCandidates] = useState([])
-  const [jobs, setJobs] = useState([])
-  const [allJobs, setAllJobs] = useState([]) // Store all jobs for filter
-  const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
   const [search, setSearch] = useState('')
   const [selectedJobForUpload, setSelectedJobForUpload] = useState('')
@@ -117,7 +123,6 @@ export default function Resumes() {
   const [selectedCandidate, setSelectedCandidate] = useState(null)
   const [candidateJob, setCandidateJob] = useState(null)
   const [minPassingScore, setMinPassingScore] = useState(60)
-  const [jobScores, setJobScores] = useState({})
   const [syncing, setSyncing] = useState(false)
   const [viewingResume, setViewingResume] = useState(null)
   const [resumeSummary, setResumeSummary] = useState(null)
@@ -126,7 +131,6 @@ export default function Resumes() {
   const [analysisLoading, setAnalysisLoading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState({ show: false, current: 0, total: 0, status: 'uploading' })
   const [selectedCandidates, setSelectedCandidates] = useState([])
-  const [users, setUsers] = useState([])
   const [selectedUser, setSelectedUser] = useState('')
   const [assigning, setAssigning] = useState(false)
   const [deletingCandidates, setDeletingCandidates] = useState(false)
@@ -138,23 +142,68 @@ export default function Resumes() {
   const SHOW_MORE_STEP = 20
   const selectedCandidateStatus = selectedCandidate ? getResumeDisplayStatus(selectedCandidate) : null
 
-  // Load job-specific minimum passing scores
-  useEffect(() => {
-    const fetchJobScores = async () => {
-      try {
-        const jobsData = await api.getJobs({ limit: DEFAULT_LIST_LIMIT })
-        const scores = {}
-        jobsData.forEach(job => {
-          scores[job.id] = job.min_passing_score || 60
-        })
-        setJobScores(scores)
-      } catch (error) {
-        console.error('Failed to fetch job scores:', error)
-      }
+  const {
+    data: dashboardData,
+    isLoading: loading,
+    refetch: refetchResumeData,
+  } = useQuery({
+    queryKey: ['dashboard-data', 'resumes', selectedClient, selectedGlobalJobId],
+    queryFn: () => api.getDashboardData({
+      client: selectedClient || undefined,
+      candidate_limit: DEFAULT_LIST_LIMIT,
+      job_limit: DEFAULT_LIST_LIMIT,
+      user_limit: DEFAULT_LIST_LIMIT,
+    }),
+  })
+
+  // Keep this page self-contained: it now hydrates from a single cached endpoint.
+  const allJobs = useMemo(() => dashboardData?.jobs || [], [dashboardData])
+  const jobs = useMemo(() => allJobs.filter((job) => job.is_active), [allJobs])
+  const users = useMemo(() => dashboardData?.users || [], [dashboardData])
+  const jobsById = useMemo(() => Object.fromEntries(allJobs.map((job) => [job.id, job])), [allJobs])
+  const jobScores = useMemo(
+    () => Object.fromEntries((dashboardData?.scores || []).map((score) => [score.job_id, score.min_passing_score || 60])),
+    [dashboardData],
+  )
+  const candidates = useMemo(() => {
+    let filteredData = dashboardData?.candidates || []
+
+    if (selectedGlobalJobId) {
+      filteredData = filteredData.filter((candidate) => candidate.job_id?.toString() === selectedGlobalJobId)
+    } else if (jobFilter.length > 0) {
+      filteredData = filteredData.filter((candidate) => jobFilter.includes(candidate.job_id?.toString()))
     }
-    fetchJobScores()
-    // Removed polling - fetch only once on mount to reduce API calls
-  }, [])
+
+    if (search.trim()) {
+      const searchValue = search.trim().toLowerCase()
+      filteredData = filteredData.filter((candidate) =>
+        [candidate.name, candidate.email, candidate.job_title]
+          .filter(Boolean)
+          .some((value) => value.toLowerCase().includes(searchValue)),
+      )
+    }
+
+    if (scoreFilter.length > 0) {
+      filteredData = filteredData.filter((candidate) => {
+        const score = candidate.resume_score || 0
+        return scoreFilter.some((range) => {
+          if (range === '0-20') return score >= 0 && score <= 20
+          if (range === '21-40') return score >= 21 && score <= 40
+          if (range === '41-60') return score >= 41 && score <= 60
+          if (range === '61-80') return score >= 61 && score <= 80
+          if (range === '81-100') return score >= 81 && score <= 100
+          return false
+        })
+      })
+    }
+
+    if (statusFilter.length > 0) {
+      filteredData = filteredData.filter((candidate) => statusFilter.includes(getResumeDisplayStatus(candidate).key))
+    }
+
+    return filteredData
+  }, [dashboardData, jobFilter, scoreFilter, search, selectedGlobalJobId, statusFilter])
+  const visibleCandidates = useMemo(() => candidates.slice(0, visibleCount), [candidates, visibleCount])
 
   useEffect(() => {
     if (selectedGlobalJobId) {
@@ -168,86 +217,8 @@ export default function Resumes() {
   }, [selectedGlobalJobId])
 
   const fetchCandidates = useCallback(async () => {
-    try {
-      const params = { search, client: selectedClient, limit: DEFAULT_LIST_LIMIT }
-      if (selectedGlobalJobId) {
-        params.job_id = selectedGlobalJobId
-      }
-
-      const data = await api.getCandidates(params)
-      let filteredData = (data || [])
-      
-      if (!selectedGlobalJobId && jobFilter.length > 0) {
-        filteredData = filteredData.filter(c => jobFilter.includes(c.job_id?.toString()))
-      }
-      
-      if (scoreFilter.length > 0) {
-        filteredData = filteredData.filter(c => {
-          const score = c.resume_score || 0
-          return scoreFilter.some(range => {
-            if (range === '0-20') return score >= 0 && score <= 20
-            if (range === '21-40') return score >= 21 && score <= 40
-            if (range === '41-60') return score >= 41 && score <= 60
-            if (range === '61-80') return score >= 61 && score <= 80
-            if (range === '81-100') return score >= 81 && score <= 100
-            return false
-          })
-        })
-      }
-      
-      if (statusFilter.length > 0) {
-        filteredData = filteredData.filter(c => statusFilter.includes(getResumeDisplayStatus(c).key))
-      }
-      
-      setCandidates(filteredData)
-    } catch (error) {
-      console.error('Failed to fetch candidates:', error)
-      setCandidates([])
-    }
-  }, [search, selectedClient, selectedGlobalJobId, jobFilter, scoreFilter, statusFilter])
-
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        console.log('Fetching candidates and jobs...')
-        const candidateParams = { limit: DEFAULT_LIST_LIMIT }
-        if (selectedClient) {
-          candidateParams.client = selectedClient
-        }
-        if (selectedGlobalJobId) {
-          candidateParams.job_id = selectedGlobalJobId
-        }
-        const [candidatesData, jobsData, usersData] = await Promise.all([
-          api.getCandidates(candidateParams),
-          api.getJobs({ limit: DEFAULT_LIST_LIMIT }),
-          api.getAllUsers().catch(() => [])
-        ])
-        console.log('Jobs data received:', jobsData)
-        console.log('Jobs count:', jobsData?.length)
-        setCandidates(candidatesData || [])
-        setAllJobs(jobsData || [])  // Store all jobs
-        const activeJobs = (jobsData || []).filter(job => job.is_active)
-        console.log('Active jobs:', activeJobs)
-        setJobs(activeJobs)  // Only active jobs for uploader
-        setUsers(usersData || [])
-      } catch (error) {
-        console.error('Failed to fetch data:', error)
-        console.error('Error details:', error.message, error.stack)
-        setCandidates([])
-        setJobs([])
-        setAllJobs([])
-        setUsers([])
-      } finally {
-        setLoading(false)
-      }
-    }
-    fetchData()
-  }, [selectedClient, selectedGlobalJobId])
-
-  useEffect(() => {
-    const debounce = setTimeout(fetchCandidates, 300)
-    return () => clearTimeout(debounce)
-  }, [search, fetchCandidates])
+    await refetchResumeData()
+  }, [refetchResumeData])
 
   useEffect(() => {
     if (!uploadProgress.show || !uploadProgress.uploadId || uploadProgress.status === 'completed' || uploadProgress.status === 'error') {
@@ -1075,8 +1046,8 @@ export default function Resumes() {
                 </tr>
               </thead>
               <tbody>
-                {candidates.slice(0, visibleCount).map((candidate) => {
-                  const resumeStatus = getResumeDisplayStatus(candidate)
+                {visibleCandidates.map((candidate) => {
+                  const jobDetails = jobsById[candidate.job_id]
 
                   return (
                   <tr key={candidate.id} className="border-b hover:bg-muted/50 transition-colors cursor-pointer" onClick={() => handleViewCandidate(candidate)}>
@@ -1129,9 +1100,9 @@ export default function Resumes() {
                       {candidate.job_title ? (
                         <div>
                           <p className="text-sm font-medium">{candidate.job_title}</p>
-                          {allJobs.find(j => j.id === candidate.job_id)?.company_name && (
+                          {jobDetails?.company_name && (
                             <p className="text-xs text-muted-foreground">
-                              {allJobs.find(j => j.id === candidate.job_id).company_name}
+                              {jobDetails.company_name}
                             </p>
                           )}
                         </div>
@@ -1154,9 +1125,7 @@ export default function Resumes() {
                       )}
                     </td>
                     <td className="p-4">
-                      <Badge className={resumeStatus.badgeClass}>
-                        {resumeStatus.label}
-                      </Badge>
+                      <ResumeStatusBadge candidate={candidate} />
                     </td>
                     <td className="p-4">
                       <div className="flex flex-wrap gap-1 max-w-[200px]">

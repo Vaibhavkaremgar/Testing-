@@ -15,6 +15,7 @@ console.log('API_BASE:', API_BASE)
 class ApiClient {
   constructor() {
     this.token = localStorage.getItem('token')
+    this.responseCache = new Map()
   }
 
   setToken(token) {
@@ -30,24 +31,68 @@ class ApiClient {
     return this.token || localStorage.getItem('token')
   }
 
+  cloneCacheValue(value) {
+    if (value === null || value === undefined) return value
+    if (typeof structuredClone === 'function') {
+      return structuredClone(value)
+    }
+    return JSON.parse(JSON.stringify(value))
+  }
+
+  getCacheKey(endpoint, method) {
+    return `${method}:${this.getToken() || 'anonymous'}:${endpoint}`
+  }
+
+  getCachedResponse(cacheKey, ttlMs) {
+    const cachedEntry = this.responseCache.get(cacheKey)
+    if (!cachedEntry) return null
+    if ((Date.now() - cachedEntry.timestamp) > ttlMs) {
+      this.responseCache.delete(cacheKey)
+      return null
+    }
+    return this.cloneCacheValue(cachedEntry.value)
+  }
+
+  setCachedResponse(cacheKey, value) {
+    this.responseCache.set(cacheKey, {
+      timestamp: Date.now(),
+      value: this.cloneCacheValue(value),
+    })
+  }
+
   async request(endpoint, options = {}) {
+    const {
+      cacheTtlMs = 60 * 1000,
+      skipCache = false,
+      ...fetchOptions
+    } = options
     const url = `${API_BASE}${endpoint}`
+    const method = (fetchOptions.method || 'GET').toUpperCase()
     const headers = {
-      ...options.headers,
+      ...fetchOptions.headers,
     }
 
     if (this.getToken()) {
       headers['Authorization'] = `Bearer ${this.getToken()}`
     }
 
-    if (!(options.body instanceof FormData)) {
+    if (!(fetchOptions.body instanceof FormData)) {
       headers['Content-Type'] = 'application/json'
+    }
+
+    const isCacheableGet = method === 'GET' && !fetchOptions.body && !skipCache
+    const cacheKey = isCacheableGet ? this.getCacheKey(endpoint, method) : null
+    if (cacheKey) {
+      const cachedResponse = this.getCachedResponse(cacheKey, cacheTtlMs)
+      if (cachedResponse !== null) {
+        return cachedResponse
+      }
     }
 
     let response
     try {
       response = await fetch(url, {
-        ...options,
+        ...fetchOptions,
         headers,
       })
     } catch (error) {
@@ -66,7 +111,11 @@ class ApiClient {
 
     const contentType = response.headers.get('content-type')
     if (contentType && contentType.includes('application/json')) {
-      return response.json()
+      const data = await response.json()
+      if (cacheKey) {
+        this.setCachedResponse(cacheKey, data)
+      }
+      return data
     }
     return {}
   }
@@ -91,6 +140,22 @@ class ApiClient {
 
   async delete(endpoint) {
     return this.request(endpoint, { method: 'DELETE' })
+  }
+
+  buildQuery(params = {}, { defaultLimit } = {}) {
+    const searchParams = new URLSearchParams()
+    const source = defaultLimit && params.limit === undefined
+      ? { ...params, limit: defaultLimit }
+      : params
+
+    Object.entries(source).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') {
+        searchParams.append(key, value)
+      }
+    })
+
+    const query = searchParams.toString()
+    return query ? `?${query}` : ''
   }
 
   // Auth
@@ -187,8 +252,8 @@ class ApiClient {
     return this.request(`/auth/users/by-agency/${agencyId}`)
   }
 
-  async getAllUsers() {
-    return this.request('/auth/users')
+  async getAllUsers(params = {}) {
+    return this.request(`/auth/users${this.buildQuery(params)}`)
   }
 
   async getPublicUsers() {
@@ -214,14 +279,7 @@ class ApiClient {
 
   // Candidates
   async getCandidates(params = {}) {
-    const searchParams = new URLSearchParams()
-    Object.entries(params.limit ? params : { ...params, limit: DEFAULT_LIST_LIMIT }).forEach(([key, value]) => {
-      if (value !== undefined && value !== null && value !== '') {
-        searchParams.append(key, value)
-      }
-    })
-    const query = searchParams.toString()
-    return this.request(`/candidates${query ? `?${query}` : ''}`)
+    return this.request(`/candidates${this.buildQuery(params, { defaultLimit: DEFAULT_LIST_LIMIT })}`)
   }
 
   async getCandidatesCount(params = {}) {
@@ -383,14 +441,11 @@ class ApiClient {
 
   // Jobs
   async getJobs(params = {}) {
-    const searchParams = new URLSearchParams()
-    Object.entries(params.limit ? params : { ...params, limit: DEFAULT_LIST_LIMIT }).forEach(([key, value]) => {
-      if (value !== undefined && value !== null) {
-        searchParams.append(key, value)
-      }
-    })
-    const query = searchParams.toString()
-    return this.request(`/jobs${query ? `?${query}` : ''}`)
+    return this.request(`/jobs${this.buildQuery(params, { defaultLimit: DEFAULT_LIST_LIMIT })}`)
+  }
+
+  async getDashboardData(params = {}) {
+    return this.request(`/dashboard-data${this.buildQuery(params)}`)
   }
 
   async getJobsCount(params = {}) {

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+from threading import Lock
 from typing import Dict, List, Set, Tuple
 
 from flashtext import KeywordProcessor
@@ -230,34 +231,66 @@ def _merge_overlay_lists(base: Dict[str, List[str]], overlay: Dict[str, List[str
                 existing.append(value)
     return merged
 
-
-_parser_config_loader = ParserConfigLoader()
-_skill_overlays = _parser_config_loader.load_skill_overlays()
-DOMAIN_SKILLS: Dict[str, List[str]] = _merge_overlay_lists(
-    DEFAULT_DOMAIN_SKILLS,
-    {str(key).strip().lower(): list(values) for key, values in (_skill_overlays.get("domain_skills") or {}).items()},
-)
-SKILL_ALIASES: Dict[str, str] = {
-    **DEFAULT_SKILL_ALIASES,
-    **_normalize_mapping(_skill_overlays.get("skill_aliases") or {}),
-}
-NOISE_TERMS: Set[str] = set(DEFAULT_NOISE_TERMS) | set(_normalize_list(_skill_overlays.get("noise_terms") or []))
 LANGUAGE_TERMS: Set[str] = set(DEFAULT_LANGUAGE_TERMS)
-NOISE_ALIASES: Set[str] = set(DEFAULT_NOISE_ALIASES) | set(_normalize_list(_skill_overlays.get("noise_aliases") or []))
-BOUNDARY_REPLACEMENTS: Dict[str, List[str]] = {
-    **DEFAULT_BOUNDARY_REPLACEMENTS,
-    **{
-        str(key).strip().lower(): _normalize_list(values)
-        for key, values in (_skill_overlays.get("boundary_replacements") or {}).items()
-    },
-}
+_skill_overlay_config = None
+_skill_overlay_lock = Lock()
+_skill_engine = None
+_skill_engine_lock = Lock()
+
+
+def _get_skill_overlay_config() -> Dict[str, object]:
+    """Load parser overlay config lazily so module import stays cheap."""
+    global _skill_overlay_config
+
+    if _skill_overlay_config is not None:
+        return _skill_overlay_config
+
+    with _skill_overlay_lock:
+        if _skill_overlay_config is not None:
+            return _skill_overlay_config
+
+        skill_overlays = ParserConfigLoader().load_skill_overlays()
+        _skill_overlay_config = {
+            "domain_skills": _merge_overlay_lists(
+                DEFAULT_DOMAIN_SKILLS,
+                {
+                    str(key).strip().lower(): list(values)
+                    for key, values in (skill_overlays.get("domain_skills") or {}).items()
+                },
+            ),
+            "skill_aliases": {
+                **DEFAULT_SKILL_ALIASES,
+                **_normalize_mapping(skill_overlays.get("skill_aliases") or {}),
+            },
+            "noise_terms": set(DEFAULT_NOISE_TERMS) | set(_normalize_list(skill_overlays.get("noise_terms") or [])),
+            "noise_aliases": set(DEFAULT_NOISE_ALIASES) | set(_normalize_list(skill_overlays.get("noise_aliases") or [])),
+            "boundary_replacements": {
+                **DEFAULT_BOUNDARY_REPLACEMENTS,
+                **{
+                    str(key).strip().lower(): _normalize_list(values)
+                    for key, values in (skill_overlays.get("boundary_replacements") or {}).items()
+                },
+            },
+        }
+
+    return _skill_overlay_config
 
 
 class SkillIntelligence:
     """Shared production skill extractor for resumes and job descriptions."""
 
     def __init__(self, loader: ESCOLoader | None = None):
+        config = _get_skill_overlay_config()
         self.loader = loader or ESCOLoader()
+        self.skill_aliases: Dict[str, str] = dict(config["skill_aliases"])
+        self.domain_skills: Dict[str, List[str]] = {
+            key: list(values) for key, values in config["domain_skills"].items()
+        }
+        self.noise_terms: Set[str] = set(config["noise_terms"])
+        self.noise_aliases: Set[str] = set(config["noise_aliases"])
+        self.boundary_replacements: Dict[str, List[str]] = {
+            key: list(values) for key, values in config["boundary_replacements"].items()
+        }
         self.skill_dictionary = self._dedupe(self.loader.load_skills())
         self.synonym_dictionary = self._build_synonym_dictionary()
         self.ontology = self.loader.load_hierarchy()
@@ -280,10 +313,10 @@ class SkillIntelligence:
         synonyms = {
             key: value for key, value in self.loader.load_synonyms().items() if key and value
         }
-        for alias, canonical in SKILL_ALIASES.items():
+        for alias, canonical in self.skill_aliases.items():
             synonyms[self.normalize_skill(alias)] = self.normalize_skill(canonical)
 
-        for category, skills in DOMAIN_SKILLS.items():
+        for category, skills in self.domain_skills.items():
             for skill in skills:
                 normalized = self.normalize_skill(skill)
                 synonyms[normalized] = normalized
@@ -293,7 +326,7 @@ class SkillIntelligence:
 
     def _build_category_map(self) -> Dict[str, str]:
         category_map: Dict[str, str] = {}
-        for category, skills in DOMAIN_SKILLS.items():
+        for category, skills in self.domain_skills.items():
             for skill in skills:
                 category_map[self.normalize_skill(skill)] = category
         return category_map
@@ -310,7 +343,7 @@ class SkillIntelligence:
                 continue
             self.keyword_processor.add_keyword(synonym, canonical)
 
-        for skills in DOMAIN_SKILLS.values():
+        for skills in self.domain_skills.values():
             for skill in skills:
                 normalized = self.normalize_skill(skill)
                 if self._is_noise(normalized):
@@ -321,15 +354,15 @@ class SkillIntelligence:
         normalized = re.sub(r"\s+", " ", (skill or "").strip().lower())
         normalized = normalized.replace("/", " / ")
         normalized = re.sub(r"\s+", " ", normalized).strip()
-        normalized = SKILL_ALIASES.get(normalized, normalized)
+        normalized = self.skill_aliases.get(normalized, normalized)
         return normalized
 
     def _is_noise(self, skill: str) -> bool:
         normalized = self.normalize_skill(skill)
         return (
-            normalized in NOISE_TERMS
+            normalized in self.noise_terms
             or normalized in LANGUAGE_TERMS
-            or normalized in NOISE_ALIASES
+            or normalized in self.noise_aliases
             or self._looks_like_generic_noise(normalized)
         )
 
@@ -363,7 +396,7 @@ class SkillIntelligence:
     def _extract_boundary_variants(self, text: str) -> List[str]:
         lowered = (text or "").lower()
         matches: List[str] = []
-        for phrase, expansions in BOUNDARY_REPLACEMENTS.items():
+        for phrase, expansions in self.boundary_replacements.items():
             if phrase in lowered:
                 matches.extend(expansions)
         return matches
@@ -448,3 +481,18 @@ class SkillIntelligence:
 
     def get_ontology(self) -> Dict[str, List[str]]:
         return dict(self.ontology)
+
+
+def get_skill_engine() -> SkillIntelligence:
+    """Return a shared ESCO-backed skill engine, loading it only on first use."""
+    global _skill_engine
+
+    if _skill_engine is not None:
+        return _skill_engine
+
+    with _skill_engine_lock:
+        if _skill_engine is None:
+            _skill_engine = SkillIntelligence()
+            logger.info("Skill intelligence loaded lazily")
+
+    return _skill_engine

@@ -11,11 +11,20 @@ from app.schemas import (
     JobDescriptionCreate, JobDescriptionUpdate, JobDescriptionResponse
 )
 from app.auth import get_current_active_user, get_current_admin_user
-from ats.extraction.skill_intelligence import SkillIntelligence
+from ats.extraction.skill_intelligence import get_skill_engine
 from ats.preprocessing.text_cleaning import clean_text
 
 router = APIRouter(prefix="/jobs", tags=["Job Descriptions"])
-_skill_intelligence = SkillIntelligence()
+
+
+def _resolve_pagination(page: Optional[int], limit: Optional[int], offset: Optional[int]) -> tuple[Optional[int], int]:
+    """Support page/limit while keeping legacy unpaginated calls working."""
+    if offset is not None or limit is not None or page is not None:
+        safe_limit = max(1, min(limit or 20, 200))
+        safe_page = max(page or 1, 1)
+        effective_offset = offset if offset is not None else (safe_page - 1) * safe_limit
+        return safe_limit, max(0, effective_offset)
+    return None, 0
 
 
 def _apply_job_list_scope(query, current_user, db: Session):
@@ -74,8 +83,8 @@ def get_jobs_count(
 
 @router.get("", response_model=List[JobDescriptionResponse])
 def get_jobs(
-    page: int = 1,
-    limit: int = 20,
+    page: Optional[int] = None,
+    limit: Optional[int] = None,
     offset: Optional[int] = None,
     is_active: Optional[bool] = None,
     client: Optional[str] = None,
@@ -97,8 +106,11 @@ def get_jobs(
     if client:
         query = query.filter(JobDescription.company_name == client)
 
-    effective_offset = offset if offset is not None else max(0, (page - 1) * limit)
-    jobs = query.order_by(JobDescription.created_at.desc()).offset(effective_offset).limit(limit).all()
+    effective_limit, effective_offset = _resolve_pagination(page, limit, offset)
+    query = query.order_by(JobDescription.created_at.desc())
+    if effective_limit is not None:
+        query = query.offset(effective_offset).limit(effective_limit)
+    jobs = query.all()
     
     print(f"DEBUG: Found {len(jobs)} jobs in database")
     for job in jobs:
@@ -527,7 +539,7 @@ def extract_section(text, keywords):
 
 def extract_skills(text):
     """Extract job skills using the shared ATS skill extraction pipeline."""
-    return _skill_intelligence.extract_skills(text)[:10]
+    return get_skill_engine().extract_skills(text)[:10]
 
 @router.delete("/{job_id}")
 def delete_job(
