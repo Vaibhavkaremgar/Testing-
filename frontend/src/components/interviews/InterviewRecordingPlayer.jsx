@@ -9,9 +9,15 @@ import { cn } from '@/lib/utils'
 const LOAD_TIMEOUT_MS = 15000
 const RETRY_DELAY_MS = 500
 
+function normalizeSessionToken(value) {
+  return String(value || '')
+    .trim()
+    .replace(/\.(mp4|webm)$/i, '')
+}
+
 function buildRecordingUrls({ sessionToken, interviewId, asyncToken, recordingPath }) {
   const urls = []
-  const normalizedSessionToken = String(sessionToken || '').trim()
+  const normalizedSessionToken = normalizeSessionToken(sessionToken || recordingPath)
   if (normalizedSessionToken) {
     try {
       urls.push(api.getDashboardRecordingUrl(normalizedSessionToken))
@@ -26,15 +32,6 @@ function buildRecordingUrls({ sessionToken, interviewId, asyncToken, recordingPa
       urls.push(api.getInterviewVideoUrl(normalizedInterviewLookup))
     } catch {
       // Ignore and keep evaluating fallbacks.
-    }
-  }
-
-  const normalizedRecordingPath = String(recordingPath || '').trim()
-  if (normalizedRecordingPath) {
-    try {
-      urls.push(api.getDashboardRecordingUrl(normalizedRecordingPath))
-    } catch {
-      // Ignore invalid fallback URL.
     }
   }
 
@@ -124,16 +121,6 @@ export default function InterviewRecordingPlayer({
 
   const tryNextSource = () => {
     if (activeUrlIndex < candidateUrls.length - 1) {
-      console.info('Interview recording fallback triggered:', {
-        interviewId,
-        asyncToken,
-        sessionToken,
-        recordingPath,
-        currentUrl: candidateUrls[activeUrlIndex],
-        nextUrl: candidateUrls[activeUrlIndex + 1],
-        currentIndex: activeUrlIndex,
-        nextIndex: activeUrlIndex + 1,
-      })
       clearLoadTimeout()
       clearValidationRequest()
       setErrorMessage('')
@@ -149,23 +136,6 @@ export default function InterviewRecordingPlayer({
   useEffect(() => {
     setActiveUrlIndex(0)
   }, [candidateUrls])
-
-  useEffect(() => {
-    if (!hasValidRecordingPath) {
-      return
-    }
-
-    console.info('Interview recording candidate URLs:', {
-      interviewId,
-      asyncToken,
-      sessionToken,
-      recordingPath,
-      candidateUrls,
-      activeUrlIndex,
-      activeVideoUrl: videoUrl,
-      inferredMimeType: inferVideoMimeType(recordingPath) || 'auto',
-    })
-  }, [activeUrlIndex, asyncToken, candidateUrls, hasValidRecordingPath, interviewId, recordingPath, sessionToken, videoUrl])
 
   useEffect(() => {
     clearLoadTimeout()
