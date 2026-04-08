@@ -25,7 +25,6 @@ recording_router = APIRouter(prefix="/recording", tags=["Interviews"])
 
 VIDEO_CHUNK_SIZE = 1024 * 1024
 PROXY_STREAM_CHUNK_SIZE = 64 * 1024
-INTERNAL_RECORDING_BASE_URL = "http://pontis-backend.railway.internal"
 FORWARDED_STREAM_RESPONSE_HEADERS = (
     "Accept-Ranges",
     "Content-Length",
@@ -377,8 +376,21 @@ def _resolve_scoped_interview_from_session_row(db: Session, session_row: dict, c
     return None
 
 
-def _build_internal_recording_url(session_token: str) -> str:
-    return f"{INTERNAL_RECORDING_BASE_URL}/api/internal/recording/{session_token}"
+def _get_internal_recording_base_urls() -> list[str]:
+    configured_urls = [
+        settings.INTERNAL_RECORDING_BASE_URL,
+        settings.INTERNAL_RECORDING_FALLBACK_BASE_URL,
+    ]
+    normalized_urls: list[str] = []
+    for base_url in configured_urls:
+        cleaned = str(base_url or "").strip().rstrip("/")
+        if cleaned and cleaned not in normalized_urls:
+            normalized_urls.append(cleaned)
+    return normalized_urls
+
+
+def _build_internal_recording_url(session_token: str, base_url: str) -> str:
+    return f"{base_url}/api/internal/recording/{session_token}"
 
 
 def _collect_upstream_stream_headers(upstream_response: requests.Response) -> dict[str, str]:
@@ -406,21 +418,67 @@ def _proxy_recording_stream(session_token: str, request_method: str, range_heade
     if range_header:
         upstream_headers["Range"] = range_header
 
-    upstream_url = _build_internal_recording_url(session_token)
-    try:
-        upstream_response = requests.request(
-            request_method,
-            upstream_url,
-            headers=upstream_headers,
-            stream=True,
-            timeout=(5, 300),
-        )
-    except requests.RequestException as exc:
-        raise HTTPException(status_code=502, detail=f"Failed to reach recording service: {exc}") from exc
+    upstream_response = None
+    last_request_exception = None
+    selected_upstream_url = None
+    for base_url in _get_internal_recording_base_urls():
+        upstream_url = _build_internal_recording_url(session_token, base_url)
+        try:
+            _log_recording_debug(
+                "proxy_recording_stream.attempt",
+                session_token=session_token,
+                method=request_method,
+                upstream_url=upstream_url,
+                has_internal_auth=bool(settings.INTERNAL_SERVICE_TOKEN),
+                has_range=bool(range_header),
+            )
+            upstream_response = requests.request(
+                request_method,
+                upstream_url,
+                headers=upstream_headers,
+                stream=True,
+                timeout=(5, 300),
+            )
+            selected_upstream_url = upstream_url
+            _log_recording_debug(
+                "proxy_recording_stream.response",
+                session_token=session_token,
+                method=request_method,
+                upstream_url=upstream_url,
+                status_code=upstream_response.status_code,
+                content_type=upstream_response.headers.get("Content-Type"),
+                content_length=upstream_response.headers.get("Content-Length"),
+                content_range=upstream_response.headers.get("Content-Range"),
+            )
+            break
+        except requests.RequestException as exc:
+            last_request_exception = exc
+            _log_recording_debug(
+                "proxy_recording_stream.error",
+                session_token=session_token,
+                method=request_method,
+                upstream_url=upstream_url,
+                error=str(exc),
+            )
+            continue
+
+    if upstream_response is None:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to reach recording service: {last_request_exception}",
+        ) from last_request_exception
 
     response_headers = _collect_upstream_stream_headers(upstream_response)
     status_code = upstream_response.status_code
     media_type = upstream_response.headers.get("Content-Type")
+    _log_recording_debug(
+        "proxy_recording_stream.forward",
+        session_token=session_token,
+        method=request_method,
+        upstream_url=selected_upstream_url,
+        status_code=status_code,
+        media_type=media_type,
+    )
 
     if request_method.upper() == "HEAD":
         upstream_response.close()

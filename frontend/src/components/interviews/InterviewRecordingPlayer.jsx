@@ -124,6 +124,16 @@ export default function InterviewRecordingPlayer({
 
   const tryNextSource = () => {
     if (activeUrlIndex < candidateUrls.length - 1) {
+      console.info('Interview recording fallback triggered:', {
+        interviewId,
+        asyncToken,
+        sessionToken,
+        recordingPath,
+        currentUrl: candidateUrls[activeUrlIndex],
+        nextUrl: candidateUrls[activeUrlIndex + 1],
+        currentIndex: activeUrlIndex,
+        nextIndex: activeUrlIndex + 1,
+      })
       clearLoadTimeout()
       clearValidationRequest()
       setErrorMessage('')
@@ -139,6 +149,23 @@ export default function InterviewRecordingPlayer({
   useEffect(() => {
     setActiveUrlIndex(0)
   }, [candidateUrls])
+
+  useEffect(() => {
+    if (!hasValidRecordingPath) {
+      return
+    }
+
+    console.info('Interview recording candidate URLs:', {
+      interviewId,
+      asyncToken,
+      sessionToken,
+      recordingPath,
+      candidateUrls,
+      activeUrlIndex,
+      activeVideoUrl: videoUrl,
+      inferredMimeType: inferVideoMimeType(recordingPath) || 'auto',
+    })
+  }, [activeUrlIndex, asyncToken, candidateUrls, hasValidRecordingPath, interviewId, recordingPath, sessionToken, videoUrl])
 
   useEffect(() => {
     clearLoadTimeout()

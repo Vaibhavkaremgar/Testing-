@@ -56,6 +56,8 @@ class Settings(BaseSettings):
     SLOT_BOOKING_URL: str = os.getenv("SLOT_BOOKING_URL", "https://pontis-backend-production.up.railway.app/booking.html")
     FRONTEND_URL: str = os.getenv("FRONTEND_URL", "https://dashboard.pontis.one")
     INTERNAL_SERVICE_TOKEN: str = os.getenv("INTERNAL_SERVICE_TOKEN", "")
+    INTERNAL_RECORDING_BASE_URL: str = os.getenv("INTERNAL_RECORDING_BASE_URL", "http://pontis-backend.railway.internal")
+    INTERNAL_RECORDING_FALLBACK_BASE_URL: str = os.getenv("INTERNAL_RECORDING_FALLBACK_BASE_URL", "https://pontis-backend-production.up.railway.app")
     
     # CORS
     ALLOWED_ORIGINS: str = os.getenv("ALLOWED_ORIGINS", "")
