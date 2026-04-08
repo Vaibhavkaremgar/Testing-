@@ -1,18 +1,17 @@
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Response
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Request, Response
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload, load_only
 from sqlalchemy import or_, text
 from typing import List, Optional
 from datetime import datetime
 from uuid import UUID
-from pathlib import Path
 from threading import Lock
 from time import monotonic, perf_counter
 import base64
 import binascii
-import mimetypes
 import random
 import psycopg2
+import requests
 from app.database import get_db
 from app.config import settings
 from app.models import Interview, Candidate, CandidateStage, User
@@ -25,6 +24,14 @@ router = APIRouter(prefix="/interviews", tags=["Interviews"])
 recording_router = APIRouter(prefix="/recording", tags=["Interviews"])
 
 VIDEO_CHUNK_SIZE = 1024 * 1024
+PROXY_STREAM_CHUNK_SIZE = 64 * 1024
+INTERNAL_RECORDING_BASE_URL = "http://pontis-backend.railway.internal"
+FORWARDED_STREAM_RESPONSE_HEADERS = (
+    "Accept-Ranges",
+    "Content-Length",
+    "Content-Range",
+    "Content-Type",
+)
 LEGACY_STAGE_NORMALIZATION_INTERVAL_SECONDS = 300
 _legacy_stage_normalization_lock = Lock()
 _legacy_stage_last_checked_at = 0.0
@@ -350,6 +357,81 @@ def _get_scoped_interview_for_video(db: Session, session_id: str, current_user: 
     return query.first()
 
 
+def _resolve_scoped_interview_from_session_row(db: Session, session_row: dict, current_user: User) -> Optional[Interview]:
+    for possible_key in (
+        session_row.get("interview_id"),
+        session_row.get("async_token"),
+        session_row.get("token"),
+        session_row.get("session_id"),
+        session_row.get("id"),
+    ):
+        if not possible_key:
+            continue
+        try:
+            query = db.query(Interview).filter(Interview.id == UUID(str(possible_key)))
+        except ValueError:
+            query = db.query(Interview).filter(Interview.async_token == str(possible_key))
+        interview = _apply_interview_scope(query, current_user).first()
+        if interview:
+            return interview
+    return None
+
+
+def _build_internal_recording_url(session_token: str) -> str:
+    return f"{INTERNAL_RECORDING_BASE_URL}/api/internal/recording/{session_token}"
+
+
+def _collect_upstream_stream_headers(upstream_response: requests.Response) -> dict[str, str]:
+    headers: dict[str, str] = {}
+    for header_name in FORWARDED_STREAM_RESPONSE_HEADERS:
+        header_value = upstream_response.headers.get(header_name)
+        if header_value:
+            headers[header_name] = header_value
+    return headers
+
+
+def _stream_upstream_response(upstream_response: requests.Response):
+    try:
+        for chunk in upstream_response.iter_content(chunk_size=PROXY_STREAM_CHUNK_SIZE):
+            if chunk:
+                yield chunk
+    finally:
+        upstream_response.close()
+
+
+def _proxy_recording_stream(session_token: str, request_method: str, range_header: Optional[str]) -> Response:
+    upstream_headers = {}
+    if range_header:
+        upstream_headers["Range"] = range_header
+
+    upstream_url = _build_internal_recording_url(session_token)
+    try:
+        upstream_response = requests.request(
+            request_method,
+            upstream_url,
+            headers=upstream_headers,
+            stream=True,
+            timeout=(5, 300),
+        )
+    except requests.RequestException as exc:
+        raise HTTPException(status_code=502, detail=f"Failed to reach recording service: {exc}") from exc
+
+    response_headers = _collect_upstream_stream_headers(upstream_response)
+    status_code = upstream_response.status_code
+    media_type = upstream_response.headers.get("Content-Type")
+
+    if request_method.upper() == "HEAD":
+        upstream_response.close()
+        return Response(status_code=status_code, headers=response_headers)
+
+    return StreamingResponse(
+        _stream_upstream_response(upstream_response),
+        status_code=status_code,
+        headers=response_headers,
+        media_type=media_type,
+    )
+
+
 def _detect_video_media_type(video_bytes: bytes, fallback: str = "video/webm") -> str:
     if len(video_bytes) >= 12 and video_bytes[4:8] == b"ftyp":
         return "video/mp4"
@@ -423,32 +505,6 @@ def _extract_configured_media_type(row_dict: dict) -> Optional[str]:
         if row_dict.get(candidate_column):
             return row_dict.get(candidate_column)
     return None
-
-
-def _normalize_recording_path(recording_path: Optional[str]) -> Optional[Path]:
-    if not recording_path:
-        return None
-
-    upload_root = Path(settings.UPLOAD_DIR).resolve()
-    candidate_path = Path(recording_path)
-    if not candidate_path.is_absolute():
-        candidate_path = upload_root / candidate_path
-
-    try:
-        resolved_path = candidate_path.resolve()
-        resolved_path.relative_to(upload_root)
-    except Exception:
-        raise HTTPException(status_code=404, detail="Interview recording not found")
-
-    if not resolved_path.is_file():
-        raise HTTPException(status_code=404, detail="Interview recording not found")
-
-    return resolved_path
-
-
-def _guess_recording_media_type(recording_path: Optional[str], fallback: str = "video/mp4") -> str:
-    guessed_media_type, _ = mimetypes.guess_type(recording_path or "")
-    return guessed_media_type or fallback
 
 
 def _normalize_recording_media_type(configured_media_type: Optional[str], video_bytes: bytes) -> str:
@@ -961,9 +1017,10 @@ def get_interviews(
     return result
 
 
-@router.get("/video/{session_id}")
+@router.api_route("/video/{session_id}", methods=["GET", "HEAD"])
 def stream_interview_video(
     session_id: str,
+    request: Request,
     token: Optional[str] = Query(None),
     range_header: Optional[str] = Header(None, alias="Range"),
     authorization: Optional[str] = Header(None, alias="Authorization"),
@@ -986,35 +1043,28 @@ def stream_interview_video(
     )
     interview = _get_scoped_interview_for_video(db, session_id, current_user)
     session_row = None
+    session_token = None
 
     try:
         connection = psycopg2.connect(settings.DATABASE_URL)
         with connection:
             with connection.cursor() as cursor:
-                if not interview:
-                    session_row = _fetch_interview_session_row_by_lookup_key(cursor, session_id)
-                    _log_recording_debug(
-                        "stream_interview_video.session_lookup_hit",
-                        session_id=session_id,
-                        session_token=session_row.get("session_token"),
-                        payload=_describe_recording_payload(session_row.get("recording_data")),
-                    )
-                    for possible_key in (
-                        session_row.get("interview_id"),
-                        session_row.get("async_token"),
-                        session_row.get("token"),
-                        session_row.get("session_id"),
-                        session_row.get("id"),
-                    ):
-                        if not possible_key:
-                            continue
-                        try:
-                            query = db.query(Interview).filter(Interview.id == UUID(str(possible_key)))
-                        except ValueError:
-                            query = db.query(Interview).filter(Interview.async_token == str(possible_key))
-                        interview = _apply_interview_scope(query, current_user).first()
-                        if interview:
-                            break
+                lookup_keys = [session_id]
+                if interview:
+                    lookup_keys.append(str(interview.id))
+                    if interview.async_token:
+                        lookup_keys.append(interview.async_token)
+
+                for lookup_key in dict.fromkeys([key for key in lookup_keys if key]):
+                    try:
+                        session_row = _fetch_interview_session_row_by_lookup_key(cursor, lookup_key)
+                        break
+                    except HTTPException as exc:
+                        if exc.status_code != 404:
+                            raise
+
+                if session_row and not interview:
+                    interview = _resolve_scoped_interview_from_session_row(db, session_row, current_user)
 
                 if not interview:
                     _log_recording_debug(
@@ -1022,20 +1072,12 @@ def stream_interview_video(
                         session_id=session_id,
                         fallback_to_session_row=bool(session_row),
                     )
-                    if not session_row:
-                        raise HTTPException(status_code=404, detail="Interview session not found")
+                    raise HTTPException(status_code=404, detail="Interview session not found")
 
-                    recording_record = {
-                        "recording_path": session_row.get("recording_path"),
-                        "recording_data": session_row.get("recording_data"),
-                    }
-                    configured_media_type = _extract_configured_media_type(session_row)
-                else:
-                    session_keys = [session_id, str(interview.id)]
-                    if interview.async_token:
-                        session_keys.append(interview.async_token)
+                if not session_row:
+                    raise HTTPException(status_code=404, detail="Interview session not found")
 
-                    recording_record, configured_media_type = _fetch_interview_recording(cursor, session_keys)
+                session_token = session_row.get("session_token")
     except HTTPException:
         raise
     except Exception as exc:
@@ -1047,54 +1089,23 @@ def stream_interview_video(
         except Exception:
             pass
 
-    recording_path = recording_record.get("recording_path") if recording_record else None
-    recording_data = recording_record.get("recording_data") if recording_record else None
     _log_recording_debug(
         "stream_interview_video.lookup",
         interview_id=interview.id if interview else None,
         async_token=interview.async_token if interview else None,
-        recording_path=recording_path,
-        configured_media_type=configured_media_type,
-        payload=_describe_recording_payload(recording_data),
+        session_token=session_token,
     )
 
-    if recording_data:
-        video_bytes = _coerce_recording_bytes(recording_data)
-        media_type = _normalize_recording_media_type(configured_media_type, video_bytes)
-        _log_recording_debug(
-            "stream_interview_video.bytes",
-            byte_length=len(video_bytes),
-            detected_media_type=_detect_video_media_type(video_bytes, fallback="unknown"),
-            response_media_type=media_type,
-            signature=video_bytes[:16].hex(),
-        )
-        return _build_video_stream_response(video_bytes, media_type, range_header)
-
-    if not recording_path:
+    if not session_token:
         raise HTTPException(status_code=404, detail="Interview recording not found")
 
-    resolved_path = _normalize_recording_path(recording_path)
-    media_type = configured_media_type or _guess_recording_media_type(str(resolved_path))
-    _log_recording_debug(
-        "stream_interview_video.file",
-        resolved_path=resolved_path,
-        response_media_type=media_type,
-    )
-    return FileResponse(
-        path=resolved_path,
-        media_type=media_type,
-        filename=resolved_path.name,
-        headers={
-            "Content-Disposition": f'inline; filename="{resolved_path.name}"',
-            "Cache-Control": "private, max-age=3600",
-            "Accept-Ranges": "bytes",
-        },
-    )
+    return _proxy_recording_stream(session_token, request.method, range_header)
 
 
-@recording_router.get("/{session_token}")
+@recording_router.api_route("/{session_token}", methods=["GET", "HEAD"])
 def stream_candidate_recording(
     session_token: str,
+    request: Request,
     token: Optional[str] = Query(None),
     range_header: Optional[str] = Header(None, alias="Range"),
     authorization: Optional[str] = Header(None, alias="Authorization"),
@@ -1123,44 +1134,13 @@ def stream_candidate_recording(
             with connection.cursor() as cursor:
                 session_row = _fetch_interview_session_row_by_session_token(cursor, session_token)
 
-        interview = None
-        for possible_key in (
-            session_row.get("interview_id"),
-            session_row.get("async_token"),
-            session_row.get("token"),
-            session_row.get("session_id"),
-            session_row.get("id"),
-        ):
-            if not possible_key:
-                continue
-            try:
-                query = db.query(Interview).filter(Interview.id == UUID(str(possible_key)))
-            except ValueError:
-                query = db.query(Interview).filter(Interview.async_token == str(possible_key))
-            interview = _apply_interview_scope(query, current_user).first()
-            if interview:
-                break
-
-        recording_path = session_row.get("recording_path")
-        recording_data = session_row.get("recording_data")
-        if not recording_path and not recording_data:
-            raise HTTPException(status_code=404, detail="Interview recording not found")
-
-        configured_media_type = _extract_configured_media_type(session_row)
+        interview = _resolve_scoped_interview_from_session_row(db, session_row, current_user)
         if not interview:
             _log_recording_debug(
                 "stream_candidate_recording.interview_lookup_miss",
                 session_token=session_token,
-                fallback_to_session_row=True,
             )
-        _log_recording_debug(
-            "stream_candidate_recording.lookup",
-            interview_id=interview.id if interview else None,
-            async_token=interview.async_token if interview else None,
-            recording_path=recording_path,
-            configured_media_type=configured_media_type,
-            payload=_describe_recording_payload(recording_data),
-        )
+            raise HTTPException(status_code=404, detail="Interview recording not found")
     except HTTPException:
         raise
     except Exception as exc:
@@ -1172,35 +1152,13 @@ def stream_candidate_recording(
         except Exception:
             pass
 
-    if recording_data:
-        video_bytes = _coerce_recording_bytes(recording_data)
-        media_type = _normalize_recording_media_type(configured_media_type, video_bytes)
-        _log_recording_debug(
-            "stream_candidate_recording.bytes",
-            byte_length=len(video_bytes),
-            detected_media_type=_detect_video_media_type(video_bytes, fallback="unknown"),
-            response_media_type=media_type,
-            signature=video_bytes[:16].hex(),
-        )
-        return _build_video_stream_response(video_bytes, media_type, range_header)
-
-    resolved_path = _normalize_recording_path(recording_path)
-    media_type = configured_media_type or _guess_recording_media_type(str(resolved_path))
     _log_recording_debug(
-        "stream_candidate_recording.file",
-        resolved_path=resolved_path,
-        response_media_type=media_type,
+        "stream_candidate_recording.lookup",
+        interview_id=interview.id if interview else None,
+        async_token=interview.async_token if interview else None,
+        session_token=session_token,
     )
-    return FileResponse(
-        path=resolved_path,
-        media_type=media_type,
-        filename=resolved_path.name,
-        headers={
-            "Content-Disposition": f'inline; filename="{resolved_path.name}"',
-            "Cache-Control": "private, max-age=3600",
-            "Accept-Ranges": "bytes",
-        },
-    )
+    return _proxy_recording_stream(session_token, request.method, range_header)
 
 @router.get("/{interview_id}", response_model=InterviewResponse)
 def get_interview(

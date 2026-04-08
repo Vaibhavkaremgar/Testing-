@@ -2,10 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertCircle, RefreshCw, Video } from 'lucide-react'
 
 import VideoPlayer from '@/components/VideoPlayer'
+import api from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
-const DEFAULT_RECORDING_API_BASE = 'https://interview.pontis.one/api/recording'
 const LOAD_TIMEOUT_MS = 15000
 const RETRY_DELAY_MS = 500
 
@@ -16,9 +16,7 @@ function buildRecordingUrl(recordingPath) {
   }
 
   try {
-    return new URL(
-      `${DEFAULT_RECORDING_API_BASE}/${encodeURIComponent(normalizedToken)}`
-    ).toString()
+    return api.getDashboardRecordingUrl(normalizedToken)
   } catch {
     return ''
   }

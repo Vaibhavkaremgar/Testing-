@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
+import logging
 import os
 
 from app.config import settings
@@ -29,6 +30,8 @@ from app.routes import (
 )
 from app.routes import settings as settings_routes
 from ats.extraction.skill_intelligence import get_skill_engine
+
+logger = logging.getLogger(__name__)
 
 
 def run_migrations():
@@ -104,6 +107,9 @@ app.include_router(pricing.router, prefix="/api")
 
 @app.on_event("startup")
 async def startup_event():
+    logger.info("Startup event triggered")
+    logger.info("Pre-warm starting")
+
     db = SessionLocal()
     try:
         ensure_default_email_templates(db)
@@ -111,16 +117,20 @@ async def startup_event():
         db.close()
 
     try:
+        logger.info("Pre-warming spaCy")
         get_nlp()
+        logger.info("spaCy pre-warm complete")
     except Exception as exc:
-        print(f"spaCy pre-warm warning: {exc}")
+        logger.warning("spaCy pre-warm warning: %s", exc)
 
     try:
+        logger.info("Pre-warming ESCO and SkillIntelligence")
         get_skill_engine()
+        logger.info("ESCO and SkillIntelligence pre-warm complete")
     except Exception as exc:
-        print(f"Skill intelligence pre-warm warning: {exc}")
+        logger.warning("Skill intelligence pre-warm warning: %s", exc)
 
-    print("Application started successfully")
+    logger.info("Application started successfully")
 
 
 @app.get("/api/health")
