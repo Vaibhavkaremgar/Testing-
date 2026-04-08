@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import calendar
 import logging
 import re
 from datetime import datetime, timedelta
@@ -14,7 +15,7 @@ from app.spacy_nlp import SPACY_AVAILABLE, get_experience_doc
 logger = logging.getLogger(__name__)
 
 MONTH_PATTERN = r"(?:jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)"
-PRESENT_PATTERN = r"(?:present|current|now|today|ongoing|till date|till now|till-date|tilldate)"
+PRESENT_PATTERN = r"(?:present|current|currently|now|today|ongoing|till date|till now|till-date|tilldate)"
 DATE_TOKEN_PATTERN = (
     rf"(?:{MONTH_PATTERN}[.\-/\s,']+\d{{2,4}}"
     rf"|\d{{1,2}}[.\-/\s](?:{MONTH_PATTERN})[.\-/\s,']+\d{{2,4}}"
@@ -113,6 +114,19 @@ INLINE_ROLE_DATE_PATTERN = re.compile(
 LEADING_ROLE_PATTERN = re.compile(
     r"(?i)^(?P<role>(?:(?:senior|sr|junior|jr|lead|principal|staff|associate|assistant|graphic|brand|visual|creative|content|product|frontend|front-end|backend|back-end|full[- ]stack|data|software|web|mobile|qa|devops|machine learning|ml|human resources|hr|engineering|business|intelligence|sales|marketing|customer|growth)\s+){0,5}(?:engineer|developer|manager|lead|analyst|consultant|architect|specialist|administrator|designer|executive|director|officer|associate|scientist|recruiter|tester|teacher|partner|generalist|coordinator))\b"
 )
+OPEN_ENDED_DATE_RANGE_REGEX = re.compile(
+    rf"(?:\bfrom\s+)?(?P<start>{DATE_TOKEN_PATTERN})\s*(?:-|â€“|â€”)\s*$",
+    re.IGNORECASE,
+)
+YEAR_SPAN_PATTERN = re.compile(r"^(?P<start>\d{4})\s*[-/]\s*(?P<end>\d{2,4})$")
+TEXT_DURATION_PATTERN = re.compile(
+    r"(?i)\b(?:(?P<years>\d+(?:\.\d+)?)\s+years?)?(?:\s*(?P<months>\d+)\s+months?)?\b"
+)
+KNOWN_LOCATION_TOKENS = {
+    "bangalore", "bengaluru", "chennai", "hyderabad", "pune", "mumbai", "delhi",
+    "gurugram", "noida", "karnataka", "tamil nadu", "maharashtra", "haryana",
+    "india", "remote",
+}
 
 
 def _normalize_text(value: str) -> str:
@@ -153,6 +167,79 @@ def _normalize_line(line: str) -> str:
     normalized = re.sub(r"\s+", " ", _normalize_text(line)).strip(" |-")
     normalized = re.sub(r"^\s*(?:\d+\)|\d+\.\s*)", "", normalized).strip()
     return normalized
+
+
+def _is_present_token(token: str) -> bool:
+    compact = re.sub(r"\s+", " ", str(token or "").strip(" -|,.:")).lower()
+    return bool(compact and re.fullmatch(PRESENT_PATTERN, compact, flags=re.IGNORECASE))
+
+
+def _safe_build_datetime(year: int, month: int, *, is_end: bool) -> Optional[datetime]:
+    try:
+        day = calendar.monthrange(year, month)[1] if is_end else 1
+        return datetime(year, month, day)
+    except ValueError:
+        return None
+
+
+def _parse_month_name_year(token: str, *, is_end: bool) -> Optional[datetime]:
+    match = re.fullmatch(rf"(?i)(?P<month>{MONTH_PATTERN})[\s'\-/,]*(?P<year>\d{{2}}|\d{{4}})", token.strip())
+    if not match:
+        return None
+    month_value = date_parser.parse(match.group("month"), fuzzy=True, default=datetime(2000, 1, 1)).month
+    year_fragment = match.group("year")
+    year_value = int(year_fragment)
+    if len(year_fragment) == 2:
+        year_value = 2000 + year_value if year_value <= 49 else 1900 + year_value
+    return _safe_build_datetime(year_value, month_value, is_end=is_end)
+
+
+def _parse_numeric_month_year(token: str, *, is_end: bool) -> Optional[datetime]:
+    match = re.fullmatch(r"(?P<month>\d{1,2})[/.](?P<year>\d{2,4})", token.strip())
+    if not match:
+        return None
+    month_value = int(match.group("month"))
+    year_fragment = match.group("year")
+    year_value = int(year_fragment)
+    if len(year_fragment) == 2:
+        year_value = 2000 + year_value if year_value <= 49 else 1900 + year_value
+    return _safe_build_datetime(year_value, month_value, is_end=is_end)
+
+
+def _parse_year_month_numeric(token: str, *, is_end: bool) -> Optional[datetime]:
+    match = re.fullmatch(r"(?P<year>\d{4})[./-](?P<month>\d{1,2})", token.strip())
+    if not match:
+        return None
+    return _safe_build_datetime(int(match.group("year")), int(match.group("month")), is_end=is_end)
+
+
+def _parse_year_only(token: str, *, is_end: bool) -> Optional[datetime]:
+    if not re.fullmatch(r"\d{4}", token.strip()):
+        return None
+    return _safe_build_datetime(int(token.strip()), 12 if is_end else 1, is_end=is_end)
+
+
+def _parse_year_span(token: str, *, is_end: bool) -> Optional[datetime]:
+    match = YEAR_SPAN_PATTERN.fullmatch(token.strip())
+    if not match:
+        return None
+    start_year = int(match.group("start"))
+    end_fragment = match.group("end")
+    end_year = int(end_fragment)
+    if len(end_fragment) == 2:
+        end_year = (start_year // 100) * 100 + end_year
+        if end_year < start_year:
+            end_year += 100
+    return _safe_build_datetime(end_year if is_end else start_year, 12 if is_end else 1, is_end=is_end)
+
+
+def _parse_text_duration_months(token: str) -> int:
+    match = TEXT_DURATION_PATTERN.search(token or "")
+    if not match:
+        return 0
+    years_value = float(match.group("years") or 0)
+    months_value = int(match.group("months") or 0)
+    return max(int(round(years_value * 12)) + months_value, 0)
 
 
 def _is_bullet_line(line: str) -> bool:
@@ -201,29 +288,40 @@ def _clean_company_name(value: Optional[str]) -> Optional[str]:
     candidate = _normalize_line(value or "")
     if not candidate:
         return None
+    # Remove role fragments and connector words before validating the company.
+    candidate = re.sub(r"(?i)\b(?:at|with|for)\b\s+", "", candidate)
+    role_match = ROLE_TITLE_PATTERN.search(candidate)
+    if role_match:
+        candidate = candidate.replace(role_match.group("role"), " ")
     candidate = re.sub(r"\(\s*(?:\d{4}\s*(?:-|to)\s*(?:\d{4}|now|present)|digital agency)\s*\)", "", candidate, flags=re.IGNORECASE)
     candidate = re.sub(r"\(\s*\)", "", candidate)
     candidate = re.sub(r"\s*-\s*[A-Z][A-Za-z.\s]+,\s*[A-Z][A-Za-z.\s]+$", "", candidate)
-    candidate = re.sub(r"\b(?:Bengaluru|Bangalore|Chennai|Hyderabad|Pune|Mumbai|Delhi|Gurugram|Noida)\b$", "", candidate).strip(" |-,:")
+    for location_token in sorted(KNOWN_LOCATION_TOKENS, key=len, reverse=True):
+        candidate = re.sub(rf"(?i)\b{re.escape(location_token)}\b", "", candidate)
     candidate = re.sub(r"\s+", " ", candidate).strip(" |-,:")
     return candidate or None
 
 
 def _parse_date_token(token: str, is_end: bool = False, today: Optional[datetime] = None) -> Optional[datetime]:
-    direct_token = re.sub(r"\s+", "", str(token or "").strip().lower())
-    if direct_token in {"present", "current", "now", "today", "ongoing", "tilldate", "tillnow"}:
+    if _is_present_token(token):
         return today or datetime.utcnow()
-    year_dot_month_match = re.fullmatch(r"(?P<year>\d{4})\.(?P<month>\d{1,2})", direct_token)
-    if year_dot_month_match:
-        year_value = int(year_dot_month_match.group("year"))
-        month_value = int(year_dot_month_match.group("month"))
-        if is_end:
-            if month_value == 12:
-                return datetime(year_value, 12, 31)
-            return datetime(year_value, month_value + 1, 1) - timedelta(days=1)
-        return datetime(year_value, month_value, 1)
-    normalized_token = _normalize_line(token).lower()
-    raw = normalized_token.replace(".", "")
+    normalized_token = _normalize_line(token)
+    for parser_fn in (
+        _parse_month_name_year,
+        _parse_numeric_month_year,
+        _parse_year_month_numeric,
+        _parse_year_span,
+        _parse_year_only,
+    ):
+        try:
+            parsed = parser_fn(normalized_token, is_end=is_end)
+        except Exception as exc:
+            logger.debug("Date parser %s failed for %s: %s", parser_fn.__name__, token, exc)
+            parsed = None
+        if parsed is not None:
+            return parsed
+
+    raw = normalized_token.lower()
     if not raw:
         return None
     raw = re.sub(rf"(?i)\b({MONTH_PATTERN})'(\d{{2}})\b", r"\1 \2", raw)
@@ -308,7 +406,8 @@ def extract_experience_section(text: str) -> str:
 
 def extract_date_ranges(text: str) -> List[Dict[str, Any]]:
     matches: List[Dict[str, Any]] = []
-    for match in DATE_RANGE_REGEX.finditer(_normalize_text(text)):
+    normalized_text = _normalize_text(text)
+    for match in DATE_RANGE_REGEX.finditer(normalized_text):
         start_text = match.group("start")
         end_text = match.group("end")
         start_date = parse_date(start_text, is_end=False)
@@ -319,6 +418,22 @@ def extract_date_ranges(text: str) -> List[Dict[str, Any]]:
             {
                 "start": start_text,
                 "end": end_text,
+                "start_date": start_date,
+                "end_date": end_date,
+                "matched_text": match.group(0),
+                "span": match.span(),
+            }
+        )
+    for match in OPEN_ENDED_DATE_RANGE_REGEX.finditer(normalized_text):
+        start_text = match.group("start")
+        start_date = parse_date(start_text, is_end=False)
+        end_date = parse_date("Present", is_end=True)
+        if not _is_valid_experience_window(start_date, end_date):
+            continue
+        matches.append(
+            {
+                "start": start_text,
+                "end": "Present",
                 "start_date": start_date,
                 "end_date": end_date,
                 "matched_text": match.group(0),
@@ -845,8 +960,8 @@ def compute_total_experience(ranges: Sequence[Tuple[datetime, datetime]]) -> flo
 
 def _sort_key(entry: Dict[str, Any]) -> Tuple[int, datetime, datetime]:
     start_date = parse_date(entry.get("start_date", ""), is_end=False) or datetime(1900, 1, 1)
-    end_date = parse_date(entry.get("end_date", ""), is_end=True) or datetime(1900, 1, 1)
-    return (1 if entry.get("is_current") else 0, start_date, end_date)
+    end_date = (datetime.utcnow() if entry.get("is_current") else parse_date(entry.get("end_date", ""), is_end=True)) or datetime(1900, 1, 1)
+    return (1 if entry.get("is_current") else 0, end_date, start_date)
 
 
 def _dedupe_entries(entries: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -1077,6 +1192,12 @@ def extract_total_experience(text: str, ignore_internships: bool = False) -> Dic
         end = parse_date(entry["end_date"], is_end=True)
         if not _is_valid_experience_window(start, end):
             continue
+        if not entry.get("duration_months"):
+            explicit_duration = _parse_text_duration_months(entry.get("raw_text", ""))
+            if explicit_duration:
+                entry["duration_months"] = explicit_duration
+                entry["duration_years"] = round(explicit_duration / 12.0, 1)
+                entry["duration"] = _format_duration(explicit_duration)
         ranges.append((start, end))
         normalized_entries.append(entry)
     if ranges:

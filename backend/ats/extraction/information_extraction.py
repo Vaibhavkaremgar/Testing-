@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import re
 import importlib.util
+from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
 from typing import Any, Dict, List, Optional
 from dateutil import parser as date_parser
@@ -116,7 +117,7 @@ def extract_name(text: str) -> str:
     lines = [l.strip() for l in normalize_document_structure(text).splitlines() if l.strip()]
     contact_zone = lines[:12]
 
-    if SPACY_AVAILABLE:
+    if use_spacy and SPACY_AVAILABLE:
         doc = get_section_doc("\n".join(contact_zone))
         if doc:
             for ent in doc.ents:
@@ -343,6 +344,8 @@ PERSON_NAME_BLOCKLIST = {
     "teaching", "analysis", "analytics", "framework", "testing", "learning", "vision",
     "engineering", "science", "automation", "protocols", "tools", "skills",
 }
+NAME_FIELD_LABELS = {"mobile", "phone", "email", "dob", "date", "address", "contact"}
+COMMON_WORD_SKILLS = {"office", "word", "go"}
 
 
 def _language_label_lines(*sections: str) -> str:
@@ -563,16 +566,30 @@ def normalize_skill_name(skill: str) -> str:
     return SKILL_ALIASES.get(normalized, normalized)
 
 
-def extract_name(text: str) -> str:
+def extract_name(text: str, use_spacy: bool = True) -> str:
     if not text:
         return ""
 
     lines = _clean_header_lines(text, limit=12)
     first_five_lines = lines[:5]
-    first_three_lines = lines[:3]
+    first_three_lines = [line for line in lines[:3] if not SECTION_START_PATTERN.match(line)]
+    header_priority_lines = first_three_lines[:2] or first_five_lines[:2]
+
+    def _sanitize_name_candidate(candidate: str) -> str:
+        compact = re.sub(r"\s+", " ", candidate.strip(" ,.-"))
+        compact = re.sub(r"(?i)^(?:name)\s*[:\-]\s*", "", compact).strip()
+        compact = re.split(r"\s+\|\s+|\s+[Â·â€¢]\s+|, (?=\+?\d|[A-Za-z0-9._%+-]+@)", compact, maxsplit=1)[0].strip()
+        tokens = []
+        for token in compact.split():
+            cleaned = token.strip(" ,.-")
+            lowered = cleaned.lower()
+            if lowered in NAME_FIELD_LABELS or any(char.isdigit() for char in cleaned) or "@" in cleaned:
+                break
+            tokens.append(cleaned)
+        return " ".join(tokens).strip()
 
     def _is_valid_name_line(candidate: str) -> bool:
-        compact = re.sub(r"\s+", " ", candidate.strip(" ,.-"))
+        compact = _sanitize_name_candidate(candidate)
         lowered = compact.lower()
         if not compact:
             return False
@@ -602,18 +619,18 @@ def extract_name(text: str) -> str:
         capitalized_count = sum(1 for word in words if re.match(r"^[A-Z][A-Za-z'`.-]+$", word))
         return capitalized_count >= max(2, len(words) - 1)
 
-    for line in first_five_lines:
+    for line in header_priority_lines:
         stripped = line.strip()
         if SECTION_START_PATTERN.match(stripped):
             continue
-        label_match = re.sub(r"(?i)^(?:name)\s*[:\-]\s*", "", stripped).strip()
+        label_match = _sanitize_name_candidate(stripped)
         inline_candidate = re.split(r"\s+\|\s+|\s+[Â·â€¢]\s+|, (?=\+?\d|[A-Za-z0-9._%+-]+@)", label_match, maxsplit=1)[0].strip()
         if _is_valid_name_line(inline_candidate):
             resolved = " ".join(part.capitalize() if len(part) > 1 else part.upper() for part in inline_candidate.split())
             logger.debug("Name extracted from header block: %s", resolved)
             return resolved
 
-    if SPACY_AVAILABLE:
+    if use_spacy and SPACY_AVAILABLE:
         doc = get_section_doc("\n".join(first_five_lines or lines[:8]))
         if doc:
             for ent in doc.ents:
@@ -626,7 +643,7 @@ def extract_name(text: str) -> str:
                     return resolved
 
     for line in first_three_lines:
-        candidate = re.sub(r"(?i)^(?:name)\s*[:\-]\s*", "", line).strip()
+        candidate = _sanitize_name_candidate(line)
         candidate = re.split(r"\s+\|\s+|\s+[Â·â€¢]\s+|, (?=\+?\d|[A-Za-z0-9._%+-]+@)", candidate, maxsplit=1)[0].strip()
         if UPPERCASE_NAME_PATTERN.match(candidate) and _is_valid_name_line(candidate):
             resolved = " ".join(part if len(part) == 1 else part.capitalize() for part in candidate.split())
@@ -634,7 +651,7 @@ def extract_name(text: str) -> str:
             return resolved
 
     for line in first_five_lines:
-        leading_candidate = re.match(r"^(?P<value>[A-Z][A-Za-z'`.-]+(?:\s+[A-Z][A-Za-z'`.-]+){1,3})\b", line)
+        leading_candidate = re.match(r"^(?P<value>[A-Z][A-Za-z'`.-]+(?:\s+[A-Z][A-Za-z'`.-]+){1,3})\b", _sanitize_name_candidate(line))
         if leading_candidate:
             candidate = leading_candidate.group("value").strip()
             role_noise = {"engineer", "analyst", "developer", "tester", "consultant", "manager", "specialist", "architect"}
@@ -643,7 +660,7 @@ def extract_name(text: str) -> str:
                 resolved = " ".join(part.capitalize() for part in candidate.split())
                 logger.debug("Name extracted from leading header tokens: %s", resolved)
                 return resolved
-        candidate = re.sub(r"(?i)^(?:name)\s*[:\-]\s*", "", line).strip()
+        candidate = _sanitize_name_candidate(line)
         candidate = re.split(r"\s+\|\s+|\s+[·•]\s+|, (?=\+?\d|[A-Za-z0-9._%+-]+@)", candidate, maxsplit=1)[0].strip()
         if _is_valid_name_line(candidate):
             resolved = " ".join(part.capitalize() for part in candidate.split())
@@ -809,7 +826,18 @@ def _expand_parent_skills(skills: List[str]) -> List[str]:
     return expanded
 
 
-def _finalize_skills(skills: List[str], source_text: str, location_text: str, from_section: bool) -> List[str]:
+def _finalize_skills(
+    skills: List[str],
+    source_text: str,
+    location_text: str,
+    from_section: bool,
+    *,
+    name_text: str = "",
+    education_entries: Optional[List[Dict[str, str]]] = None,
+    header_text: str = "",
+    experience_text: str = "",
+    skills_text: str = "",
+) -> List[str]:
     blocked_locations = set(_extract_gpe_entities(location_text or source_text))
     normalized_location_text = clean_text_pipeline(location_text or "").lower()
     for candidate in re.split(r"[,|\n/]+", normalized_location_text):
@@ -822,7 +850,32 @@ def _finalize_skills(skills: List[str], source_text: str, location_text: str, fr
         if _is_validated_skill(skill, source_text, from_section, blocked_locations)
     ]
     validated = [skill for skill in validated if skill]
-    validated = _expand_parent_skills(_unique_in_order(_suppress_generic_overlaps(validated)))
+    blocked_terms = {part.strip().lower() for part in clean_text_pipeline(name_text).split() if part.strip()}
+    blocked_terms.update(part.strip().lower() for part in normalized_location_text.split(",") if part.strip())
+    for entry in education_entries or []:
+        institution = clean_text_pipeline(entry.get("institution") or "")
+        blocked_terms.update(token for token in institution.split() if token)
+    header_lower = clean_text_pipeline(header_text or "").lower()
+    experience_lower = clean_text_pipeline(experience_text or "").lower()
+    skills_lower = clean_text_pipeline(skills_text or source_text or "").lower()
+    filtered_skills: List[str] = []
+    for skill in validated:
+        if len(skill) < 2:
+            continue
+        if skill in blocked_terms:
+            continue
+        if skill in COMMON_WORD_SKILLS:
+            if not (
+                re.search(rf"(?<!\w){re.escape(skill)}(?!\w)", skills_lower)
+                or re.search(rf"(?<!\w){re.escape(skill)}(?!\w)", experience_lower)
+            ):
+                continue
+        if re.search(rf"(?<!\w){re.escape(skill)}(?!\w)", header_lower) and not re.search(
+            rf"(?<!\w){re.escape(skill)}(?!\w)", skills_lower
+        ):
+            continue
+        filtered_skills.append(skill)
+    validated = _expand_parent_skills(_unique_in_order(_suppress_generic_overlaps(filtered_skills)))
     return _unique_in_order(validated)[:50]
 
 
@@ -1063,7 +1116,7 @@ def extract_education_entries(text: str, education_section: str = "") -> List[Di
     return entries
 
 
-def extract_location(text: str) -> str:
+def extract_location(text: str, use_spacy: bool = True) -> str:
     if not text:
         return ""
     lines = [line.strip() for line in text.splitlines() if line.strip()]
@@ -1434,15 +1487,19 @@ def _contains_non_location_context(value: str) -> bool:
     return False
 
 
-def extract_location(text: str) -> str:
+def extract_location(text: str, use_spacy: bool = True) -> str:
     if not text:
         return ""
 
     cleaned_text = normalize_document_structure(text or "")
     lines = [line.strip() for line in cleaned_text.splitlines() if line.strip()]
     personal_detail_lines = _extract_personal_detail_lines(lines)
-    prioritized_lines = personal_detail_lines + lines[:25]
-    labeled_search_lines = personal_detail_lines + lines[:120]
+    header_lines = lines[:8]
+    detected_name = extract_name(cleaned_text, use_spacy=False)
+    name_index = next((idx for idx, line in enumerate(header_lines) if detected_name and detected_name.lower() in line.lower()), 0)
+    name_window = lines[max(0, name_index - 1):min(len(lines), name_index + 4)]
+    prioritized_lines = name_window + personal_detail_lines
+    labeled_search_lines = name_window + personal_detail_lines
     comma_location_pattern = re.compile(
         r"(?P<left>[A-Z][A-Za-z.-]+(?:\s+[A-Z][A-Za-z.-]+){0,3})\s*,\s*"
         r"(?P<right>[A-Z][A-Za-z.-]+(?:\s+[A-Z][A-Za-z.-]+){0,2})"
@@ -1454,7 +1511,7 @@ def extract_location(text: str) -> str:
         re.compile(r"(?P<value>[A-Z][A-Za-z.-]+(?:\s+[A-Z][A-Za-z.-]+)?\s*\|\s*[A-Z][A-Za-z.-]+(?:\s*\|\s*[A-Z][A-Za-z.-]+)?)"),
     )
 
-    for line in labeled_search_lines[:80]:
+    for line in labeled_search_lines[:20]:
         if re.match(r"(?i)^(?:languages?|known|nationality)\b", line):
             continue
         label_match = LOCATION_LINE_LABEL_PATTERN.search(line)
@@ -1464,7 +1521,7 @@ def extract_location(text: str) -> str:
                 logger.debug("Location extracted from labeled line: %s", candidate)
                 return candidate
 
-    for line in labeled_search_lines[:80]:
+    for line in labeled_search_lines[:20]:
         if re.match(r"(?i)^(?:languages?|known|nationality)\b", line):
             continue
         place_match = PLACE_LINE_PATTERN.search(line)
@@ -1474,7 +1531,7 @@ def extract_location(text: str) -> str:
                 logger.debug("Location extracted from place line: %s", candidate)
                 return candidate
 
-    for line in prioritized_lines[:25]:
+    for line in prioritized_lines[:15]:
         if re.match(r"(?i)^(?:languages?|known|nationality)\b", line):
             continue
         if re.search(r"(?i)\b(?:technology|project|responsibilit|power apps|power automate|dataverse|sharepoint)\b", line):
@@ -1493,13 +1550,13 @@ def extract_location(text: str) -> str:
                     logger.debug("Location extracted from explicit pattern: %s", candidate)
                     return candidate
 
-    city_from_address = _pick_primary_location(_extract_city_from_address_block(personal_detail_lines or lines[:25]))
+    city_from_address = _pick_primary_location(_extract_city_from_address_block(personal_detail_lines))
     if city_from_address:
         logger.debug("Location extracted from address block: %s", city_from_address)
         return city_from_address
 
-    if SPACY_AVAILABLE:
-        doc = get_section_doc("\n".join((personal_detail_lines or lines[:15])[:15]))
+    if use_spacy and SPACY_AVAILABLE:
+        doc = get_section_doc("\n".join((personal_detail_lines or name_window or header_lines)[:15]))
         if doc is not None:
             gpe_entities = [re.sub(r"\s+", " ", ent.text).strip(" ,.-") for ent in doc.ents if ent.label_ == "GPE"]
             if gpe_entities:
@@ -1508,11 +1565,6 @@ def extract_location(text: str) -> str:
                     logger.debug("Location extracted with spaCy GPE: %s", candidate)
                     return candidate
 
-    for line in prioritized_lines[:12]:
-        candidate = _pick_primary_location(line)
-        if candidate:
-            logger.debug("Location extracted from fallback line scan: %s", candidate)
-            return candidate
     return ""
 
 
@@ -1605,10 +1657,21 @@ def extract_resume_information(text: str) -> Dict:
     
     skills_section = _sanitize_skill_section(raw_sections.get("skills", "") or sections.get("skills", ""))
     
-    skills = extract_skill_keywords(skills_section, skills_section)
     has_explicit_skills_header = bool(
         re.search(r"(?im)^(?:technical skills|skills|core skills|key skills)\s*$", structural_source)
     )
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        future_name = executor.submit(extract_name, cleaned_text, False)
+        future_email = executor.submit(extract_email, cleaned_text)
+        future_phone = executor.submit(extract_phone, cleaned_text)
+        future_experience = executor.submit(extract_total_experience, structural_text)
+        future_skills = executor.submit(extract_skill_keywords, skills_section, skills_section)
+        primary_name = future_name.result()
+        primary_email = future_email.result()
+        primary_phone = future_phone.result()
+        experience_result = future_experience.result()
+        skills = future_skills.result()
+
     contextual_skills = _extract_contextual_skills(
         sections.get("experience", ""),
         sections.get("projects", ""),
@@ -1621,12 +1684,6 @@ def extract_resume_information(text: str) -> Dict:
         skills = _unique_in_order(skills + contextual_skills)
     else:
         skills = contextual_skills
-    
-    primary_name = extract_name(cleaned_text)
-    primary_email = extract_email(cleaned_text)
-    primary_phone = extract_phone(cleaned_text)
-
-    experience_result = extract_total_experience(structural_text)
     
     experience_entries = experience_result.get("experiences", [])
     total_experience_years = experience_result.get("total_experience_years")
@@ -1674,24 +1731,24 @@ def extract_resume_information(text: str) -> Dict:
     personal_detail_lines = _extract_personal_detail_lines(structural_lines)
     personal_details_context = "\n".join(personal_detail_lines)
 
-    for source in (personal_details_context, header_context):
+    header_present = bool(header_context.strip()) or bool(sections.get("header", "").strip())
+    for source in (header_context, personal_details_context):
         if not source:
             continue
-        location = extract_location(source)
+        location = extract_location(source, use_spacy=False)
         if location:
             break
 
-    if not location and SPACY_AVAILABLE:
-        for source in (personal_details_context, header_context):
+    need_slow_path = (not primary_name) or (not experience_entries) or (not header_present)
+    if need_slow_path and not primary_name:
+        primary_name = extract_name(cleaned_text, use_spacy=True)
+
+    if not location and need_slow_path and SPACY_AVAILABLE:
+        for source in (header_context, personal_details_context):
             if not source:
                 continue
-            doc = get_section_doc(source[:800])
-            if not doc:
-                continue
-            gpe_entities = [ent.text.strip(" ,.-") for ent in doc.ents if ent.label_ == "GPE"]
-            ranked = list(dict.fromkeys(entity for entity in gpe_entities if entity and entity.lower() not in INVALID_LOCATION_WORDS))
-            if ranked:
-                location = ranked[-1]
+            location = extract_location(source, use_spacy=True)
+            if location:
                 break
     logger.debug(
         "Primary contact extraction complete: name=%s email=%s phone=%s location=%s experience=%s",
@@ -1706,6 +1763,11 @@ def extract_resume_information(text: str) -> Dict:
         skills_section or sections.get("experience", "") or sections.get("projects", "") or cleaned_text,
         "\n".join(filter(None, [sections.get("header", ""), location])),
         from_section=bool(skills_section.strip()),
+        name_text=primary_name,
+        education_entries=extract_education_entries(cleaned_text, sections.get("education", "")),
+        header_text=sections.get("header", ""),
+        experience_text=sections.get("experience", ""),
+        skills_text=skills_section,
     )
 
     result = {

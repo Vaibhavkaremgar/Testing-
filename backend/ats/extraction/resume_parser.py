@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import shutil
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import pdfplumber
@@ -848,19 +849,25 @@ def extract_document(file_path: str) -> Dict[str, Any]:
     try:
         if file_ext == ".pdf":
             scanned_pdf = detect_scanned_pdf(file_path)
-            parser_outputs = {
-                parser_name: {
-                    "text_parts": text_parts,
-                    "page_metrics": page_metrics,
-                    "layout": infer_layout_signals(text_parts=text_parts, page_metrics=page_metrics),
-                }
-                for parser_name, (text_parts, page_metrics) in {
-                    "pymupdf": _extract_pdf_text_with_pymupdf(file_path),
-                    "pdfplumber": _extract_pdf_text_with_pdfplumber(file_path),
-                    "pypdf": _extract_pdf_text_with_pypdf(file_path),
-                    "tika": _extract_pdf_text_with_tika(file_path),
-                }.items()
+            parser_outputs: Dict[str, Dict[str, Any]] = {}
+            parser_functions = {
+                "pymupdf": _extract_pdf_text_with_pymupdf,
+                "pdfplumber": _extract_pdf_text_with_pdfplumber,
+                "pypdf": _extract_pdf_text_with_pypdf,
             }
+            with ThreadPoolExecutor(max_workers=len(parser_functions)) as executor:
+                future_map = {
+                    executor.submit(parser_fn, file_path): parser_name
+                    for parser_name, parser_fn in parser_functions.items()
+                }
+                for future in as_completed(future_map):
+                    parser_name = future_map[future]
+                    parser_text_parts, page_metrics = future.result()
+                    parser_outputs[parser_name] = {
+                        "text_parts": parser_text_parts,
+                        "page_metrics": page_metrics,
+                        "layout": infer_layout_signals(text_parts=parser_text_parts, page_metrics=page_metrics),
+                    }
             text_parts, selected_parser, parser_scores, selected_layout = _select_best_pdf_text(parser_outputs)
             if selected_parser:
                 layout_signals = selected_layout or _default_layout_signals()
@@ -873,11 +880,22 @@ def extract_document(file_path: str) -> Dict[str, Any]:
                 )
 
             if not _has_meaningful_text(text_parts):
+                if tika_parser is not None:
+                    tika_text_parts, tika_page_metrics = _extract_pdf_text_with_tika(file_path)
+                    if tika_text_parts:
+                        parser_outputs["tika"] = {
+                            "text_parts": tika_text_parts,
+                            "page_metrics": tika_page_metrics,
+                            "layout": infer_layout_signals(text_parts=tika_text_parts, page_metrics=tika_page_metrics),
+                        }
+                        text_parts, selected_parser, parser_scores, selected_layout = _select_best_pdf_text(parser_outputs)
+                        if selected_parser:
+                            layout_signals = selected_layout or layout_signals
                 ocr_parts = run_ocr(file_path)
                 if _has_meaningful_text(ocr_parts):
                     text_parts = ocr_parts
                     layout_signals["ocr_applied"] = True
-            elif _is_ocr_ready():
+            elif scanned_pdf and _is_ocr_ready():
                 ocr_parts = run_ocr(file_path)
                 if _has_meaningful_text(ocr_parts):
                     native_score = _score_text_quality(text_parts)
@@ -1109,7 +1127,7 @@ def _extract_name_with_spacy(text: str) -> str:
 
 
 def _extract_name(text: str, original_filename: Optional[str] = None) -> str:
-    for line in _header_name_candidates(text):
+    for line in _header_name_candidates(text)[:2]:
         lowered_line = line.strip().lower()
         if lowered_line in {"contact details", "contact information"}:
             continue
@@ -1221,6 +1239,19 @@ def _score_skill_confidence(skills: List[str], entities: Dict[str, Any], from_ex
 
 def _confidence_to_percent(value: float) -> int:
     return int(round(max(0.0, min(1.0, value)) * 100))
+
+
+def _score_location_confidence(location: str) -> float:
+    if not location:
+        return 0.0
+    score = 0.45
+    if "," in location:
+        score += 0.2
+    if not any(char.isdigit() for char in location):
+        score += 0.15
+    if 1 <= len(location.split()) <= 3:
+        score += 0.2
+    return round(min(score, 1.0), 2)
 
 
 def _rerun_low_confidence_fields(
@@ -1421,6 +1452,7 @@ def parse_resume_text(
         result["field_confidence"]["name"] = 0.0
     result["field_confidence"]["email"] = _score_email_confidence(result.get("email", ""))
     result["field_confidence"]["phone"] = _score_phone_confidence(result.get("phone", ""))
+    result["field_confidence"]["location"] = _score_location_confidence(result.get("location", ""))
     result["field_confidence"]["skills"] = _score_skill_confidence(
         result.get("skills", []),
         entities,
@@ -1428,28 +1460,30 @@ def parse_resume_text(
     )
     if not result.get("experience_entries") and result.get("total_experience_years") is None:
         result["field_confidence"]["experience"] = 1.0
-    result = _rerun_low_confidence_fields(
-        result,
-        entities=entities,
-        normalized_text=normalized_text,
-        original_filename=original_filename,
-    )
-    result = apply_postprocessing(result)
-    result = validate_parsed_fields(result)
-    result["field_confidence"]["name"] = _score_name_confidence(result.get("name", ""))
-    if result["field_confidence"]["name"] < CONFIDENCE_RETRY_THRESHOLD:
-        result["name"] = None
-        result["personal_details"]["name"] = None
-        result["field_confidence"]["name"] = 0.0
-    result["field_confidence"]["email"] = _score_email_confidence(result.get("email", ""))
-    result["field_confidence"]["phone"] = _score_phone_confidence(result.get("phone", ""))
-    result["field_confidence"]["skills"] = _score_skill_confidence(
-        result.get("skills", []),
-        entities,
-        bool(sections.get("skills", "").strip()),
-    )
-    if not result.get("experience_entries") and result.get("total_experience_years") is None:
-        result["field_confidence"]["experience"] = 1.0
+    if any(score < CONFIDENCE_RETRY_THRESHOLD for score in result["field_confidence"].values()):
+        result = _rerun_low_confidence_fields(
+            result,
+            entities=entities,
+            normalized_text=normalized_text,
+            original_filename=original_filename,
+        )
+        result = apply_postprocessing(result)
+        result = validate_parsed_fields(result)
+        result["field_confidence"]["name"] = _score_name_confidence(result.get("name", ""))
+        if result["field_confidence"]["name"] < CONFIDENCE_RETRY_THRESHOLD:
+            result["name"] = None
+            result["personal_details"]["name"] = None
+            result["field_confidence"]["name"] = 0.0
+        result["field_confidence"]["email"] = _score_email_confidence(result.get("email", ""))
+        result["field_confidence"]["phone"] = _score_phone_confidence(result.get("phone", ""))
+        result["field_confidence"]["location"] = _score_location_confidence(result.get("location", ""))
+        result["field_confidence"]["skills"] = _score_skill_confidence(
+            result.get("skills", []),
+            entities,
+            bool(sections.get("skills", "").strip()),
+        )
+        if not result.get("experience_entries") and result.get("total_experience_years") is None:
+            result["field_confidence"]["experience"] = 1.0
     result["confidence"] = {
         field: _confidence_to_percent(score)
         for field, score in (result.get("field_confidence") or {}).items()
