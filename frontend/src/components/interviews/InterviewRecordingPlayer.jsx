@@ -9,46 +9,56 @@ import { cn } from '@/lib/utils'
 const LOAD_TIMEOUT_MS = 15000
 const RETRY_DELAY_MS = 500
 
-function buildRecordingUrl({ sessionToken, interviewId, asyncToken, recordingPath }) {
+function buildRecordingUrls({ sessionToken, interviewId, asyncToken, recordingPath }) {
+  const urls = []
   const normalizedSessionToken = String(sessionToken || '').trim()
   if (normalizedSessionToken) {
     try {
-      return api.getDashboardRecordingUrl(normalizedSessionToken)
+      urls.push(api.getDashboardRecordingUrl(normalizedSessionToken))
     } catch {
-      return ''
+      // Ignore and keep evaluating fallbacks.
     }
   }
 
   const normalizedInterviewLookup = String(interviewId || asyncToken || '').trim()
   if (normalizedInterviewLookup) {
     try {
-      return api.getInterviewVideoUrl(normalizedInterviewLookup)
+      urls.push(api.getInterviewVideoUrl(normalizedInterviewLookup))
     } catch {
-      return ''
+      // Ignore and keep evaluating fallbacks.
     }
   }
 
   const normalizedRecordingPath = String(recordingPath || '').trim()
-  if (!normalizedRecordingPath) {
-    return ''
+  if (normalizedRecordingPath) {
+    try {
+      urls.push(api.getDashboardRecordingUrl(normalizedRecordingPath))
+    } catch {
+      // Ignore invalid fallback URL.
+    }
   }
 
-  try {
-    return api.getDashboardRecordingUrl(normalizedRecordingPath)
-  } catch {
-    return ''
-  }
+  return Array.from(new Set(urls.filter(Boolean)))
 }
 
-function buildRecordingSources(videoUrl) {
+function inferVideoMimeType(recordingPath) {
+  const normalizedPath = String(recordingPath || '').trim().toLowerCase()
+  if (normalizedPath.endsWith('.webm')) {
+    return 'video/webm'
+  }
+  if (normalizedPath.endsWith('.mp4')) {
+    return 'video/mp4'
+  }
+  return undefined
+}
+
+function buildRecordingSources(videoUrl, recordingPath) {
   if (!videoUrl) {
     return []
   }
 
-  // The proxy serves either MP4 or WebM based on the stored recording.
-  // Use a broad video fallback so video.js accepts either container while the
-  // browser still relies on the response Content-Type from the backend.
-  return [{ src: videoUrl, type: 'video/*' }]
+  const mimeType = inferVideoMimeType(recordingPath)
+  return mimeType ? [{ src: videoUrl, type: mimeType }] : [{ src: videoUrl }]
 }
 
 function getPlayerErrorMessage(error) {
@@ -72,15 +82,17 @@ export default function InterviewRecordingPlayer({
   const [retryKey, setRetryKey] = useState(0)
   const [isRetryPending, setIsRetryPending] = useState(false)
   const [availabilityStatus, setAvailabilityStatus] = useState('idle')
+  const [activeUrlIndex, setActiveUrlIndex] = useState(0)
   const loadTimeoutRef = useRef(null)
   const retryTimeoutRef = useRef(null)
   const validationAbortRef = useRef(null)
 
-  const videoUrl = useMemo(
-    () => buildRecordingUrl({ sessionToken, interviewId, asyncToken, recordingPath }),
+  const candidateUrls = useMemo(
+    () => buildRecordingUrls({ sessionToken, interviewId, asyncToken, recordingPath }),
     [asyncToken, interviewId, recordingPath, sessionToken]
   )
-  const sources = useMemo(() => buildRecordingSources(videoUrl), [videoUrl])
+  const videoUrl = candidateUrls[activeUrlIndex] || ''
+  const sources = useMemo(() => buildRecordingSources(videoUrl, recordingPath), [recordingPath, videoUrl])
   const hasRecording = Boolean(videoUrl)
   const hasValidRecordingPath = (
     (typeof sessionToken === 'string' && sessionToken.trim().length > 0)
@@ -109,6 +121,24 @@ export default function InterviewRecordingPlayer({
       validationAbortRef.current = null
     }
   }
+
+  const tryNextSource = () => {
+    if (activeUrlIndex < candidateUrls.length - 1) {
+      clearLoadTimeout()
+      clearValidationRequest()
+      setErrorMessage('')
+      setAvailabilityStatus('checking')
+      setIsInitializing(true)
+      setActiveUrlIndex((currentIndex) => currentIndex + 1)
+      return true
+    }
+
+    return false
+  }
+
+  useEffect(() => {
+    setActiveUrlIndex(0)
+  }, [candidateUrls])
 
   useEffect(() => {
     clearLoadTimeout()
@@ -152,6 +182,9 @@ export default function InterviewRecordingPlayer({
         })
 
         if (response.status === 404) {
+          if (tryNextSource()) {
+            return
+          }
           clearLoadTimeout()
           setIsInitializing(false)
           setAvailabilityStatus('not_found')
@@ -199,7 +232,7 @@ export default function InterviewRecordingPlayer({
       clearRetryTimeout()
       clearValidationRequest()
     }
-  }, [asyncToken, hasRecording, hasValidRecordingPath, interviewId, recordingPath, retryKey, sessionToken, videoUrl])
+  }, [activeUrlIndex, asyncToken, candidateUrls.length, hasRecording, hasValidRecordingPath, interviewId, recordingPath, retryKey, sessionToken, videoUrl])
 
   useEffect(() => () => {
     clearLoadTimeout()
@@ -216,6 +249,10 @@ export default function InterviewRecordingPlayer({
 
   const handlePlayerError = (player) => {
     const playerError = player?.error?.()
+
+    if (playerError?.code === 4 && tryNextSource()) {
+      return
+    }
 
     clearLoadTimeout()
     setIsInitializing(false)
