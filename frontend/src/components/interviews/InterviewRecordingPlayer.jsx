@@ -9,14 +9,32 @@ import { cn } from '@/lib/utils'
 const LOAD_TIMEOUT_MS = 15000
 const RETRY_DELAY_MS = 500
 
-function buildRecordingUrl(sessionToken, recordingPath) {
-  const normalizedToken = String(sessionToken || recordingPath || '').trim()
-  if (!normalizedToken) {
+function buildRecordingUrl({ sessionToken, interviewId, asyncToken, recordingPath }) {
+  const normalizedSessionToken = String(sessionToken || '').trim()
+  if (normalizedSessionToken) {
+    try {
+      return api.getDashboardRecordingUrl(normalizedSessionToken)
+    } catch {
+      return ''
+    }
+  }
+
+  const normalizedInterviewLookup = String(interviewId || asyncToken || '').trim()
+  if (normalizedInterviewLookup) {
+    try {
+      return api.getInterviewVideoUrl(normalizedInterviewLookup)
+    } catch {
+      return ''
+    }
+  }
+
+  const normalizedRecordingPath = String(recordingPath || '').trim()
+  if (!normalizedRecordingPath) {
     return ''
   }
 
   try {
-    return api.getDashboardRecordingUrl(normalizedToken)
+    return api.getDashboardRecordingUrl(normalizedRecordingPath)
   } catch {
     return ''
   }
@@ -43,6 +61,8 @@ function getPlayerErrorMessage(error) {
 
 export default function InterviewRecordingPlayer({
   sessionToken,
+  interviewId,
+  asyncToken,
   recordingPath,
   className,
   poster = '',
@@ -57,13 +77,15 @@ export default function InterviewRecordingPlayer({
   const validationAbortRef = useRef(null)
 
   const videoUrl = useMemo(
-    () => buildRecordingUrl(sessionToken, recordingPath),
-    [recordingPath, sessionToken]
+    () => buildRecordingUrl({ sessionToken, interviewId, asyncToken, recordingPath }),
+    [asyncToken, interviewId, recordingPath, sessionToken]
   )
   const sources = useMemo(() => buildRecordingSources(videoUrl), [videoUrl])
   const hasRecording = Boolean(videoUrl)
   const hasValidRecordingPath = (
     (typeof sessionToken === 'string' && sessionToken.trim().length > 0)
+    || (typeof interviewId === 'string' && interviewId.trim().length > 0)
+    || (typeof asyncToken === 'string' && asyncToken.trim().length > 0)
     || (typeof recordingPath === 'string' && recordingPath.trim().length > 0)
   )
 
@@ -177,7 +199,7 @@ export default function InterviewRecordingPlayer({
       clearRetryTimeout()
       clearValidationRequest()
     }
-  }, [hasRecording, hasValidRecordingPath, recordingPath, retryKey, sessionToken, videoUrl])
+  }, [asyncToken, hasRecording, hasValidRecordingPath, interviewId, recordingPath, retryKey, sessionToken, videoUrl])
 
   useEffect(() => () => {
     clearLoadTimeout()
