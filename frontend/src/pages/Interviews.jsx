@@ -641,6 +641,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
                 <div className="flex h-full flex-col overflow-hidden">
                   <div className="h-[400px] w-full overflow-hidden rounded-xl bg-black">
                     <InterviewRecordingPlayer
+                      sessionToken={selectedInterview.session_token}
                       recordingPath={selectedInterview.recording_path}
                       className="h-full w-full"
                     />

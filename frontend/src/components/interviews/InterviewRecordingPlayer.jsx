@@ -9,8 +9,8 @@ import { cn } from '@/lib/utils'
 const LOAD_TIMEOUT_MS = 15000
 const RETRY_DELAY_MS = 500
 
-function buildRecordingUrl(recordingPath) {
-  const normalizedToken = String(recordingPath || '').trim()
+function buildRecordingUrl(sessionToken, recordingPath) {
+  const normalizedToken = String(sessionToken || recordingPath || '').trim()
   if (!normalizedToken) {
     return ''
   }
@@ -27,9 +27,10 @@ function buildRecordingSources(videoUrl) {
     return []
   }
 
-  // Pass a single source without a forced MIME type so the backend response
-  // headers determine the format.
-  return [{ src: videoUrl }]
+  // The proxy serves either MP4 or WebM based on the stored recording.
+  // Use a broad video fallback so video.js accepts either container while the
+  // browser still relies on the response Content-Type from the backend.
+  return [{ src: videoUrl, type: 'video/*' }]
 }
 
 function getPlayerErrorMessage(error) {
@@ -41,6 +42,7 @@ function getPlayerErrorMessage(error) {
 }
 
 export default function InterviewRecordingPlayer({
+  sessionToken,
   recordingPath,
   className,
   poster = '',
@@ -54,10 +56,16 @@ export default function InterviewRecordingPlayer({
   const retryTimeoutRef = useRef(null)
   const validationAbortRef = useRef(null)
 
-  const videoUrl = useMemo(() => buildRecordingUrl(recordingPath), [recordingPath])
+  const videoUrl = useMemo(
+    () => buildRecordingUrl(sessionToken, recordingPath),
+    [recordingPath, sessionToken]
+  )
   const sources = useMemo(() => buildRecordingSources(videoUrl), [videoUrl])
   const hasRecording = Boolean(videoUrl)
-  const hasValidRecordingPath = typeof recordingPath === 'string' && recordingPath.trim().length > 0
+  const hasValidRecordingPath = (
+    (typeof sessionToken === 'string' && sessionToken.trim().length > 0)
+    || (typeof recordingPath === 'string' && recordingPath.trim().length > 0)
+  )
 
   const clearLoadTimeout = () => {
     if (loadTimeoutRef.current) {
@@ -115,6 +123,7 @@ export default function InterviewRecordingPlayer({
 
         console.info('Interview recording HEAD validation:', {
           recordingPath,
+          sessionToken,
           videoUrl,
           status: response.status,
           contentType,
@@ -148,6 +157,7 @@ export default function InterviewRecordingPlayer({
         // let the player attempt real playback with the same URL.
         console.info('Interview recording HEAD validation skipped:', {
           recordingPath,
+          sessionToken,
           videoUrl,
           errorMessage: error?.message,
           errorName: error?.name,
@@ -167,7 +177,7 @@ export default function InterviewRecordingPlayer({
       clearRetryTimeout()
       clearValidationRequest()
     }
-  }, [hasRecording, hasValidRecordingPath, recordingPath, retryKey, videoUrl])
+  }, [hasRecording, hasValidRecordingPath, recordingPath, retryKey, sessionToken, videoUrl])
 
   useEffect(() => () => {
     clearLoadTimeout()
@@ -191,6 +201,7 @@ export default function InterviewRecordingPlayer({
 
     console.error('Video playback error:', {
       recordingPath,
+      sessionToken,
       videoUrl,
       code: playerError?.code,
       message: playerError?.message,

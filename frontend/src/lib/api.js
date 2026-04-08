@@ -778,7 +778,7 @@ class ApiClient {
     const token = this.getToken()
     const encodedSessionToken = encodeURIComponent(sessionToken)
     const query = token ? `?token=${encodeURIComponent(token)}` : ''
-    return `${API_BASE}/recording/${encodedSessionToken}${query}`
+    return encodedSessionToken ? `${API_BASE}/recording/${encodedSessionToken}${query}` : ''
   }
 
   getUploadedRecordingUrl(recordingPath) {
