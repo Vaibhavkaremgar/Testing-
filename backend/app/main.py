@@ -7,6 +7,7 @@ import os
 from app.config import settings
 from app.database import Base, SessionLocal, engine
 from app.notification_service import ensure_default_email_templates
+from app.spacy_nlp import get_nlp
 from app.routes import (
     agencies,
     analytics,
@@ -27,6 +28,7 @@ from app.routes import (
     webhooks,
 )
 from app.routes import settings as settings_routes
+from ats.extraction.skill_intelligence import get_skill_engine
 
 
 def run_migrations():
@@ -107,6 +109,16 @@ async def startup_event():
         ensure_default_email_templates(db)
     finally:
         db.close()
+
+    try:
+        get_nlp()
+    except Exception as exc:
+        print(f"spaCy pre-warm warning: {exc}")
+
+    try:
+        get_skill_engine()
+    except Exception as exc:
+        print(f"Skill intelligence pre-warm warning: {exc}")
 
     print("Application started successfully")
 
