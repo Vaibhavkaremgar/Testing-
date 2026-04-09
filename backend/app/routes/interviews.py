@@ -453,6 +453,23 @@ def _stream_upstream_response(upstream_response: requests.Response):
         upstream_response.close()
 
 
+def _extract_upstream_error_body(upstream_response: requests.Response) -> str:
+    try:
+        parsed_json = upstream_response.json()
+    except ValueError:
+        try:
+            return (upstream_response.text or "")[:1000]
+        except Exception:
+            return "<unavailable>"
+    except Exception:
+        return "<unavailable>"
+
+    try:
+        return str(parsed_json)[:1000]
+    except Exception:
+        return "<unavailable>"
+
+
 def _proxy_recording_stream(session_token: str, request_method: str, range_header: Optional[str]) -> Response:
     session_token = _normalize_recording_session_token(session_token)
     service_token = _get_recording_service_token()
@@ -524,10 +541,7 @@ def _proxy_recording_stream(session_token: str, request_method: str, range_heade
                 content_range=upstream_response.headers.get("Content-Range"),
             )
         if upstream_response.status_code not in (200, 206):
-            try:
-                print("Upstream error body:", upstream_response.text[:1000])
-            except Exception:
-                print("Upstream error body: <unavailable>")
+            print("Upstream error body:", _extract_upstream_error_body(upstream_response))
     except requests.RequestException as exc:
         last_request_exception = exc
         _log_recording_debug(
