@@ -377,18 +377,13 @@ def _resolve_scoped_interview_from_session_row(db: Session, session_row: dict, c
     return None
 
 
-def _get_internal_recording_targets() -> list[tuple[str, str]]:
-    configured_targets = [
-        (settings.INTERNAL_RECORDING_BASE_URL, "/api/internal/recording"),
-        (settings.INTERNAL_RECORDING_FALLBACK_BASE_URL, "/api/recording"),
-    ]
-    normalized_targets: list[tuple[str, str]] = []
-    for base_url, path_prefix in configured_targets:
-        cleaned_base_url = str(base_url or "").strip().rstrip("/")
-        cleaned_path_prefix = str(path_prefix or "").strip().rstrip("/")
-        if cleaned_base_url and cleaned_path_prefix and (cleaned_base_url, cleaned_path_prefix) not in normalized_targets:
-            normalized_targets.append((cleaned_base_url, cleaned_path_prefix))
-    return normalized_targets
+def _get_recording_service_target() -> tuple[str, str]:
+    cleaned_base_url = str(settings.RECORDING_BASE_URL or "").strip().rstrip("/")
+    return cleaned_base_url, "/api/recording"
+
+
+def _get_recording_service_token() -> str:
+    return str(settings.RECORDING_SERVICE_TOKEN or settings.INTERNAL_SERVICE_TOKEN or "").strip()
 
 
 def _normalize_recording_session_token(session_token: str) -> str:
@@ -424,55 +419,54 @@ def _stream_upstream_response(upstream_response: requests.Response):
 
 def _proxy_recording_stream(session_token: str, request_method: str, range_header: Optional[str]) -> Response:
     session_token = _normalize_recording_session_token(session_token)
+    service_token = _get_recording_service_token()
     upstream_headers = {}
-    if settings.INTERNAL_SERVICE_TOKEN:
-        upstream_headers["Authorization"] = f"Bearer {settings.INTERNAL_SERVICE_TOKEN}"
+    if service_token:
+        upstream_headers["Authorization"] = f"Bearer {service_token}"
     if range_header:
         upstream_headers["Range"] = range_header
 
     upstream_response = None
     last_request_exception = None
     selected_upstream_url = None
-    for base_url, path_prefix in _get_internal_recording_targets():
-        upstream_url = _build_internal_recording_url(session_token, base_url, path_prefix)
-        try:
-            _log_recording_debug(
-                "proxy_recording_stream.attempt",
-                session_token=session_token,
-                method=request_method,
-                upstream_url=upstream_url,
-                has_internal_auth=bool(settings.INTERNAL_SERVICE_TOKEN),
-                has_range=bool(range_header),
-            )
-            upstream_response = requests.request(
-                request_method,
-                upstream_url,
-                headers=upstream_headers,
-                stream=True,
-                timeout=(5, 300),
-            )
-            selected_upstream_url = upstream_url
-            _log_recording_debug(
-                "proxy_recording_stream.response",
-                session_token=session_token,
-                method=request_method,
-                upstream_url=upstream_url,
-                status_code=upstream_response.status_code,
-                content_type=upstream_response.headers.get("Content-Type"),
-                content_length=upstream_response.headers.get("Content-Length"),
-                content_range=upstream_response.headers.get("Content-Range"),
-            )
-            break
-        except requests.RequestException as exc:
-            last_request_exception = exc
-            _log_recording_debug(
-                "proxy_recording_stream.error",
-                session_token=session_token,
-                method=request_method,
-                upstream_url=upstream_url,
-                error=str(exc),
-            )
-            continue
+    base_url, path_prefix = _get_recording_service_target()
+    upstream_url = _build_internal_recording_url(session_token, base_url, path_prefix)
+    try:
+        _log_recording_debug(
+            "proxy_recording_stream.attempt",
+            session_token=session_token,
+            method=request_method,
+            upstream_url=upstream_url,
+            has_internal_auth=bool(service_token),
+            has_range=bool(range_header),
+        )
+        upstream_response = requests.request(
+            request_method,
+            upstream_url,
+            headers=upstream_headers,
+            stream=True,
+            timeout=(5, 300),
+        )
+        selected_upstream_url = upstream_url
+        _log_recording_debug(
+            "proxy_recording_stream.response",
+            session_token=session_token,
+            method=request_method,
+            upstream_url=upstream_url,
+            status_code=upstream_response.status_code,
+            content_type=upstream_response.headers.get("Content-Type"),
+            content_length=upstream_response.headers.get("Content-Length"),
+            content_range=upstream_response.headers.get("Content-Range"),
+        )
+    except requests.RequestException as exc:
+        last_request_exception = exc
+        _log_recording_debug(
+            "proxy_recording_stream.error",
+            session_token=session_token,
+            method=request_method,
+            upstream_url=upstream_url,
+            error=str(exc),
+        )
 
     if upstream_response is None:
         raise HTTPException(
