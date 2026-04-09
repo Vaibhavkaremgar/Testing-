@@ -134,11 +134,11 @@ async def startup_event():
         logger.info("Running ATS warmup")
         warmup_result = run_ats_warmup(force=False)
         if not warmup_result.get("ready"):
-            raise RuntimeError("ATS warmup did not complete successfully")
-        logger.info("ATS warmup complete: ready=%s duration_ms=%s", warmup_result.get("ready"), warmup_result.get("duration_ms"))
+            logger.warning("ATS warmup did not complete successfully — continuing anyway")
+        else:
+            logger.info("ATS warmup complete: ready=%s duration_ms=%s", warmup_result.get("ready"), warmup_result.get("duration_ms"))
     except Exception as exc:
-        logger.exception("ATS warmup failed during startup: %s", exc)
-        raise
+        logger.exception("ATS warmup failed during startup: %s — continuing anyway", exc)
 
     logger.info("Application started successfully")
 
