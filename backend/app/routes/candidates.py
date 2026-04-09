@@ -1772,11 +1772,12 @@ def enhanced_fallback_evaluation(
     
     # Evaluate using balanced scoring
     result = evaluate_resume_balanced(resume_data, job_requirements_data)
+    # FIX 3 — truncate all text to 2000 chars before TF-IDF/BM25 to avoid slow vectorization
     matching_signals = compute_matching_signals(
-        resume_text=resume_text,
+        resume_text=resume_text[:2000],
         job_title=job_title,
-        job_description=job_description,
-        job_requirements=job_requirements,
+        job_description=job_description[:2000],
+        job_requirements=job_requirements[:2000],
     )
     
     # Step 8: feature engineering inputs.

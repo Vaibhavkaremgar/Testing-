@@ -859,6 +859,9 @@ def _split_name_and_role(raw_name: str, *, location: str = "", current_company: 
         if role_match:
             clean_name = compact[:role_match.start()].strip(" ,|/-")
             detected_role = compact[role_match.start():].strip(" ,|/-")
+            if not _normalize_name_candidate(clean_name):
+                clean_name = compact
+                detected_role = ""
 
     blocked_terms = set()
     for source in (location, current_company):
@@ -1256,6 +1259,9 @@ def _extract_name(text: str, original_filename: Optional[str] = None) -> str:
             continue
         normalized = _normalize_name_candidate(line)
         if not normalized:
+            continue
+        # FIX 5 — guard against company names appearing before the real name
+        if NAME_COMPANY_PATTERN.search(line):
             continue
         next_line = raw_lines[index + 1].strip() if index + 1 < len(raw_lines) else ""
         if next_line and NAME_CONTEXT_ROLE_PATTERN.search(next_line):

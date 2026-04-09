@@ -971,6 +971,18 @@ def _sort_key(entry: Dict[str, Any]) -> Tuple[int, datetime, datetime]:
     return (1 if entry.get("is_current") else 0, end_date, start_date)
 
 
+_COMPANY_NOISE = re.compile(
+    r"\b(?:pvt|ltd|inc|llc|limited|technologies|technology|solutions|services|group|consulting|india|global)\b",
+    re.IGNORECASE
+)
+
+
+def _normalize_company_key(name: str) -> str:
+    if not name:
+        return ""
+    return _COMPANY_NOISE.sub("", name).strip().lower()
+
+
 def _dedupe_entries(entries: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
     deduped: List[Dict[str, Any]] = []
     primary_index: Dict[Tuple[str, str, str], int] = {}
@@ -994,7 +1006,7 @@ def _dedupe_entries(entries: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
         start_date = entry.get("start_date")
         end_date = entry.get("end_date")
         primary_key = (
-            company,
+            _normalize_company_key(entry.get("company", "")),
             start_date,
             end_date,
         )

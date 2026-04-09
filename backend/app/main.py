@@ -114,6 +114,15 @@ async def startup_event():
     finally:
         db.close()
 
+    print("[STARTUP] Pre-warming spaCy...")
+    from app.spacy_nlp import get_nlp
+    get_nlp()
+    print("[STARTUP] spaCy ready.")
+    print("[STARTUP] Pre-warming SkillIntelligence...")
+    from ats.extraction.skill_intelligence import get_skill_engine
+    get_skill_engine()
+    print("[STARTUP] SkillIntelligence ready.")
+
     try:
         logger.info("Running ATS warmup")
         warmup_result = run_ats_warmup(force=False)

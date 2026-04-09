@@ -1,0 +1,4 @@
+FIX 6 PATTERN NOT FOUND
+b'elif ROLE_KEYWORD_PATTERN.search(compact):\n        role_match = ROLE_KEYWORD_PATTERN.search(compact)\n        if role_match:\n            clean_name = compact[:role_match.start()].strip(" ,|/-")\n            detected_role = compact[role_match.start():].strip(" ,|/-")\n            if not _normalize_name_'
+FIX 7 already applied
+FIX 2 already applied

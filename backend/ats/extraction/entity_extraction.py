@@ -153,20 +153,17 @@ def extract_resume_entities(
         line for line in _normalize_text(text).split("\n")
         if "references" not in line.lower()
     )
-    search_windows = [
+    # FIX 4 — merge all windows into one combined pass instead of 4 separate spaCy calls
+    combined_window = "\n".join(filter(None, [
         _normalize_text(header_text),
         _normalize_text(skills_text),
         _normalize_text(experience_text),
         filtered_text[:2500],
-    ]
+    ]))[:3000]
 
-    for index, window in enumerate(search_windows):
-        if not window:
-            continue
-        doc = get_section_doc(window)
-        if doc is None:
-            continue
-        ranked_person_hits.extend(_collect_person_candidates(window, prefer_first=index == 0))
+    doc = get_section_doc(combined_window)
+    if doc is not None:
+        ranked_person_hits.extend(_collect_person_candidates(combined_window, prefer_first=True))
         for ent in doc.ents:
             cleaned = _normalize_text(ent.text.strip(" ,.-|"))
             if not cleaned:
