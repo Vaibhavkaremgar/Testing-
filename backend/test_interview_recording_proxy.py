@@ -170,6 +170,70 @@ def test_recording_proxy_supports_head_requests_for_player_validation(client, mo
     assert response.content == b""
 
 
+def test_recording_proxy_falls_back_to_ranged_get_when_upstream_head_is_unsupported(client, monkeypatch):
+    current_user = SimpleNamespace(id=uuid4())
+    interview = SimpleNamespace(id=uuid4(), async_token="async-session-token")
+    monkeypatch.setattr(interviews_route.settings, "RECORDING_SERVICE_TOKEN", "recording-secret")
+    monkeypatch.setattr(interviews_route.settings, "INTERNAL_SERVICE_TOKEN", "")
+    monkeypatch.setattr(interviews_route.settings, "RECORDING_BASE_URL", "https://interview.pontis.one")
+
+    monkeypatch.setattr(interviews_route, "_resolve_video_request_user", lambda db, access_token, user: current_user)
+    monkeypatch.setattr(
+        interviews_route,
+        "_fetch_interview_session_row_by_session_token",
+        lambda cursor, session_token: {
+            "session_token": session_token,
+            "interview_id": str(interview.id),
+            "async_token": interview.async_token,
+        },
+    )
+    monkeypatch.setattr(
+        interviews_route,
+        "_resolve_scoped_interview_from_session_row",
+        lambda db, session_row, user: interview,
+    )
+
+    request_calls = []
+
+    def fake_request(method, url, headers=None, params=None, stream=None, timeout=None):
+        request_calls.append((method, headers, params, stream, timeout))
+        assert url == "https://interview.pontis.one/api/recording"
+        assert params == {"session_token": "session-head-fallback"}
+        if method == "HEAD":
+            assert headers == {"Authorization": "Bearer recording-secret"}
+            return FakeUpstreamResponse(status_code=404, headers={"Content-Type": "text/html; charset=utf-8"})
+
+        assert method == "GET"
+        assert headers == {
+            "Authorization": "Bearer recording-secret",
+            "Range": "bytes=0-0",
+        }
+        assert stream is True
+        return FakeUpstreamResponse(
+            status_code=206,
+            headers={
+                "Accept-Ranges": "bytes",
+                "Content-Length": "1",
+                "Content-Range": "bytes 0-0/4096",
+                "Content-Type": "video/webm",
+            },
+            chunks=[b"x"],
+        )
+
+    monkeypatch.setattr(interviews_route.requests, "request", fake_request)
+
+    response = client.head("/api/recording/session-head-fallback")
+
+    assert len(request_calls) == 2
+    assert request_calls[0][0] == "HEAD"
+    assert request_calls[1][0] == "GET"
+    assert response.status_code == 206
+    assert response.headers["accept-ranges"] == "bytes"
+    assert response.headers["content-range"] == "bytes 0-0/4096"
+    assert response.headers["content-type"] == "video/webm"
+    assert response.content == b""
+
+
 def test_recording_proxy_normalizes_session_token_extensions(client, monkeypatch):
     current_user = SimpleNamespace(id=uuid4())
     interview = SimpleNamespace(id=uuid4(), async_token="async-session-token")

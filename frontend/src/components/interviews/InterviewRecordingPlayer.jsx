@@ -185,8 +185,8 @@ export default function InterviewRecordingPlayer({
     const abortController = new AbortController()
     validationAbortRef.current = abortController
 
-    // Validate the URL before player startup so unsupported server responses
-    // fail with a clear message instead of a generic media error.
+    // HEAD validation is only a UX hint. Some upstream recording services do
+    // not support HEAD for protected assets even when GET playback works.
     fetch(videoUrl, {
       method: 'HEAD',
       signal: abortController.signal,
@@ -202,17 +202,6 @@ export default function InterviewRecordingPlayer({
           contentType,
         })
 
-        if (response.status === 404) {
-          if (tryNextSource()) {
-            return
-          }
-          clearLoadTimeout()
-          setIsInitializing(false)
-          setAvailabilityStatus('not_found')
-          setErrorMessage('Recording Not Found')
-          return
-        }
-
         if (response.ok) {
           if (contentType && !contentType.toLowerCase().includes('video')) {
             setAvailabilityStatus('maybe_invalid')
@@ -220,6 +209,14 @@ export default function InterviewRecordingPlayer({
             setAvailabilityStatus('available')
           }
           return
+        }
+
+        if (response.status === 404) {
+          console.info('Interview recording HEAD returned 404; continuing with playback attempt.', {
+            recordingPath,
+            sessionToken,
+            videoUrl,
+          })
         }
 
         setAvailabilityStatus('unknown')

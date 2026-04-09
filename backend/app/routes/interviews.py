@@ -419,6 +419,22 @@ def _build_internal_recording_url(base_url: str, path_prefix: str) -> str:
     return f"{base_url}{path_prefix}"
 
 
+def _request_upstream_recording(
+    method: str,
+    upstream_url: str,
+    upstream_headers: dict[str, str],
+    session_token: str,
+) -> requests.Response:
+    return requests.request(
+        method,
+        upstream_url,
+        headers=upstream_headers,
+        params={"session_token": session_token},
+        stream=True,
+        timeout=(5, 300),
+    )
+
+
 def _collect_upstream_stream_headers(upstream_response: requests.Response) -> dict[str, str]:
     headers: dict[str, str] = {}
     for header_name in FORWARDED_STREAM_RESPONSE_HEADERS:
@@ -453,36 +469,62 @@ def _proxy_recording_stream(session_token: str, request_method: str, range_heade
     upstream_response = None
     last_request_exception = None
     selected_upstream_url = None
+    selected_request_method = request_method.upper()
     base_url, path_prefix = _get_recording_service_target()
     upstream_url = _build_internal_recording_url(base_url, path_prefix)
     try:
         _log_recording_debug(
             "proxy_recording_stream.attempt",
             session_token=session_token,
-            method=request_method,
+            method=selected_request_method,
             upstream_url=upstream_url,
             has_internal_auth=bool(service_token),
             has_range=bool(range_header),
         )
-        upstream_response = requests.request(
-            request_method,
+        upstream_response = _request_upstream_recording(
+            selected_request_method,
             upstream_url,
-            headers=upstream_headers,
-            params={"session_token": session_token},
-            stream=True,
-            timeout=(5, 300),
+            upstream_headers,
+            session_token,
         )
         selected_upstream_url = upstream_url
         _log_recording_debug(
             "proxy_recording_stream.response",
             session_token=session_token,
-            method=request_method,
+            method=selected_request_method,
             upstream_url=upstream_url,
             status_code=upstream_response.status_code,
             content_type=upstream_response.headers.get("Content-Type"),
             content_length=upstream_response.headers.get("Content-Length"),
             content_range=upstream_response.headers.get("Content-Range"),
         )
+        if selected_request_method == "HEAD" and upstream_response.status_code in (404, 405):
+            upstream_response.close()
+            fallback_headers = dict(upstream_headers)
+            fallback_headers.setdefault("Range", "bytes=0-0")
+            _log_recording_debug(
+                "proxy_recording_stream.head_fallback",
+                session_token=session_token,
+                upstream_url=upstream_url,
+                fallback_method="GET",
+                fallback_range=fallback_headers.get("Range"),
+            )
+            upstream_response = _request_upstream_recording(
+                "GET",
+                upstream_url,
+                fallback_headers,
+                session_token,
+            )
+            _log_recording_debug(
+                "proxy_recording_stream.response",
+                session_token=session_token,
+                method="GET",
+                upstream_url=upstream_url,
+                status_code=upstream_response.status_code,
+                content_type=upstream_response.headers.get("Content-Type"),
+                content_length=upstream_response.headers.get("Content-Length"),
+                content_range=upstream_response.headers.get("Content-Range"),
+            )
         if upstream_response.status_code not in (200, 206):
             try:
                 print("Upstream error body:", upstream_response.text[:1000])
@@ -493,7 +535,7 @@ def _proxy_recording_stream(session_token: str, request_method: str, range_heade
         _log_recording_debug(
             "proxy_recording_stream.error",
             session_token=session_token,
-            method=request_method,
+            method=selected_request_method,
             upstream_url=upstream_url,
             error=str(exc),
         )
@@ -510,13 +552,13 @@ def _proxy_recording_stream(session_token: str, request_method: str, range_heade
     _log_recording_debug(
         "proxy_recording_stream.forward",
         session_token=session_token,
-        method=request_method,
+        method=selected_request_method,
         upstream_url=selected_upstream_url,
         status_code=status_code,
         media_type=media_type,
     )
 
-    if request_method.upper() == "HEAD":
+    if selected_request_method == "HEAD":
         upstream_response.close()
         return Response(status_code=status_code, headers=response_headers)
 
