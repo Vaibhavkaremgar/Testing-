@@ -329,7 +329,7 @@ export default function InterviewRecordingPlayer({
   return (
     <div className={cn('video-tab-container', className)}>
       <div className="video-wrapper">
-        <div className="interview-recording-player-shell relative h-full min-h-[550px] w-full overflow-hidden rounded-[1.5rem] border border-slate-800/80 bg-black">
+        <div className="interview-recording-player-shell relative h-full min-h-[700px] w-full rounded-[1.5rem] border border-slate-800/80 bg-black">
           {shouldRenderPlayer && !errorMessage ? (
             <VideoPlayer
               key={`${videoUrl}-${retryKey}`}
