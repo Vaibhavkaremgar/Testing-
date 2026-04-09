@@ -260,7 +260,7 @@ def test_recording_proxy_blocks_cross_agency_access(client, monkeypatch):
 
 def test_interview_video_endpoint_proxies_by_interview_id(client, monkeypatch):
     current_user = SimpleNamespace(id=uuid4())
-    interview = SimpleNamespace(id=uuid4(), async_token="async-session-token")
+    interview = SimpleNamespace(id=uuid4(), async_token="async-session-token.webm")
     monkeypatch.setattr(interviews_route.settings, "RECORDING_SERVICE_TOKEN", "recording-secret")
     monkeypatch.setattr(interviews_route.settings, "INTERNAL_SERVICE_TOKEN", "")
     monkeypatch.setattr(interviews_route.settings, "RECORDING_BASE_URL", "https://interview.pontis.one")
@@ -271,19 +271,10 @@ def test_interview_video_endpoint_proxies_by_interview_id(client, monkeypatch):
         "_get_scoped_interview_for_video",
         lambda db, session_id, user: interview,
     )
-    monkeypatch.setattr(
-        interviews_route,
-        "_fetch_interview_session_row_by_lookup_key",
-        lambda cursor, lookup_key: {
-            "session_token": "lookup-session-token",
-            "interview_id": str(interview.id),
-            "async_token": interview.async_token,
-        },
-    )
 
     def fake_request(method, url, headers=None, stream=None, timeout=None):
         assert method == "GET"
-        assert url == "https://interview.pontis.one/api/recording/lookup-session-token"
+        assert url == "https://interview.pontis.one/api/recording/async-session-token"
         assert headers == {"Authorization": "Bearer recording-secret"}
         return FakeUpstreamResponse(
             status_code=200,

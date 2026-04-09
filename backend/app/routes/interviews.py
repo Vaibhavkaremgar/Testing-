@@ -1093,7 +1093,6 @@ def stream_interview_video(
     db: Session = Depends(get_db),
 ):
     normalize_legacy_candidate_stages(db)
-    connection = None
     bearer_token = None
     if authorization and authorization.lower().startswith("bearer "):
         bearer_token = authorization.split(" ", 1)[1].strip()
@@ -1108,62 +1107,24 @@ def stream_interview_video(
         user_id=current_user.id,
     )
     interview = _get_scoped_interview_for_video(db, session_id, current_user)
-    session_row = None
-    session_token = None
+    if not interview:
+        _log_recording_debug(
+            "stream_interview_video.interview_lookup_miss",
+            session_id=session_id,
+        )
+        raise HTTPException(status_code=404, detail="Interview not found")
 
-    try:
-        connection = psycopg2.connect(settings.DATABASE_URL)
-        with connection:
-            with connection.cursor() as cursor:
-                lookup_keys = [session_id]
-                if interview:
-                    lookup_keys.append(str(interview.id))
-                    if interview.async_token:
-                        lookup_keys.append(interview.async_token)
-
-                for lookup_key in dict.fromkeys([key for key in lookup_keys if key]):
-                    try:
-                        session_row = _fetch_interview_session_row_by_lookup_key(cursor, lookup_key)
-                        break
-                    except HTTPException as exc:
-                        if exc.status_code != 404:
-                            raise
-
-                if session_row and not interview:
-                    interview = _resolve_scoped_interview_from_session_row(db, session_row, current_user)
-
-                if not interview:
-                    _log_recording_debug(
-                        "stream_interview_video.interview_lookup_miss",
-                        session_id=session_id,
-                        fallback_to_session_row=bool(session_row),
-                    )
-                    raise HTTPException(status_code=404, detail="Interview session not found")
-
-                if not session_row:
-                    raise HTTPException(status_code=404, detail="Interview session not found")
-
-                session_token = session_row.get("session_token")
-    except HTTPException:
-        raise
-    except Exception as exc:
-        print(f"Interview video query failed for session {session_id}: {exc}")
-        raise HTTPException(status_code=500, detail="Failed to load interview recording")
-    finally:
-        try:
-            connection.close()
-        except Exception:
-            pass
+    session_token = _normalize_recording_session_token(interview.async_token)
 
     _log_recording_debug(
         "stream_interview_video.lookup",
-        interview_id=interview.id if interview else None,
-        async_token=interview.async_token if interview else None,
+        interview_id=interview.id,
+        async_token=interview.async_token,
         session_token=session_token,
     )
 
     if not session_token:
-        raise HTTPException(status_code=404, detail="Interview recording not found")
+        raise HTTPException(status_code=404, detail="Recording not available")
 
     return _proxy_recording_stream(session_token, request.method, range_header)
 
