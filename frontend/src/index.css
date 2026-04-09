@@ -145,3 +145,9 @@
 .video-js {
   max-height: none !important;
 }
+
+.tab-content,
+.card,
+.ant-tabs-content {
+  height: auto !important;
+}
