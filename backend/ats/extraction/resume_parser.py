@@ -812,7 +812,7 @@ def get_parser_runtime_status() -> Dict[str, Any]:
     }
 
 
-def extract_document(file_path: str) -> Dict[str, Any]:
+def extract_document(file_path: str, fast_mode: bool = False) -> Dict[str, Any]:
     if not file_path or not os.path.exists(file_path):
         return {"text": "", "layout": _default_layout_signals(), "tables": [], "metadata": {}}
 
@@ -844,8 +844,13 @@ def extract_document(file_path: str) -> Dict[str, Any]:
             should_run_pdf_fallback = (
                 not _has_meaningful_text(text_parts)
                 or native_score < 0.45
-                or bool(layout_signals.get("is_multi_column"))
+                or (
+                    bool(layout_signals.get("is_multi_column"))
+                    and not fast_mode
+                )
             )
+            if fast_mode and _has_meaningful_text(text_parts) and native_score >= 0.35:
+                should_run_pdf_fallback = False
             if should_run_pdf_fallback:
                 fallback_started_at = time.perf_counter()
                 fallback_text_parts, fallback_page_metrics = _extract_pdf_text_with_pdfplumber(file_path)
@@ -902,7 +907,7 @@ def extract_document(file_path: str) -> Dict[str, Any]:
                         "table_row_count": len(docx_payload.get("tables") or []),
                         "textbox_count": len(docx_payload.get("textboxes") or []),
                         "header_footer_count": len(docx_payload.get("headers_footers") or []),
-                        "performance": performance,
+                        "performance": {**performance, "fast_mode": fast_mode},
                     },
                 }
             except Exception as exc:
@@ -945,7 +950,7 @@ def extract_document(file_path: str) -> Dict[str, Any]:
             "format": file_ext.lstrip(".") or "text",
             "ocr_applied": bool(layout_signals.get("ocr_applied")),
             "is_image_resume": detect_image_resume(file_path),
-            "performance": performance,
+            "performance": {**performance, "fast_mode": fast_mode},
         },
     }
 
@@ -1516,8 +1521,8 @@ def parse_resume_text(
     return result
 
 
-def parse_resume(file_path: str, original_filename: Optional[str] = None) -> Dict[str, Any]:
-    document_payload = extract_document(file_path)
+def parse_resume(file_path: str, original_filename: Optional[str] = None, fast_mode: bool = False) -> Dict[str, Any]:
+    document_payload = extract_document(file_path, fast_mode=fast_mode)
     raw_text = str(document_payload.get("text") or "")
     layout_signals = document_payload.get("layout") or _default_layout_signals()
     parsed_resume = parse_resume_text(raw_text, original_filename=original_filename, layout_signals=layout_signals)

@@ -475,7 +475,7 @@ def extract_email_from_raw_file(file_path: str) -> Optional[str]:
     emails = re.findall(email_pattern, decoded_content, re.IGNORECASE)
     return emails[0] if emails else None
 
-def extract_resume_data(file_path: str, original_filename: str = None) -> dict:
+def extract_resume_data(file_path: str, original_filename: str = None, *, fast_mode: bool = True) -> dict:
     """Extract structured resume data using the production ATS parser."""
     parsed_resume = {}
     email = None
@@ -495,7 +495,7 @@ def extract_resume_data(file_path: str, original_filename: str = None) -> dict:
     languages = []
     
     try:
-        parsed_resume = parse_resume(file_path, original_filename)
+        parsed_resume = parse_resume(file_path, original_filename, fast_mode=fast_mode)
         raw_text = parsed_resume.get("raw_text", "")
         cleaned_text = parsed_resume.get("full_text", "") or (clean_text(raw_text) if raw_text.strip() else "")
         sections = parsed_resume.get("sections") or {}
@@ -559,7 +559,10 @@ def extract_resume_data(file_path: str, original_filename: str = None) -> dict:
         'languages': languages,
         'experience_years': parsed_resume.get('total_experience_years') if parsed_resume else None,
         'experience_level': experience_level,
-        'full_text': cleaned_text  # Store cleaned text for downstream ATS processing
+        'full_text': cleaned_text,  # Store cleaned text for downstream ATS processing
+        'document_metadata': parsed_resume.get("document_metadata") or {},
+        'layout_signals': parsed_resume.get("layout_signals") or {},
+        'pipeline_summary': parsed_resume.get("pipeline_summary") or {},
     }
 
 def extract_skills_from_text(text: str) -> list:
@@ -859,15 +862,19 @@ def estimate_experience_years_from_entries(entries: list) -> float:
     return float(max(total_years, 0))
 
 
-def process_saved_resume(file_path: str, original_filename: str, job_data: dict) -> dict:
+def process_saved_resume(file_path: str, original_filename: str, job_data: dict, *, fast_mode: bool = True) -> dict:
     """Run extraction and scoring for one saved resume file."""
     from app.balanced_scoring import extract_years_experience
 
-    resume_data = extract_resume_data(file_path, original_filename)
+    total_start = perf_counter()
+    extraction_start = perf_counter()
+    resume_data = extract_resume_data(file_path, original_filename, fast_mode=fast_mode)
+    extraction_time = perf_counter() - extraction_start
     estimated_years = resume_data.get("experience_years")
     if estimated_years is None or estimated_years <= 0:
         estimated_years = estimate_experience_years_from_entries(resume_data.get("work_experience", []))
     resume_data["experience_years"] = estimated_years if estimated_years and estimated_years > 0 else extract_years_experience(resume_data.get("full_text", ""))
+    scoring_start = perf_counter()
     analysis_data = {
         'name': resume_data['name'],
         'email': resume_data['email'],
@@ -885,6 +892,22 @@ def process_saved_resume(file_path: str, original_filename: str, job_data: dict)
         'full_text': resume_data['full_text']
     }
     ai_analysis = analyze_resume_with_ai(analysis_data, job_data)
+    scoring_time = perf_counter() - scoring_start
+    parser_performance = (
+        ((resume_data.get("document_metadata") or {}).get("performance"))
+        if isinstance(resume_data, dict) else None
+    ) or {}
+    _perf_log(
+        "process_saved_resume",
+        total_start,
+        file=original_filename or os.path.basename(file_path),
+        extraction=f"{extraction_time:.4f}s",
+        scoring=f"{scoring_time:.4f}s",
+        pdf=f"{parser_performance.get('pdf_extraction_ms', 0.0)}ms",
+        docx=f"{parser_performance.get('docx_extraction_ms', 0.0)}ms",
+        ocr=f"{parser_performance.get('ocr_ms', 0.0)}ms",
+        fast_mode=parser_performance.get("fast_mode", fast_mode),
+    )
     return {
         "resume_data": resume_data,
         "ai_analysis": ai_analysis,
@@ -895,6 +918,8 @@ def apply_resume_analysis(
     candidate: Candidate,
     ai_analysis: Optional[dict] = None,
     job_title: Optional[str] = None,
+    *,
+    generate_questions: bool = True,
 ):
     """Apply analysis results without forcing a commit for every candidate."""
     candidate.parsing_status = ParsingStatus.COMPLETED
@@ -907,7 +932,7 @@ def apply_resume_analysis(
         candidate.resume_score = score
         candidate.summary = ai_analysis.get('candidate_summary', '')
 
-        if candidate.resume_text and job_title:
+        if generate_questions and candidate.resume_text and job_title:
             try:
                 candidate.predefined_questions = generate_interview_questions(
                     candidate.resume_text,
@@ -921,6 +946,20 @@ def apply_resume_analysis(
     else:
         candidate.resume_score = 40
         assign_resume_pipeline_stage(candidate, candidate.resume_score, candidate.score_threshold)
+
+
+def should_defer_resume_refinement(resume_data: dict) -> bool:
+    document_metadata = resume_data.get("document_metadata") or {}
+    layout_signals = resume_data.get("layout_signals") or {}
+    performance = document_metadata.get("performance") or {}
+    full_text = (resume_data.get("full_text") or "").strip()
+    return bool(
+        layout_signals.get("ocr_applied")
+        or layout_signals.get("is_scanned_pdf")
+        or layout_signals.get("is_multi_column")
+        or performance.get("ocr_ms", 0.0) > 0.0
+        or len(full_text) < 500
+    )
 
 
 def finalize_batch_notifications(
@@ -965,6 +1004,7 @@ def process_single_resume_upload(
 ):
     """Process a single resume after the response so uploads return quickly."""
     db = SessionLocal()
+    total_start = perf_counter()
 
     try:
         set_upload_progress(
@@ -980,8 +1020,9 @@ def process_single_resume_upload(
             job_data = get_default_job_data()
         job_title = job_data.get("title", "")
 
-        processed = process_saved_resume(file_path, original_filename, job_data)
+        processed = process_saved_resume(file_path, original_filename, job_data, fast_mode=True)
         resume_data = processed["resume_data"]
+        needs_refinement = should_defer_resume_refinement(resume_data)
 
         candidate = Candidate(
             name=resume_data['name'],
@@ -1001,10 +1042,15 @@ def process_single_resume_upload(
             agency_id=agency_id,
             created_by=current_user_id,
             assigned_to_user_id=current_user_id,
-            parsing_status=ParsingStatus.PROCESSING,
+            parsing_status=ParsingStatus.PROCESSING if needs_refinement else ParsingStatus.COMPLETED,
             score_threshold=threshold
         )
-        apply_resume_analysis(candidate, processed["ai_analysis"], job_title=job_title)
+        apply_resume_analysis(
+            candidate,
+            processed["ai_analysis"],
+            job_title=job_title,
+            generate_questions=not needs_refinement,
+        )
         db.add(candidate)
         db.commit()
         db.refresh(candidate)
@@ -1014,10 +1060,76 @@ def process_single_resume_upload(
             current=1,
             total=1,
             status="completed",
-            message="Resume analyzed successfully",
+            message="Resume uploaded successfully" if not needs_refinement else "Resume uploaded. Deep parsing is continuing in the background.",
             candidate_id=str(candidate.id),
         )
-        finalize_batch_notifications(None, db, [candidate], user_id=current_user_id)
+        if not needs_refinement:
+            finalize_batch_notifications(None, db, [candidate], user_id=current_user_id)
+
+        _perf_log(
+            "process_single_resume_upload.fast_pass",
+            total_start,
+            file=original_filename,
+            upload_id=upload_id,
+            candidate_id=str(candidate.id),
+            refinement=needs_refinement,
+        )
+
+        if needs_refinement:
+            refinement_start = perf_counter()
+            try:
+                refined = process_saved_resume(file_path, original_filename, job_data, fast_mode=False)
+                refined_resume = refined["resume_data"]
+                candidate.name = refined_resume['name']
+                candidate.email = refined_resume['email']
+                candidate.phone = refined_resume['phone']
+                candidate.current_company = refined_resume.get('current_company')
+                candidate.current_role = refined_resume.get('current_role')
+                candidate.location = refined_resume.get('location')
+                candidate.experience_years = refined_resume.get('experience_years')
+                candidate.skills = refined_resume['skills']
+                candidate.education = refined_resume.get('education')
+                candidate.work_experience = refined_resume.get('work_experience')
+                candidate.resume_text = refined_resume['full_text']
+                apply_resume_analysis(
+                    candidate,
+                    refined["ai_analysis"],
+                    job_title=job_title,
+                    generate_questions=True,
+                )
+                candidate.parsing_status = ParsingStatus.COMPLETED
+                db.commit()
+                db.refresh(candidate)
+                finalize_batch_notifications(None, db, [candidate], user_id=current_user_id)
+                _perf_log(
+                    "process_single_resume_upload.refinement",
+                    refinement_start,
+                    file=original_filename,
+                    upload_id=upload_id,
+                    candidate_id=str(candidate.id),
+                    status="completed",
+                )
+            except Exception as exc:
+                db.rollback()
+                candidate.parsing_status = ParsingStatus.FAILED
+                db.add(candidate)
+                db.commit()
+                _perf_log(
+                    "process_single_resume_upload.refinement",
+                    refinement_start,
+                    file=original_filename,
+                    upload_id=upload_id,
+                    candidate_id=str(candidate.id),
+                    status="failed",
+                    error=str(exc),
+                )
+        _perf_log(
+            "process_single_resume_upload",
+            total_start,
+            file=original_filename,
+            upload_id=upload_id,
+            candidate_id=str(candidate.id),
+        )
     except Exception as exc:
         db.rollback()
         set_upload_progress(
@@ -1028,6 +1140,13 @@ def process_single_resume_upload(
             message=f"Upload failed: {exc}",
         )
         print(f"Single upload processing failed for {original_filename}: {exc}")
+        _perf_log(
+            "process_single_resume_upload",
+            total_start,
+            file=original_filename,
+            upload_id=upload_id,
+            status="error",
+        )
     finally:
         db.close()
 
