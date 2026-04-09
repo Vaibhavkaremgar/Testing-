@@ -7,7 +7,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from ats.extraction.information_extraction import extract_resume_information  # noqa: E402
-from ats.extraction.resume_parser import extract_document, extract_text, parse_resume  # noqa: E402
+from ats.extraction.resume_parser import extract_document, extract_text, parse_resume, run_ocr  # noqa: E402
 from app.routes.candidates import resolve_current_company_for_storage, resolve_current_role_for_storage  # noqa: E402
 
 
@@ -132,6 +132,29 @@ Strategy, CRM, Leadership
         self.assertGreater(result["total_experience_years"], 6.0)
         self.assertNotEqual(result["current_role"], "Growth Strategy")
 
+    def test_parse_resume_includes_bottleneck_debug_fields(self):
+        resume_text = """
+Taylor Candidate
+
+Work Experience
+Sales Director at Nova Systems Ltd
+2019 - Present
+Managed enterprise revenue operations.
+        """
+
+        with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False, encoding="utf-8") as handle:
+            handle.write(resume_text)
+            temp_path = handle.name
+
+        try:
+            result = parse_resume(temp_path, "timed_resume.txt")
+        finally:
+            Path(temp_path).unlink(missing_ok=True)
+
+        self.assertIn("bottleneck_stage", result["debug_timings"])
+        self.assertIn("bottleneck_time_ms", result["debug_timings"])
+        self.assertIn("bottleneck_exceeds_threshold", result["debug_timings"])
+
     def test_current_company_for_storage_uses_latest_valid_experience_company(self):
         work_experience = [
             {"company": "Acme Organization", "title": "Senior Teacher"},
@@ -204,6 +227,20 @@ Leadership, Stakeholder Management, Hiring
         self.assertNotIn("docker", result["skills"])
         self.assertEqual(result["current_role"], "Engineering Manager")
         self.assertEqual(result["current_company"], "Bright Solutions Ltd")
+
+    @patch("ats.extraction.resume_parser._run_ocr_internal")
+    def test_run_ocr_times_out_after_five_seconds(self, mock_run_ocr_internal):
+        def delayed_ocr(_file_path):
+            import time
+            time.sleep(0.05)
+            return ["late text"]
+
+        mock_run_ocr_internal.side_effect = delayed_ocr
+
+        parts, timed_out = run_ocr("resume.pdf", timeout_seconds=0.01)
+
+        self.assertEqual(parts, [])
+        self.assertTrue(timed_out)
 
     def test_missing_skills_section_does_not_promote_project_technologies(self):
         resume_text = """

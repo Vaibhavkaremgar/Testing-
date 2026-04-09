@@ -6,6 +6,7 @@ import re
 import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import pdfplumber
@@ -112,6 +113,9 @@ PDF_SEGMENT_GAP = 35.0
 OCR_MIN_TEXT_LENGTH = 80
 OCR_MIN_ALPHA_CHARS = 30
 OCR_MIN_ALPHA_RATIO = 0.3
+MAX_RESUME_PAGES = 2
+OCR_TIMEOUT_SECONDS = 5.0
+BOTTLENECK_THRESHOLD_MS = 3000.0
 BROKEN_TOKEN_PATTERN = re.compile(r"\b[A-Za-z]{1,8}\s+[A-Za-z]{1,8}\b")
 BROKEN_MONTH_PATTERN = re.compile(
     r"(?i)\b(?:j\s+anuary|f\s+ebruary|m\s+arch|a\s+pril|m\s+ay|j\s+une|j\s+uly|s\s+eptember|o\s+ctober|n\s+ovember|d\s+ecember)\b"
@@ -509,7 +513,8 @@ def _extract_pdf_text_with_pymupdf(file_path: str) -> Tuple[List[str], List[Dict
     document = None
     try:
         document = fitz.open(file_path)
-        for page in document:
+        for page_index in range(min(len(document), MAX_RESUME_PAGES)):
+            page = document.load_page(page_index)
             page_text = (page.get_text("text") or "").strip()
             if page_text:
                 text_parts.append(page_text)
@@ -557,7 +562,7 @@ def _extract_pdf_text_with_pdfplumber(file_path: str) -> Tuple[List[str], List[D
     page_metrics: List[Dict[str, Any]] = []
     try:
         with pdfplumber.open(file_path) as pdf:
-            for page in pdf.pages:
+            for page in pdf.pages[:MAX_RESUME_PAGES]:
                 page_text = _extract_pdf_page_text(page) or ""
                 if page_text.strip():
                     text_parts.append(page_text)
@@ -597,12 +602,22 @@ def detect_image_resume(file_path: str) -> bool:
     return os.path.splitext(file_path)[1].lower() in {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"}
 
 
-def run_ocr(file_path: str) -> List[str]:
+def _run_ocr_internal(file_path: str) -> List[str]:
     if detect_image_resume(file_path):
         return _extract_image_text_via_ocr(file_path)
     if os.path.splitext(file_path)[1].lower() == ".pdf":
         return _extract_pdf_text_via_ocr(file_path)
     return []
+
+
+def run_ocr(file_path: str, timeout_seconds: float = OCR_TIMEOUT_SECONDS) -> Tuple[List[str], bool]:
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(_run_ocr_internal, file_path)
+        try:
+            return future.result(timeout=timeout_seconds), False
+        except FuturesTimeoutError:
+            logger.warning("OCR timed out after %.1fs for %s", timeout_seconds, file_path)
+            return [], True
 
 
 def _configure_tesseract() -> bool:
@@ -734,7 +749,8 @@ def _render_pdf_pages_for_ocr(file_path: str) -> List[Image.Image]:
         try:
             document = fitz.open(file_path)
             matrix = fitz.Matrix(2, 2)
-            for page in document:
+            for page_index in range(min(len(document), MAX_RESUME_PAGES)):
+                page = document.load_page(page_index)
                 pixmap = page.get_pixmap(matrix=matrix, alpha=False)
                 image = Image.frombytes("RGB", [pixmap.width, pixmap.height], pixmap.samples)
                 rendered_pages.append(image)
@@ -749,7 +765,7 @@ def _render_pdf_pages_for_ocr(file_path: str) -> List[Image.Image]:
 
     try:
         with pdfplumber.open(file_path) as pdf:
-            for page in pdf.pages:
+            for page in pdf.pages[:MAX_RESUME_PAGES]:
                 try:
                     rendered_pages.append(page.to_image(resolution=200).original)
                 except Exception as exc:
@@ -815,6 +831,18 @@ def _log_ats_timing(lines: List[str]) -> None:
     logger.info("%s\n%s", ATS_TIMING_LABEL, "\n".join(lines))
 
 
+def _find_bottleneck_stage(stage_timings: Dict[str, float]) -> Tuple[str, float, bool]:
+    numeric_timings = {
+        str(stage): float(duration)
+        for stage, duration in (stage_timings or {}).items()
+        if isinstance(duration, (int, float))
+    }
+    if not numeric_timings:
+        return "None", 0.0, False
+    bottleneck_stage, bottleneck_ms = max(numeric_timings.items(), key=lambda item: item[1])
+    return bottleneck_stage, round(bottleneck_ms, 2), bottleneck_ms > BOTTLENECK_THRESHOLD_MS
+
+
 def _split_name_and_role(raw_name: str, *, location: str = "", current_company: str = "") -> Tuple[str, str]:
     compact = re.sub(r"\s+", " ", (raw_name or "").strip(" ,|-"))
     if not compact:
@@ -876,6 +904,8 @@ def extract_document(file_path: str, fast_mode: bool = False) -> Dict[str, Any]:
         "pdf_extraction_ms": 0.0,
         "docx_extraction_ms": 0.0,
         "ocr_ms": 0.0,
+        "ocr_timed_out": False,
+        "pages_processed": 0,
     }
 
     try:
@@ -884,6 +914,7 @@ def extract_document(file_path: str, fast_mode: bool = False) -> Dict[str, Any]:
             primary_started_at = time.perf_counter()
             primary_text_parts, primary_page_metrics = _extract_pdf_text_with_pymupdf(file_path)
             _record_stage_time(performance, "pdf_extraction_ms", primary_started_at)
+            performance["pages_processed"] = max(len(primary_text_parts), len(primary_page_metrics))
             parser_outputs["pymupdf"] = {
                 "text_parts": primary_text_parts,
                 "page_metrics": primary_page_metrics,
@@ -908,6 +939,11 @@ def extract_document(file_path: str, fast_mode: bool = False) -> Dict[str, Any]:
                     performance.get("pdf_extraction_ms", 0.0) + (time.perf_counter() - fallback_started_at) * 1000.0,
                     2,
                 )
+                performance["pages_processed"] = max(
+                    int(performance.get("pages_processed", 0) or 0),
+                    len(fallback_text_parts),
+                    len(fallback_page_metrics),
+                )
                 parser_outputs["pdfplumber"] = {
                     "text_parts": fallback_text_parts,
                     "page_metrics": fallback_page_metrics,
@@ -919,8 +955,9 @@ def extract_document(file_path: str, fast_mode: bool = False) -> Dict[str, Any]:
 
             if (not fast_mode) and not _has_meaningful_text(text_parts):
                 ocr_started_at = time.perf_counter()
-                ocr_parts = run_ocr(file_path)
+                ocr_parts, ocr_timed_out = run_ocr(file_path, timeout_seconds=OCR_TIMEOUT_SECONDS)
                 _record_stage_time(performance, "ocr_ms", ocr_started_at)
+                performance["ocr_timed_out"] = ocr_timed_out
                 if _has_meaningful_text(ocr_parts):
                     ocr_score = _score_text_quality(ocr_parts)
                     if ocr_score > native_score + 0.08:
@@ -946,6 +983,7 @@ def extract_document(file_path: str, fast_mode: bool = False) -> Dict[str, Any]:
                 docx_started_at = time.perf_counter()
                 docx_payload = extract_docx(file_path)
                 _record_stage_time(performance, "docx_extraction_ms", docx_started_at)
+                performance["pages_processed"] = MAX_RESUME_PAGES
                 extracted_text = str(docx_payload.get("text") or "").strip()
                 if extracted_text:
                     text_parts.append(extracted_text)
@@ -980,11 +1018,13 @@ def extract_document(file_path: str, fast_mode: bool = False) -> Dict[str, Any]:
 
         elif file_ext in {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"}:
             ocr_started_at = time.perf_counter()
-            text_parts = run_ocr(file_path)
+            text_parts, ocr_timed_out = run_ocr(file_path, timeout_seconds=OCR_TIMEOUT_SECONDS)
             _record_stage_time(performance, "ocr_ms", ocr_started_at)
+            performance["ocr_timed_out"] = ocr_timed_out
             layout_signals = infer_layout_signals(text_parts=text_parts, page_metrics=[])
             layout_signals["is_scanned_pdf"] = False
             layout_signals["ocr_applied"] = True
+            performance["pages_processed"] = 1
 
         if not text_parts:
             with open(file_path, "rb") as handle:
@@ -1611,6 +1651,20 @@ def parse_resume_text(
         f"Clean Name: {extracted_name or ''}",
         f"Role Detected: {split_role or ''}",
     ]
+    bottleneck_stage, bottleneck_ms, bottleneck_exceeds_threshold = _find_bottleneck_stage(
+        {
+            stage: value
+            for stage, value in stage_timings.items()
+            if stage not in {"Warmup", "Total Time"}
+        }
+    )
+    timing_lines.extend(
+        [
+            f"Bottleneck Stage: {bottleneck_stage}",
+            f"Bottleneck Time: {bottleneck_ms} ms",
+            f"Bottleneck > 3s: {'Yes' if bottleneck_exceeds_threshold else 'No'}",
+        ]
+    )
     result["debug_timings"] = {
         **(extracted_info.get("debug_timings") or {}),
         **stage_timings,
@@ -1618,6 +1672,9 @@ def parse_resume_text(
         "models_loaded": bool(GLOBAL_MODELS.get("ready") and warmup_state.get("ready")),
         "ocr_triggered": bool(result.get("layout_signals", {}).get("ocr_applied")),
         "resume_name": result.get("name") or "",
+        "bottleneck_stage": bottleneck_stage,
+        "bottleneck_time_ms": bottleneck_ms,
+        "bottleneck_exceeds_threshold": bottleneck_exceeds_threshold,
     }
     _log_ats_timing(timing_lines)
     logger.info(
@@ -1646,8 +1703,24 @@ def parse_resume(file_path: str, original_filename: Optional[str] = None, fast_m
             "DOCX Parse": round(float(performance.get("docx_extraction_ms", 0.0) or 0.0), 2),
             "OCR Time": round(float(performance.get("ocr_ms", 0.0) or 0.0), 2),
             "ocr_triggered": bool(layout_signals.get("ocr_applied")),
+            "ocr_timed_out": bool(performance.get("ocr_timed_out")),
+            "pages_processed": int(performance.get("pages_processed", 0) or 0),
         }
     )
+    bottleneck_stage, bottleneck_ms, bottleneck_exceeds_threshold = _find_bottleneck_stage(
+        {
+            "PDF Parse": float(performance.get("pdf_extraction_ms", 0.0) or 0.0),
+            "DOCX Parse": float(performance.get("docx_extraction_ms", 0.0) or 0.0),
+            "OCR Time": float(performance.get("ocr_ms", 0.0) or 0.0),
+            "Section Detection": float(debug_timings.get("Section Detection", 0.0) or 0.0),
+            "Experience Extraction": float(debug_timings.get("Experience Extraction", 0.0) or 0.0),
+            "spaCy Execution": float(debug_timings.get("spaCy Execution", 0.0) or 0.0),
+            "Regex Processing": float(debug_timings.get("Regex Processing", 0.0) or 0.0),
+        }
+    )
+    debug_timings["bottleneck_stage"] = bottleneck_stage
+    debug_timings["bottleneck_time_ms"] = bottleneck_ms
+    debug_timings["bottleneck_exceeds_threshold"] = bottleneck_exceeds_threshold
     parsed_resume["debug_timings"] = debug_timings
     _log_ats_timing(
         [
@@ -1655,6 +1728,11 @@ def parse_resume(file_path: str, original_filename: Optional[str] = None, fast_m
             f"DOCX Parse: {debug_timings.get('DOCX Parse', 0.0)} ms",
             f"OCR Triggered: {'Yes' if debug_timings.get('ocr_triggered') else 'No'}",
             f"OCR Time: {debug_timings.get('OCR Time', 0.0)} ms",
+            f"OCR Timed Out: {'Yes' if debug_timings.get('ocr_timed_out') else 'No'}",
+            f"Pages Processed: {debug_timings.get('pages_processed', 0)}",
+            f"Bottleneck Stage: {debug_timings.get('bottleneck_stage', 'None')}",
+            f"Bottleneck Time: {debug_timings.get('bottleneck_time_ms', 0.0)} ms",
+            f"Bottleneck > 3s: {'Yes' if debug_timings.get('bottleneck_exceeds_threshold') else 'No'}",
             f"Resume Name: {parsed_resume.get('name') or ''}",
             f"Processing Time: {debug_timings.get('Total Time', 0.0)} ms",
         ]

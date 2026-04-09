@@ -103,11 +103,15 @@ def _ats_timing_log(**fields) -> None:
         ("Regex Processing", "regex_processing_ms"),
         ("OCR Triggered", "ocr_triggered"),
         ("OCR Time", "ocr_time_ms"),
+        ("OCR Timed Out", "ocr_timed_out"),
+        ("Pages Processed", "pages_processed"),
         ("Warmup Used", "warmup_used"),
         ("Models Loaded", "models_loaded"),
         ("Database Save", "database_save_ms"),
         ("Processing Time", "total_time_ms"),
         ("Slowest Component", "slowest_component"),
+        ("Bottleneck Time", "bottleneck_time_ms"),
+        ("Bottleneck > 3s", "bottleneck_exceeds_threshold"),
     ]
     lines = ["[ATS TIMING]"]
     for label, key in ordered_labels:
@@ -986,8 +990,6 @@ def should_defer_resume_refinement(resume_data: dict) -> bool:
         layout_signals.get("ocr_applied")
         or layout_signals.get("is_scanned_pdf")
         or layout_signals.get("is_multi_column")
-        or layout_signals.get("deferred_ocr_required")
-        or layout_signals.get("deferred_layout_refinement_required")
         or performance.get("ocr_ms", 0.0) > 0.0
         or len(full_text) < 500
     )
@@ -1091,6 +1093,7 @@ def process_single_resume_upload(
         database_save_ms = round((perf_counter() - db_save_started_at) * 1000.0, 2)
         parser_debug = resume_data.get("debug_timings") or {}
         slowest_components = {
+            "File Upload": float(resume_data.get("file_upload_ms", 0.0) or 0.0),
             "PDF Parse": float((resume_data.get("document_metadata") or {}).get("performance", {}).get("pdf_extraction_ms", 0.0) or 0.0),
             "DOCX Parse": float((resume_data.get("document_metadata") or {}).get("performance", {}).get("docx_extraction_ms", 0.0) or 0.0),
             "Section Detection": float(parser_debug.get("Section Detection", 0.0) or 0.0),
@@ -1102,6 +1105,7 @@ def process_single_resume_upload(
             "Database Save": database_save_ms,
         }
         slowest_component = max(slowest_components, key=slowest_components.get)
+        bottleneck_component = slowest_component if slowest_components[slowest_component] > 3000.0 else "None > 3s"
         _ats_timing_log(
             resume_name=resume_data.get("name") or "",
             file_upload_ms=resume_data.get("file_upload_ms", 0.0),
@@ -1115,11 +1119,15 @@ def process_single_resume_upload(
             regex_processing_ms=parser_debug.get("Regex Processing", 0.0),
             ocr_triggered="Yes" if parser_debug.get("ocr_triggered") else "No",
             ocr_time_ms=round(float((resume_data.get("document_metadata") or {}).get("performance", {}).get("ocr_ms", 0.0) or 0.0), 2),
+            ocr_timed_out="Yes" if (resume_data.get("document_metadata") or {}).get("performance", {}).get("ocr_timed_out") else "No",
+            pages_processed=int((resume_data.get("document_metadata") or {}).get("performance", {}).get("pages_processed", 0) or 0),
             warmup_used="Yes" if parser_debug.get("warmup_used") else "No",
             models_loaded="Yes" if parser_debug.get("models_loaded") else "No",
             database_save_ms=database_save_ms,
             total_time_ms=round((perf_counter() - total_start) * 1000.0, 2),
-            slowest_component=slowest_component,
+            slowest_component=bottleneck_component,
+            bottleneck_time_ms=round(float(slowest_components.get(slowest_component, 0.0) or 0.0), 2),
+            bottleneck_exceeds_threshold="Yes" if slowest_components.get(slowest_component, 0.0) > 3000.0 else "No",
         )
 
         set_upload_progress(

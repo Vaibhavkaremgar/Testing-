@@ -1710,13 +1710,15 @@ def derive_experience_level(experience_years: float | None) -> str:
 
 def extract_resume_information(text: str) -> Dict:
     debug_timings: Dict[str, float] = {}
-    section_started_at = time.perf_counter()
+    regex_started_at = time.perf_counter()
     structural_text = normalize_text(
         merge_broken_lines(
             normalize_document_structure(text or "")
         )
     )
     cleaned_text = clean_text_pipeline(text)
+    debug_timings["regex_processing_ms"] = round((time.perf_counter() - regex_started_at) * 1000.0, 2)
+    section_started_at = time.perf_counter()
     sections = segment_resume_sections(cleaned_text)
     debug_timings["section_detection_ms"] = round((time.perf_counter() - section_started_at) * 1000.0, 2)
     
