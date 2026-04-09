@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertCircle, RefreshCw, Video } from 'lucide-react'
+import { AlertCircle, Clock3, RefreshCw, ShieldCheck, Video, Waves } from 'lucide-react'
 
 import VideoPlayer from '@/components/VideoPlayer'
 import api from '@/lib/api'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 
 const LOAD_TIMEOUT_MS = 15000
@@ -66,6 +67,34 @@ function getPlayerErrorMessage(error) {
   return 'Unable to load interview recording'
 }
 
+function describeFormat(recordingPath) {
+  const mimeType = inferVideoMimeType(recordingPath)
+  if (mimeType === 'video/webm') {
+    return 'WEBM'
+  }
+  if (mimeType === 'video/mp4') {
+    return 'MP4'
+  }
+  return 'AUTO'
+}
+
+function describeAvailability(status) {
+  switch (status) {
+    case 'available':
+      return 'Ready to review'
+    case 'checking':
+      return 'Checking stream'
+    case 'maybe_invalid':
+      return 'Playable, verify response'
+    case 'not_found':
+      return 'Recording missing'
+    case 'invalid':
+      return 'Invalid source'
+    default:
+      return 'Stream status pending'
+  }
+}
+
 export default function InterviewRecordingPlayer({
   sessionToken,
   interviewId,
@@ -91,6 +120,9 @@ export default function InterviewRecordingPlayer({
   const videoUrl = candidateUrls[activeUrlIndex] || ''
   const sources = useMemo(() => buildRecordingSources(videoUrl, recordingPath), [recordingPath, videoUrl])
   const hasRecording = Boolean(videoUrl)
+  const formatLabel = useMemo(() => describeFormat(recordingPath), [recordingPath])
+  const availabilityLabel = useMemo(() => describeAvailability(availabilityStatus), [availabilityStatus])
+  const sourceCount = candidateUrls.length
   const hasValidRecordingPath = (
     (typeof sessionToken === 'string' && sessionToken.trim().length > 0)
     || (typeof interviewId === 'string' && interviewId.trim().length > 0)
@@ -299,7 +331,32 @@ export default function InterviewRecordingPlayer({
   const shouldRenderPlayer = hasRecording && availabilityStatus !== 'not_found'
 
   return (
-    <div className={cn('relative h-full w-full rounded-xl border bg-black/95', className)}>
+    <div className={cn('interview-recording-player-shell relative h-full w-full overflow-hidden rounded-[1.5rem] border border-slate-800/80 bg-[#040816]', className)}>
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-start justify-between gap-4 p-4">
+        <div className="max-w-[70%] rounded-2xl border border-white/10 bg-slate-950/55 px-4 py-3 text-white shadow-2xl backdrop-blur-md">
+          <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.28em] text-cyan-200/90">
+            <Waves className="h-3.5 w-3.5" />
+            Interview Recording
+          </div>
+          <p className="mt-2 text-base font-semibold text-white">Review candidate playback with upgraded controls</p>
+          <p className="mt-1 text-xs text-slate-300/80">{availabilityLabel}</p>
+        </div>
+        <div className="flex flex-wrap justify-end gap-2">
+          <Badge className="border border-emerald-400/30 bg-emerald-500/15 px-3 py-1 text-[11px] font-medium text-emerald-100 shadow-sm backdrop-blur-md hover:bg-emerald-500/15">
+            <ShieldCheck className="mr-1 h-3.5 w-3.5" />
+            Protected stream
+          </Badge>
+          <Badge className="border border-cyan-400/25 bg-cyan-400/10 px-3 py-1 text-[11px] font-medium text-cyan-100 shadow-sm backdrop-blur-md hover:bg-cyan-400/10">
+            <Video className="mr-1 h-3.5 w-3.5" />
+            {formatLabel}
+          </Badge>
+          <Badge className="border border-white/10 bg-white/10 px-3 py-1 text-[11px] font-medium text-slate-100 shadow-sm backdrop-blur-md hover:bg-white/10">
+            <Clock3 className="mr-1 h-3.5 w-3.5" />
+            {sourceCount > 1 ? `${activeUrlIndex + 1}/${sourceCount} sources` : 'Single source'}
+          </Badge>
+        </div>
+      </div>
+
       {shouldRenderPlayer && !errorMessage ? (
         <VideoPlayer
           key={`${videoUrl}-${retryKey}`}
@@ -307,13 +364,27 @@ export default function InterviewRecordingPlayer({
           poster={poster}
           preload="metadata"
           playsInline
-          className="h-full w-full rounded-xl"
+          className="h-full w-full rounded-[1.5rem]"
           videoClassName="object-contain"
           options={{
             controls: true,
             fluid: true,
             responsive: true,
+            playbackRates: [0.75, 1, 1.25, 1.5, 2],
+            userActions: {
+              hotkeys: true,
+            },
             controlBar: {
+              remainingTimeDisplay: {
+                displayNegative: false,
+              },
+              skipButtons: {
+                backward: 10,
+                forward: 10,
+              },
+              volumePanel: {
+                inline: false,
+              },
               pictureInPictureToggle: false,
             },
           }}
@@ -323,15 +394,25 @@ export default function InterviewRecordingPlayer({
         />
       ) : null}
 
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex items-end justify-between gap-4 bg-gradient-to-t from-slate-950 via-slate-950/55 to-transparent px-5 pb-4 pt-12 text-white">
+        <div>
+          <p className="text-sm font-medium">Session playback</p>
+          <p className="text-xs text-slate-300/75">Use speed controls, seek shortcuts, and fallback sources when available.</p>
+        </div>
+        <div className="rounded-full border border-white/10 bg-white/10 px-3 py-1 text-[11px] font-medium text-slate-200/90 backdrop-blur-md">
+          {hasRecording ? 'Streaming via video.js' : 'Waiting for source'}
+        </div>
+      </div>
+
       {isInitializing && !errorMessage && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/70 text-white">
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-slate-950/72 text-white backdrop-blur-sm">
           <RefreshCw className="h-8 w-8 animate-spin" />
           <p className="text-sm font-medium">Loading recording...</p>
         </div>
       )}
 
       {errorMessage ? (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 rounded-xl bg-black/80 px-6 text-center text-white">
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 rounded-[1.5rem] bg-slate-950/84 px-6 text-center text-white backdrop-blur-sm">
           <AlertCircle className="h-12 w-12 text-amber-300" />
           <div>
             <p className="text-lg font-semibold">{errorMessage}</p>
