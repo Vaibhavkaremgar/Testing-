@@ -640,7 +640,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
 
               <TabsContent value="video" className="mt-4 min-h-0 flex-1 overflow-hidden">
                 <div className="flex h-full flex-col overflow-hidden">
-                  <div className="h-[520px] w-full overflow-hidden rounded-xl bg-black">
+                  <div className="h-[680px] w-full overflow-hidden rounded-xl bg-black">
                     <InterviewRecordingPlayer
                       sessionToken={selectedInterview.session_token}
                       interviewId={selectedInterview.id}
