@@ -16,15 +16,6 @@ function normalizeSessionToken(value) {
     .replace(/\.(mp4|webm)$/i, '')
 }
 
-function buildVoiceInterviewerRecordingUrl(sessionToken) {
-  const normalizedSessionToken = normalizeSessionToken(sessionToken)
-  if (!normalizedSessionToken) {
-    return ''
-  }
-
-  return `https://interview.pontis.one/api/recording/${normalizedSessionToken}`
-}
-
 function buildRecordingUrls({ sessionToken, interviewId, asyncToken, recordingPath }) {
   const urls = []
   const normalizedSessionToken = normalizeSessionToken(sessionToken)
@@ -32,11 +23,19 @@ function buildRecordingUrls({ sessionToken, interviewId, asyncToken, recordingPa
   const normalizedInterviewId = String(interviewId || '').trim()
 
   if (normalizedSessionToken) {
-    urls.push(buildVoiceInterviewerRecordingUrl(normalizedSessionToken))
+    try {
+      urls.push(api.getDashboardRecordingUrl(normalizedSessionToken))
+    } catch {
+      // Ignore invalid URL construction.
+    }
   }
 
   if (normalizedAsyncToken) {
-    urls.push(buildVoiceInterviewerRecordingUrl(normalizedAsyncToken))
+    try {
+      urls.push(api.getDashboardRecordingUrl(normalizedAsyncToken))
+    } catch {
+      // Ignore invalid URL construction.
+    }
   }
 
   if (normalizedInterviewId) {
@@ -61,13 +60,25 @@ function inferVideoMimeType(recordingPath) {
   return undefined
 }
 
-function buildRecordingSources(videoUrl, recordingPath) {
+function buildAuthorizedRecordingSources(videoUrl, recordingPath, token) {
   if (!videoUrl) {
     return []
   }
 
-  const mimeType = inferVideoMimeType(recordingPath)
-  return mimeType ? [{ src: videoUrl, type: mimeType }] : [{ src: videoUrl }]
+  const mimeType = inferVideoMimeType(recordingPath) || 'video/webm'
+  const source = {
+    src: videoUrl,
+    type: mimeType,
+    withCredentials: true,
+  }
+
+  if (token) {
+    source.headers = {
+      Authorization: `Bearer ${token}`,
+    }
+  }
+
+  return [source]
 }
 
 function getPlayerErrorMessage(error) {
@@ -129,8 +140,12 @@ export default function InterviewRecordingPlayer({
     [asyncToken, interviewId, recordingPath, sessionToken]
   )
   const videoUrl = candidateUrls[activeUrlIndex] || ''
+  const authToken = useMemo(() => api.getToken(), [])
   console.log('FINAL VIDEO URL:', videoUrl)
-  const sources = useMemo(() => buildRecordingSources(videoUrl, recordingPath), [recordingPath, videoUrl])
+  const sources = useMemo(
+    () => buildAuthorizedRecordingSources(videoUrl, recordingPath, authToken),
+    [authToken, recordingPath, videoUrl]
+  )
   const hasRecording = Boolean(videoUrl)
   const formatLabel = useMemo(() => describeFormat(recordingPath), [recordingPath])
   const availabilityLabel = useMemo(() => describeAvailability(availabilityStatus), [availabilityStatus])
@@ -209,8 +224,12 @@ export default function InterviewRecordingPlayer({
     // HEAD validation is only a UX hint. Some upstream recording services do
     // not support HEAD for protected assets even when GET playback works.
     fetch(videoUrl, {
+      headers: authToken ? {
+        Authorization: `Bearer ${authToken}`,
+      } : undefined,
       method: 'HEAD',
       signal: abortController.signal,
+      credentials: 'include',
     })
       .then((response) => {
         const contentType = response.headers.get('content-type') || ''
@@ -271,7 +290,7 @@ export default function InterviewRecordingPlayer({
       clearRetryTimeout()
       clearValidationRequest()
     }
-  }, [activeUrlIndex, asyncToken, candidateUrls.length, hasRecording, hasValidRecordingPath, interviewId, recordingPath, retryKey, sessionToken, videoUrl])
+  }, [activeUrlIndex, asyncToken, authToken, candidateUrls.length, hasRecording, hasValidRecordingPath, interviewId, recordingPath, retryKey, sessionToken, videoUrl])
 
   useEffect(() => () => {
     clearLoadTimeout()

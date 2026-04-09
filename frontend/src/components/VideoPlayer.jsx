@@ -18,7 +18,7 @@ function normalizeSources({ src, type, sources }) {
     return sources
       .filter((source) => source?.src)
       .map((source) => {
-        const normalizedSource = { src: source.src }
+        const normalizedSource = { ...source, src: source.src }
 
         // Preserve an omitted type so the browser can rely on the backend
         // response Content-Type instead of a guessed MIME.
@@ -148,7 +148,7 @@ const VideoPlayer = forwardRef(function VideoPlayer(
       return
     }
 
-    player.src(normalizedSources)
+    player.src(normalizedSources.length === 1 ? normalizedSources[0] : normalizedSources)
     player.load()
   }, [normalizedSources, poster])
 
