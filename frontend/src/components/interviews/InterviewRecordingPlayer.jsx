@@ -18,7 +18,7 @@ function normalizeSessionToken(value) {
 
 function buildRecordingUrls({ sessionToken, interviewId, asyncToken, recordingPath }) {
   const urls = []
-  const normalizedSessionToken = normalizeSessionToken(sessionToken || recordingPath)
+  const normalizedSessionToken = normalizeSessionToken(sessionToken)
   if (normalizedSessionToken) {
     try {
       urls.push(api.getDashboardRecordingUrl(normalizedSessionToken))
@@ -109,6 +109,7 @@ export default function InterviewRecordingPlayer({
     [asyncToken, interviewId, recordingPath, sessionToken]
   )
   const videoUrl = candidateUrls[activeUrlIndex] || ''
+  console.log('videoUrl', videoUrl)
   const sources = useMemo(() => buildRecordingSources(videoUrl, recordingPath), [recordingPath, videoUrl])
   const hasRecording = Boolean(videoUrl)
   const formatLabel = useMemo(() => describeFormat(recordingPath), [recordingPath])

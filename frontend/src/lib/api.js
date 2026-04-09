@@ -754,9 +754,13 @@ class ApiClient {
 
   getDashboardRecordingUrl(sessionToken) {
     const token = this.getToken()
-    const encodedSessionToken = encodeURIComponent(sessionToken)
+    const normalizedSessionToken = String(sessionToken || '').trim()
+    if (!normalizedSessionToken) {
+      return ''
+    }
+    const encodedSessionToken = encodeURIComponent(normalizedSessionToken)
     const query = token ? `?token=${encodeURIComponent(token)}` : ''
-    return encodedSessionToken ? `${API_BASE}/recording/${encodedSessionToken}${query}` : ''
+    return `${API_BASE}/recording/${encodedSessionToken}${query}`
   }
 
   getUploadedRecordingUrl(recordingPath) {
