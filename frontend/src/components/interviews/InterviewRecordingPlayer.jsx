@@ -23,16 +23,7 @@ function buildRecordingUrls({ sessionToken, interviewId, asyncToken, recordingPa
     try {
       urls.push(api.getDashboardRecordingUrl(normalizedSessionToken))
     } catch {
-      // Ignore and keep evaluating fallbacks.
-    }
-  }
-
-  const normalizedInterviewLookup = String(interviewId || asyncToken || '').trim()
-  if (normalizedInterviewLookup) {
-    try {
-      urls.push(api.getInterviewVideoUrl(normalizedInterviewLookup))
-    } catch {
-      // Ignore and keep evaluating fallbacks.
+      // Ignore invalid URL construction.
     }
   }
 

@@ -1,10 +1,8 @@
 const DEFAULT_API_ORIGIN = import.meta.env.DEV
   ? 'http://localhost:8000'
-  : 'https://ai-recruitment-dashboard-production.up.railway.app'
+  : 'https://dashboard.pontis.one'
 const API_ORIGIN = (import.meta.env.VITE_API_URL || DEFAULT_API_ORIGIN).replace(/\/$/, '')
 const API_BASE = `${API_ORIGIN}/api`
-const RECORDING_API_BASE = import.meta.env.VITE_RECORDING_API_URL || 'https://pontis-backend-production.up.railway.app/api'
-const EXTERNAL_INTERVIEW_RECORDING_API_BASE = (import.meta.env.VITE_INTERVIEW_RECORDING_API_URL || 'https://interview.pontis.one/api/recording').replace(/\/$/, '')
 const DEFAULT_LIST_LIMIT = 20
 const APP_BASE = API_BASE.replace(/\/api$/, '')
 
@@ -752,27 +750,6 @@ class ApiClient {
   // Get resume file URL
   getResumeFileUrl(candidateId) {
     return `${API_BASE}/candidates/${candidateId}/resume-file`
-  }
-
-  getInterviewVideoUrl(sessionId) {
-    const token = this.getToken()
-    const encodedSessionId = encodeURIComponent(sessionId)
-    const query = token ? `?token=${encodeURIComponent(token)}` : ''
-    return `${API_BASE}/interviews/video/${encodedSessionId}${query}`
-  }
-
-  getExternalInterviewRecordingUrl(interviewId) {
-    const encodedInterviewId = encodeURIComponent(interviewId)
-    return `${RECORDING_API_BASE}/recording/${encodedInterviewId}`
-  }
-
-  getSessionRecordingUrl(recordingPath) {
-    const encodedRecordingPath = encodeURIComponent(String(recordingPath || '').trim())
-    return encodedRecordingPath ? `${EXTERNAL_INTERVIEW_RECORDING_API_BASE}/${encodedRecordingPath}` : ''
-  }
-
-  getInterviewRecordingUrl(sessionId) {
-    return this.getInterviewVideoUrl(sessionId)
   }
 
   getDashboardRecordingUrl(sessionToken) {
