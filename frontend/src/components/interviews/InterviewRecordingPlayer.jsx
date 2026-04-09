@@ -329,7 +329,7 @@ export default function InterviewRecordingPlayer({
   return (
     <div className={cn('video-tab-container', className)}>
       <div className="video-wrapper">
-        <div className="interview-recording-player-shell relative h-full min-h-[700px] w-full rounded-[1.5rem] border border-slate-800/80 bg-black">
+        <div className="interview-recording-player-shell relative h-full min-h-[550px] w-full overflow-hidden rounded-[1.5rem] border border-slate-800/80 bg-black">
           {shouldRenderPlayer && !errorMessage ? (
             <VideoPlayer
               key={`${videoUrl}-${retryKey}`}
@@ -339,7 +339,7 @@ export default function InterviewRecordingPlayer({
               playsInline
               className="h-full w-full rounded-[1.5rem] bg-black"
               videoClassName="video-js vjs-default-skin custom-video object-cover object-center bg-black"
-              options={{
+              /*options={{
                 controls: true,
                 fluid: true,
                 responsive: true,
@@ -369,7 +369,42 @@ export default function InterviewRecordingPlayer({
                   fullscreenToggle: true,
                   pictureInPictureToggle: true,
                 },
-              }}
+              }}*/
+              options={{
+                controls: true,
+
+                fluid: false,        // ✅ disable
+                responsive: false,   // ✅ disable
+                fill: true,          // ✅ IMPORTANT
+                aspectRatio: null,   // ✅ remove forced ratio
+
+                inactivityTimeout: 0,
+                playbackRates: [0.75, 1, 1.25, 1.5, 2],
+                userActions: {
+                  click: true,
+                  hotkeys: true,
+                },
+                controlBar: {
+                  playToggle: true,
+                  currentTimeDisplay: true,
+                  timeDivider: true,
+                  durationDisplay: true,
+                  progressControl: true,
+                  remainingTimeDisplay: {
+                    displayNegative: false,
+                  },
+                  skipButtons: {
+                    backward: 10,
+                    forward: 10,
+                 },
+                 volumePanel: {
+                   inline: false,
+               },
+               playbackRateMenuButton: true,
+               fullscreenToggle: true,
+               pictureInPictureToggle: true,
+              },
+          }} 
               onLoadedData={handlePlayerReady}
               onCanPlay={handlePlayerReady}
               onError={handlePlayerError}
