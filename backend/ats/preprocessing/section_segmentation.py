@@ -291,6 +291,69 @@ def _clean_section_content(lines: List[str]) -> str:
     return "\n".join(cleaned).strip()
 
 
+
+_SECTION_ANCHOR_TEXT = {
+    "experience": "employment job worked responsibilities managed led company role position",
+    "skills": "tools technologies proficient languages frameworks software abilities",
+    "education": "university college degree studied graduated diploma academic",
+    "certifications": "certified awarded license accredited credential certification",
+    "achievements": "achieved won recognition award performance impact result",
+    "summary": "objective profile about myself overview professional background",
+    "projects": "built developed created designed implemented project solution",
+}
+
+_section_anchor_docs = None
+
+
+def _get_section_anchors():
+    global _section_anchor_docs
+    if _section_anchor_docs is not None:
+        return _section_anchor_docs
+    try:
+        from app.spacy_nlp import get_nlp
+        nlp = get_nlp()
+        if nlp is None:
+            _section_anchor_docs = {}
+            return _section_anchor_docs
+        _section_anchor_docs = {k: nlp(v) for k, v in _SECTION_ANCHOR_TEXT.items()}
+    except Exception:
+        _section_anchor_docs = {}
+    return _section_anchor_docs
+
+
+def semantic_section_fallback(text: str) -> dict:
+    try:
+        from app.spacy_nlp import get_nlp, get_section_doc
+        nlp = get_nlp()
+        if nlp is None:
+            return {}
+        anchors = _get_section_anchors()
+        if not anchors:
+            return {}
+        doc = get_section_doc(text[:3000])
+        if doc is None:
+            return {}
+        result = {k: [] for k in anchors}
+        for sent in doc.sents:
+            clean = sent.text.strip()
+            if len(clean) < 10:
+                continue
+            best, best_score = None, 0.38
+            for section, anchor_doc in anchors.items():
+                try:
+                    score = sent.similarity(anchor_doc)
+                    if score > best_score:
+                        best_score = score
+                        best = section
+                except Exception:
+                    continue
+            if best:
+                result[best].append(clean)
+        return result
+    except Exception:
+        return {}
+
+
 def segment_resume_sections(text: str) -> Dict[str, str]:
     sections = {name: "" for name in ALL_SECTIONS}
     if not text or not text.strip():
@@ -359,6 +422,12 @@ def segment_resume_sections(text: str) -> Dict[str, str]:
         else:
             sections[section] = _clean_section_content(buffers[section])
 
+    populated = [k for k, v in sections.items() if v and k != "header"]
+    if len(populated) < 2:
+        sem = semantic_section_fallback(text)
+        for k, v in sem.items():
+            if not sections.get(k) and v:
+                sections[k] = "\n".join(v)
     return sections
 
 

@@ -38,12 +38,12 @@ def get_nlp():
             return None
 
         try:
-            _nlp = spacy.load("en_core_web_sm")
+            _nlp = spacy.load("en_core_web_md")
             print("[OK] spaCy model loaded lazily")
         except (OSError, ImportError) as exc:
             _nlp_load_error = exc
             print(f"[ERROR] spaCy model unavailable: {exc}")
-            print("   Install with: pip install spacy && python -m spacy download en_core_web_sm")
+            print("   Install with: pip install spacy && python -m spacy download en_core_web_md")
             return None
 
     return _nlp

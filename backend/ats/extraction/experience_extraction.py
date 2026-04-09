@@ -835,6 +835,7 @@ def _entry_from_block(block_lines: Sequence[str]) -> Optional[Dict[str, Any]]:
     if not _is_valid_experience_window(start_date, end_date):
         return None
     duration_months = _months_between(start_date, end_date)
+    duration_months = max(duration_months, 0)
     duration_years = round(duration_months / 12.0, 1)
     description = " ".join(
         line for line in block_lines if not DATE_RANGE_REGEX.search(line) and line not in {role, company}
@@ -855,6 +856,8 @@ def _entry_from_block(block_lines: Sequence[str]) -> Optional[Dict[str, Any]]:
         "description": description,
     }
     entry["confidence"] = _experience_confidence(entry)
+    _internship_src = (entry.get("role") or "") + " " + (entry.get("company") or "")
+    entry["is_internship"] = bool(re.search(r"(?i)\b(intern|internship|trainee|apprentice)\b", _internship_src))
     return entry
 
 

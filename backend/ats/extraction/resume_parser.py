@@ -106,6 +106,14 @@ NAME_COMPANY_PATTERN = re.compile(
     r"(?i)\b(?:pvt|ltd|inc|llc|llp|corp|corporation|technologies|technology|solutions|systems|labs|works|school|college|university|academy|institute|services)\b"
 )
 UPPERCASE_NAME_PATTERN = re.compile(r"^[A-Z][A-Z'`.-]*(?:\s+[A-Z][A-Z'`.-]*){1,3}$")
+NAME_HONORIFIC_PATTERN = re.compile(
+    r"^(dr\.?|mr\.?|mrs\.?|ms\.?|prof\.?|er\.?)\s+",
+    re.IGNORECASE
+)
+NAME_CREDENTIAL_SUFFIX = re.compile(
+    r",?\s*(mba|phd|ph\.d|b\.tech|m\.tech|bca|mca|b\.e|m\.e|cpa|cfa)\s*$",
+    re.IGNORECASE
+)
 PDF_LINE_TOLERANCE = 3.0
 PDF_MIN_COLUMN_GAP = 60.0
 PDF_MIN_LINES_PER_COLUMN = 8
@@ -1061,7 +1069,7 @@ def _normalize_name_candidate(value: str) -> str:
     if not candidate:
         return ""
     words = candidate.split()
-    if not (2 <= len(words) <= 4):
+    if not (2 <= len(words) <= 5):
         return ""
     if any(any(char.isdigit() for char in word) for word in words):
         return ""
@@ -1076,10 +1084,20 @@ def _normalize_name_candidate(value: str) -> str:
         return ""
     if "@" in candidate or PHONE_LINE_PATTERN.search(candidate):
         return ""
-    if not all(word.replace(".", "").replace("'", "").isalpha() for word in words):
+    if not all(word.replace(".", "").replace("'", "").replace("-", "").isalpha() for word in words):
         return ""
     if not all(word.isupper() or word[:1].isupper() for word in words):
         return ""
+    candidate = NAME_HONORIFIC_PATTERN.sub("", candidate).strip()
+    candidate = NAME_CREDENTIAL_SUFFIX.sub("", candidate).strip()
+    if not candidate:
+        return ""
+    words = candidate.split()
+    if not (2 <= len(words) <= 5):
+        return ""
+    if candidate.isupper() and 2 <= len(words) <= 5:
+        candidate = candidate.title()
+        words = candidate.split()
     return " ".join(word if len(word) == 1 else word.title() for word in words)
 
 
@@ -1504,6 +1522,14 @@ def parse_resume_text(
     )
     stage_timings["Name Extraction"] = _normalize_timing_ms(raw_name_started_at)
     contact_email = _extract_email(cleaned_text or raw_text)
+    # ACC-8: cross-contamination guards
+    _current_company = extracted_info.get("current_company") or ""
+    _current_role = extracted_info.get("current_role") or ""
+    if _current_company and extracted_name and _current_company.strip().lower() == extracted_name.strip().lower():
+        extracted_info["current_company"] = None
+    if _current_role and extracted_name and _current_role.strip().lower() == extracted_name.strip().lower():
+        extracted_info["current_role"] = None
+    # current_company must never equal name
     contact_phone = _extract_phone(cleaned_text or raw_text)
     stage_timings["Experience Extraction"] = round(float(extracted_info.get("debug_timings", {}).get("experience_extraction_ms", 0.0)), 2)
     stage_timings["Skill Extraction"] = round(float(extracted_info.get("debug_timings", {}).get("skill_extraction_ms", 0.0)), 2)
@@ -1696,7 +1722,7 @@ def parse_resume_text(
 
 def parse_resume(file_path: str, original_filename: Optional[str] = None, fast_mode: bool = False) -> Dict[str, Any]:
     document_payload = extract_document(file_path, fast_mode=fast_mode)
-    raw_text = str(document_payload.get("text") or "")
+    raw_text = str(document_payload.get("text") or "")[:5000]
     layout_signals = document_payload.get("layout") or _default_layout_signals()
     parsed_resume = parse_resume_text(raw_text, original_filename=original_filename, layout_signals=layout_signals)
     parsed_resume["document_tables"] = document_payload.get("tables") or []

@@ -123,6 +123,13 @@ async def startup_event():
     get_skill_engine()
     print("[STARTUP] SkillIntelligence ready.")
 
+    print("[STARTUP] Pre-warming domain classifier...")
+    from ats.extraction.resume_type_detection import get_domain_classifier
+    get_domain_classifier()
+    print("[STARTUP] Domain classifier ready.")
+
+    print("[STARTUP] All systems ready. Accepting requests.")
+
     try:
         logger.info("Running ATS warmup")
         warmup_result = run_ats_warmup(force=False)

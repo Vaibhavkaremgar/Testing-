@@ -185,6 +185,9 @@ SKILL_ALIASES = {
 }
 
 SKILL_TOKEN_SPLIT_PATTERN = re.compile(r"[\n,;|]+")
+PROFICIENCY_PATTERN = re.compile(
+    r"(?i)\s*[\(\[]\s*(beginner|intermediate|advanced|expert|proficient|familiar|basic)\s*[\)\]]"
+)
 SKILL_SENTENCE_SPLIT_PATTERN = re.compile(r"[.!?]\s+")
 SKILL_YEAR_RANGE_PATTERN = re.compile(r"^\s*(?:19|20)\d{2}\s*[-/to]+\s*(?:19|20)\d{2}\s*$", re.IGNORECASE)
 SKILL_YEAR_ONLY_PATTERN = re.compile(r"^\s*(?:19|20)\d{2}\s*$")

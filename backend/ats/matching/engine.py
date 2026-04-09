@@ -11,6 +11,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 from ats.preprocessing.text_cleaning import clean_text_pipeline
 
 TOKEN_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9.+#/-]*")
+_TFIDF_CONFIG = {"ngram_range": (1, 2), "stop_words": "english"}
 
 
 class MatchingEngine:
@@ -56,17 +57,21 @@ class MatchingEngine:
         return score
 
     def tfidf_similarity(self, source_text: str, target_text: str) -> float:
+        source_text = source_text[:2000]
+        target_text = target_text[:2000]
         source = self._normalize_text(source_text)
         target = self._normalize_text(target_text)
         if not source or not target:
             return 0.0
 
-        vectorizer = TfidfVectorizer(ngram_range=(1, 2), stop_words="english")
+        vectorizer = TfidfVectorizer(**_TFIDF_CONFIG)
         matrix = vectorizer.fit_transform([source, target])
         similarity = cosine_similarity(matrix[0:1], matrix[1:2])[0][0]
         return float(round(similarity * 100, 2))
 
     def bm25_similarity(self, source_text: str, target_text: str) -> float:
+        source_text = source_text[:2000]
+        target_text = target_text[:2000]
         query_tokens = self._tokenize(source_text)
         document_tokens = self._tokenize(target_text)
         if not query_tokens or not document_tokens:
