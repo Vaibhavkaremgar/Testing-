@@ -377,6 +377,7 @@ export default function InterviewRecordingPlayer({
                 responsive: false,   // ✅ disable
                 fill: true,          // ✅ IMPORTANT
                 aspectRatio: null,   // ✅ remove forced ratio
+                aspectRatio: undefined,
 
                 inactivityTimeout: 0,
                 playbackRates: [0.75, 1, 1.25, 1.5, 2],

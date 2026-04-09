@@ -142,7 +142,10 @@ const VideoPlayer = forwardRef(function VideoPlayer(
     }
 
     const [nextSource] = normalizedSources
-    const [currentSource] = player.currentSources()
+    const currentSources = Array.isArray(player.currentSources?.())
+      ? player.currentSources()
+      : []
+    const [currentSource] = currentSources
 
     if (currentSource?.src === nextSource.src && currentSource?.type === nextSource.type) {
       return
