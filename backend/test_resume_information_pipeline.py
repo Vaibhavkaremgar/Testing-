@@ -81,6 +81,29 @@ Python, Machine Learning, SEO
         self.assertIsNone(result["current_company"])
         self.assertIsNone(result["experience_years"])
 
+    def test_summary_and_project_dates_do_not_backfill_experience(self):
+        resume_text = """
+Alex Candidate
+
+Summary
+5 years of experience building candidate pipelines.
+
+Projects
+Hiring Platform
+Jan 2021 - Mar 2023
+Built internal automation.
+
+Skills
+Python, FastAPI, SQL
+        """
+
+        result = extract_resume_information(resume_text)
+
+        self.assertEqual(result["experience"], [])
+        self.assertIsNone(result["current_role"])
+        self.assertIsNone(result["current_company"])
+        self.assertIsNone(result["total_experience_years"])
+
     def test_parse_resume_uses_validated_current_role_and_company(self):
         resume_text = """
 Taylor Candidate
@@ -181,6 +204,24 @@ Leadership, Stakeholder Management, Hiring
         self.assertNotIn("docker", result["skills"])
         self.assertEqual(result["current_role"], "Engineering Manager")
         self.assertEqual(result["current_company"], "Bright Solutions Ltd")
+
+    def test_missing_skills_section_does_not_promote_project_technologies(self):
+        resume_text = """
+Jordan Candidate
+
+Professional Experience
+Engineering Manager at Bright Solutions Ltd
+Jan 2021 - Present
+Built Python and FastAPI services for internal hiring systems.
+
+Projects
+Resume Intelligence Platform
+Used React, Docker, Kubernetes, and PostgreSQL.
+        """
+
+        result = extract_resume_information(resume_text)
+
+        self.assertEqual(result["skills"], [])
 
     def test_multiline_role_and_company_are_not_replaced_by_responsibility_text(self):
         resume_text = """
@@ -294,7 +335,7 @@ Core Skills: Communication | Leadership | Teamwork
         self.assertNotIn("leadership", result["skills"])
         self.assertNotIn("teamwork", result["skills"])
 
-    def test_explicit_total_experience_pattern_is_used_when_present(self):
+    def test_summary_total_experience_does_not_override_missing_experience_section(self):
         resume_text = """
 Rahul Menon
 
@@ -307,8 +348,8 @@ Python, FastAPI, PostgreSQL, Docker
 
         result = extract_resume_information(resume_text)
 
-        self.assertEqual(result["experience_years"], 5.5)
-        self.assertEqual(result["total_experience_years"], 5.5)
+        self.assertIsNone(result["experience_years"])
+        self.assertIsNone(result["total_experience_years"])
 
     def test_latest_experience_entry_drives_current_role_and_company(self):
         resume_text = """
@@ -593,7 +634,7 @@ Managed an escalation queue and vendor support line 1800 555 1111.
 
         self.assertEqual(parsed["email"], "vaibhav@gmail.com")
 
-    def test_context_skill_extraction_works_without_skills_section(self):
+    def test_missing_skills_section_keeps_skill_list_empty_even_if_mentioned_elsewhere(self):
         resume_text = """
 Maya Thomas
 Austin, Texas | maya.thomas.engineer@gmail.com
@@ -607,10 +648,7 @@ Worked on FastAPI and PostgreSQL services deployed on AWS with Docker.
 
         result = extract_resume_information(resume_text)
 
-        self.assertIn("fastapi", result["skills"])
-        self.assertIn("postgresql", result["skills"])
-        self.assertIn("python", result["skills"])
-        self.assertNotIn("austin", result["skills"])
+        self.assertEqual(result["skills"], [])
 
     def test_locations_and_soft_skills_are_filtered_from_skills(self):
         resume_text = """
@@ -1066,8 +1104,6 @@ Docker | AWS | GitHub Actions | Terraform
         self.assertEqual(result["current_company"], "Acme Cloud Systems")
         self.assertIn("docker", result["skills"])
         self.assertIn("aws", result["skills"])
-        self.assertIn("python", result["skills"])
-        self.assertIn("fastapi", result["skills"])
 
     def test_unstructured_resume_without_sections_still_extracts_latest_role_company_location_and_education(self):
         resume_text = """
@@ -1092,9 +1128,8 @@ National Institute of Technology
         self.assertEqual(result["current_role"], "Lead Data Engineer")
         self.assertEqual(result["current_company"], "Northwind Technologies")
         self.assertEqual(result["location"], "Seattle, Washington")
-        self.assertEqual(result["education"][0]["degree"], "Bachelor of Technology")
-        self.assertEqual(result["education"][0]["institution"], "National Institute of Technology")
-        self.assertIn("python", result["skills"])
+        self.assertEqual(result["education"], [])
+        self.assertEqual(result["skills"], [])
 
     def test_spacy_person_name_fallback_handles_non_header_name_line(self):
         resume_text = """

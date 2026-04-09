@@ -840,7 +840,6 @@ def extract_document(file_path: str) -> Dict[str, Any]:
             text_parts, selected_parser, parser_scores, selected_layout = _select_best_pdf_text(parser_outputs)
             layout_signals = selected_layout or _default_layout_signals()
             native_score = _score_text_quality(text_parts)
-            scanned_pdf = bool(layout_signals.get("is_scanned_pdf")) or detect_scanned_pdf(file_path)
 
             should_run_pdf_fallback = (
                 not _has_meaningful_text(text_parts)
@@ -862,9 +861,8 @@ def extract_document(file_path: str) -> Dict[str, Any]:
                 text_parts, selected_parser, parser_scores, selected_layout = _select_best_pdf_text(parser_outputs)
                 layout_signals = selected_layout or layout_signals
                 native_score = _score_text_quality(text_parts)
-                scanned_pdf = bool(layout_signals.get("is_scanned_pdf")) or scanned_pdf
 
-            if scanned_pdf or not _has_meaningful_text(text_parts):
+            if not _has_meaningful_text(text_parts):
                 ocr_started_at = time.perf_counter()
                 ocr_parts = run_ocr(file_path)
                 _record_stage_time(performance, "ocr_ms", ocr_started_at)
@@ -882,7 +880,7 @@ def extract_document(file_path: str) -> Dict[str, Any]:
                     parser_scores,
                     layout_signals,
                 )
-            layout_signals["is_scanned_pdf"] = bool(layout_signals.get("is_scanned_pdf")) or scanned_pdf
+            layout_signals["is_scanned_pdf"] = not _has_meaningful_text(text_parts)
 
         elif file_ext == ".docx":
             try:
@@ -1341,6 +1339,13 @@ def parse_resume_text(
     original_filename: Optional[str] = None,
     layout_signals: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
+    from app.ats_warmup import GLOBAL_MODELS, run_ats_warmup
+
+    if not GLOBAL_MODELS.get("ready"):
+        warmup_state = run_ats_warmup(force=False)
+        if not warmup_state.get("ready"):
+            raise RuntimeError("ATS global warmup is not ready")
+
     layout_signals = layout_signals or _default_layout_signals()
     cleaned_text = clean_text(raw_text) if raw_text else ""
     normalized_text = clean_text_pipeline(cleaned_text) if cleaned_text else ""
@@ -1487,6 +1492,18 @@ def parse_resume_text(
             for value in result["confidence"].values()
         ),
         "all_fields_above_80": all(value >= 80 for value in result["confidence"].values()),
+    }
+    result["final_output"] = {
+        "name": result.get("name") or "",
+        "email": result.get("email") or "",
+        "phone": result.get("phone") or "",
+        "location": result.get("location") or "",
+        "current_company": result.get("current_company") or "",
+        "current_role": result.get("current_role") or "",
+        "total_experience": result.get("total_experience") or "",
+        "skills": result.get("skills") or [],
+        "education": result.get("education") or [],
+        "experience": result.get("experience") or [],
     }
     logger.info(
         "Parsed resume: name=%s, skills=%s, experience_years=%s, current_company=%s, location=%s",

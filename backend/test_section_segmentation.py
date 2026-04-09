@@ -114,6 +114,31 @@ Backend Engineer | Acme Corp
         self.assertIn("Python", sections["skills"])
         self.assertIn("Backend Engineer", sections["experience"])
 
+    def test_additional_header_variants_are_isolated(self):
+        resume_text = """
+Priya Nair
+
+Expertise
+Python | FastAPI | Docker
+
+Work History
+Senior Backend Engineer | Acme Corp
+Jan 2022 - Present
+
+Qualification
+B.Tech in Computer Science
+
+Certificates
+AWS Certified Developer
+        """
+
+        sections = segment_resume_sections(resume_text)
+        self.assertIn("Python", sections["skills"])
+        self.assertIn("Senior Backend Engineer", sections["experience"])
+        self.assertIn("B.Tech", sections["education"])
+        self.assertIn("AWS Certified Developer", sections["certifications"])
+        self.assertNotIn("AWS Certified Developer", sections["experience"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -56,6 +56,15 @@ def test_health_check(client):
     response = client.get("/api/health")
     assert response.status_code == 200
     assert response.json()["status"] == "healthy"
+    assert "warmup" in response.json()
+
+def test_warmup_endpoint(client):
+    response = client.get("/api/warmup")
+    assert response.status_code == 200
+    payload = response.json()
+    assert "components" in payload
+    assert "spacy" in payload["components"]
+    assert "skill_engine" in payload["components"]
 
 def test_login(client, test_user):
     response = client.post("/api/auth/login", data={

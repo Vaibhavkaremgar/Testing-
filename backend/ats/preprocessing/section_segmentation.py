@@ -9,6 +9,81 @@ CORE_SECTIONS = ("experience", "skills", "education", "projects")
 OPTIONAL_SECTIONS = ("header", "contact", "summary", "languages", "achievements", "certifications", "awards", "publications", "interests", "references")
 ALL_SECTIONS = CORE_SECTIONS + OPTIONAL_SECTIONS
 
+DEFAULT_SECTION_HEADER_TERMS = {
+    "summary": [
+        "summary",
+        "professional summary",
+        "profile summary",
+        "career summary",
+        "professional overview",
+        "executive summary",
+    ],
+    "contact": [
+        "contact",
+        "contact details",
+        "contact information",
+        "personal details",
+        "personal information",
+    ],
+    "skills": [
+        "skills",
+        "technical skills",
+        "core skills",
+        "key skills",
+        "primary skills",
+        "tools",
+        "technologies",
+        "technical expertise",
+        "expertise",
+        "tool stack",
+        "tech stack",
+        "tools and technologies",
+        "tools & technologies",
+    ],
+    "experience": [
+        "experience",
+        "work experience",
+        "professional experience",
+        "employment",
+        "employment history",
+        "career history",
+        "work history",
+        "internships",
+        "internship experience",
+        "previous experience",
+        "prior experience",
+        "period",
+    ],
+    "education": [
+        "education",
+        "academic background",
+        "academic profile",
+        "qualification",
+        "qualifications",
+        "education details",
+    ],
+    "projects": [
+        "projects",
+        "project",
+        "work projects",
+        "professional projects",
+        "project profile",
+    ],
+    "certifications": [
+        "certifications",
+        "certification",
+        "certificates",
+        "certificate",
+        "licenses and certifications",
+        "licenses & certifications",
+    ],
+    "languages": [
+        "languages",
+        "language skills",
+        "spoken languages",
+    ],
+}
+
 _parser_config_loader = ParserConfigLoader()
 _parser_vocabulary = _parser_config_loader.load_parser_vocabulary()
 
@@ -28,10 +103,16 @@ def _compile_contains_terms(terms: List[str]) -> re.Pattern:
     return re.compile(rf"(?i)\b(?:{'|'.join(escaped_terms)})\b") if escaped_terms else re.compile(r"$^")
 
 
-_section_header_terms = {
+_configured_section_header_terms = {
     str(key).strip().lower(): [str(value).strip().lower() for value in values if str(value).strip()]
     for key, values in (_parser_vocabulary.get("section_header_terms") or {}).items()
 }
+_section_header_terms = {key: list(values) for key, values in DEFAULT_SECTION_HEADER_TERMS.items()}
+for key, values in _configured_section_header_terms.items():
+    existing = _section_header_terms.setdefault(key, [])
+    for value in values:
+        if value not in existing:
+            existing.append(value)
 HEADER_NORMALIZATION_MAP = {
     "career profile": "summary",
     "career summary": "summary",

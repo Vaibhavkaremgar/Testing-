@@ -165,7 +165,7 @@ def _normalize_text(value: str) -> str:
 
 def _normalize_line(line: str) -> str:
     normalized = re.sub(r"\s+", " ", _normalize_text(line)).strip(" |-")
-    normalized = re.sub(r"^\s*(?:\d+\)|\d+\.\s*)", "", normalized).strip()
+    normalized = re.sub(r"^\s*(?:\d{1,2}\)|\d{1,2}\.\s+)", "", normalized).strip()
     return normalized
 
 
@@ -306,6 +306,13 @@ def _parse_date_token(token: str, is_end: bool = False, today: Optional[datetime
     if _is_present_token(token):
         return today or datetime.utcnow()
     normalized_token = _normalize_line(token)
+    year_month_dot_match = re.fullmatch(r"(?P<year>\d{4})\.(?P<month>\d{1,2})", normalized_token)
+    if year_month_dot_match:
+        return _safe_build_datetime(
+            int(year_month_dot_match.group("year")),
+            int(year_month_dot_match.group("month")),
+            is_end=is_end,
+        )
     for parser_fn in (
         _parse_month_name_year,
         _parse_numeric_month_year,

@@ -16,6 +16,7 @@ _skill_matcher = None
 _skill_patterns_loaded = False
 _skill_matcher_lock = Lock()
 _whitespace_pattern = re.compile(r"\s+")
+_MAX_MATCHER_TERMS = 1200
 
 
 def _normalize_text(value: str) -> str:
@@ -53,13 +54,50 @@ def _ensure_skill_matcher() -> None:
 
         skill_engine = get_skill_engine()
         matcher = PhraseMatcher(nlp.vocab, attr="LOWER")
-        skill_terms = skill_engine.get_skill_dictionary()
-        synonym_terms = list(skill_engine.get_synonym_dictionary().keys())
-        patterns = list(nlp.pipe(_dedupe([*skill_terms, *synonym_terms]), disable=["parser", "tagger", "ner"]))
+        matcher_terms = _build_minimal_matcher_terms(skill_engine)
+        patterns = list(nlp.pipe(matcher_terms, disable=["parser", "tagger", "ner"]))
         if patterns:
             matcher.add("SKILL", patterns)
         _skill_matcher = matcher
         _skill_patterns_loaded = True
+
+
+def _build_minimal_matcher_terms(skill_engine) -> List[str]:
+    terms: List[str] = []
+    for skills in getattr(skill_engine, "domain_skills", {}).values():
+        terms.extend(skills)
+    terms.extend(getattr(skill_engine, "skill_aliases", {}).keys())
+    terms.extend(getattr(skill_engine, "skill_aliases", {}).values())
+
+    curated = []
+    seen = set()
+    for term in _dedupe(terms):
+        normalized = _normalize_text(term).lower()
+        if not normalized or normalized in seen:
+            continue
+        if len(normalized.split()) > 4:
+            continue
+        seen.add(normalized)
+        curated.append(term)
+        if len(curated) >= _MAX_MATCHER_TERMS:
+            break
+    return curated
+
+
+def warm_entity_extraction() -> Dict[str, Any]:
+    _ensure_skill_matcher()
+    sample = extract_resume_entities(
+        "Jane Doe\nSkills\nPython, FastAPI, Docker",
+        header_text="Jane Doe",
+        skills_text="Python, FastAPI, Docker",
+        experience_text="Engineer | Acme Corp",
+    )
+    return {
+        "skill_matcher_ready": _skill_patterns_loaded,
+        "matcher_term_count": len(_build_minimal_matcher_terms(get_skill_engine())),
+        "sample_skill_count": len(sample.get("skills") or []),
+        "sample_person_count": len(sample.get("persons") or []),
+    }
 
 
 def _collect_person_candidates(window: str, *, prefer_first: bool = False) -> List[Tuple[int, str]]:

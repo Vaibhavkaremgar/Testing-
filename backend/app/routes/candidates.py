@@ -29,7 +29,6 @@ from ats.extraction.information_extraction import (
     extract_email,
     extract_education_entries,
     extract_experience_entries,
-    extract_resume_information,
     extract_skill_keywords,
 )
 from ats.extraction.resume_parser import parse_resume
@@ -478,8 +477,7 @@ def extract_email_from_raw_file(file_path: str) -> Optional[str]:
 
 def extract_resume_data(file_path: str, original_filename: str = None) -> dict:
     """Extract structured resume data using the production ATS parser."""
-    import os
-    
+    parsed_resume = {}
     email = None
     phone = None
     name = None
@@ -500,46 +498,31 @@ def extract_resume_data(file_path: str, original_filename: str = None) -> dict:
         parsed_resume = parse_resume(file_path, original_filename)
         raw_text = parsed_resume.get("raw_text", "")
         cleaned_text = parsed_resume.get("full_text", "") or (clean_text(raw_text) if raw_text.strip() else "")
+        sections = parsed_resume.get("sections") or {}
         email = parsed_resume.get("email") or None
         phone = parsed_resume.get("phone") or None
         name = parsed_resume.get("name") or None
         location = sanitize_candidate_location(parsed_resume.get("location")) or None
-        skills = parsed_resume.get("skills") or []
+        skills = sanitize_resume_skills(parsed_resume.get("skills") or [], parsed_resume.get("languages") or [])
         current_role = parsed_resume.get("designation") or None
         current_company = parsed_resume.get("current_company") or None
         languages = parsed_resume.get("languages") or []
-        skills = sanitize_resume_skills(skills, languages)
         experience_level = parsed_resume.get("experience_level") or None
-
-        if raw_text.strip():
-            extracted_info = extract_resume_information(raw_text)
-            sections = extracted_info["sections"]
-            
-            # Keep parser-first fields, but preserve extraction fallbacks when parser returns nothing.
-            skills = skills or extracted_info["skills"] or extract_skills_from_text(raw_text)
-            languages = languages or extracted_info.get("languages") or []
-            skills = sanitize_resume_skills(skills, languages)
-            location = location or sanitize_candidate_location(extracted_info.get("location")) or None
-            
-            # Extract projects
-            projects = extracted_info.get("projects") or extract_projects_from_text(raw_text)
-            
-            # Extract experience text for matching
-            work_experience = parsed_resume.get("experience_entries") or extracted_info["experience"]
-            experience_text = extracted_info["experience_text"] or clean_text_pipeline(extract_experience_text(raw_text))
-            current_role = resolve_current_role_for_storage(
-                work_experience,
-                current_role or extracted_info.get("designation"),
-                skills,
-            )
-            current_company = resolve_current_company_for_storage(
-                work_experience,
-                current_company or extracted_info.get("current_company"),
-                experience_text,
-            )
-            experience_level = experience_level or extracted_info.get("experience_level") or None
-            education_text = extracted_info["education_text"] or clean_text_pipeline(sections.get("education", ""))
-            education = extracted_info["education"]
+        projects = parsed_resume.get("projects") or extract_projects_from_text(raw_text)
+        work_experience = parsed_resume.get("experience_entries") or parsed_resume.get("experience") or []
+        experience_text = parsed_resume.get("experience_text") or clean_text_pipeline(sections.get("experience", ""))
+        current_role = resolve_current_role_for_storage(
+            work_experience,
+            current_role,
+            skills,
+        )
+        current_company = resolve_current_company_for_storage(
+            work_experience,
+            current_company,
+            experience_text,
+        )
+        education_text = parsed_resume.get("education_text") or clean_text_pipeline(sections.get("education", ""))
+        education = parsed_resume.get("education") or []
 
         if not email:
             email = extract_email_from_raw_file(file_path)
@@ -574,11 +557,7 @@ def extract_resume_data(file_path: str, original_filename: str = None) -> dict:
         'education_text': education_text,
         'education': education,
         'languages': languages,
-        'experience_years': (
-            parsed_resume.get('total_experience_years')
-            if raw_text.strip() and parsed_resume.get('total_experience_years') is not None
-            else (extracted_info.get('total_experience_years') if raw_text.strip() else None)
-        ),
+        'experience_years': parsed_resume.get('total_experience_years') if parsed_resume else None,
         'experience_level': experience_level,
         'full_text': cleaned_text  # Store cleaned text for downstream ATS processing
     }

@@ -5,10 +5,10 @@ from fastapi.staticfiles import StaticFiles
 import logging
 import os
 
+from app.ats_warmup import get_ats_warmup_state, run_ats_warmup
 from app.config import settings
 from app.database import Base, SessionLocal, engine
 from app.notification_service import ensure_default_email_templates
-from app.spacy_nlp import get_nlp
 from app.routes import (
     agencies,
     analytics,
@@ -29,8 +29,6 @@ from app.routes import (
     webhooks,
 )
 from app.routes import settings as settings_routes
-from ats.extraction.skill_intelligence import get_skill_engine
-
 logger = logging.getLogger(__name__)
 
 
@@ -108,7 +106,7 @@ app.include_router(pricing.router, prefix="/api")
 @app.on_event("startup")
 async def startup_event():
     logger.info("Startup event triggered")
-    logger.info("Pre-warm starting")
+    logger.info("Blocking ATS warmup starting")
 
     db = SessionLocal()
     try:
@@ -117,18 +115,14 @@ async def startup_event():
         db.close()
 
     try:
-        logger.info("Pre-warming spaCy")
-        get_nlp()
-        logger.info("spaCy pre-warm complete")
+        logger.info("Running ATS warmup")
+        warmup_result = run_ats_warmup(force=False)
+        if not warmup_result.get("ready"):
+            raise RuntimeError("ATS warmup did not complete successfully")
+        logger.info("ATS warmup complete: ready=%s duration_ms=%s", warmup_result.get("ready"), warmup_result.get("duration_ms"))
     except Exception as exc:
-        logger.warning("spaCy pre-warm warning: %s", exc)
-
-    try:
-        logger.info("Pre-warming ESCO and SkillIntelligence")
-        get_skill_engine()
-        logger.info("ESCO and SkillIntelligence pre-warm complete")
-    except Exception as exc:
-        logger.warning("Skill intelligence pre-warm warning: %s", exc)
+        logger.exception("ATS warmup failed during startup: %s", exc)
+        raise
 
     logger.info("Application started successfully")
 
@@ -143,7 +137,13 @@ def health_check():
             "enabled": True,
             "allowed_origins": settings.allowed_origins_list,
         },
+        "warmup": get_ats_warmup_state(),
     }
+
+
+@app.get("/api/warmup")
+def warmup(force: bool = False):
+    return run_ats_warmup(force=force)
 
 
 @app.get("/api/test-db")
