@@ -336,16 +336,21 @@ export default function InterviewRecordingPlayer({
           preload="metadata"
           playsInline
           className="h-full w-full rounded-[1.5rem] bg-black"
-          videoClassName="h-full w-full object-contain bg-black"
+          videoClassName="object-contain bg-black"
           options={{
             controls: true,
-            fluid: false,
-            responsive: false,
+            fluid: true,
+            responsive: true,
             playbackRates: [0.75, 1, 1.25, 1.5, 2],
             userActions: {
               hotkeys: true,
             },
             controlBar: {
+              playToggle: true,
+              currentTimeDisplay: true,
+              timeDivider: true,
+              durationDisplay: true,
+              progressControl: true,
               remainingTimeDisplay: {
                 displayNegative: false,
               },
@@ -356,7 +361,9 @@ export default function InterviewRecordingPlayer({
               volumePanel: {
                 inline: false,
               },
-              pictureInPictureToggle: false,
+              playbackRateMenuButton: true,
+              fullscreenToggle: true,
+              pictureInPictureToggle: true,
             },
           }}
           onLoadedData={handlePlayerReady}
