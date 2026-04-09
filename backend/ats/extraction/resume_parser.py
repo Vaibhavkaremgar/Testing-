@@ -49,6 +49,8 @@ from app.spacy_nlp import SPACY_AVAILABLE, get_section_doc
 
 logger = logging.getLogger(__name__)
 
+ATS_TIMING_LABEL = "[ATS TIMING]"
+
 PHONE_PATTERNS = [
     r"\+91[-\s]?\d{5}[-\s]?\d{5}",
     r"\+91[-\s]?\d{10}",
@@ -80,6 +82,12 @@ DEFAULT_NAME_STOP_TOKENS = {
     "summary", "profile", "objective", "experience", "skills", "education", "projects",
     "location", "email", "phone", "mobile", "linkedin", "github",
 }
+ROLE_KEYWORD_PATTERN = re.compile(
+    r"(?i)\b(engineer|developer|manager|analyst|consultant|architect|lead|intern)\b"
+)
+NAME_ROLE_SPLIT_PATTERN = re.compile(
+    r"(?i)^(?P<name>[A-Z][A-Za-z'`.-]+(?:\s+[A-Z][A-Za-z'`.-]+){1,3})[\s,|/-]+(?P<role>.*?\b(?:engineer|developer|manager|analyst|consultant|architect|lead|intern)\b.*)$"
+)
 HEADER_NAME_SPLIT_PATTERN = re.compile(r"\s+[|,/-]\s+|\s{2,}")
 INLINE_CONTACT_PATTERN = re.compile(
     r"(?i)(\+?\d[\d\s().-]{7,}\d|[A-Za-z0-9._%+-]+\s*@\s*[A-Za-z0-9.-]+\s*\.\s*[A-Za-z]{2,}|linkedin|github|portfolio)"
@@ -799,6 +807,50 @@ def _record_stage_time(performance: Dict[str, float], stage: str, started_at: fl
     performance[stage] = round((time.perf_counter() - started_at) * 1000.0, 2)
 
 
+def _normalize_timing_ms(started_at: float) -> float:
+    return round((time.perf_counter() - started_at) * 1000.0, 2)
+
+
+def _log_ats_timing(lines: List[str]) -> None:
+    logger.info("%s\n%s", ATS_TIMING_LABEL, "\n".join(lines))
+
+
+def _split_name_and_role(raw_name: str, *, location: str = "", current_company: str = "") -> Tuple[str, str]:
+    compact = re.sub(r"\s+", " ", (raw_name or "").strip(" ,|-"))
+    if not compact:
+        return "", ""
+
+    detected_role = ""
+    clean_name = compact
+    split_match = NAME_ROLE_SPLIT_PATTERN.match(compact)
+    if split_match:
+        clean_name = split_match.group("name").strip(" ,|-")
+        detected_role = split_match.group("role").strip(" ,|-")
+    elif ROLE_KEYWORD_PATTERN.search(compact):
+        role_match = ROLE_KEYWORD_PATTERN.search(compact)
+        if role_match:
+            clean_name = compact[:role_match.start()].strip(" ,|/-")
+            detected_role = compact[role_match.start():].strip(" ,|/-")
+
+    blocked_terms = set()
+    for source in (location, current_company):
+        for token in re.split(r"[\s,|/-]+", (source or "").strip()):
+            normalized = token.strip().lower()
+            if normalized:
+                blocked_terms.add(normalized)
+    blocked_terms.update(
+        token.lower()
+        for token in re.findall(r"[A-Za-z]+", detected_role)
+    )
+    cleaned_tokens = [
+        token for token in clean_name.split()
+        if token.strip(".,").lower() not in blocked_terms
+        and not ROLE_KEYWORD_PATTERN.fullmatch(token.strip(".,"))
+    ]
+    normalized_name = _normalize_name_candidate(" ".join(cleaned_tokens))
+    return normalized_name or clean_name, detected_role
+
+
 def get_parser_runtime_status() -> Dict[str, Any]:
     layout_runtime = get_layout_runtime_status()
     return {
@@ -842,15 +894,13 @@ def extract_document(file_path: str, fast_mode: bool = False) -> Dict[str, Any]:
             native_score = _score_text_quality(text_parts)
 
             should_run_pdf_fallback = (
-                not _has_meaningful_text(text_parts)
-                or native_score < 0.45
-                or (
-                    bool(layout_signals.get("is_multi_column"))
-                    and not fast_mode
+                not fast_mode
+                and (
+                    not _has_meaningful_text(text_parts)
+                    or native_score < 0.45
+                    or bool(layout_signals.get("is_multi_column"))
                 )
             )
-            if fast_mode and _has_meaningful_text(text_parts) and native_score >= 0.35:
-                should_run_pdf_fallback = False
             if should_run_pdf_fallback:
                 fallback_started_at = time.perf_counter()
                 fallback_text_parts, fallback_page_metrics = _extract_pdf_text_with_pdfplumber(file_path)
@@ -867,7 +917,7 @@ def extract_document(file_path: str, fast_mode: bool = False) -> Dict[str, Any]:
                 layout_signals = selected_layout or layout_signals
                 native_score = _score_text_quality(text_parts)
 
-            if not _has_meaningful_text(text_parts):
+            if (not fast_mode) and not _has_meaningful_text(text_parts):
                 ocr_started_at = time.perf_counter()
                 ocr_parts = run_ocr(file_path)
                 _record_stage_time(performance, "ocr_ms", ocr_started_at)
@@ -886,6 +936,10 @@ def extract_document(file_path: str, fast_mode: bool = False) -> Dict[str, Any]:
                     layout_signals,
                 )
             layout_signals["is_scanned_pdf"] = not _has_meaningful_text(text_parts)
+            if fast_mode and layout_signals["is_scanned_pdf"]:
+                layout_signals["deferred_ocr_required"] = True
+            if fast_mode and bool(layout_signals.get("is_multi_column")):
+                layout_signals["deferred_layout_refinement_required"] = True
 
         elif file_ext == ".docx":
             try:
@@ -1346,14 +1400,25 @@ def parse_resume_text(
 ) -> Dict[str, Any]:
     from app.ats_warmup import GLOBAL_MODELS, run_ats_warmup
 
+    total_started_at = time.perf_counter()
+    stage_timings: Dict[str, float] = {}
+    warmup_used = False
     if not GLOBAL_MODELS.get("ready"):
+        warmup_used = True
+        warmup_started_at = time.perf_counter()
         warmup_state = run_ats_warmup(force=False)
+        stage_timings["Warmup"] = _normalize_timing_ms(warmup_started_at)
         if not warmup_state.get("ready"):
             raise RuntimeError("ATS global warmup is not ready")
+    else:
+        warmup_state = {"ready": True}
 
     layout_signals = layout_signals or _default_layout_signals()
+    regex_started_at = time.perf_counter()
     cleaned_text = clean_text(raw_text) if raw_text else ""
     normalized_text = clean_text_pipeline(cleaned_text) if cleaned_text else ""
+    stage_timings["Regex Processing"] = _normalize_timing_ms(regex_started_at)
+    extraction_started_at = time.perf_counter()
     extracted_info = extract_resume_information(normalized_text or cleaned_text) if cleaned_text else {
         "sections": segment_resume_sections(""),
         "skills": [],
@@ -1370,18 +1435,32 @@ def parse_resume_text(
         "experience_level": "",
         "languages": [],
     }
+    stage_timings["Information Extraction"] = _normalize_timing_ms(extraction_started_at)
 
+    section_started_at = time.perf_counter()
     sections = extracted_info.get("sections", {}) or segment_resume_sections(normalized_text)
+    stage_timings["Section Detection"] = _normalize_timing_ms(section_started_at)
     resume_type_payload = detect_resume_type("\n".join(filter(None, [sections.get("summary", ""), sections.get("skills", ""), sections.get("experience", ""), normalized_text[:2000]])))
+    spacy_started_at = time.perf_counter()
     entities = extract_resume_entities(
         normalized_text,
         header_text=sections.get("header", ""),
         skills_text=sections.get("skills", ""),
         experience_text=sections.get("experience", ""),
     )
-    extracted_name = _extract_name(normalized_text or raw_text, original_filename)
+    stage_timings["spaCy Execution"] = _normalize_timing_ms(spacy_started_at)
+    raw_name_started_at = time.perf_counter()
+    raw_detected_name = _extract_name(normalized_text or raw_text, original_filename)
+    extracted_name, split_role = _split_name_and_role(
+        raw_detected_name,
+        location=extracted_info.get("location", ""),
+        current_company=extracted_info.get("current_company", "") or "",
+    )
+    stage_timings["Name Extraction"] = _normalize_timing_ms(raw_name_started_at)
     contact_email = _extract_email(cleaned_text or raw_text)
     contact_phone = _extract_phone(cleaned_text or raw_text)
+    stage_timings["Experience Extraction"] = round(float(extracted_info.get("debug_timings", {}).get("experience_extraction_ms", 0.0)), 2)
+    stage_timings["Skill Extraction"] = round(float(extracted_info.get("debug_timings", {}).get("skill_extraction_ms", 0.0)), 2)
     merged_skills = dedupe_strings(extracted_info.get("skills", []) or [])
 
     result = {
@@ -1399,8 +1478,8 @@ def parse_resume_text(
         "experience_years": extracted_info.get("experience_years"),
         "experience_level": extracted_info.get("experience_level") or _classify_experience_level(extracted_info.get("total_experience_years")),
         "current_company": extracted_info.get("current_company"),
-        "current_role": extracted_info.get("current_role"),
-        "designation": extracted_info.get("designation"),
+        "current_role": extracted_info.get("current_role") or split_role or None,
+        "designation": extracted_info.get("designation") or split_role or None,
         "location": extracted_info.get("location", ""),
         "languages": extracted_info.get("languages", []),
         "summary": sections.get("summary", ""),
@@ -1438,6 +1517,11 @@ def parse_resume_text(
         "full_text": cleaned_text,
         "normalized_text": normalized_text,
         "raw_text": raw_text,
+        "debug_name_detection": {
+            "raw_name_detected": raw_detected_name or "",
+            "clean_name": extracted_name or "",
+            "role_detected": split_role or "",
+        },
         "field_confidence": {
             "name": 0.0,
             "email": 0.0,
@@ -1510,6 +1594,32 @@ def parse_resume_text(
         "education": result.get("education") or [],
         "experience": result.get("experience") or [],
     }
+    stage_timings["Total Time"] = _normalize_timing_ms(total_started_at)
+    timing_lines = [
+        f"Warmup Used: {'Yes' if warmup_used else 'No'}",
+        f"Models Loaded: {'Yes' if GLOBAL_MODELS.get('ready') and warmup_state.get('ready') else 'No'}",
+        f"OCR Triggered: {'Yes' if result.get('layout_signals', {}).get('ocr_applied') else 'No'}",
+        f"OCR Time: {round(float((result.get('document_metadata') or {}).get('performance', {}).get('ocr_ms', 0.0)), 2)} ms",
+        f"Section Detection: {stage_timings.get('Section Detection', 0.0)} ms",
+        f"Name Extraction: {stage_timings.get('Name Extraction', 0.0)} ms",
+        f"Experience Extraction: {stage_timings.get('Experience Extraction', 0.0)} ms",
+        f"Skill Extraction: {stage_timings.get('Skill Extraction', 0.0)} ms",
+        f"spaCy Execution: {stage_timings.get('spaCy Execution', 0.0)} ms",
+        f"Regex Processing: {stage_timings.get('Regex Processing', 0.0)} ms",
+        f"Total Time: {stage_timings.get('Total Time', 0.0)} ms",
+        f"Raw Name Detected: {raw_detected_name or ''}",
+        f"Clean Name: {extracted_name or ''}",
+        f"Role Detected: {split_role or ''}",
+    ]
+    result["debug_timings"] = {
+        **(extracted_info.get("debug_timings") or {}),
+        **stage_timings,
+        "warmup_used": warmup_used,
+        "models_loaded": bool(GLOBAL_MODELS.get("ready") and warmup_state.get("ready")),
+        "ocr_triggered": bool(result.get("layout_signals", {}).get("ocr_applied")),
+        "resume_name": result.get("name") or "",
+    }
+    _log_ats_timing(timing_lines)
     logger.info(
         "Parsed resume: name=%s, skills=%s, experience_years=%s, current_company=%s, location=%s",
         result["name"],
@@ -1528,6 +1638,27 @@ def parse_resume(file_path: str, original_filename: Optional[str] = None, fast_m
     parsed_resume = parse_resume_text(raw_text, original_filename=original_filename, layout_signals=layout_signals)
     parsed_resume["document_tables"] = document_payload.get("tables") or []
     parsed_resume["document_metadata"] = document_payload.get("metadata") or {}
+    performance = parsed_resume["document_metadata"].get("performance") or {}
+    debug_timings = parsed_resume.get("debug_timings") or {}
+    debug_timings.update(
+        {
+            "PDF Parse": round(float(performance.get("pdf_extraction_ms", 0.0) or 0.0), 2),
+            "DOCX Parse": round(float(performance.get("docx_extraction_ms", 0.0) or 0.0), 2),
+            "OCR Time": round(float(performance.get("ocr_ms", 0.0) or 0.0), 2),
+            "ocr_triggered": bool(layout_signals.get("ocr_applied")),
+        }
+    )
+    parsed_resume["debug_timings"] = debug_timings
+    _log_ats_timing(
+        [
+            f"PDF Parse: {debug_timings.get('PDF Parse', 0.0)} ms",
+            f"DOCX Parse: {debug_timings.get('DOCX Parse', 0.0)} ms",
+            f"OCR Triggered: {'Yes' if debug_timings.get('ocr_triggered') else 'No'}",
+            f"OCR Time: {debug_timings.get('OCR Time', 0.0)} ms",
+            f"Resume Name: {parsed_resume.get('name') or ''}",
+            f"Processing Time: {debug_timings.get('Total Time', 0.0)} ms",
+        ]
+    )
     parsed_resume["pipeline_summary"]["format"] = (
         parsed_resume["document_metadata"].get("format")
         or os.path.splitext(file_path)[1].lstrip(".")

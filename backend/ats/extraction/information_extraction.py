@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 import importlib.util
 from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
@@ -1708,6 +1709,8 @@ def derive_experience_level(experience_years: float | None) -> str:
 
 
 def extract_resume_information(text: str) -> Dict:
+    debug_timings: Dict[str, float] = {}
+    section_started_at = time.perf_counter()
     structural_text = normalize_text(
         merge_broken_lines(
             normalize_document_structure(text or "")
@@ -1715,6 +1718,7 @@ def extract_resume_information(text: str) -> Dict:
     )
     cleaned_text = clean_text_pipeline(text)
     sections = segment_resume_sections(cleaned_text)
+    debug_timings["section_detection_ms"] = round((time.perf_counter() - section_started_at) * 1000.0, 2)
     
     structural_source = normalize_document_structure(text or "")
     raw_sections = segment_resume_sections(structural_source)
@@ -1724,6 +1728,7 @@ def extract_resume_information(text: str) -> Dict:
     education_section = raw_sections.get("education", "") or sections.get("education", "")
     projects_section = raw_sections.get("projects", "") or sections.get("projects", "")
     certifications_section = raw_sections.get("certifications", "") or sections.get("certifications", "")
+    parallel_started_at = time.perf_counter()
     with ThreadPoolExecutor(max_workers=5) as executor:
         future_name = executor.submit(extract_name, cleaned_text, False)
         future_email = executor.submit(extract_email, cleaned_text)
@@ -1738,8 +1743,12 @@ def extract_resume_information(text: str) -> Dict:
         primary_phone = future_phone.result()
         experience_result = future_experience.result()
         skills = future_skills.result()
+    debug_timings["parallel_extraction_ms"] = round((time.perf_counter() - parallel_started_at) * 1000.0, 2)
+    debug_timings["name_extraction_ms"] = debug_timings["parallel_extraction_ms"]
     skills = _unique_in_order(skills) if skills_section.strip() else []
+    debug_timings["skill_extraction_ms"] = debug_timings["parallel_extraction_ms"]
     
+    experience_started_at = time.perf_counter()
     experience_entries = experience_result.get("experiences", [])
     full_text_entries = extract_experience_entries(cleaned_text, structural_text) if structural_text.strip() else []
     if full_text_entries:
@@ -1764,6 +1773,7 @@ def extract_resume_information(text: str) -> Dict:
                 continue
             seen_experience_keys.add(identity)
             experience_entries.append(entry)
+    debug_timings["experience_extraction_ms"] = round((time.perf_counter() - experience_started_at) * 1000.0, 2)
     total_experience_years = experience_result.get("total_experience_years")
     total_experience_months = experience_result.get("total_experience_months")
     if experience_entries:
@@ -1922,6 +1932,7 @@ def extract_resume_information(text: str) -> Dict:
             "custom_aliases": True,
             "dynamic_context": True,
         },
+        "debug_timings": debug_timings,
     }
     validated_result = validate_parsed_fields(result)
     if (

@@ -89,6 +89,35 @@ def _perf_log(endpoint: str, total_start: float, **fields) -> None:
     print(f"[PERF] {endpoint} " + " ".join(parts))
 
 
+def _ats_timing_log(**fields) -> None:
+    ordered_labels = [
+        ("Resume Name", "resume_name"),
+        ("File Upload", "file_upload_ms"),
+        ("PDF Parse", "pdf_parse_ms"),
+        ("DOCX Parse", "docx_parse_ms"),
+        ("Section Detection", "section_detection_ms"),
+        ("Name Extraction", "name_extraction_ms"),
+        ("Experience Extraction", "experience_extraction_ms"),
+        ("Skill Extraction", "skill_extraction_ms"),
+        ("spaCy Execution", "spacy_execution_ms"),
+        ("Regex Processing", "regex_processing_ms"),
+        ("OCR Triggered", "ocr_triggered"),
+        ("OCR Time", "ocr_time_ms"),
+        ("Warmup Used", "warmup_used"),
+        ("Models Loaded", "models_loaded"),
+        ("Database Save", "database_save_ms"),
+        ("Processing Time", "total_time_ms"),
+        ("Slowest Component", "slowest_component"),
+    ]
+    lines = ["[ATS TIMING]"]
+    for label, key in ordered_labels:
+        if key in fields:
+            value = fields[key]
+            suffix = " ms" if isinstance(value, (int, float)) and label not in {"OCR Triggered", "Warmup Used", "Models Loaded", "Resume Name", "Slowest Component"} else ""
+            lines.append(f"{label}: {value}{suffix}")
+    print("\n".join(lines))
+
+
 def _cleanup_recent_upload_requests(now: Optional[float] = None) -> None:
     current_time = now if now is not None else monotonic()
     expired_keys = [
@@ -957,6 +986,8 @@ def should_defer_resume_refinement(resume_data: dict) -> bool:
         layout_signals.get("ocr_applied")
         or layout_signals.get("is_scanned_pdf")
         or layout_signals.get("is_multi_column")
+        or layout_signals.get("deferred_ocr_required")
+        or layout_signals.get("deferred_layout_refinement_required")
         or performance.get("ocr_ms", 0.0) > 0.0
         or len(full_text) < 500
     )
@@ -1001,6 +1032,7 @@ def process_single_resume_upload(
     threshold: float,
     agency_id,
     current_user_id,
+    file_upload_ms: float = 0.0,
 ):
     """Process a single resume after the response so uploads return quickly."""
     db = SessionLocal()
@@ -1022,6 +1054,7 @@ def process_single_resume_upload(
 
         processed = process_saved_resume(file_path, original_filename, job_data, fast_mode=True)
         resume_data = processed["resume_data"]
+        resume_data["file_upload_ms"] = file_upload_ms
         needs_refinement = should_defer_resume_refinement(resume_data)
 
         candidate = Candidate(
@@ -1052,8 +1085,42 @@ def process_single_resume_upload(
             generate_questions=not needs_refinement,
         )
         db.add(candidate)
+        db_save_started_at = perf_counter()
         db.commit()
         db.refresh(candidate)
+        database_save_ms = round((perf_counter() - db_save_started_at) * 1000.0, 2)
+        parser_debug = resume_data.get("debug_timings") or {}
+        slowest_components = {
+            "PDF Parse": float((resume_data.get("document_metadata") or {}).get("performance", {}).get("pdf_extraction_ms", 0.0) or 0.0),
+            "DOCX Parse": float((resume_data.get("document_metadata") or {}).get("performance", {}).get("docx_extraction_ms", 0.0) or 0.0),
+            "Section Detection": float(parser_debug.get("Section Detection", 0.0) or 0.0),
+            "Name Extraction": float(parser_debug.get("Name Extraction", 0.0) or 0.0),
+            "Experience Extraction": float(parser_debug.get("Experience Extraction", 0.0) or 0.0),
+            "Skill Extraction": float(parser_debug.get("Skill Extraction", 0.0) or 0.0),
+            "spaCy Execution": float(parser_debug.get("spaCy Execution", 0.0) or 0.0),
+            "Regex Processing": float(parser_debug.get("Regex Processing", 0.0) or 0.0),
+            "Database Save": database_save_ms,
+        }
+        slowest_component = max(slowest_components, key=slowest_components.get)
+        _ats_timing_log(
+            resume_name=resume_data.get("name") or "",
+            file_upload_ms=resume_data.get("file_upload_ms", 0.0),
+            pdf_parse_ms=round(float((resume_data.get("document_metadata") or {}).get("performance", {}).get("pdf_extraction_ms", 0.0) or 0.0), 2),
+            docx_parse_ms=round(float((resume_data.get("document_metadata") or {}).get("performance", {}).get("docx_extraction_ms", 0.0) or 0.0), 2),
+            section_detection_ms=parser_debug.get("Section Detection", 0.0),
+            name_extraction_ms=parser_debug.get("Name Extraction", 0.0),
+            experience_extraction_ms=parser_debug.get("Experience Extraction", 0.0),
+            skill_extraction_ms=parser_debug.get("Skill Extraction", 0.0),
+            spacy_execution_ms=parser_debug.get("spaCy Execution", 0.0),
+            regex_processing_ms=parser_debug.get("Regex Processing", 0.0),
+            ocr_triggered="Yes" if parser_debug.get("ocr_triggered") else "No",
+            ocr_time_ms=round(float((resume_data.get("document_metadata") or {}).get("performance", {}).get("ocr_ms", 0.0) or 0.0), 2),
+            warmup_used="Yes" if parser_debug.get("warmup_used") else "No",
+            models_loaded="Yes" if parser_debug.get("models_loaded") else "No",
+            database_save_ms=database_save_ms,
+            total_time_ms=round((perf_counter() - total_start) * 1000.0, 2),
+            slowest_component=slowest_component,
+        )
 
         set_upload_progress(
             upload_id,
@@ -1080,6 +1147,7 @@ def process_single_resume_upload(
             try:
                 refined = process_saved_resume(file_path, original_filename, job_data, fast_mode=False)
                 refined_resume = refined["resume_data"]
+                refined_resume["file_upload_ms"] = file_upload_ms
                 candidate.name = refined_resume['name']
                 candidate.email = refined_resume['email']
                 candidate.phone = refined_resume['phone']
@@ -2287,6 +2355,7 @@ async def upload_resume(
     current_user: User = Depends(get_current_active_user)
 ):
     print(f"Upload received - job_id: {job_id}, file: {file.filename}, threshold: {threshold}")
+    upload_started_at = perf_counter()
     
     try:
         # Validate file type - PDF and Word documents
@@ -2314,6 +2383,7 @@ async def upload_resume(
         with open(file_path, "wb") as buffer:
             content = await file.read()
             buffer.write(content)
+        file_upload_ms = round((perf_counter() - upload_started_at) * 1000.0, 2)
         
         upload_id = str(uuid.uuid4())
         existing_upload_id = _register_recent_upload_request(
@@ -2354,12 +2424,14 @@ async def upload_resume(
             threshold,
             current_user.agency_id,
             current_user.id,
+            file_upload_ms,
         )
 
         return {
             "message": "Resume upload accepted and queued for analysis.",
             "upload_id": upload_id,
             "queued": 1,
+            "file_upload_ms": file_upload_ms,
         }
         
     except HTTPException:
