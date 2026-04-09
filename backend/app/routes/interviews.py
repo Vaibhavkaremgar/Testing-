@@ -391,6 +391,15 @@ def _get_internal_recording_targets() -> list[tuple[str, str]]:
     return normalized_targets
 
 
+def _normalize_recording_session_token(session_token: str) -> str:
+    normalized_token = str(session_token or "").strip()
+    lowered_token = normalized_token.lower()
+    for extension in (".mp4", ".webm"):
+        if lowered_token.endswith(extension):
+            return normalized_token[: -len(extension)]
+    return normalized_token
+
+
 def _build_internal_recording_url(session_token: str, base_url: str, path_prefix: str) -> str:
     return f"{base_url}{path_prefix}/{session_token}"
 
@@ -414,6 +423,7 @@ def _stream_upstream_response(upstream_response: requests.Response):
 
 
 def _proxy_recording_stream(session_token: str, request_method: str, range_header: Optional[str]) -> Response:
+    session_token = _normalize_recording_session_token(session_token)
     upstream_headers = {}
     if settings.INTERNAL_SERVICE_TOKEN:
         upstream_headers["Authorization"] = f"Bearer {settings.INTERNAL_SERVICE_TOKEN}"
@@ -1174,6 +1184,7 @@ def stream_candidate_recording(
     db: Session = Depends(get_db),
 ):
     normalize_legacy_candidate_stages(db)
+    session_token = _normalize_recording_session_token(session_token)
 
     bearer_token = None
     if authorization and authorization.lower().startswith("bearer "):

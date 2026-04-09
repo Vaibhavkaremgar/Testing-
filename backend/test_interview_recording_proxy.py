@@ -168,6 +168,58 @@ def test_recording_proxy_supports_head_requests_for_player_validation(client, mo
     assert response.content == b""
 
 
+def test_recording_proxy_normalizes_session_token_extensions(client, monkeypatch):
+    current_user = SimpleNamespace(id=uuid4())
+    interview = SimpleNamespace(id=uuid4(), async_token="async-session-token")
+    monkeypatch.setattr(interviews_route.settings, "INTERNAL_SERVICE_TOKEN", "internal-secret")
+    monkeypatch.setattr(interviews_route.settings, "INTERNAL_RECORDING_BASE_URL", "http://pontis-backend.railway.internal")
+    monkeypatch.setattr(interviews_route.settings, "INTERNAL_RECORDING_FALLBACK_BASE_URL", "https://interview.pontis.one")
+
+    monkeypatch.setattr(interviews_route, "_resolve_video_request_user", lambda db, access_token, user: current_user)
+
+    def fake_fetch_session(cursor, session_token):
+        assert session_token == "session-normalized"
+        return {
+            "session_token": session_token,
+            "interview_id": str(interview.id),
+            "async_token": interview.async_token,
+        }
+
+    monkeypatch.setattr(
+        interviews_route,
+        "_fetch_interview_session_row_by_session_token",
+        fake_fetch_session,
+    )
+    monkeypatch.setattr(
+        interviews_route,
+        "_resolve_scoped_interview_from_session_row",
+        lambda db, session_row, user: interview,
+    )
+
+    def fake_request(method, url, headers=None, stream=None, timeout=None):
+        assert method == "GET"
+        assert url == "http://pontis-backend.railway.internal/api/internal/recording/session-normalized"
+        assert headers == {"Authorization": "Bearer internal-secret"}
+        assert stream is True
+        return FakeUpstreamResponse(
+            status_code=200,
+            headers={
+                "Accept-Ranges": "bytes",
+                "Content-Length": "10",
+                "Content-Type": "video/mp4",
+            },
+            chunks=[b"normalized"],
+        )
+
+    monkeypatch.setattr(interviews_route.requests, "request", fake_request)
+
+    response = client.get("/api/recording/session-normalized.webm")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("video/mp4")
+    assert response.content == b"normalized"
+
+
 def test_recording_proxy_requires_authentication(client):
     response = client.get("/api/recording/session-123")
 
