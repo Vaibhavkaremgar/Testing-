@@ -198,7 +198,7 @@ const VideoPlayer = forwardRef(function VideoPlayer(
     <div
       data-vjs-player
       className={cn(
-        'h-full w-full overflow-hidden rounded-lg [&_.video-js]:h-full [&_.video-js]:w-full [&_.video-js]:overflow-hidden [&_.video-js]:rounded-lg',
+        'h-full w-full overflow-hidden rounded-lg [&_.video-js]:h-full [&_.video-js]:w-full [&_.video-js]:overflow-hidden [&_.video-js]:rounded-lg [&_.vjs-big-play-button]:bg-transparent [&_.vjs-big-play-button]:border-transparent [&_.vjs-big-play-button:hover]:bg-transparent [&_.vjs-big-play-button:hover]:border-transparent [&_.vjs-big-play-button:focus]:bg-transparent [&_.vjs-big-play-button:focus]:border-transparent [&_.vjs-control-bar]:flex [&_.vjs-control-bar]:z-50 [&_.vjs-control-bar]:opacity-100 [&_.vjs-control-bar]:visible',
         className
       )}
     >
