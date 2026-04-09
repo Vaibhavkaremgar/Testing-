@@ -386,6 +386,15 @@ def _get_recording_service_token() -> str:
     return str(settings.RECORDING_SERVICE_TOKEN or settings.INTERNAL_SERVICE_TOKEN or "").strip()
 
 
+def _mask_debug_value(value: Optional[str], *, prefix: int = 6, suffix: int = 4) -> str:
+    normalized_value = str(value or "").strip()
+    if not normalized_value:
+        return ""
+    if len(normalized_value) <= (prefix + suffix):
+        return normalized_value
+    return f"{normalized_value[:prefix]}...{normalized_value[-suffix:]}"
+
+
 def _normalize_recording_session_token(session_token: str) -> str:
     normalized_token = str(session_token or "").strip()
     lowered_token = normalized_token.lower()
@@ -420,11 +429,15 @@ def _stream_upstream_response(upstream_response: requests.Response):
 def _proxy_recording_stream(session_token: str, request_method: str, range_header: Optional[str]) -> Response:
     session_token = _normalize_recording_session_token(session_token)
     service_token = _get_recording_service_token()
+    print("Auth token present:", bool(service_token))
     upstream_headers = {}
     if service_token:
         upstream_headers["Authorization"] = f"Bearer {service_token}"
     if range_header:
         upstream_headers["Range"] = range_header
+    print("Proxy auth token:", _mask_debug_value(service_token))
+    print("Proxy session_token:", session_token)
+    print("Proxy request headers:", upstream_headers)
 
     upstream_response = None
     last_request_exception = None
@@ -1107,6 +1120,12 @@ def stream_interview_video(
         user_id=current_user.id,
     )
     interview = _get_scoped_interview_for_video(db, session_id, current_user)
+    lookup_tokens = [session_id]
+    if interview:
+        lookup_tokens.extend([str(interview.id), interview.async_token])
+    print("Video lookup tokens:", [lookup_token for lookup_token in lookup_tokens if lookup_token])
+    print("Video auth token:", _mask_debug_value(token or bearer_token))
+    print("Video request headers:", {"Authorization": bool(authorization), "Range": range_header})
     if not interview:
         _log_recording_debug(
             "stream_interview_video.interview_lookup_miss",
@@ -1154,6 +1173,9 @@ def stream_candidate_recording(
         range_header=bool(range_header),
         user_id=current_user.id,
     )
+    print("Recording lookup tokens:", [session_token])
+    print("Recording auth token:", _mask_debug_value(token or bearer_token))
+    print("Recording request headers:", {"Authorization": bool(authorization), "Range": range_header})
 
     connection = None
     try:
