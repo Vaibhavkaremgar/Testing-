@@ -100,7 +100,7 @@ export default function InterviewRecordingPlayer({
   const [errorMessage, setErrorMessage] = useState('')
   const [retryKey, setRetryKey] = useState(0)
   const [isRetryPending, setIsRetryPending] = useState(false)
-  const [, setAvailabilityStatus] = useState('idle')
+  const [availabilityStatus, setAvailabilityStatus] = useState('idle')
   const [activeUrlIndex, setActiveUrlIndex] = useState(0)
   const loadTimeoutRef = useRef(null)
   const retryTimeoutRef = useRef(null)
