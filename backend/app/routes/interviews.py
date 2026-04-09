@@ -482,6 +482,11 @@ def _proxy_recording_stream(session_token: str, request_method: str, range_heade
             content_length=upstream_response.headers.get("Content-Length"),
             content_range=upstream_response.headers.get("Content-Range"),
         )
+        if upstream_response.status_code not in (200, 206):
+            try:
+                print("Upstream error body:", upstream_response.text[:1000])
+            except Exception:
+                print("Upstream error body: <unavailable>")
     except requests.RequestException as exc:
         last_request_exception = exc
         _log_recording_debug(
