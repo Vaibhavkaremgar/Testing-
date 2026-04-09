@@ -93,8 +93,8 @@ def test_recording_proxy_streams_range_requests_for_authorized_user(client, monk
 
     def fake_request(method, url, headers=None, params=None, stream=None, timeout=None):
         assert method == "GET"
-        assert url == "https://interview.pontis.one/api/recording"
-        assert params == {"session_token": "session-123"}
+        assert url == "https://interview.pontis.one/api/recording/session-123"
+        assert params is None
         assert headers == {
             "Authorization": "Bearer recording-secret",
             "Range": "bytes=0-1023",
@@ -147,8 +147,8 @@ def test_recording_proxy_supports_head_requests_for_player_validation(client, mo
 
     def fake_request(method, url, headers=None, params=None, stream=None, timeout=None):
         assert method == "HEAD"
-        assert url == "https://interview.pontis.one/api/recording"
-        assert params == {"session_token": "session-webm"}
+        assert url == "https://interview.pontis.one/api/recording/session-webm"
+        assert params is None
         assert headers == {"Authorization": "Bearer recording-secret"}
         return FakeUpstreamResponse(
             status_code=200,
@@ -197,8 +197,8 @@ def test_recording_proxy_falls_back_to_ranged_get_when_upstream_head_is_unsuppor
 
     def fake_request(method, url, headers=None, params=None, stream=None, timeout=None):
         request_calls.append((method, headers, params, stream, timeout))
-        assert url == "https://interview.pontis.one/api/recording"
-        assert params == {"session_token": "session-head-fallback"}
+        assert url == "https://interview.pontis.one/api/recording/session-head-fallback"
+        assert params is None
         if method == "HEAD":
             assert headers == {"Authorization": "Bearer recording-secret"}
             return FakeUpstreamResponse(status_code=404, headers={"Content-Type": "text/html; charset=utf-8"})
@@ -264,8 +264,8 @@ def test_recording_proxy_normalizes_session_token_extensions(client, monkeypatch
 
     def fake_request(method, url, headers=None, params=None, stream=None, timeout=None):
         assert method == "GET"
-        assert url == "https://interview.pontis.one/api/recording"
-        assert params == {"session_token": "session-normalized"}
+        assert url == "https://interview.pontis.one/api/recording/session-normalized"
+        assert params is None
         assert headers == {"Authorization": "Bearer recording-secret"}
         assert stream is True
         return FakeUpstreamResponse(
@@ -309,8 +309,8 @@ def test_recording_proxy_directly_resolves_uuid_shaped_async_token(client, monke
 
     def fake_request(method, url, headers=None, params=None, stream=None, timeout=None):
         assert method == "GET"
-        assert url == "https://interview.pontis.one/api/recording"
-        assert params == {"session_token": session_token}
+        assert url == f"https://interview.pontis.one/api/recording/{session_token}"
+        assert params is None
         assert headers == {"Authorization": "Bearer recording-secret"}
         assert stream is True
         return FakeUpstreamResponse(
@@ -386,8 +386,8 @@ def test_interview_video_endpoint_proxies_by_interview_id(client, monkeypatch):
 
     def fake_request(method, url, headers=None, params=None, stream=None, timeout=None):
         assert method == "GET"
-        assert url == "https://interview.pontis.one/api/recording"
-        assert params == {"session_token": "async-session-token"}
+        assert url == "https://interview.pontis.one/api/recording/async-session-token"
+        assert params is None
         assert headers == {"Authorization": "Bearer recording-secret"}
         return FakeUpstreamResponse(
             status_code=200,
@@ -432,8 +432,8 @@ def test_recording_proxy_uses_internal_service_token_when_recording_service_toke
     )
 
     def fake_request(method, url, headers=None, params=None, stream=None, timeout=None):
-        assert url == "https://interview.pontis.one/api/recording"
-        assert params == {"session_token": "session-fallback"}
+        assert url == "https://interview.pontis.one/api/recording/session-fallback"
+        assert params is None
         assert headers == {"Authorization": "Bearer internal-secret"}
         return FakeUpstreamResponse(
             status_code=200,

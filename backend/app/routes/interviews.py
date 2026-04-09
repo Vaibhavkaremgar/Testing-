@@ -7,6 +7,7 @@ from datetime import datetime
 from uuid import UUID
 from threading import Lock
 from time import monotonic, perf_counter
+from urllib.parse import quote
 import base64
 import binascii
 import random
@@ -415,21 +416,20 @@ def _normalize_recording_session_token(session_token: str) -> str:
     return normalized_token
 
 
-def _build_internal_recording_url(base_url: str, path_prefix: str) -> str:
-    return f"{base_url}{path_prefix}"
+def _build_internal_recording_url(base_url: str, path_prefix: str, session_token: str) -> str:
+    encoded_session_token = quote(str(session_token or "").strip(), safe="")
+    return f"{base_url}{path_prefix}/{encoded_session_token}"
 
 
 def _request_upstream_recording(
     method: str,
     upstream_url: str,
     upstream_headers: dict[str, str],
-    session_token: str,
 ) -> requests.Response:
     return requests.request(
         method,
         upstream_url,
         headers=upstream_headers,
-        params={"session_token": session_token},
         stream=True,
         timeout=(5, 300),
     )
@@ -471,7 +471,7 @@ def _proxy_recording_stream(session_token: str, request_method: str, range_heade
     selected_upstream_url = None
     selected_request_method = request_method.upper()
     base_url, path_prefix = _get_recording_service_target()
-    upstream_url = _build_internal_recording_url(base_url, path_prefix)
+    upstream_url = _build_internal_recording_url(base_url, path_prefix, session_token)
     try:
         _log_recording_debug(
             "proxy_recording_stream.attempt",
@@ -485,7 +485,6 @@ def _proxy_recording_stream(session_token: str, request_method: str, range_heade
             selected_request_method,
             upstream_url,
             upstream_headers,
-            session_token,
         )
         selected_upstream_url = upstream_url
         _log_recording_debug(
@@ -513,7 +512,6 @@ def _proxy_recording_stream(session_token: str, request_method: str, range_heade
                 "GET",
                 upstream_url,
                 fallback_headers,
-                session_token,
             )
             _log_recording_debug(
                 "proxy_recording_stream.response",
