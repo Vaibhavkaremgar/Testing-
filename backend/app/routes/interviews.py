@@ -1173,6 +1173,7 @@ def stream_interview_video(
     _log_recording_debug(
         "stream_interview_video.request",
         session_id=session_id,
+        requested_url=str(request.url),
         has_query_token=bool(token),
         has_bearer_token=bool(bearer_token),
         range_header=bool(range_header),
@@ -1227,6 +1228,7 @@ def stream_candidate_recording(
     _log_recording_debug(
         "stream_candidate_recording.request",
         session_token=session_token,
+        requested_url=str(request.url),
         has_query_token=bool(token),
         has_bearer_token=bool(bearer_token),
         range_header=bool(range_header),

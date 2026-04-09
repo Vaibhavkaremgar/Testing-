@@ -5,6 +5,11 @@ const API_ORIGIN = (import.meta.env.VITE_API_URL || DEFAULT_API_ORIGIN).replace(
 const API_BASE = `${API_ORIGIN}/api`
 const DEFAULT_LIST_LIMIT = 20
 const APP_BASE = API_BASE.replace(/\/api$/, '')
+const RECORDING_API_BASE = "https://interview.pontis.one/api"
+
+export function getDashboardRecordingUrl(sessionToken, token) {
+  return `${RECORDING_API_BASE}/recording/${sessionToken}?token=${token}`
+}
 
 // Debug logging
 console.log('VITE_API_URL:', import.meta.env.VITE_API_URL)

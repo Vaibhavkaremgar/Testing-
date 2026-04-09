@@ -6,6 +6,7 @@ import api from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
+import { getDashboardRecordingUrl } from '@/lib/api'
 
 const LOAD_TIMEOUT_MS = 15000
 const RETRY_DELAY_MS = 500
@@ -108,8 +109,10 @@ export default function InterviewRecordingPlayer({
     () => buildRecordingUrls({ sessionToken, interviewId, asyncToken, recordingPath }),
     [asyncToken, interviewId, recordingPath, sessionToken]
   )
-  const videoUrl = candidateUrls[activeUrlIndex] || ''
-  console.log('videoUrl', videoUrl)
+  {/*const videoUrl = candidateUrls[activeUrlIndex] || ''
+  console.log('videoUrl', videoUrl)*/}
+  const videoUrl = getDashboardRecordingUrl(sessionToken, token)
+  console.log("videoUrl", videoUrl)
   const sources = useMemo(() => buildRecordingSources(videoUrl, recordingPath), [recordingPath, videoUrl])
   const hasRecording = Boolean(videoUrl)
   const formatLabel = useMemo(() => describeFormat(recordingPath), [recordingPath])
