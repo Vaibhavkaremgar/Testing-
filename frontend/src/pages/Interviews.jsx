@@ -638,7 +638,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
                 </TabsTrigger>
               </TabsList>
 
-              <TabsContent value="video" className="mt-4 min-h-0 flex-1 overflow-hidden">
+              <TabsContent value="video" className="min-h-0 flex-1 overflow-hidden">
                 <div className="video-tab-container">
                   <div className="video-wrapper">
                     <InterviewRecordingPlayer
