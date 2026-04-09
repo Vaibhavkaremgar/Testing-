@@ -768,6 +768,17 @@ class ApiClient {
     return `${API_BASE}/recording/${encodedSessionToken}${query}`
   }
 
+  getInterviewVideoUrl(interviewId) {
+    const token = this.getToken()
+    const normalizedInterviewId = String(interviewId || '').trim()
+    if (!normalizedInterviewId) {
+      return ''
+    }
+    const encodedInterviewId = encodeURIComponent(normalizedInterviewId)
+    const query = token ? `?token=${encodeURIComponent(token)}` : ''
+    return `${API_BASE}/interviews/video/${encodedInterviewId}${query}`
+  }
+
   getUploadedRecordingUrl(recordingPath) {
     const normalizedPath = String(recordingPath || '').replace(/^\/+/, '')
     return normalizedPath ? `${APP_BASE}/uploads/${normalizedPath}` : ''

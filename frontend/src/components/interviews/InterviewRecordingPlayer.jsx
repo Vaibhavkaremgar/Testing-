@@ -16,12 +16,32 @@ function normalizeSessionToken(value) {
     .replace(/\.(mp4|webm)$/i, '')
 }
 
+function buildVoiceInterviewerRecordingUrl(sessionToken) {
+  const normalizedSessionToken = normalizeSessionToken(sessionToken)
+  if (!normalizedSessionToken) {
+    return ''
+  }
+
+  return `https://interview.pontis.one/api/recording/${normalizedSessionToken}`
+}
+
 function buildRecordingUrls({ sessionToken, interviewId, asyncToken, recordingPath }) {
   const urls = []
   const normalizedSessionToken = normalizeSessionToken(sessionToken)
+  const normalizedAsyncToken = normalizeSessionToken(asyncToken)
+  const normalizedInterviewId = String(interviewId || '').trim()
+
   if (normalizedSessionToken) {
+    urls.push(buildVoiceInterviewerRecordingUrl(normalizedSessionToken))
+  }
+
+  if (normalizedAsyncToken) {
+    urls.push(buildVoiceInterviewerRecordingUrl(normalizedAsyncToken))
+  }
+
+  if (normalizedInterviewId) {
     try {
-      urls.push(api.getDashboardRecordingUrl(normalizedSessionToken))
+      urls.push(api.getInterviewVideoUrl(normalizedInterviewId))
     } catch {
       // Ignore invalid URL construction.
     }
@@ -109,7 +129,7 @@ export default function InterviewRecordingPlayer({
     [asyncToken, interviewId, recordingPath, sessionToken]
   )
   const videoUrl = candidateUrls[activeUrlIndex] || ''
-  console.log('videoUrl', videoUrl)
+  console.log('FINAL VIDEO URL:', videoUrl)
   const sources = useMemo(() => buildRecordingSources(videoUrl, recordingPath), [recordingPath, videoUrl])
   const hasRecording = Boolean(videoUrl)
   const formatLabel = useMemo(() => describeFormat(recordingPath), [recordingPath])
