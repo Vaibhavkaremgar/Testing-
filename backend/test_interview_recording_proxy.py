@@ -91,9 +91,10 @@ def test_recording_proxy_streams_range_requests_for_authorized_user(client, monk
         lambda db, session_row, user: interview,
     )
 
-    def fake_request(method, url, headers=None, stream=None, timeout=None):
+    def fake_request(method, url, headers=None, params=None, stream=None, timeout=None):
         assert method == "GET"
-        assert url == "https://interview.pontis.one/api/recording/session-123"
+        assert url == "https://interview.pontis.one/api/recording"
+        assert params == {"session_token": "session-123"}
         assert headers == {
             "Authorization": "Bearer recording-secret",
             "Range": "bytes=0-1023",
@@ -144,9 +145,10 @@ def test_recording_proxy_supports_head_requests_for_player_validation(client, mo
         lambda db, session_row, user: interview,
     )
 
-    def fake_request(method, url, headers=None, stream=None, timeout=None):
+    def fake_request(method, url, headers=None, params=None, stream=None, timeout=None):
         assert method == "HEAD"
-        assert url == "https://interview.pontis.one/api/recording/session-webm"
+        assert url == "https://interview.pontis.one/api/recording"
+        assert params == {"session_token": "session-webm"}
         assert headers == {"Authorization": "Bearer recording-secret"}
         return FakeUpstreamResponse(
             status_code=200,
@@ -196,9 +198,10 @@ def test_recording_proxy_normalizes_session_token_extensions(client, monkeypatch
         lambda db, session_row, user: interview,
     )
 
-    def fake_request(method, url, headers=None, stream=None, timeout=None):
+    def fake_request(method, url, headers=None, params=None, stream=None, timeout=None):
         assert method == "GET"
-        assert url == "https://interview.pontis.one/api/recording/session-normalized"
+        assert url == "https://interview.pontis.one/api/recording"
+        assert params == {"session_token": "session-normalized"}
         assert headers == {"Authorization": "Bearer recording-secret"}
         assert stream is True
         return FakeUpstreamResponse(
@@ -240,9 +243,10 @@ def test_recording_proxy_directly_resolves_uuid_shaped_async_token(client, monke
 
     monkeypatch.setattr(interviews_route.psycopg2, "connect", fail_if_called)
 
-    def fake_request(method, url, headers=None, stream=None, timeout=None):
+    def fake_request(method, url, headers=None, params=None, stream=None, timeout=None):
         assert method == "GET"
-        assert url == f"https://interview.pontis.one/api/recording/{session_token}"
+        assert url == "https://interview.pontis.one/api/recording"
+        assert params == {"session_token": session_token}
         assert headers == {"Authorization": "Bearer recording-secret"}
         assert stream is True
         return FakeUpstreamResponse(
@@ -316,9 +320,10 @@ def test_interview_video_endpoint_proxies_by_interview_id(client, monkeypatch):
         lambda db, session_id, user: interview,
     )
 
-    def fake_request(method, url, headers=None, stream=None, timeout=None):
+    def fake_request(method, url, headers=None, params=None, stream=None, timeout=None):
         assert method == "GET"
-        assert url == "https://interview.pontis.one/api/recording/async-session-token"
+        assert url == "https://interview.pontis.one/api/recording"
+        assert params == {"session_token": "async-session-token"}
         assert headers == {"Authorization": "Bearer recording-secret"}
         return FakeUpstreamResponse(
             status_code=200,
@@ -362,8 +367,9 @@ def test_recording_proxy_uses_internal_service_token_when_recording_service_toke
         lambda db, session_row, user: interview,
     )
 
-    def fake_request(method, url, headers=None, stream=None, timeout=None):
-        assert url == "https://interview.pontis.one/api/recording/session-fallback"
+    def fake_request(method, url, headers=None, params=None, stream=None, timeout=None):
+        assert url == "https://interview.pontis.one/api/recording"
+        assert params == {"session_token": "session-fallback"}
         assert headers == {"Authorization": "Bearer internal-secret"}
         return FakeUpstreamResponse(
             status_code=200,

@@ -415,8 +415,8 @@ def _normalize_recording_session_token(session_token: str) -> str:
     return normalized_token
 
 
-def _build_internal_recording_url(session_token: str, base_url: str, path_prefix: str) -> str:
-    return f"{base_url}{path_prefix}/{session_token}"
+def _build_internal_recording_url(base_url: str, path_prefix: str) -> str:
+    return f"{base_url}{path_prefix}"
 
 
 def _collect_upstream_stream_headers(upstream_response: requests.Response) -> dict[str, str]:
@@ -454,7 +454,7 @@ def _proxy_recording_stream(session_token: str, request_method: str, range_heade
     last_request_exception = None
     selected_upstream_url = None
     base_url, path_prefix = _get_recording_service_target()
-    upstream_url = _build_internal_recording_url(session_token, base_url, path_prefix)
+    upstream_url = _build_internal_recording_url(base_url, path_prefix)
     try:
         _log_recording_debug(
             "proxy_recording_stream.attempt",
@@ -468,6 +468,7 @@ def _proxy_recording_stream(session_token: str, request_method: str, range_heade
             request_method,
             upstream_url,
             headers=upstream_headers,
+            params={"session_token": session_token},
             stream=True,
             timeout=(5, 300),
         )
