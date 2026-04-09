@@ -220,6 +220,50 @@ def test_recording_proxy_normalizes_session_token_extensions(client, monkeypatch
     assert response.content == b"normalized"
 
 
+def test_recording_proxy_directly_resolves_uuid_shaped_async_token(client, monkeypatch):
+    current_user = SimpleNamespace(id=uuid4())
+    session_token = "3b0d9bba-6487-421c-8d9d-8629ecfb5e0d"
+    interview = SimpleNamespace(id=uuid4(), async_token=session_token)
+    monkeypatch.setattr(interviews_route.settings, "RECORDING_SERVICE_TOKEN", "recording-secret")
+    monkeypatch.setattr(interviews_route.settings, "INTERNAL_SERVICE_TOKEN", "")
+    monkeypatch.setattr(interviews_route.settings, "RECORDING_BASE_URL", "https://interview.pontis.one")
+
+    monkeypatch.setattr(interviews_route, "_resolve_video_request_user", lambda db, access_token, user: current_user)
+    monkeypatch.setattr(
+        interviews_route,
+        "_get_scoped_interview_for_video",
+        lambda db, lookup_key, user: interview if lookup_key == session_token else None,
+    )
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("interview_sessions lookup should not be required for direct async_token matches")
+
+    monkeypatch.setattr(interviews_route.psycopg2, "connect", fail_if_called)
+
+    def fake_request(method, url, headers=None, stream=None, timeout=None):
+        assert method == "GET"
+        assert url == f"https://interview.pontis.one/api/recording/{session_token}"
+        assert headers == {"Authorization": "Bearer recording-secret"}
+        assert stream is True
+        return FakeUpstreamResponse(
+            status_code=200,
+            headers={
+                "Accept-Ranges": "bytes",
+                "Content-Length": "4",
+                "Content-Type": "video/webm",
+            },
+            chunks=[b"uuid"],
+        )
+
+    monkeypatch.setattr(interviews_route.requests, "request", fake_request)
+
+    response = client.get(f"/api/recording/{session_token}")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("video/webm")
+    assert response.content == b"uuid"
+
+
 def test_recording_proxy_requires_authentication(client):
     response = client.get("/api/recording/session-123")
 

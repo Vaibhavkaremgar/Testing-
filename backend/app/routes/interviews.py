@@ -348,10 +348,21 @@ def _resolve_video_request_user(db: Session, access_token: Optional[str], curren
 
 
 def _get_scoped_interview_for_video(db: Session, session_id: str, current_user: User) -> Optional[Interview]:
+    normalized_session_id = str(session_id or "").strip()
+    if not normalized_session_id:
+        return None
+
     try:
-        query = db.query(Interview).filter(Interview.id == UUID(session_id))
+        parsed_uuid = UUID(normalized_session_id)
     except ValueError:
-        query = db.query(Interview).filter(Interview.async_token == session_id)
+        query = db.query(Interview).filter(Interview.async_token == normalized_session_id)
+    else:
+        query = db.query(Interview).filter(
+            or_(
+                Interview.id == parsed_uuid,
+                Interview.async_token == normalized_session_id,
+            )
+        )
 
     query = _apply_interview_scope(query, current_user)
     return query.first()
@@ -1176,6 +1187,20 @@ def stream_candidate_recording(
     print("Recording lookup tokens:", [session_token])
     print("Recording auth token:", _mask_debug_value(token or bearer_token))
     print("Recording request headers:", {"Authorization": bool(authorization), "Range": range_header})
+
+    try:
+        interview = _get_scoped_interview_for_video(db, session_token, current_user)
+    except AttributeError:
+        interview = None
+    if interview:
+        _log_recording_debug(
+            "stream_candidate_recording.lookup",
+            interview_id=interview.id,
+            async_token=interview.async_token,
+            session_token=session_token,
+            lookup_strategy="direct_async_token",
+        )
+        return _proxy_recording_stream(session_token, request.method, range_header)
 
     connection = None
     try:
