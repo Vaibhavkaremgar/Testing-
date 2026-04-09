@@ -327,7 +327,7 @@ export default function InterviewRecordingPlayer({
   const shouldRenderPlayer = hasRecording && availabilityStatus !== 'not_found'
 
   return (
-    <div className={cn('interview-recording-player-shell relative h-full w-full overflow-hidden rounded-[1.5rem] border border-slate-800/80 bg-black', className)}>
+    <div className={cn('interview-recording-player-shell relative h-full min-h-[500px] w-full overflow-hidden rounded-[1.5rem] border border-slate-800/80 bg-black', className)}>
       {shouldRenderPlayer && !errorMessage ? (
         <VideoPlayer
           key={`${videoUrl}-${retryKey}`}

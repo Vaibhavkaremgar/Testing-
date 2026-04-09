@@ -639,8 +639,8 @@ export default function Interviews({ superAdminAgencyId = null }) {
               </TabsList>
 
               <TabsContent value="video" className="mt-4 min-h-0 flex-1 overflow-hidden">
-                <div className="flex h-full flex-col items-center overflow-y-auto overflow-x-hidden pr-1">
-                  <div className="interview-video-container mx-auto w-full">
+                <div className="video-tab-container">
+                  <div className="video-wrapper">
                     <InterviewRecordingPlayer
                       sessionToken={selectedInterview.session_token}
                       interviewId={selectedInterview.id}
@@ -649,7 +649,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
                       className="h-full w-full"
                     />
                   </div>
-                  <div className="mt-4 min-h-0 flex-1 overflow-hidden rounded-xl border bg-muted/30 p-4">
+                  <div className="mt-4 min-h-0 w-full overflow-hidden rounded-xl border bg-muted/30 p-4">
                     <div className="grid gap-3 md:grid-cols-3">
                       <div className="rounded-lg bg-background p-4">
                         <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Interview Type</p>
