@@ -101,136 +101,47 @@
 
 .video-tab-container {
   width: 100%;
-  min-height: 500px;
-  height: auto;
   padding: 0 !important;
   margin: 0 !important;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  overflow-y: auto;
-  overflow-x: hidden;
 }
 
 .video-wrapper {
   width: 100%;
-  max-width: 1000px;
   height: 550px;
-  background-color: black;
+  background: black;
   overflow: hidden;
   border-radius: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  position: relative;
 }
 
-.interview-recording-player-shell {
-  background: #000;
-  box-shadow: 0 28px 56px rgba(2, 6, 23, 0.28);
-}
-
-.interview-recording-player-shell .video-js {
-  height: 100%;
-  width: 100%;
-  background: #000;
-  color: #e2e8f0;
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
-}
-
-.interview-recording-player-shell video,
+.custom-video,
+.video-js,
+.video-js video,
 .interview-recording-player-shell .video-js {
   width: 100% !important;
   height: 100% !important;
 }
 
+.video-js video,
 .interview-recording-player-shell .video-js .vjs-tech {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: center 40%;
+  object-fit: cover !important;
+  object-position: center 35% !important;
 }
 
-.interview-recording-player-shell .video-js .vjs-poster {
-  background-size: cover;
-  background-position: center;
-  filter: saturate(0.92);
-}
-
+.video-js .vjs-control-bar,
 .interview-recording-player-shell .video-js .vjs-control-bar {
   display: flex !important;
-  height: 4.9rem;
-  padding: 0 1rem;
-  background: linear-gradient(180deg, rgba(2, 6, 23, 0.08), rgba(2, 6, 23, 0.82));
-  border-top: 1px solid rgba(148, 163, 184, 0.16);
-  backdrop-filter: blur(18px);
   opacity: 1 !important;
   visibility: visible !important;
-  z-index: 30;
-  bottom: 0;
+  height: 50px !important;
 }
 
-.interview-recording-player-shell .video-js.vjs-user-inactive .vjs-control-bar,
-.interview-recording-player-shell .video-js.vjs-playing .vjs-control-bar,
-.interview-recording-player-shell .video-js.vjs-paused .vjs-control-bar,
-.interview-recording-player-shell .video-js.vjs-has-started .vjs-control-bar {
-  opacity: 1 !important;
-  visibility: visible !important;
-}
-
-.interview-recording-player-shell .video-js .vjs-big-play-button {
-  display: flex !important;
-  align-items: center;
-  justify-content: center;
-  z-index: 31;
-}
-
-.interview-recording-player-shell .video-js .vjs-button > .vjs-icon-placeholder::before,
-.interview-recording-player-shell .video-js .vjs-control,
-.interview-recording-player-shell .video-js .vjs-time-control,
-.interview-recording-player-shell .video-js .vjs-menu-button {
-  color: #e2e8f0;
-}
-
-.interview-recording-player-shell .video-js .vjs-play-progress,
-.interview-recording-player-shell .video-js .vjs-volume-level {
-  background: linear-gradient(90deg, #22d3ee, #38bdf8);
-}
-
-.interview-recording-player-shell .video-js .vjs-load-progress div {
-  background: rgba(148, 163, 184, 0.28);
-}
-
-.interview-recording-player-shell .video-js .vjs-slider {
-  background-color: rgba(148, 163, 184, 0.2);
-}
-
-.interview-recording-player-shell .video-js .vjs-big-play-button {
-  top: 50%;
-  left: 50%;
-  width: 5.25rem;
-  height: 5.25rem;
-  margin-top: -2.625rem;
-  margin-left: -2.625rem;
-  border: none !important;
-  border-radius: 9999px;
-  background-color: transparent !important;
-  box-shadow: none !important;
-}
-
-.interview-recording-player-shell .vjs-big-play-button {
+.vjs-big-play-button {
   background-color: transparent !important;
   border: none !important;
   box-shadow: none !important;
 }
 
-.interview-recording-player-shell .video-js:hover .vjs-big-play-button,
-.interview-recording-player-shell .video-js .vjs-big-play-button:focus {
-  background-color: transparent !important;
-}
-
-.interview-recording-player-shell .video-js .vjs-menu-content {
-  background: rgba(2, 6, 23, 0.92);
-  border: 1px solid rgba(148, 163, 184, 0.16);
-  backdrop-filter: blur(18px);
+.video-js {
+  max-height: none !important;
 }

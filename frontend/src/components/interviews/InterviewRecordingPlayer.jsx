@@ -327,82 +327,86 @@ export default function InterviewRecordingPlayer({
   const shouldRenderPlayer = hasRecording && availabilityStatus !== 'not_found'
 
   return (
-    <div className={cn('interview-recording-player-shell relative h-full min-h-[550px] w-full overflow-hidden rounded-[1.5rem] border border-slate-800/80 bg-black', className)}>
-      {shouldRenderPlayer && !errorMessage ? (
-        <VideoPlayer
-          key={`${videoUrl}-${retryKey}`}
-          sources={sources}
-          poster={poster}
-          preload="metadata"
-          playsInline
-          className="h-full w-full rounded-[1.5rem] bg-black"
-          videoClassName="object-cover object-center bg-black"
-          options={{
-            controls: true,
-            fluid: true,
-            responsive: true,
-            inactivityTimeout: 0,
-            playbackRates: [0.75, 1, 1.25, 1.5, 2],
-            userActions: {
-              click: true,
-              hotkeys: true,
-            },
-            controlBar: {
-              playToggle: true,
-              currentTimeDisplay: true,
-              timeDivider: true,
-              durationDisplay: true,
-              progressControl: true,
-              remainingTimeDisplay: {
-                displayNegative: false,
-              },
-              skipButtons: {
-                backward: 10,
-                forward: 10,
-              },
-              volumePanel: {
-                inline: false,
-              },
-              playbackRateMenuButton: true,
-              fullscreenToggle: true,
-              pictureInPictureToggle: true,
-            },
-          }}
-          onLoadedData={handlePlayerReady}
-          onCanPlay={handlePlayerReady}
-          onError={handlePlayerError}
-        />
-      ) : null}
+    <div className={cn('video-tab-container', className)}>
+      <div className="video-wrapper">
+        <div className="interview-recording-player-shell relative h-full min-h-[550px] w-full overflow-hidden rounded-[1.5rem] border border-slate-800/80 bg-black">
+          {shouldRenderPlayer && !errorMessage ? (
+            <VideoPlayer
+              key={`${videoUrl}-${retryKey}`}
+              sources={sources}
+              poster={poster}
+              preload="metadata"
+              playsInline
+              className="h-full w-full rounded-[1.5rem] bg-black"
+              videoClassName="video-js vjs-default-skin custom-video object-cover object-center bg-black"
+              options={{
+                controls: true,
+                fluid: true,
+                responsive: true,
+                inactivityTimeout: 0,
+                playbackRates: [0.75, 1, 1.25, 1.5, 2],
+                userActions: {
+                  click: true,
+                  hotkeys: true,
+                },
+                controlBar: {
+                  playToggle: true,
+                  currentTimeDisplay: true,
+                  timeDivider: true,
+                  durationDisplay: true,
+                  progressControl: true,
+                  remainingTimeDisplay: {
+                    displayNegative: false,
+                  },
+                  skipButtons: {
+                    backward: 10,
+                    forward: 10,
+                  },
+                  volumePanel: {
+                    inline: false,
+                  },
+                  playbackRateMenuButton: true,
+                  fullscreenToggle: true,
+                  pictureInPictureToggle: true,
+                },
+              }}
+              onLoadedData={handlePlayerReady}
+              onCanPlay={handlePlayerReady}
+              onError={handlePlayerError}
+            />
+          ) : null}
 
-      {errorMessage ? (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 rounded-[1.5rem] bg-slate-950/84 px-6 text-center text-white backdrop-blur-sm">
-          <AlertCircle className="h-12 w-12 text-amber-300" />
-          <div>
-            <p className="text-lg font-semibold">{errorMessage}</p>
-            <p className="mt-1 text-sm text-white/70">
-              {errorMessage === 'Recording Not Found'
-                ? 'The recording endpoint returned 404 for this session token.'
-                : errorMessage === 'Recording not available or not ready yet'
-                  ? 'The recording is not available yet or is still being prepared for playback.'
-                  : errorMessage === 'Server error while fetching recording'
-                    ? 'The recording service returned a server error. Please retry shortly.'
-                    : errorMessage === 'Unsupported media format'
-                      ? 'The recording endpoint responded, but not with a browser-supported video content type.'
-                      : errorMessage === 'Invalid video response from server'
-                        ? 'The recording endpoint responded with an unexpected status or content type.'
-                : 'Please try again. If the issue persists, verify the recording service and session token.'}
-            </p>
-          </div>
-          <Button
-            type="button"
-            variant="secondary"
-            disabled={isRetryPending}
-            onClick={handleRetry}
-          >
-            {isRetryPending ? 'Retrying...' : 'Retry'}
-          </Button>
+          {errorMessage ? (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 rounded-[1.5rem] bg-slate-950/84 px-6 text-center text-white backdrop-blur-sm">
+              <AlertCircle className="h-12 w-12 text-amber-300" />
+              <div>
+                <p className="text-lg font-semibold">{errorMessage}</p>
+                <p className="mt-1 text-sm text-white/70">
+                  {errorMessage === 'Recording Not Found'
+                    ? 'The recording endpoint returned 404 for this session token.'
+                    : errorMessage === 'Recording not available or not ready yet'
+                      ? 'The recording is not available yet or is still being prepared for playback.'
+                      : errorMessage === 'Server error while fetching recording'
+                        ? 'The recording service returned a server error. Please retry shortly.'
+                        : errorMessage === 'Unsupported media format'
+                          ? 'The recording endpoint responded, but not with a browser-supported video content type.'
+                          : errorMessage === 'Invalid video response from server'
+                            ? 'The recording endpoint responded with an unexpected status or content type.'
+                    : 'Please try again. If the issue persists, verify the recording service and session token.'}
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={isRetryPending}
+                onClick={handleRetry}
+              >
+                {isRetryPending ? 'Retrying...' : 'Retry'}
+              </Button>
+            </div>
+          ) : null}
         </div>
-      ) : null}
+      </div>
     </div>
   )
 }
