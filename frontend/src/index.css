@@ -129,22 +129,30 @@
 }
 
 .interview-recording-player-shell .video-js .vjs-control-bar {
-  display: flex;
+  display: flex !important;
   height: 4.6rem;
   padding: 0 1rem;
   background: linear-gradient(180deg, rgba(2, 6, 23, 0.18), rgba(2, 6, 23, 0.92));
   border-top: 1px solid rgba(148, 163, 184, 0.16);
   backdrop-filter: blur(18px);
-  opacity: 1;
-  visibility: visible;
+  opacity: 1 !important;
+  visibility: visible !important;
+  z-index: 30;
 }
 
 .interview-recording-player-shell .video-js.vjs-user-inactive .vjs-control-bar,
 .interview-recording-player-shell .video-js.vjs-playing .vjs-control-bar,
 .interview-recording-player-shell .video-js.vjs-paused .vjs-control-bar,
 .interview-recording-player-shell .video-js.vjs-has-started .vjs-control-bar {
-  opacity: 1;
-  visibility: visible;
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+
+.interview-recording-player-shell .video-js .vjs-big-play-button {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  z-index: 31;
 }
 
 .interview-recording-player-shell .video-js .vjs-button > .vjs-icon-placeholder::before,
