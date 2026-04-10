@@ -90,7 +90,9 @@ EXPLICIT_TOTAL_EXPERIENCE_PATTERN = re.compile(
     r"(?i)\b(?P<years>\d+(?:\.\d+)?)\s+years?(?:\s+(?:and|&)\s+(?P<months>\d+)\s+months?)?\s+of\s+experience\b"
 )
 HEADER_ROLE_STOP_PATTERN = re.compile(
-    r"(?i)\b(?:engineer|developer|manager|analyst|consultant|architect|lead|intern|qa|automation)\b"
+    r"(?i)\b(?:engineer|developer|manager|analyst|consultant|architect|lead|intern|qa|automation|"
+    r"tester|specialist|designer|director|officer|executive|associate|scientist|recruiter|"
+    r"coordinator|generalist|administrator|founder|owner|head|vp|president|cto|cfo|coo|ceo)\b"
 )
 UNSTRUCTURED_EXPERIENCE_STOP_PATTERN = re.compile(
     r"(?i)^(?:education|academic background|qualification|qualifications|projects?|certifications?|skills|technical skills|key skills|core skills|summary|profile|publications|achievements|awards|references)$"
@@ -1924,24 +1926,12 @@ def extract_resume_information(text: str) -> Dict:
     debug_timings["experience_extraction_ms"] = round((time.perf_counter() - experience_started_at) * 1000.0, 2)
     total_experience_years = experience_result.get("total_experience_years")
     total_experience_months = experience_result.get("total_experience_months")
-    if experience_entries:
-        from ats.extraction.experience_extraction import compute_total_experience, parse_date
-
-        date_ranges = []
-        for entry in experience_entries:
-            start = parse_date(entry.get("start_date", ""), is_end=False)
-            end = parse_date(entry.get("end_date", ""), is_end=True)
-            if not start or not end or end < start:
-                continue
-            date_ranges.append((start, end))
-        if date_ranges:
-            total_experience_years = compute_total_experience(date_ranges)
-            total_experience_months = int(round(total_experience_years * 12))
-    else:
+    # Only recompute total experience if the first pass found no entries.
+    # Recomputing after merging section_entries causes double-counting of overlapping ranges.
+    if not experience_entries:
         total_experience_years = None
         total_experience_months = None
-
-    if experience_entries and total_experience_years is None:
+    elif total_experience_years is None:
         from ats.extraction.experience_extraction import compute_total_experience, parse_date
 
         date_ranges = []

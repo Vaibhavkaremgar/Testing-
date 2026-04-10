@@ -100,7 +100,9 @@ SECTION_START_PATTERN = re.compile(
     r"certifications?|achievements?|awards?|publications?|references?|professional snapshot|snapshot|overview)$"
 )
 NAME_CONTEXT_ROLE_PATTERN = re.compile(
-    r"(?i)\b(?:engineer|developer|tester|analyst|consultant|manager|architect|specialist|intern)\b"
+    r"(?i)\b(?:engineer|developer|tester|analyst|consultant|manager|architect|specialist|intern|"
+    r"designer|director|officer|executive|associate|scientist|recruiter|coordinator|generalist|"
+    r"administrator|founder|owner|head|vp|president|cto|cfo|coo|ceo|qa|automation|lead)\b"
 )
 NAME_COMPANY_PATTERN = re.compile(
     r"(?i)\b(?:pvt|ltd|inc|llc|llp|corp|corporation|technologies|technology|solutions|systems|labs|works|school|college|university|academy|institute|services)\b"
