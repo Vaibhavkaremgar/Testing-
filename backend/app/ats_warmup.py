@@ -52,6 +52,7 @@ _warmup_state: Dict[str, Any] = {
     "duration_ms": None,
     "components": {},
 }
+REQUIRED_WARMUP_COMPONENTS = {"pdf_stack", "skill_engine", "skill_keywords", "parser_config"}
 _DUMMY_PDF_BYTES = (
     b"%PDF-1.1\n"
     b"1 0 obj<< /Type /Catalog /Pages 2 0 R >>endobj\n"
@@ -197,9 +198,13 @@ def run_ats_warmup(force: bool = False) -> Dict[str, Any]:
             components["entity_extraction"] = {"ok": False, "error": str(exc), "details": {}}
 
         duration_ms = round((time.perf_counter() - started_at) * 1000.0, 2)
+        required_ready = all(
+            components.get(name, {}).get("ok")
+            for name in REQUIRED_WARMUP_COMPONENTS
+        )
         _warmup_state.update(
             {
-                "ready": all(component.get("ok") for component in components.values()),
+                "ready": required_ready,
                 "last_run_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 "duration_ms": duration_ms,
                 "components": components,

@@ -89,6 +89,12 @@ ADDRESS_LABEL_PATTERN = re.compile(r"(?i)\baddress\b\s*[:\-]?\s*(?P<value>.+)")
 EXPLICIT_TOTAL_EXPERIENCE_PATTERN = re.compile(
     r"(?i)\b(?P<years>\d+(?:\.\d+)?)\s+years?(?:\s+(?:and|&)\s+(?P<months>\d+)\s+months?)?\s+of\s+experience\b"
 )
+UNSTRUCTURED_EXPERIENCE_STOP_PATTERN = re.compile(
+    r"(?i)^(?:education|academic background|qualification|qualifications|projects?|certifications?|skills|technical skills|key skills|core skills|summary|profile|publications|achievements|awards|references)$"
+)
+UNSTRUCTURED_EDUCATION_HINT_PATTERN = re.compile(
+    r"(?i)\b(?:b\.?\s?tech|m\.?\s?tech|bachelor|master|mba|bca|mca|bsc|msc|phd|diploma|university|college|institute|school)\b"
+)
 
 
 def _clean_header_lines(text: str, limit: int = 12) -> List[str]:
@@ -1554,6 +1560,55 @@ def _extract_personal_detail_lines(lines: List[str], window: int = 20) -> List[s
     return captured
 
 
+def _build_contact_context(*parts: str) -> str:
+    ordered_lines: List[str] = []
+    seen = set()
+    for part in parts:
+        for raw_line in normalize_document_structure(part or "").splitlines():
+            line = raw_line.strip()
+            if not line or line in seen:
+                continue
+            seen.add(line)
+            ordered_lines.append(line)
+    return "\n".join(ordered_lines)
+
+
+def _infer_unstructured_experience_section(text: str) -> str:
+    lines = [line.strip() for line in normalize_document_structure(text or "").splitlines() if line.strip()]
+    if not lines:
+        return ""
+
+    body_lines = lines[2:]
+    collected: List[str] = []
+    started = False
+    previous_line = ""
+    for line in body_lines:
+        if UNSTRUCTURED_EXPERIENCE_STOP_PATTERN.match(line):
+            break
+        if UNSTRUCTURED_EDUCATION_HINT_PATTERN.search(line) and not DATE_RANGE_REGEX.search(line):
+            if started:
+                break
+            previous_line = ""
+            continue
+        if DATE_RANGE_REGEX.search(line):
+            if not started and previous_line:
+                collected.append(previous_line)
+            started = True
+            collected.append(line)
+            previous_line = ""
+            continue
+        if started:
+            collected.append(line)
+            previous_line = line
+            continue
+        if ROLE_TITLE_LINE_PATTERN.match(line) or re.search(r"\|", line):
+            previous_line = line
+            continue
+        previous_line = line
+    inferred = "\n".join(collected).strip()
+    return inferred if DATE_RANGE_REGEX.search(inferred) else ""
+
+
 def _contains_non_location_context(value: str) -> bool:
     tokens = {
         token.strip(".,:-").lower()
@@ -1727,17 +1782,21 @@ def extract_resume_information(text: str) -> Dict:
     
     structural_source = normalize_document_structure(text or "")
     raw_sections = segment_resume_sections(structural_source)
+    header_section = raw_sections.get("header", "") or sections.get("header", "")
     contact_section = raw_sections.get("contact", "") or sections.get("contact", "")
     skills_section = _sanitize_skill_section(raw_sections.get("skills", "") or sections.get("skills", ""))
     experience_section = raw_sections.get("experience", "") or sections.get("experience", "")
+    if not experience_section.strip():
+        experience_section = _infer_unstructured_experience_section(structural_text)
     education_section = raw_sections.get("education", "") or sections.get("education", "")
     projects_section = raw_sections.get("projects", "") or sections.get("projects", "")
     certifications_section = raw_sections.get("certifications", "") or sections.get("certifications", "")
+    contact_context = _build_contact_context(header_section, contact_section)
     parallel_started_at = time.perf_counter()
     with ThreadPoolExecutor(max_workers=5) as executor:
-        future_name = executor.submit(extract_name, cleaned_text, False)
-        future_email = executor.submit(extract_email, cleaned_text)
-        future_phone = executor.submit(extract_phone, cleaned_text)
+        future_name = executor.submit(extract_name, contact_context or cleaned_text, False)
+        future_email = executor.submit(extract_email, contact_context or cleaned_text)
+        future_phone = executor.submit(extract_phone, contact_context or cleaned_text)
         future_experience = executor.submit(
             extract_total_experience,
             f"Experience\n{experience_section}" if experience_section.strip() else "",
@@ -1755,8 +1814,8 @@ def extract_resume_information(text: str) -> Dict:
     
     experience_started_at = time.perf_counter()
     experience_entries = experience_result.get("experiences", [])
-    full_text_entries = extract_experience_entries(cleaned_text, structural_text) if structural_text.strip() else []
-    if full_text_entries:
+    section_entries = extract_experience_entries(cleaned_text, experience_section) if experience_section.strip() else []
+    if section_entries:
         seen_experience_keys = {
             (
                 str(entry.get("role") or "").strip().lower(),
@@ -1767,7 +1826,7 @@ def extract_resume_information(text: str) -> Dict:
             for entry in experience_entries
             if isinstance(entry, dict)
         }
-        for entry in full_text_entries:
+        for entry in section_entries:
             identity = (
                 str(entry.get("role") or "").strip().lower(),
                 str(entry.get("company") or "").strip().lower(),
@@ -1839,7 +1898,7 @@ def extract_resume_information(text: str) -> Dict:
 
     header_context = "\n".join(header_only_lines)
     personal_detail_lines = _extract_personal_detail_lines(structural_lines)
-    personal_details_context = "\n".join([contact_section, *personal_detail_lines]).strip()
+    personal_details_context = _build_contact_context(contact_section, "\n".join(personal_detail_lines))
 
     header_present = bool(header_context.strip()) or bool(sections.get("header", "").strip())
     for source in (header_context, personal_details_context):
@@ -1859,7 +1918,7 @@ def extract_resume_information(text: str) -> Dict:
 
     need_slow_path = (not primary_name) or (not experience_entries and bool(experience_section.strip())) or (not header_present)
     if need_slow_path and not primary_name:
-        primary_name = extract_name(cleaned_text, use_spacy=True)
+        primary_name = extract_name(contact_context or cleaned_text, use_spacy=True)
 
     if not location and need_slow_path and SPACY_AVAILABLE:
         for source in (header_context, personal_details_context):
@@ -1880,11 +1939,11 @@ def extract_resume_information(text: str) -> Dict:
     skills = _finalize_skills(
         skills,
         skills_source_text,
-        "\n".join(filter(None, [sections.get("header", ""), location])),
+        "\n".join(filter(None, [header_section, contact_section, location])),
         from_section=bool(skills_section.strip()),
         name_text=primary_name,
         education_entries=extract_education_entries(cleaned_text, education_section),
-        header_text=sections.get("header", ""),
+        header_text=header_section,
         experience_text=experience_section,
         skills_text=skills_section,
     )

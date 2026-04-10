@@ -118,7 +118,7 @@ PDF_LINE_TOLERANCE = 3.0
 PDF_MIN_COLUMN_GAP = 60.0
 PDF_MIN_LINES_PER_COLUMN = 8
 PDF_SEGMENT_GAP = 35.0
-OCR_MIN_TEXT_LENGTH = 80
+OCR_MIN_TEXT_LENGTH = 100
 OCR_MIN_ALPHA_CHARS = 30
 OCR_MIN_ALPHA_RATIO = 0.3
 MAX_RESUME_PAGES = 2
@@ -922,6 +922,7 @@ def extract_document(file_path: str, fast_mode: bool = False) -> Dict[str, Any]:
     try:
         if file_ext == ".pdf":
             parser_outputs: Dict[str, Dict[str, Any]] = {}
+            selected_parser = ""
             primary_started_at = time.perf_counter()
             primary_text_parts, primary_page_metrics = _extract_pdf_text_with_pymupdf(file_path)
             _record_stage_time(performance, "pdf_extraction_ms", primary_started_at)
@@ -1005,6 +1006,7 @@ def extract_document(file_path: str, fast_mode: bool = False) -> Dict[str, Any]:
                     "tables": docx_payload.get("tables") or [],
                     "metadata": {
                         "format": "docx",
+                        "extraction_method": "docx_text",
                         "parsers_used": docx_payload.get("parsers_used") or [],
                         "paragraph_count": len(docx_payload.get("paragraphs") or []),
                         "table_row_count": len(docx_payload.get("tables") or []),
@@ -1053,6 +1055,13 @@ def extract_document(file_path: str, fast_mode: bool = False) -> Dict[str, Any]:
         "tables": [],
         "metadata": {
             "format": file_ext.lstrip(".") or "text",
+            "extraction_method": (
+                "image_ocr"
+                if file_ext in {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"}
+                else ("pdf_ocr" if layout_signals.get("ocr_applied") else (selected_parser or "binary_fallback"))
+                if file_ext == ".pdf"
+                else ("doc_text" if file_ext == ".doc" else "binary_fallback")
+            ),
             "ocr_applied": bool(layout_signals.get("ocr_applied")),
             "is_image_resume": detect_image_resume(file_path),
             "performance": {**performance, "fast_mode": fast_mode},
@@ -1374,10 +1383,14 @@ def _rerun_low_confidence_fields(
         updated["name"] = ""
 
     if field_confidence.get("location", 0.0) < CONFIDENCE_RETRY_THRESHOLD:
-        location_candidates = [
-            updated.get("sections", {}).get("header", ""),
+        sections = updated.get("sections", {}) or {}
+        contact_sources = [
+            sections.get("header", ""),
+            sections.get("contact", ""),
             entities.get("top_location", ""),
-            normalized_text,
+        ]
+        location_candidates = [
+            "\n".join(part for part in contact_sources if part),
         ]
         for candidate in location_candidates:
             extracted_location = extract_normalized_location(candidate, use_spacy=False)
@@ -1393,8 +1406,12 @@ def _rerun_low_confidence_fields(
                 break
 
     if field_confidence.get("skills", 0.0) < CONFIDENCE_RETRY_THRESHOLD:
+        explicit_skills_section = str((updated.get("sections", {}) or {}).get("skills") or "").strip()
+        if not explicit_skills_section:
+            updated["skills"] = []
+            return updated
         fallback_skill_candidates: List[str] = []
-        normalized_corpus = normalized_text.lower()
+        normalized_corpus = explicit_skills_section.lower()
         for skill in entities.get("skills", []) or []:
             normalized_skill = str(skill).strip().lower()
             if not normalized_skill:
@@ -1525,9 +1542,22 @@ def parse_resume_text(
     # ACC-8: cross-contamination guards
     _current_company = extracted_info.get("current_company") or ""
     _current_role = extracted_info.get("current_role") or ""
-    if _current_company and extracted_name and _current_company.strip().lower() == extracted_name.strip().lower():
+    extracted_name_is_plausible_person = bool(
+        extracted_name
+        and not NAME_COMPANY_PATTERN.search(extracted_name)
+        and not extract_normalized_location(extracted_name, use_spacy=False)
+    )
+    if (
+        _current_company
+        and extracted_name_is_plausible_person
+        and _current_company.strip().lower() == extracted_name.strip().lower()
+    ):
         extracted_info["current_company"] = None
-    if _current_role and extracted_name and _current_role.strip().lower() == extracted_name.strip().lower():
+    if (
+        _current_role
+        and extracted_name_is_plausible_person
+        and _current_role.strip().lower() == extracted_name.strip().lower()
+    ):
         extracted_info["current_role"] = None
     # current_company must never equal name
     contact_phone = _extract_phone(cleaned_text or raw_text)
@@ -1727,6 +1757,7 @@ def parse_resume(file_path: str, original_filename: Optional[str] = None, fast_m
     parsed_resume = parse_resume_text(raw_text, original_filename=original_filename, layout_signals=layout_signals)
     parsed_resume["document_tables"] = document_payload.get("tables") or []
     parsed_resume["document_metadata"] = document_payload.get("metadata") or {}
+    parsed_resume["extraction_method"] = parsed_resume["document_metadata"].get("extraction_method") or parsed_resume["pipeline_summary"].get("format") or "text"
     performance = parsed_resume["document_metadata"].get("performance") or {}
     debug_timings = parsed_resume.get("debug_timings") or {}
     debug_timings.update(
@@ -1756,6 +1787,7 @@ def parse_resume(file_path: str, original_filename: Optional[str] = None, fast_m
     parsed_resume["debug_timings"] = debug_timings
     _log_ats_timing(
         [
+            f"Extraction Method: {parsed_resume.get('extraction_method', 'unknown')}",
             f"PDF Parse: {debug_timings.get('PDF Parse', 0.0)} ms",
             f"DOCX Parse: {debug_timings.get('DOCX Parse', 0.0)} ms",
             f"OCR Triggered: {'Yes' if debug_timings.get('ocr_triggered') else 'No'}",

@@ -132,7 +132,8 @@ def validate_current_company(value: Optional[str], experience_section: str) -> O
     candidate = _strip_trailing_company_punctuation(value or "")
     if not candidate:
         return None
-    if candidate not in (experience_section or ""):
+    experience_source = experience_section or ""
+    if candidate.lower() not in experience_source.lower():
         return None
     if len(candidate.split()) > 8:
         return None

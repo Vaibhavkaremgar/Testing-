@@ -21,6 +21,9 @@ class ATSProductionReadinessTests(unittest.TestCase):
         self.assertIn("layer_report", result)
         self.assertEqual(len(result["layer_report"]), 14)
         self.assertTrue(any(layer["layer"] == "Entity Extraction Layer (NER)" for layer in result["layer_report"]))
+        self.assertIn("audit_report", result)
+        self.assertTrue(result["audit_report"]["section_detection"]["strict_isolation"])
+        self.assertGreaterEqual(len(result["resume_test_report"]), 10)
 
     def test_production_readiness_evaluation_returns_combined_report(self):
         result = run_production_readiness_evaluation("backend/ats/datasets/benchmarks/resume_parsing_benchmark.json")

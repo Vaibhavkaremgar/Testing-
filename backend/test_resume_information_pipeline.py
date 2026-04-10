@@ -154,6 +154,7 @@ Managed enterprise revenue operations.
         self.assertIn("bottleneck_stage", result["debug_timings"])
         self.assertIn("bottleneck_time_ms", result["debug_timings"])
         self.assertIn("bottleneck_exceeds_threshold", result["debug_timings"])
+        self.assertIn("extraction_method", result)
 
     def test_current_company_for_storage_uses_latest_valid_experience_company(self):
         work_experience = [
@@ -257,6 +258,24 @@ Used React, Docker, Kubernetes, and PostgreSQL.
         """
 
         result = extract_resume_information(resume_text)
+
+        self.assertEqual(result["skills"], [])
+
+    def test_parse_resume_low_confidence_retry_keeps_skills_empty_without_skills_section(self):
+        resume_text = """
+Jordan Candidate
+
+Professional Experience
+Engineering Manager at Bright Solutions Ltd
+Jan 2021 - Present
+Built Python and FastAPI services for internal hiring systems.
+
+Projects
+Resume Intelligence Platform
+Used React, Docker, Kubernetes, and PostgreSQL.
+        """
+
+        result = self._parse_resume_text(resume_text, "jordan_candidate.txt")
 
         self.assertEqual(result["skills"], [])
 

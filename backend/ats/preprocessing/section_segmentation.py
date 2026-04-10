@@ -6,7 +6,18 @@ from typing import Dict, List
 from ats.datasets.parser_config_loader import ParserConfigLoader
 
 CORE_SECTIONS = ("experience", "skills", "education", "projects")
-OPTIONAL_SECTIONS = ("header", "contact", "summary", "languages", "achievements", "certifications", "awards", "publications", "interests", "references")
+OPTIONAL_SECTIONS = (
+    "header",
+    "contact",
+    "summary",
+    "languages",
+    "achievements",
+    "certifications",
+    "awards",
+    "publications",
+    "interests",
+    "references",
+)
 ALL_SECTIONS = CORE_SECTIONS + OPTIONAL_SECTIONS
 
 DEFAULT_SECTION_HEADER_TERMS = {
@@ -30,6 +41,7 @@ DEFAULT_SECTION_HEADER_TERMS = {
         "technical skills",
         "core skills",
         "key skills",
+        "competencies",
         "primary skills",
         "tools",
         "technologies",
@@ -50,6 +62,7 @@ DEFAULT_SECTION_HEADER_TERMS = {
         "work history",
         "internships",
         "internship experience",
+        "professional background",
         "previous experience",
         "prior experience",
         "period",
@@ -65,6 +78,7 @@ DEFAULT_SECTION_HEADER_TERMS = {
     "projects": [
         "projects",
         "project",
+        "personal projects",
         "work projects",
         "professional projects",
         "project profile",
@@ -74,13 +88,28 @@ DEFAULT_SECTION_HEADER_TERMS = {
         "certification",
         "certificates",
         "certificate",
+        "licenses",
+        "licences",
         "licenses and certifications",
         "licenses & certifications",
+    ],
+    "achievements": [
+        "achievements",
+        "achievement",
+        "awards",
+        "award",
+        "accomplishments",
+    ],
+    "publications": [
+        "publications",
+        "publication",
+        "research publications",
     ],
     "languages": [
         "languages",
         "language skills",
         "spoken languages",
+        "language proficiency",
     ],
 }
 
@@ -134,6 +163,7 @@ HEADER_NORMALIZATION_MAP = {
     "personal information": "contact",
     "technical expertise": "skills",
     "skill set": "skills",
+    "competencies": "skills",
     "tools and technologies": "skills",
     "tools & technologies": "skills",
     "technology tools": "skills",
@@ -141,13 +171,23 @@ HEADER_NORMALIZATION_MAP = {
     "tool stack": "skills",
     "academic profile": "education",
     "education details": "education",
+    "personal projects": "projects",
     "professional projects": "projects",
     "project profile": "projects",
     "spoken languages": "languages",
     "language skills": "languages",
+    "language proficiency": "languages",
     "certificates": "certifications",
+    "licenses": "certifications",
+    "licences": "certifications",
     "licenses and certifications": "certifications",
     "licenses & certifications": "certifications",
+    "award": "achievements",
+    "awards": "achievements",
+    "achievement": "achievements",
+    "accomplishments": "achievements",
+    "publication": "publications",
+    "research publications": "publications",
 }
 SECTION_HEADER_PATTERNS = {
     section: _compile_exact_terms(terms)
