@@ -408,6 +408,23 @@ Jan 2023 - Current
         self.assertEqual(parsed["current_role"], "Senior Developer")
         self.assertEqual(result["current_role"], "Senior Developer")
 
+    def test_first_line_name_with_parenthesized_role_is_split(self):
+        resume_text = """
+John Doe (Senior QA Engineer)
+john.doe@example.com | +91 99887 66554
+Hyderabad, Telangana
+
+Work Experience
+Senior QA Engineer
+Acme Systems Ltd
+Jan 2023 - Current
+        """
+
+        parsed = self._parse_resume_text(resume_text, "john_doe_parenthesized_role.txt")
+
+        self.assertEqual(parsed["name"], "John Doe")
+        self.assertEqual(parsed["current_role"], "Senior QA Engineer")
+
     def test_present_and_current_month_ranges_calculate_experience(self):
         resume_text = """
 Rahul Sharma
@@ -1350,6 +1367,43 @@ il.com
         parsed = self._parse_resume_text(resume_text, "aneesh_resume.txt")
 
         self.assertEqual(parsed["email"], "aneeshrudravaram@gmail.com")
+
+    def test_bracketed_email_is_extracted_from_contact_section(self):
+        resume_text = """
+Rahul Verma
+Contact Details
+Email: (rahul.verma.dev@gmail.com)
+Phone: +91 9876543210
+        """
+
+        parsed = self._parse_resume_text(resume_text, "rahul_bracketed_email.txt")
+
+        self.assertEqual(parsed["email"], "rahul.verma.dev@gmail.com")
+
+    def test_phone_extraction_prefers_mobile_over_tollfree(self):
+        resume_text = """
+Nisha Verma
+Contact Details
+Support Line: 1800 555 1111
+Mobile: +91 98765 43210
+Email: nisha.verma@email.com
+        """
+
+        parsed = self._parse_resume_text(resume_text, "nisha_contact.txt")
+
+        self.assertEqual(parsed["phone"], "+91 98765 43210")
+
+    def test_us_phone_format_is_extracted(self):
+        resume_text = """
+Abhishek Verma
+Contact Information
+(425) 555-0123
+abhishek.verma.dev@gmail.com
+        """
+
+        parsed = self._parse_resume_text(resume_text, "abhishek_us_phone.txt")
+
+        self.assertEqual(parsed["phone"], "(425) 555-0123")
 
     def test_information_extraction_name_overrides_skill_label_false_positive(self):
         resume_text = """

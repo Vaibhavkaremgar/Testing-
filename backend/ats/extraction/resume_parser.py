@@ -39,6 +39,7 @@ from ats.extraction.entity_extraction import extract_resume_entities
 from ats.extraction.experience_extraction import compute_total_experience, parse_date
 from ats.extraction.information_extraction import extract_email as extract_normalized_email
 from ats.extraction.information_extraction import extract_location as extract_normalized_location
+from ats.extraction.information_extraction import extract_phone as extract_normalized_phone
 from ats.extraction.information_extraction import extract_resume_information
 from ats.extraction.layout_detection import get_layout_runtime_status, infer_layout_signals
 from ats.extraction.postprocessing import apply_postprocessing, dedupe_strings
@@ -1336,11 +1337,10 @@ def _extract_contact_zone_text(text: str) -> str:
 
 def _extract_phone(text: str) -> str:
     source_text = _extract_contact_zone_text(text)
-    for pattern in PHONE_PATTERNS:
-        matches = re.findall(pattern, source_text or "")
-        if matches:
-            return matches[0].strip()
-    return ""
+    phone = extract_normalized_phone(source_text or "")
+    if phone:
+        return phone
+    return extract_normalized_phone(text or "")
 
 
 def _extract_email(text: str) -> str:

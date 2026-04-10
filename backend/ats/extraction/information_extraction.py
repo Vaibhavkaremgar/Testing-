@@ -34,6 +34,7 @@ STRICT_EMAIL_PATTERN = re.compile(r"(?i)(?P<email>[A-Za-z0-9._%+-]+@[A-Za-z0-9-]
 ROBUST_EMAIL_PATTERN = re.compile(r"[a-zA-Z0-9._%+-]+\s*@\s*[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
 RELAXED_EMAIL_PATTERN = re.compile(r"[a-zA-Z0-9._%+-]+\s*@\s*[a-zA-Z0-9,._-]+\.[a-zA-Z]{2,}")
 STRONG_EMAIL_PATTERN = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[a-z]{2,}", re.IGNORECASE)
+BRACKETED_EMAIL_PATTERN = re.compile(r"[\(\[\{<]\s*(?P<email>[A-Za-z0-9._%+-]+\s*@\s*[A-Za-z0-9,._-]+\s*\.\s*[A-Za-z]{2,})\s*[\)\]\}>]")
 EMAIL_COMMON_TLDS = (
     ".com", ".org", ".net", ".edu", ".gov", ".co", ".io", ".ai", ".in", ".uk", ".us", ".de", ".fr", ".au",
 )
@@ -42,6 +43,12 @@ PHONE_PATTERNS = (
     re.compile(r"(?<!\d)(\+91[\s-]?\d{10})(?!\d)"),
     re.compile(r"(?<!\d)(\d{10})(?!\d)"),
 )
+PHONE_CANDIDATE_PATTERN = re.compile(r"(?<!\d)(\+?\d[\d\s().-]{8,}\d)(?!\d)")
+ROLE_KEYWORD_PATTERN = re.compile(
+    r"(?i)\b(?:engineer|developer|manager|analyst|consultant|architect|lead|intern|tester|qa|software|automation)\b"
+)
+HEADER_NAME_SEPARATOR_PATTERN = re.compile(r"\s+\|\s+|\s+-\s+|\s+\((?=[A-Za-z])")
+NON_NAME_CHARS_PATTERN = re.compile(r"[^A-Za-z'`.\- ]")
 ALLOWED_SOFT_SKILLS = {"problem-solving", "critical thinking", "stakeholder management"}
 EXCLUDED_SOFT_SKILLS = {
     "negotiation", "communication", "leadership", "teamwork", "responsible", "motivated",
@@ -674,6 +681,73 @@ def normalize_skill_name(skill: str) -> str:
     return SKILL_ALIASES.get(normalized, normalized)
 
 
+def _extract_contact_priority_blocks(text: str, *, include_document_fallback: bool = False) -> List[str]:
+    normalized_text = normalize_document_structure(text or "")
+    if not normalized_text:
+        return []
+    sections = segment_resume_sections(normalized_text)
+    lines = [line.strip() for line in normalized_text.splitlines() if line.strip()]
+    personal_details = "\n".join(_extract_personal_detail_lines(lines))
+    summary_like = "\n".join(
+        filter(None, [sections.get("summary", ""), sections.get("profile", ""), sections.get("about", "")])
+    )
+    ordered_parts = [
+        "\n".join(lines[:5]),
+        sections.get("header", ""),
+        sections.get("contact", ""),
+        personal_details,
+        summary_like,
+    ]
+    if include_document_fallback:
+        ordered_parts.append(normalized_text)
+
+    deduped: List[str] = []
+    seen = set()
+    for part in ordered_parts:
+        compact = normalize_text(part or "")
+        if not compact or compact in seen:
+            continue
+        seen.add(compact)
+        deduped.append(compact)
+    return deduped
+
+
+def _normalize_phone_candidate(value: str) -> str:
+    candidate = re.sub(r"\s+", " ", (value or "").strip(" ,.;:"))
+    candidate = re.sub(r"\s*-\s*", "-", candidate)
+    if ")" in candidate and not candidate.startswith("("):
+        candidate = f"({candidate}"
+    return candidate.strip()
+
+
+def _phone_digits(value: str) -> str:
+    return re.sub(r"\D", "", value or "")
+
+
+def _looks_like_valid_phone(value: str) -> bool:
+    digits = _phone_digits(value)
+    if not (10 <= len(digits) <= 15):
+        return False
+    if len(digits) == 11 and digits.startswith("1800"):
+        return False
+    if len(digits) == 10 and digits.startswith(("0", "1")):
+        return False
+    return True
+
+
+def _phone_priority(value: str) -> tuple[int, int]:
+    digits = _phone_digits(value)
+    if digits.startswith("91") and len(digits) == 12 and digits[2] in "6789":
+        return (0, 0)
+    if len(digits) == 10 and digits[:1] in "6789":
+        return (1, 0)
+    if len(digits) == 11 and digits.startswith("1"):
+        return (2, 0)
+    if len(digits) == 10:
+        return (3, 0)
+    return (4, len(digits))
+
+
 def extract_name(text: str, use_spacy: bool = True) -> str:
     if not text:
         return ""
@@ -682,7 +756,18 @@ def extract_name(text: str, use_spacy: bool = True) -> str:
     if strict_name:
         return strict_name
 
-    lines = _clean_header_lines(text, limit=12)
+    priority_blocks = _extract_contact_priority_blocks(text, include_document_fallback=False)
+    lines: List[str] = []
+    seen_lines = set()
+    for block in priority_blocks:
+        for line in block.splitlines():
+            compact_line = line.strip()
+            if not compact_line or compact_line in seen_lines:
+                continue
+            seen_lines.add(compact_line)
+            lines.append(compact_line)
+    if not lines:
+        lines = _clean_header_lines(text, limit=12)
     first_five_lines = lines[:5]
     first_three_lines = [line for line in lines[:3] if not SECTION_START_PATTERN.match(line)]
     header_priority_lines = first_three_lines[:2] or first_five_lines[:2]
@@ -718,11 +803,13 @@ def extract_name(text: str, use_spacy: bool = True) -> str:
             return False
         if ROLE_TITLE_LINE_PATTERN.match(compact):
             return False
+        if ROLE_KEYWORD_PATTERN.search(compact):
+            return False
         if any(char.isdigit() for char in compact):
             return False
         if "@" in compact:
             return False
-        if not re.fullmatch(r"[A-Za-z'`.\- ]+", compact):
+        if NON_NAME_CHARS_PATTERN.search(compact):
             return False
         words = compact.split()
         if not (2 <= len(words) <= 4):
@@ -809,11 +896,18 @@ def extract_name(text: str, use_spacy: bool = True) -> str:
                     logger.debug("Fallback used for name extraction")
                     return _format_name(candidate)
 
-    for line in lines:
+    for line in _clean_header_lines(text, limit=40):
         candidate = _sanitize_name_candidate(line)
         if _is_valid_name_line(candidate):
             logger.debug("Fallback used for name extraction")
             return _format_name(candidate)
+
+    for block in _extract_contact_priority_blocks(text, include_document_fallback=True):
+        for line in block.splitlines():
+            candidate = _sanitize_name_candidate(line)
+            if _is_valid_name_line(candidate):
+                logger.debug("Fallback used for name extraction")
+                return _format_name(candidate)
 
     return ""
 
@@ -1121,7 +1215,7 @@ def extract_email(text: str) -> str:
         candidate = candidate.replace("mailto:", "").replace("MAILTO:", "")
         candidate = re.sub(r"\s+", "", candidate)
         candidate = re.sub(r"(?<=\w),(?=\w)", "", candidate)
-        candidate = candidate.strip(".,;:")
+        candidate = candidate.strip("()[]{}<>.,;:")
         at_index = candidate.find("@")
         domain_part = candidate[at_index + 1:] if at_index >= 0 else candidate
         com_match = re.search(r"\.com", domain_part, re.IGNORECASE)
@@ -1132,50 +1226,61 @@ def extract_email(text: str) -> str:
             return candidate[: at_index + 1 + tld_match.end()] if at_index >= 0 else candidate[:tld_match.end()]
         return candidate
 
-    normalized_text = normalize_common_artifacts(text or "")
-    normalized_text = re.sub(r"(\w+)\s*@\s*\n\s*(\w+\.\w+)", r"\1@\2", normalized_text)
-    normalized_text = re.sub(
-        r"(?i)([A-Za-z0-9._%+-]+)@([A-Za-z0-9.-]{1,8})\s*\n\s*([A-Za-z0-9.-]{1,12}\.[A-Za-z]{2,6})",
-        lambda m: f"{m.group(1)}@{m.group(2)}{m.group(3)}",
-        normalized_text,
-    )
-    normalized_text = re.sub(
-        r"(?im)([A-Za-z0-9._%+-]+)\s*@\s*\n(?:[A-Z][A-Z\s.]{3,}\n)+\s*([A-Za-z0-9.-]+\.[A-Za-z]{2,6})",
-        lambda m: f"{m.group(1)}@{m.group(2)}",
-        normalized_text,
-    )
-    normalized_text = re.sub(
-        r"(?im)([A-Za-z0-9._%+-]+)\s*@\s*\n(?:[A-Z][A-Z\s]{3,}\n)?\s*([A-Za-z0-9.-]+\.[A-Za-z]{2,6})",
-        lambda m: f"{m.group(1)}@{m.group(2)}",
-        normalized_text,
-    )
-    normalized_text = normalized_text.replace("mailto:", " ").replace("MAILTO:", " ")
-    normalized_text = re.sub(r"([A-Za-z0-9._%+-]+)\s*@\s*([A-Za-z0-9,._-]+\.[A-Za-z]{2,6})", lambda m: f"{m.group(1)}@{m.group(2).replace(',', '')}", normalized_text)
-    compact_text = normalized_text.replace("(at)", "@").replace("[at]", "@").replace(" at ", "@")
-    compact_text = compact_text.replace("(dot)", ".").replace("[dot]", ".").replace(" dot ", ".")
+    def _prepare_email_text(source_text: str) -> tuple[str, str]:
+        normalized_text = normalize_common_artifacts(source_text or "")
+        normalized_text = re.sub(r"(\w+)\s*@\s*\n\s*(\w+\.\w+)", r"\1@\2", normalized_text)
+        normalized_text = re.sub(
+            r"(?i)([A-Za-z0-9._%+-]+)@([A-Za-z0-9.-]{1,8})\s*\n\s*([A-Za-z0-9.-]{1,12}\.[A-Za-z]{2,6})",
+            lambda m: f"{m.group(1)}@{m.group(2)}{m.group(3)}",
+            normalized_text,
+        )
+        normalized_text = re.sub(
+            r"(?im)([A-Za-z0-9._%+-]+)\s*@\s*\n(?:[A-Z][A-Z\s.]{3,}\n)+\s*([A-Za-z0-9.-]+\.[A-Za-z]{2,6})",
+            lambda m: f"{m.group(1)}@{m.group(2)}",
+            normalized_text,
+        )
+        normalized_text = re.sub(
+            r"(?im)([A-Za-z0-9._%+-]+)\s*@\s*\n(?:[A-Z][A-Z\s]{3,}\n)?\s*([A-Za-z0-9.-]+\.[A-Za-z]{2,6})",
+            lambda m: f"{m.group(1)}@{m.group(2)}",
+            normalized_text,
+        )
+        normalized_text = normalized_text.replace("mailto:", " ").replace("MAILTO:", " ")
+        normalized_text = re.sub(
+            r"([A-Za-z0-9._%+-]+)\s*@\s*([A-Za-z0-9,._-]+\.[A-Za-z]{2,6})",
+            lambda m: f"{m.group(1)}@{m.group(2).replace(',', '')}",
+            normalized_text,
+        )
+        compact_text = normalized_text.replace("(at)", "@").replace("[at]", "@").replace(" at ", "@")
+        compact_text = compact_text.replace("(dot)", ".").replace("[dot]", ".").replace(" dot ", ".")
+        return normalized_text, compact_text
+
     candidates: List[str] = []
     seen_candidates: set[str] = set()
-    for source_text, source_label in (
-        (normalized_text, "normalized"),
-        (compact_text, "compact"),
-    ):
-        for pattern, label in (
-            (STRONG_EMAIL_PATTERN, "strong"),
-            (RELAXED_EMAIL_PATTERN, "relaxed"),
-            (ROBUST_EMAIL_PATTERN, "robust"),
-            (STRICT_EMAIL_PATTERN, "strict"),
+    search_blocks = _extract_contact_priority_blocks(text, include_document_fallback=True)
+    for block_index, block in enumerate(search_blocks):
+        normalized_text, compact_text = _prepare_email_text(block)
+        for source_text, source_label in (
+            (normalized_text, f"normalized_{block_index}"),
+            (compact_text, f"compact_{block_index}"),
         ):
-            for match in pattern.finditer(source_text):
-                raw_value = match.group("email") if "email" in match.groupdict() else match.group(0)
-                email = _clean_email_candidate(raw_value)
-                if not email or "@" not in email:
-                    continue
-                lowered = email.lower()
-                if lowered in seen_candidates:
-                    continue
-                seen_candidates.add(lowered)
-                candidates.append(email)
-                logger.debug("Email regex match (%s/%s): %s", source_label, label, email)
+            for pattern, label in (
+                (BRACKETED_EMAIL_PATTERN, "bracketed"),
+                (STRONG_EMAIL_PATTERN, "strong"),
+                (RELAXED_EMAIL_PATTERN, "relaxed"),
+                (ROBUST_EMAIL_PATTERN, "robust"),
+                (STRICT_EMAIL_PATTERN, "strict"),
+            ):
+                for match in pattern.finditer(source_text):
+                    raw_value = match.group("email") if "email" in match.groupdict() else match.group(0)
+                    email = _clean_email_candidate(raw_value)
+                    if not email or "@" not in email:
+                        continue
+                    lowered = email.lower()
+                    if lowered in seen_candidates:
+                        continue
+                    seen_candidates.add(lowered)
+                    candidates.append(email)
+                    logger.debug("Email regex match (%s/%s): %s", source_label, label, email)
 
     for email in candidates:
         if STRONG_EMAIL_PATTERN.fullmatch(email):
@@ -1190,14 +1295,34 @@ def extract_email(text: str) -> str:
 def extract_phone(text: str) -> str:
     if not text:
         return ""
-    normalized_text = normalize_common_artifacts(text or "")
-    for pattern in PHONE_PATTERNS:
-        match = pattern.search(normalized_text)
-        if not match:
-            continue
-        candidate = re.sub(r"\s+", " ", match.group(1)).strip()
-        logger.debug("Phone extracted: %s", candidate)
-        return candidate
+
+    candidates: List[str] = []
+    seen = set()
+    search_blocks = _extract_contact_priority_blocks(text, include_document_fallback=True)
+    for block in search_blocks:
+        normalized_text = normalize_common_artifacts(block or "")
+        for pattern in PHONE_PATTERNS:
+            match = pattern.search(normalized_text)
+            if not match:
+                continue
+            candidate = _normalize_phone_candidate(match.group(1))
+            digits = _phone_digits(candidate)
+            if digits in seen or not _looks_like_valid_phone(candidate):
+                continue
+            seen.add(digits)
+            candidates.append(candidate)
+        for match in PHONE_CANDIDATE_PATTERN.finditer(normalized_text):
+            candidate = _normalize_phone_candidate(match.group(1))
+            digits = _phone_digits(candidate)
+            if digits in seen or not _looks_like_valid_phone(candidate):
+                continue
+            seen.add(digits)
+            candidates.append(candidate)
+
+    if candidates:
+        selected = sorted(candidates, key=_phone_priority)[0]
+        logger.debug("Phone extracted: %s", selected)
+        return selected
     return ""
 
 
@@ -1723,6 +1848,13 @@ def _extract_name_and_role_from_first_line(text: str) -> tuple[str, str]:
         return "", pipe_role or _normalize_header_role_line(role_line)
 
     extracted_role = _normalize_header_role_line(role_line)
+    separator_match = HEADER_NAME_SEPARATOR_PATTERN.search(candidate)
+    if separator_match:
+        separator_tail = candidate[separator_match.end():].strip(" )|-")
+        normalized_separator_role = _normalize_header_role_line(separator_tail)
+        if normalized_separator_role:
+            extracted_role = extracted_role or normalized_separator_role
+            candidate = candidate[:separator_match.start()].strip(" ,|-")
     role_match = HEADER_ROLE_STOP_PATTERN.search(candidate)
     if role_match:
         extracted_role = extracted_role or _normalize_header_role_line(candidate[role_match.start():])
