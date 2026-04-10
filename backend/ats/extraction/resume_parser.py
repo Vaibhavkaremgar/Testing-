@@ -1436,8 +1436,7 @@ def _rerun_low_confidence_fields(
     if field_confidence.get("skills", 0.0) < CONFIDENCE_RETRY_THRESHOLD:
         explicit_skills_section = str((updated.get("sections", {}) or {}).get("skills") or "").strip()
         if not explicit_skills_section:
-            updated["skills"] = []
-            return updated
+            pass  # Keep existing skills even without explicit section
         fallback_skill_candidates: List[str] = []
         normalized_corpus = explicit_skills_section.lower()
         for skill in entities.get("skills", []) or []:
@@ -1664,10 +1663,6 @@ def parse_resume_text(
     result = apply_postprocessing(result)
     result = validate_parsed_fields(result)
     result["field_confidence"]["name"] = _score_name_confidence(result.get("name", ""))
-    if result["field_confidence"]["name"] < CONFIDENCE_RETRY_THRESHOLD:
-        result["name"] = None
-        result["personal_details"]["name"] = None
-        result["field_confidence"]["name"] = 0.0
     result["field_confidence"]["email"] = _score_email_confidence(result.get("email", ""))
     result["field_confidence"]["phone"] = _score_phone_confidence(result.get("phone", ""))
     result["field_confidence"]["location"] = _score_location_confidence(result.get("location", ""))
@@ -1689,10 +1684,6 @@ def parse_resume_text(
         result = apply_postprocessing(result)
         result = validate_parsed_fields(result)
         result["field_confidence"]["name"] = _score_name_confidence(result.get("name", ""))
-        if result["field_confidence"]["name"] < CONFIDENCE_RETRY_THRESHOLD:
-            result["name"] = None
-            result["personal_details"]["name"] = None
-            result["field_confidence"]["name"] = 0.0
         result["field_confidence"]["email"] = _score_email_confidence(result.get("email", ""))
         result["field_confidence"]["phone"] = _score_phone_confidence(result.get("phone", ""))
         result["field_confidence"]["location"] = _score_location_confidence(result.get("location", ""))

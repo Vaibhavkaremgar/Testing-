@@ -1615,9 +1615,18 @@ def _extract_name_and_role_from_first_line(text: str) -> tuple[str, str]:
 
     candidate = clean_text_pipeline(name_line).strip()
     candidate = re.sub(r"(?i)^(?:name)\s*[:\-]\s*", "", candidate).strip()
-    candidate = re.split(r"\s+\|\s+|\s+[Â·â€¢]\s+|, (?=\+?\d|[A-Za-z0-9._%+-]+@)", candidate, maxsplit=1)[0].strip()
+    pipe_segments = re.split(r"\s+\|\s+|\s+[Â·â€¢]\s+|, (?=\+?\d|[A-Za-z0-9._%+-]+@)", candidate)
+    candidate = pipe_segments[0].strip()
+    # Step 3: extract role from pipe segment (Name | Role | Skills pattern)
+    pipe_role = ""
+    if len(pipe_segments) > 1:
+        for seg in pipe_segments[1:]:
+            normalized_seg = _normalize_header_role_line(seg.strip())
+            if normalized_seg:
+                pipe_role = normalized_seg
+                break
     if not candidate:
-        return "", _normalize_header_role_line(role_line)
+        return "", pipe_role or _normalize_header_role_line(role_line)
 
     extracted_role = _normalize_header_role_line(role_line)
     role_match = HEADER_ROLE_STOP_PATTERN.search(candidate)
@@ -1642,7 +1651,7 @@ def _extract_name_and_role_from_first_line(text: str) -> tuple[str, str]:
             normalized_name = ""
         elif not all(re.match(r"^[A-Z][A-Za-z'`.-]*$", word) for word in words):
             normalized_name = ""
-    return normalized_name or "", extracted_role or ""
+    return normalized_name or "", extracted_role or pipe_role or ""
 
 
 def _infer_unstructured_experience_section(text: str) -> str:

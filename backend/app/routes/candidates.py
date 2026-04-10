@@ -290,6 +290,33 @@ def sanitize_resume_skills(skills: Optional[List[str]], languages: Optional[List
     return sanitized_skills
 
 
+
+def _compute_field_confidence(candidate) -> dict:
+    """Compute per-field confidence scores for Step 7/8/10 of the ATS spec."""
+    from ats.extraction.validation import (
+        _score_name_confidence, _score_role_confidence,
+        _score_location_confidence, _score_experience_confidence,
+    )
+    name_score = _score_name_confidence(candidate.name or "")
+    role_score = _score_role_confidence(candidate.current_role or "")
+    location_score = _score_location_confidence(candidate.location or "")
+    experience_score = _score_experience_confidence(candidate.experience_years)
+    skills_score = 1.0 if candidate.skills else 0.0
+    email_score = 1.0 if candidate.email else 0.0
+
+    scores = {
+        "name": round(name_score * 100),
+        "role": round(role_score * 100),
+        "location": round(location_score * 100),
+        "experience": round(experience_score * 100),
+        "skills": round(skills_score * 100),
+        "email": round(email_score * 100),
+    }
+    # Step 8: fields with confidence >= 80 are shown, < 60 are hidden
+    scores["display_fields"] = [f for f, v in scores.items() if isinstance(v, int) and v >= 80]
+    scores["hidden_fields"] = [f for f, v in scores.items() if isinstance(v, int) and v < 60]
+    return scores
+
 def build_safe_candidate_response(candidate_dict: Dict) -> CandidateResponse:
     """Construct candidate responses defensively so one bad legacy field never crashes the API."""
     try:
@@ -573,8 +600,7 @@ def extract_resume_data(file_path: str, original_filename: str = None, *, fast_m
     
     if name:
         name = clean_candidate_name(name)
-    elif not name:
-        name = "Unknown Candidate"
+    # Do not store "Unknown Candidate" — keep None so the frontend can show a clean fallback
     
     return {
         'name': name,
@@ -2277,7 +2303,8 @@ def get_candidates(
             "job_title": c.job.title if c.job else None,
             "summary": c.summary,
             "predefined_questions": c.predefined_questions,
-            "created_at": c.created_at
+            "created_at": c.created_at,
+            "field_confidence": _compute_field_confidence(c),
         }
         result.append(build_safe_candidate_response(candidate_dict))
     _perf_log(

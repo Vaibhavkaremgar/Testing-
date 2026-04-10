@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -106,6 +106,7 @@ export default function Resumes() {
   const selectedClient = searchParams.get('client')
   const selectedGlobalJobId = searchParams.get('job_id') || ''
   const { user: currentUser } = useAuth()
+  const queryClient = useQueryClient()
   const canDeleteResumes = currentUser?.role === 'admin'
   const [uploading, setUploading] = useState(false)
   const [search, setSearch] = useState('')
@@ -218,8 +219,8 @@ export default function Resumes() {
   }, [selectedGlobalJobId])
 
   const fetchCandidates = useCallback(async () => {
-    await refetchResumeData()
-  }, [refetchResumeData])
+    await queryClient.invalidateQueries({ queryKey: ['dashboard-data', 'resumes'] })
+  }, [queryClient])
 
   // Refresh list whenever an upload reaches 'completed'
   useEffect(() => {
@@ -529,13 +530,13 @@ export default function Resumes() {
     
     if (type === 'invitation') {
       subject = 'Interview Invitation - You have been shortlisted!'
-      message = `Dear ${selectedCandidate.name},\n\nCongratulations! You have been shortlisted for the position${candidateJob ? ` of ${candidateJob.title}` : ''}.\n\nPlease select a convenient time slot for your interview by replying to this email.\n\nBest regards,\nRecruitment Team`
+      message = `Dear ${formatCandidateDisplayName(selectedCandidate.name)},\n\nCongratulations! You have been shortlisted for the position${candidateJob ? ` of ${candidateJob.title}` : ''}.\n\nPlease select a convenient time slot for your interview by replying to this email.\n\nBest regards,\nRecruitment Team`
     } else if (type === 'reschedule') {
       subject = 'Interview Reschedule Request'
-      message = `Dear ${selectedCandidate.name},\n\nWe need to reschedule your interview for the position${candidateJob ? ` of ${candidateJob.title}` : ''}.\n\nPlease reply with your available time slots and we will confirm a new interview time.\n\nWe apologize for any inconvenience.\n\nBest regards,\nRecruitment Team`
+      message = `Dear ${formatCandidateDisplayName(selectedCandidate.name)},\n\nWe need to reschedule your interview for the position${candidateJob ? ` of ${candidateJob.title}` : ''}.\n\nPlease reply with your available time slots and we will confirm a new interview time.\n\nWe apologize for any inconvenience.\n\nBest regards,\nRecruitment Team`
     } else if (type === 'rejection') {
       subject = 'Application Status Update'
-      message = `Dear ${selectedCandidate.name},\n\nThank you for your interest in the position${candidateJob ? ` of ${candidateJob.title}` : ''}.\n\nAfter careful consideration, we regret to inform you that we will not be moving forward with your application at this time.\n\nWe appreciate the time you invested in the application process and wish you the best in your job search.\n\nBest regards,\nRecruitment Team`
+      message = `Dear ${formatCandidateDisplayName(selectedCandidate.name)},\n\nThank you for your interest in the position${candidateJob ? ` of ${candidateJob.title}` : ''}.\n\nAfter careful consideration, we regret to inform you that we will not be moving forward with your application at this time.\n\nWe appreciate the time you invested in the application process and wish you the best in your job search.\n\nBest regards,\nRecruitment Team`
     }
     
     setEmailModal({ show: true, type, subject, message })
@@ -1528,7 +1529,7 @@ export default function Resumes() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={closeResumeModal}>
           <div className="bg-card rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold">Resume Summary - {viewingResume.name}</h2>
+              <h2 className="text-xl font-bold">Resume Summary - {formatCandidateDisplayName(viewingResume.name)}</h2>
               <Button variant="ghost" size="icon" onClick={closeResumeModal}>
                 ×
               </Button>
