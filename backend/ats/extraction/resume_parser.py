@@ -1707,15 +1707,6 @@ def parse_resume_text(
         ),
         "all_fields_above_80": all(value >= 80 for value in result["confidence"].values()),
     }
-    result["display_fields"] = {
-        field: value
-        for field, value in result["final_output"].items()
-        if result["confidence"].get(field, 100) >= 60
-    }
-    result["hidden_fields"] = [
-        field for field in result["final_output"]
-        if result["confidence"].get(field, 100) < 60
-    ]
     result["final_output"] = {
         "name": result.get("name") or "",
         "email": result.get("email") or "",
@@ -1728,6 +1719,15 @@ def parse_resume_text(
         "education": result.get("education") or [],
         "experience": result.get("experience") or [],
     }
+    # Step 8: compute display/hidden fields based on confidence (>80 show, <60 hide)
+    result["display_fields"] = [
+        field for field, value in result["final_output"].items()
+        if result["confidence"].get(field, 100) >= 80
+    ]
+    result["hidden_fields"] = [
+        field for field in result["final_output"]
+        if result["confidence"].get(field, 100) < 60
+    ]
     stage_timings["Total Time"] = _normalize_timing_ms(total_started_at)
     timing_lines = [
         f"Warmup Used: {'Yes' if warmup_used else 'No'}",

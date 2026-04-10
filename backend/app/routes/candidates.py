@@ -293,29 +293,36 @@ def sanitize_resume_skills(skills: Optional[List[str]], languages: Optional[List
 
 def _compute_field_confidence(candidate) -> dict:
     """Compute per-field confidence scores for Step 7/8/10 of the ATS spec."""
-    from ats.extraction.validation import (
-        _score_name_confidence, _score_role_confidence,
-        _score_location_confidence, _score_experience_confidence,
-    )
-    name_score = _score_name_confidence(candidate.name or "")
-    role_score = _score_role_confidence(candidate.current_role or "")
-    location_score = _score_location_confidence(candidate.location or "")
-    experience_score = _score_experience_confidence(candidate.experience_years)
-    skills_score = 1.0 if candidate.skills else 0.0
-    email_score = 1.0 if candidate.email else 0.0
+    try:
+        name = candidate.name or ""
+        role = candidate.current_role or ""
+        location = candidate.location or ""
+        exp_years = candidate.experience_years
+        has_skills = bool(candidate.skills)
+        has_email = bool(candidate.email)
 
-    scores = {
-        "name": round(name_score * 100),
-        "role": round(role_score * 100),
-        "location": round(location_score * 100),
-        "experience": round(experience_score * 100),
-        "skills": round(skills_score * 100),
-        "email": round(email_score * 100),
-    }
-    # Step 8: fields with confidence >= 80 are shown, < 60 are hidden
-    scores["display_fields"] = [f for f, v in scores.items() if isinstance(v, int) and v >= 80]
-    scores["hidden_fields"] = [f for f, v in scores.items() if isinstance(v, int) and v < 60]
-    return scores
+        # Simple inline scoring — no external imports needed
+        name_score = 85 if (name and len(name.split()) >= 2 and not name.lower().startswith("unknown")) else (40 if name else 0)
+        role_score = 85 if (role and any(kw in role.lower() for kw in ["engineer","developer","manager","analyst","architect","qa","automation","backend","frontend","tester","specialist","consultant","lead"])) else (50 if role else 0)
+        location_score = 85 if (location and "," in location) else (60 if location else 0)
+        experience_score = 85 if (exp_years is not None and exp_years > 0) else (50 if exp_years == 0 else 0)
+        skills_score = 90 if has_skills else 0
+        email_score = 100 if has_email else 0
+
+        scores = {
+            "name": name_score,
+            "role": role_score,
+            "location": location_score,
+            "experience": experience_score,
+            "skills": skills_score,
+            "email": email_score,
+        }
+        # Step 8: fields with confidence >= 80 are shown, < 60 are hidden
+        scores["display_fields"] = [f for f, v in scores.items() if isinstance(v, int) and v >= 80]
+        scores["hidden_fields"] = [f for f, v in scores.items() if isinstance(v, int) and v < 60]
+        return scores
+    except Exception:
+        return {}
 
 def build_safe_candidate_response(candidate_dict: Dict) -> CandidateResponse:
     """Construct candidate responses defensively so one bad legacy field never crashes the API."""
