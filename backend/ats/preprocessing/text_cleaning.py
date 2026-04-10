@@ -127,6 +127,16 @@ FRAGMENTED_EMAIL_PATTERN = re.compile(
 )
 FRAGMENTED_UPPERCASE_TRIPLE_PATTERN = re.compile(r"\b([A-Z]{3,})[ \t]+([A-Z]{1,2})[ \t]+([A-Z]{3,})\b")
 FRAGMENTED_UPPERCASE_DOUBLE_PATTERN = re.compile(r"\b([A-Z]{4,})[ \t]+([A-Z]{2,3})\b")
+SPLIT_SECTION_WORD_PATTERNS = (
+    (re.compile(r"(?i)\bexpe\s+rience\b"), "Experience"),
+    (re.compile(r"(?i)\bexperi\s+ence\b"), "Experience"),
+    (re.compile(r"(?i)\bprofessi\s+onal\b"), "Professional"),
+    (re.compile(r"(?i)\bsum\s+mary\b"), "Summary"),
+    (re.compile(r"(?i)\beduca\s+tion\b"), "Education"),
+    (re.compile(r"(?i)\bcertifi\s+cations?\b"), "Certifications"),
+    (re.compile(r"(?i)\bpro\s+jects?\b"), "Projects"),
+    (re.compile(r"(?i)\bskill\s+s\b"), "Skills"),
+)
 
 
 def normalize_line_breaks(text: str) -> str:
@@ -180,6 +190,8 @@ def normalize_common_artifacts(text: str) -> str:
     normalized = SPLIT_MONTH_PATTERN.sub(lambda match: f"{match.group('prefix')}{match.group('suffix')}", normalized)
     normalized = FRAGMENTED_UPPERCASE_TRIPLE_PATTERN.sub(lambda match: "".join(match.groups()), normalized)
     normalized = FRAGMENTED_UPPERCASE_DOUBLE_PATTERN.sub(lambda match: "".join(match.groups()), normalized)
+    for pattern, replacement in SPLIT_SECTION_WORD_PATTERNS:
+        normalized = pattern.sub(replacement, normalized)
     return ZERO_WIDTH_PATTERN.sub("", normalized)
 
 

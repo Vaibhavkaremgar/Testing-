@@ -90,6 +90,10 @@ ADDRESS_LABEL_PATTERN = re.compile(r"(?i)\baddress\b\s*[:\-]?\s*(?P<value>.+)")
 EXPLICIT_TOTAL_EXPERIENCE_PATTERN = re.compile(
     r"(?i)\b(?P<years>\d+(?:\.\d+)?)\s+years?(?:\s+(?:and|&)\s+(?P<months>\d+)\s+months?)?\s+of\s+experience\b"
 )
+FALLBACK_TOTAL_EXPERIENCE_PATTERN = re.compile(
+    r"(?i)\b(?:over|around|more\s+than)?\s*(?P<years>\d+(?:\.\d+)?)\s*\+?\s*(?:years|yrs)\b"
+)
+NAME_FALLBACK_BLOCKLIST_PATTERN = re.compile(r"(?i)\b(?:email|phone|linkedin|github)\b")
 HEADER_ROLE_STOP_PATTERN = re.compile(
     r"(?i)\b(?:engineer|developer|manager|analyst|consultant|architect|lead|intern|qa|automation|"
     r"tester|specialist|designer|director|officer|executive|associate|scientist|recruiter|"
@@ -696,12 +700,17 @@ def extract_name(text: str, use_spacy: bool = True) -> str:
             tokens.append(cleaned)
         return " ".join(tokens).strip()
 
+    def _format_name(candidate: str) -> str:
+        return " ".join(part.capitalize() if len(part) > 1 else part.upper() for part in candidate.split())
+
     def _is_valid_name_line(candidate: str) -> bool:
         compact = _sanitize_name_candidate(candidate)
         lowered = compact.lower()
         if not compact:
             return False
         if any(term in lowered for term in NAME_IGNORE_TERMS):
+            return False
+        if NAME_FALLBACK_BLOCKLIST_PATTERN.search(compact):
             return False
         if NAME_COMPANY_PATTERN.search(compact):
             return False
@@ -712,6 +721,8 @@ def extract_name(text: str, use_spacy: bool = True) -> str:
         if any(char.isdigit() for char in compact):
             return False
         if "@" in compact:
+            return False
+        if not re.fullmatch(r"[A-Za-z'`.\- ]+", compact):
             return False
         words = compact.split()
         if not (2 <= len(words) <= 4):
@@ -734,7 +745,7 @@ def extract_name(text: str, use_spacy: bool = True) -> str:
         label_match = _sanitize_name_candidate(stripped)
         inline_candidate = re.split(r"\s+\|\s+|\s+[Â·â€¢]\s+|, (?=\+?\d|[A-Za-z0-9._%+-]+@)", label_match, maxsplit=1)[0].strip()
         if _is_valid_name_line(inline_candidate):
-            resolved = " ".join(part.capitalize() if len(part) > 1 else part.upper() for part in inline_candidate.split())
+            resolved = _format_name(inline_candidate)
             logger.debug("Name extracted from header block: %s", resolved)
             return resolved
 
@@ -746,7 +757,7 @@ def extract_name(text: str, use_spacy: bool = True) -> str:
                     continue
                 candidate = re.sub(r"\s+", " ", ent.text).strip(" ,.-")
                 if _is_valid_name_line(candidate):
-                    resolved = " ".join(part.capitalize() if len(part) > 1 else part.upper() for part in candidate.split())
+                    resolved = _format_name(candidate)
                     logger.debug("Name extracted with spaCy PERSON in header: %s", resolved)
                     return resolved
 
@@ -754,7 +765,7 @@ def extract_name(text: str, use_spacy: bool = True) -> str:
         candidate = _sanitize_name_candidate(line)
         candidate = re.split(r"\s+\|\s+|\s+[Â·â€¢]\s+|, (?=\+?\d|[A-Za-z0-9._%+-]+@)", candidate, maxsplit=1)[0].strip()
         if UPPERCASE_NAME_PATTERN.match(candidate) and _is_valid_name_line(candidate):
-            resolved = " ".join(part if len(part) == 1 else part.capitalize() for part in candidate.split())
+            resolved = _format_name(candidate)
             logger.debug("Name extracted from uppercase header line: %s", resolved)
             return resolved
 
@@ -765,13 +776,13 @@ def extract_name(text: str, use_spacy: bool = True) -> str:
             role_noise = {"engineer", "analyst", "developer", "tester", "consultant", "manager", "specialist", "architect"}
             candidate_tokens = [token.lower() for token in candidate.split()]
             if not any(token in role_noise for token in candidate_tokens) and _is_valid_name_line(candidate):
-                resolved = " ".join(part.capitalize() for part in candidate.split())
+                resolved = _format_name(candidate)
                 logger.debug("Name extracted from leading header tokens: %s", resolved)
                 return resolved
         candidate = _sanitize_name_candidate(line)
         candidate = re.split(r"\s+\|\s+|\s+[·•]\s+|, (?=\+?\d|[A-Za-z0-9._%+-]+@)", candidate, maxsplit=1)[0].strip()
         if _is_valid_name_line(candidate):
-            resolved = " ".join(part.capitalize() for part in candidate.split())
+            resolved = _format_name(candidate)
             logger.debug("Name extracted from header line: %s", resolved)
             return resolved
 
@@ -783,11 +794,45 @@ def extract_name(text: str, use_spacy: bool = True) -> str:
                     continue
                 candidate = re.sub(r"\s+", " ", ent.text).strip(" ,.-")
                 if _is_valid_name_line(candidate):
-                    resolved = " ".join(part.capitalize() for part in candidate.split())
+                    resolved = _format_name(candidate)
                     logger.debug("Name extracted with spaCy PERSON: %s", resolved)
                     return resolved
 
+    if use_spacy and SPACY_AVAILABLE:
+        doc = get_section_doc("\n".join(lines[:8]))
+        if doc:
+            for ent in doc.ents:
+                if ent.label_ != "PERSON":
+                    continue
+                candidate = _sanitize_name_candidate(ent.text)
+                if _is_valid_name_line(candidate):
+                    logger.debug("Fallback used for name extraction")
+                    return _format_name(candidate)
+
+    for line in lines:
+        candidate = _sanitize_name_candidate(line)
+        if _is_valid_name_line(candidate):
+            logger.debug("Fallback used for name extraction")
+            return _format_name(candidate)
+
     return ""
+
+
+def _extract_fallback_experience_years(*sources: str) -> Optional[float]:
+    candidates: List[float] = []
+    for source in sources:
+        normalized_source = clean_text_pipeline(source or "")
+        if not normalized_source:
+            continue
+        for match in EXPLICIT_TOTAL_EXPERIENCE_PATTERN.finditer(normalized_source):
+            years_value = float(match.group("years"))
+            months_value = int(match.group("months") or 0)
+            candidates.append(round(years_value + (months_value / 12.0), 1))
+        for match in FALLBACK_TOTAL_EXPERIENCE_PATTERN.finditer(normalized_source):
+            candidates.append(round(float(match.group("years")), 1))
+    if not candidates:
+        return None
+    return max(candidates)
 
 
 def _unique_in_order(values: List[str]) -> List[str]:
@@ -2007,6 +2052,25 @@ def extract_resume_information(text: str) -> Dict:
             total_experience_years = compute_total_experience(date_ranges)
             total_experience_months = int(round(total_experience_years * 12))
 
+    summary_section = raw_sections.get("summary", "") or sections.get("summary", "")
+    profile_section = raw_sections.get("profile", "") or sections.get("profile", "")
+    experience_fallback_allowed = bool(experience_section.strip()) or bool(
+        re.search(r"(?i)\bexpe\s+rience\b|\bexperi\s+ence\b", text or "")
+    )
+    if experience_fallback_allowed:
+        fallback_experience_years = _extract_fallback_experience_years(
+            experience_section,
+            summary_section,
+            profile_section,
+            structural_text,
+        )
+        if fallback_experience_years is not None and (
+            total_experience_years is None or fallback_experience_years > total_experience_years
+        ):
+            total_experience_years = fallback_experience_years
+            total_experience_months = int(round(fallback_experience_years * 12))
+            logger.debug("Fallback used for experience extraction")
+
     current_entry = {}
     if experience_entries:
         current_company = experience_result.get("current_company")
@@ -2152,4 +2216,8 @@ def extract_resume_information(text: str) -> Dict:
         validated_result["experience_years"] = None
         validated_result["total_experience_years"] = None
         validated_result["total_experience"] = ""
+    if not validated_result.get("name"):
+        logger.warning("Resume parsing validation warning: name is empty")
+    if validated_result.get("total_experience_years") is None:
+        logger.warning("Resume parsing validation warning: experience is empty")
     return validated_result

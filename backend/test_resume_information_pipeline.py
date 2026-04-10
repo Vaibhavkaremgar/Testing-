@@ -1373,6 +1373,30 @@ Expo
 
         self.assertEqual(parsed["name"], "Sameer Qureshi")
 
+    def test_information_extraction_falls_back_to_summary_experience_years(self):
+        resume_text = """
+Bhimaraju Koushik
+bhimaraju.koushik@gmail.com | +91 8106148797
+
+Professional Summary
+QA Automation Engineer with 4.2 years of experience in Java, Selenium WebDriver and API testing.
+
+Skills
+Java
+Selenium
+API Testing
+
+Expe rience
+QA Automation Engineer
+Cognizant Technology Solutions
+Dec-2022 to Present
+Using JIRA and Maven while continuously improving regression suites.
+        """
+
+        parsed = self._parse_resume_text(resume_text, "koushik_resume.pdf")
+
+        self.assertAlmostEqual(parsed["total_experience_years"], 4.2, delta=0.1)
+
     def test_first_valid_email_is_selected_when_multiple_candidates_exist(self):
         resume_text = """
 Rahul Candidate
