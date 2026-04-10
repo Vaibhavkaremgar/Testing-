@@ -1900,7 +1900,7 @@ def extract_resume_information(text: str) -> Dict:
     
     experience_started_at = time.perf_counter()
     experience_entries = experience_result.get("experiences", [])
-    section_entries = extract_experience_entries(cleaned_text, experience_section) if experience_section.strip() else []
+    section_entries = extract_experience_entries(f"Experience\n{experience_section}") if experience_section.strip() else []
     if section_entries:
         seen_experience_keys = {
             (

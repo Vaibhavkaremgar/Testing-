@@ -116,6 +116,10 @@ NAME_CREDENTIAL_SUFFIX = re.compile(
     r",?\s*(mba|phd|ph\.d|b\.tech|m\.tech|bca|mca|b\.e|m\.e|cpa|cfa)\s*$",
     re.IGNORECASE
 )
+PROSE_NAME_LEAD_PATTERN = re.compile(
+    r"^(?P<name>[A-Z][A-Za-z'`.-]+(?:\s+[A-Z][A-Za-z'`.-]+){1,3})\s+"
+    r"(?:is|was|has|worked|works|serves|served|brings|specializes)\b"
+)
 PDF_LINE_TOLERANCE = 3.0
 PDF_MIN_COLUMN_GAP = 60.0
 PDF_MIN_LINES_PER_COLUMN = 8
@@ -1087,6 +1091,8 @@ def _normalize_name_candidate(value: str) -> str:
     lowered_words = [word.lower().strip(".,") for word in words]
     if any(word in INVALID_NAME_TOKENS for word in lowered_words):
         return ""
+    if set(lowered_words) <= {"contact", "details", "information", "resume", "profile", "summary"}:
+        return ""
     if NAME_COMPANY_PATTERN.search(candidate):
         return ""
     if extract_normalized_location(candidate, use_spacy=False) or validate_location(candidate):
@@ -1306,6 +1312,16 @@ def _extract_name(text: str, original_filename: Optional[str] = None) -> str:
             continue
         next_line = raw_lines[index + 1].strip() if index + 1 < len(raw_lines) else ""
         if next_line and NAME_CONTEXT_ROLE_PATTERN.search(next_line):
+            return normalized
+    for line in raw_lines[:80]:
+        lowered_line = line.strip().lower()
+        if lowered_line in {"contact details", "contact information"}:
+            continue
+        prose_name_match = PROSE_NAME_LEAD_PATTERN.match(line)
+        if not prose_name_match:
+            continue
+        normalized = _normalize_name_candidate(prose_name_match.group("name"))
+        if normalized:
             return normalized
     for line in raw_lines[:60]:
         lowered_line = line.strip().lower()
@@ -1664,6 +1680,7 @@ def parse_resume_text(
     }
     result = apply_postprocessing(result)
     result = validate_parsed_fields(result)
+    result["name"] = result.get("name") or None
     result["field_confidence"]["name"] = _score_name_confidence(result.get("name", ""))
     result["field_confidence"]["email"] = _score_email_confidence(result.get("email", ""))
     result["field_confidence"]["phone"] = _score_phone_confidence(result.get("phone", ""))
@@ -1685,6 +1702,7 @@ def parse_resume_text(
         )
         result = apply_postprocessing(result)
         result = validate_parsed_fields(result)
+        result["name"] = result.get("name") or None
         result["field_confidence"]["name"] = _score_name_confidence(result.get("name", ""))
         result["field_confidence"]["email"] = _score_email_confidence(result.get("email", ""))
         result["field_confidence"]["phone"] = _score_phone_confidence(result.get("phone", ""))
