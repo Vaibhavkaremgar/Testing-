@@ -1114,6 +1114,7 @@ def _normalize_name_candidate(value: str) -> str:
     candidate = re.sub(r"\s+", " ", (value or "").strip(" ,.-"))
     if not candidate:
         return ""
+    candidate = _strip_trailing_location_from_name(candidate)
     words = candidate.split()
     if not (2 <= len(words) <= 5):
         return ""
@@ -1147,6 +1148,66 @@ def _normalize_name_candidate(value: str) -> str:
         candidate = candidate.title()
         words = candidate.split()
     return " ".join(word if len(word) == 1 else word.title() for word in words)
+
+
+def _looks_like_trailing_location(suffix: str) -> bool:
+    normalized_suffix = re.sub(r"\s+", " ", (suffix or "").strip(" ,.-"))
+    if not normalized_suffix:
+        return False
+    if validate_location(normalized_suffix):
+        return True
+    if extract_normalized_location(normalized_suffix, use_spacy=False):
+        return True
+    if re.fullmatch(r"[A-Z][A-Za-z.-]+(?:\s+[A-Z][A-Za-z.-]+){0,2}\s+[A-Z]{2}", normalized_suffix):
+        return True
+    if re.fullmatch(r"[A-Z][A-Za-z.-]+(?:\s+[A-Z][A-Za-z.-]+){0,2},\s*[A-Z]{2}", normalized_suffix):
+        return True
+    return False
+
+
+def _is_strict_person_name(candidate: str) -> bool:
+    compact = re.sub(r"\s+", " ", (candidate or "").strip(" ,.-"))
+    if not compact:
+        return False
+    words = compact.split()
+    if not (2 <= len(words) <= 4):
+        return False
+    lowered_words = [word.lower().strip(".,") for word in words]
+    if any(word in INVALID_NAME_TOKENS for word in lowered_words):
+        return False
+    if NAME_COMPANY_PATTERN.search(compact):
+        return False
+    if NAME_CONTEXT_ROLE_PATTERN.search(compact):
+        return False
+    if any(any(char.isdigit() for char in word) for word in words):
+        return False
+    if not all(word.replace(".", "").replace("'", "").replace("-", "").isalpha() for word in words):
+        return False
+    if not all(word.isupper() or word[:1].isupper() for word in words):
+        return False
+    return True
+
+
+def _strip_trailing_location_from_name(candidate: str) -> str:
+    compact = re.sub(r"\s+", " ", (candidate or "").strip(" ,.-"))
+    words = compact.split()
+    if len(words) <= 2:
+        return compact
+
+    for keep_count in range(min(4, len(words) - 1), 1, -1):
+        prefix = " ".join(words[:keep_count]).strip()
+        suffix = " ".join(words[keep_count:]).strip()
+        if _is_strict_person_name(prefix) and _looks_like_trailing_location(suffix):
+            return prefix
+
+    comma_suffix_match = re.match(
+        r"^(?P<name>[A-Z][A-Za-z'`.-]+(?:\s+[A-Z][A-Za-z'`.-]+){1,3})\s+(?P<location>[A-Z][A-Za-z.\s-]+,\s*[A-Z]{2})$",
+        compact,
+    )
+    if comma_suffix_match and _is_strict_person_name(comma_suffix_match.group("name")):
+        return comma_suffix_match.group("name").strip()
+
+    return compact
 
 
 def _extract_inline_header_name(line: str) -> str:

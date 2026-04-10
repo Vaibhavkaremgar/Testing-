@@ -99,6 +99,19 @@ Software Engineer | Orbit Labs | 2020 - 2023
         self.assertTrue(result["validation_summary"]["name_valid"])
         self.assertTrue(result["validation_summary"]["location_valid"])
 
+    def test_name_extraction_drops_trailing_location_from_header_line(self):
+        resume_text = """
+Tashrif Apon Queens, NY | (929) 346-9867 | tashrifapon2001@gmail.com
+
+WORK EXPERIENCE
+Data Engineer | NYC AG, LLC | Aug 2024 - Jan 2025
+Built a data mining pipeline SaaS for real estate arbitrage.
+        """
+
+        result = parse_resume_text(resume_text)
+
+        self.assertEqual(result["name"], "Tashrif Apon")
+
     def test_multi_column_resume_keeps_experience_structure(self):
         resume_text = """
 Ananya Rao

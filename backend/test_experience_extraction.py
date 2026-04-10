@@ -17,6 +17,7 @@ from ats.extraction.experience_extraction import (  # noqa: E402
 )
 from ats.extraction.information_extraction import extract_resume_information  # noqa: E402
 from ats.extraction.resume_parser import parse_resume_text  # noqa: E402
+from app.routes.candidates import estimate_experience_years_from_text  # noqa: E402
 
 
 logging.basicConfig(level=logging.DEBUG)
@@ -244,6 +245,22 @@ Data Analyst Delhivery Ltd. | Jan 2020 - May 2022 Gurugram, Haryana Built logist
         self.assertEqual(len(result["experiences"]), 2)
         self.assertEqual(result["current_company"], "Meesho Pvt. Ltd.")
         self.assertEqual(result["current_role"], "Senior Data Analyst")
+
+    def test_fallback_experience_estimator_uses_role_attached_ranges(self):
+        resume_text = """
+Tashrif Apon
+Queens, NY | tashrifapon2001@gmail.com
+
+Data Engineer | NYC AG, LLC | Aug 2024 - Jan 2025
+Developed a data mining pipeline SaaS for real estate arbitrage.
+
+Software Engineer Intern | NYC Department of Health | Aug 2024 - Dec 2024
+Automated ETL processes and improved backend performance.
+        """
+
+        years = estimate_experience_years_from_text(resume_text)
+
+        self.assertGreater(years, 0.3)
 
     def test_internship_section_can_be_extracted_and_optionally_excluded(self):
         resume_text = """

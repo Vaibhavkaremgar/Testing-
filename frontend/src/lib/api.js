@@ -417,7 +417,7 @@ class ApiClient {
   }
 
   async getUploadProgress(uploadId) {
-    return this.request(`/candidates/upload-progress/${uploadId}`)
+    return this.request(`/candidates/upload-progress/${uploadId}`, { skipCache: true })
   }
 
   async getPipelineStages(params = {}) {
@@ -449,7 +449,7 @@ class ApiClient {
   }
 
   async getDashboardData(params = {}) {
-    return this.request(`/dashboard-data${this.buildQuery(params)}`)
+    return this.request(`/dashboard-data${this.buildQuery(params)}`, { skipCache: true })
   }
 
   async getJobsCount(params = {}) {

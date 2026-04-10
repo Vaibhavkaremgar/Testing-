@@ -31,6 +31,7 @@ from ats.extraction.information_extraction import (
     extract_experience_entries,
     extract_skill_keywords,
 )
+from ats.extraction.experience_extraction import compute_total_experience, extract_date_ranges, parse_date
 from ats.extraction.resume_parser import parse_resume
 from ats.extraction.skill_intelligence import get_skill_engine
 from ats.extraction.summary_generator import generate_summary
@@ -607,8 +608,12 @@ def extract_resume_data(file_path: str, original_filename: str = None, *, fast_m
     
     if name:
         name = clean_candidate_name(name)
-    # Do not store "Unknown Candidate" — keep None so the frontend can show a clean fallback
-    
+    experience_years = parsed_resume.get('total_experience_years') if parsed_resume else None
+    if experience_years is None or experience_years <= 0:
+        experience_years = estimate_experience_years_from_entries(work_experience)
+    if (experience_years is None or experience_years <= 0) and cleaned_text:
+        experience_years = estimate_experience_years_from_text(cleaned_text)
+
     return {
         'name': name,
         'email': email,
@@ -623,7 +628,7 @@ def extract_resume_data(file_path: str, original_filename: str = None, *, fast_m
         'education_text': education_text,
         'education': education,
         'languages': languages,
-        'experience_years': parsed_resume.get('total_experience_years') if parsed_resume else None,
+        'experience_years': experience_years,
         'experience_level': experience_level,
         'full_text': cleaned_text,  # Store cleaned text for downstream ATS processing
         'document_metadata': parsed_resume.get("document_metadata") or {},
@@ -928,6 +933,41 @@ def estimate_experience_years_from_entries(entries: list) -> float:
     return float(max(total_years, 0))
 
 
+def estimate_experience_years_from_text(text: str) -> float:
+    """Fallback estimator for resumes whose dated experience is present outside the parsed section."""
+    if not text:
+        return 0.0
+
+    normalized_text = str(text)
+    ranges = []
+    for match in extract_date_ranges(text):
+        start_date = parse_date(match.get("start", ""), is_end=False)
+        end_date = parse_date(match.get("end", ""), is_end=True)
+        if not start_date or not end_date or end_date < start_date:
+            continue
+
+        span = match.get("span") or (0, 0)
+        start_index, end_index = int(span[0]), int(span[1])
+        line_start = normalized_text.rfind("\n", 0, start_index) + 1
+        line_end = normalized_text.find("\n", end_index)
+        if line_end == -1:
+            line_end = len(normalized_text)
+        context = normalized_text[line_start:line_end].strip() or str(match.get("matched_text", "") or "")
+
+        if not re.search(
+            r"(?i)\b(engineer|developer|manager|analyst|consultant|architect|lead|intern|specialist|executive|company|corp|ltd|llc|inc|technologies|solutions|labs|systems)\b",
+            context,
+        ):
+            continue
+
+        ranges.append((start_date, end_date))
+
+    if not ranges:
+        return 0.0
+
+    return round(float(compute_total_experience(ranges)), 1)
+
+
 def process_saved_resume(file_path: str, original_filename: str, job_data: dict, *, fast_mode: bool = True) -> dict:
     """Run extraction and scoring for one saved resume file."""
     from app.balanced_scoring import extract_years_experience
@@ -939,6 +979,8 @@ def process_saved_resume(file_path: str, original_filename: str, job_data: dict,
     estimated_years = resume_data.get("experience_years")
     if estimated_years is None or estimated_years <= 0:
         estimated_years = estimate_experience_years_from_entries(resume_data.get("work_experience", []))
+    if estimated_years is None or estimated_years <= 0:
+        estimated_years = estimate_experience_years_from_text(resume_data.get("full_text", ""))
     resume_data["experience_years"] = estimated_years if estimated_years and estimated_years > 0 else extract_years_experience(resume_data.get("full_text", ""))
     scoring_start = perf_counter()
     analysis_data = {
