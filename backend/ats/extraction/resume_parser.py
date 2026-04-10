@@ -1764,6 +1764,42 @@ def parse_resume_text(
         location=extracted_info.get("location", ""),
         current_company=extracted_info.get("current_company", "") or "",
     )
+    info_name = str(extracted_info.get("name") or "").strip()
+    top_person = str(entities.get("top_person") or "").strip()
+    if info_name and top_person and info_name.lower() == top_person.lower():
+        normalized_extracted_name = (extracted_name or "").strip().lower()
+        normalized_info_name = info_name.lower()
+        if normalized_extracted_name != normalized_info_name:
+            logger.info(
+                "Name fallback applied from information extraction: parser_name=%s info_name=%s",
+                extracted_name,
+                info_name,
+            )
+            extracted_name = info_name
+    elif top_person:
+        normalized_extracted_name = (extracted_name or "").strip().lower()
+        normalized_top_person = top_person.lower()
+        skills_lines = {
+            re.sub(r"\s+", " ", line.strip()).lower()
+            for line in str(sections.get("skills", "") or "").splitlines()
+            if line.strip()
+        }
+        header_contact_text = "\n".join(
+            filter(None, [str(sections.get("header", "") or ""), _extract_contact_zone_text(normalized_text or raw_text)])
+        ).lower()
+        if (
+            normalized_extracted_name
+            and normalized_extracted_name in skills_lines
+            and normalized_extracted_name != normalized_top_person
+            and normalized_top_person not in skills_lines
+            and normalized_top_person in header_contact_text
+        ):
+            logger.info(
+                "Name fallback applied from spaCy PERSON entity: parser_name=%s top_person=%s",
+                extracted_name,
+                top_person,
+            )
+            extracted_name = top_person
     stage_timings["Name Extraction"] = _normalize_timing_ms(raw_name_started_at)
     contact_email = _extract_email(cleaned_text or raw_text)
     # ACC-8: cross-contamination guards

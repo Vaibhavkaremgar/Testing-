@@ -1339,6 +1339,40 @@ gmail.com
 
         self.assertEqual(parsed["email"], "aneeshrudravaram@gmail.com")
 
+    def test_email_with_domain_split_across_newline_is_recovered(self):
+        resume_text = """
+Rudravaram Naresh Sai
+Aneesh
+(+91) 8977816703 aneeshrudravaram@gma
+il.com
+        """
+
+        parsed = self._parse_resume_text(resume_text, "aneesh_resume.txt")
+
+        self.assertEqual(parsed["email"], "aneeshrudravaram@gmail.com")
+
+    def test_information_extraction_name_overrides_skill_label_false_positive(self):
+        resume_text = """
+----Image alt text----><----media/fa77278ed5db745edceea64248cc78adea6d269d.png----
+Sameer Qureshi
+Senior Mobile App Developer (iOS & Android)
+Hyderabad, Telangana +91 99887 76655 sameer.qureshi.dev@gmail.com
+linkedin.com/in/sameerqureshidev github.com/sameerqdev play.google.com/store/apps/developer?id=SameerQ
+ABOUTME
+Senior Mobile Developer with 7 years of experience building polished, high-performance iOS and Android applications.
+TECHNICAL SKILLS
+Mobile Development
+React Native (Expert)
+Swift / SwiftUI
+Kotlin / Jetpack Compose
+Flutter (Intermediate)
+Expo
+        """
+
+        parsed = self._parse_resume_text(resume_text, "R4_Sameer_Qureshi_MobileApp.docx")
+
+        self.assertEqual(parsed["name"], "Sameer Qureshi")
+
     def test_first_valid_email_is_selected_when_multiple_candidates_exist(self):
         resume_text = """
 Rahul Candidate

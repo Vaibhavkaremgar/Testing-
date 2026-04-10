@@ -1090,6 +1090,11 @@ def extract_email(text: str) -> str:
     normalized_text = normalize_common_artifacts(text or "")
     normalized_text = re.sub(r"(\w+)\s*@\s*\n\s*(\w+\.\w+)", r"\1@\2", normalized_text)
     normalized_text = re.sub(
+        r"(?i)([A-Za-z0-9._%+-]+)@([A-Za-z0-9.-]{1,8})\s*\n\s*([A-Za-z0-9.-]{1,12}\.[A-Za-z]{2,6})",
+        lambda m: f"{m.group(1)}@{m.group(2)}{m.group(3)}",
+        normalized_text,
+    )
+    normalized_text = re.sub(
         r"(?im)([A-Za-z0-9._%+-]+)\s*@\s*\n(?:[A-Z][A-Z\s.]{3,}\n)+\s*([A-Za-z0-9.-]+\.[A-Za-z]{2,6})",
         lambda m: f"{m.group(1)}@{m.group(2)}",
         normalized_text,
