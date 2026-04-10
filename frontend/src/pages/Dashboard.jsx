@@ -149,6 +149,7 @@ export default function Dashboard() {
   const [cardCandidates, setCardCandidates] = useState([])
   const [cardLoading, setCardLoading] = useState(false)
   const [lazyCardData, setLazyCardData] = useState(null)
+  const [shouldLoadDashboardDetails, setShouldLoadDashboardDetails] = useState(false)
   const [shouldLoadDeferredAnalytics, setShouldLoadDeferredAnalytics] = useState(false)
   const [showLowCreditModal, setShowLowCreditModal] = useState(false)
   const [lowCreditDismissed, setLowCreditDismissed] = useState(() => {
@@ -167,14 +168,23 @@ export default function Dashboard() {
     return params
   }, [selectedClient, selectedDate, selectedMonth])
 
-  const overviewQuery = useQuery({
-    queryKey: ['dashboard-overview-core', dashboardParams],
+  const statsQuery = useQuery({
+    queryKey: ['dashboard-overview-stats', dashboardParams],
     queryFn: async () => {
-      const [stats, activeJobs, upcomingInterviews, hiringMetrics, intelligence] = await Promise.all([
-        api.getDashboardStats(dashboardParams).catch((error) => {
-          console.error('Stats error:', error)
-          return null
-        }),
+      return api.getDashboardStats(dashboardParams).catch((error) => {
+        console.error('Stats error:', error)
+        return null
+      })
+    },
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: false,
+  })
+
+  const detailsQuery = useQuery({
+    queryKey: ['dashboard-overview-details', dashboardParams],
+    enabled: shouldLoadDashboardDetails,
+    queryFn: async () => {
+      const [activeJobs, upcomingInterviews, hiringMetrics, intelligence] = await Promise.all([
         api.getActiveJobs().catch((error) => {
           console.error('Jobs error:', error)
           return []
@@ -193,7 +203,7 @@ export default function Dashboard() {
         }),
       ])
 
-      return { stats, activeJobs, upcomingInterviews, hiringMetrics, intelligence }
+      return { activeJobs, upcomingInterviews, hiringMetrics, intelligence }
     },
     staleTime: 60 * 1000,
     refetchOnWindowFocus: false,
@@ -220,14 +230,14 @@ export default function Dashboard() {
     refetchOnWindowFocus: false,
   })
 
-  const stats = overviewQuery.data?.stats || null
-  const activeJobs = overviewQuery.data?.activeJobs || []
-  const upcomingInterviews = overviewQuery.data?.upcomingInterviews || []
-  const hiringMetrics = overviewQuery.data?.hiringMetrics || null
-  const intelligence = overviewQuery.data?.intelligence || null
+  const stats = statsQuery.data || null
+  const activeJobs = detailsQuery.data?.activeJobs || []
+  const upcomingInterviews = detailsQuery.data?.upcomingInterviews || []
+  const hiringMetrics = detailsQuery.data?.hiringMetrics || null
+  const intelligence = detailsQuery.data?.intelligence || null
   const resumeTrend = deferredAnalyticsQuery.data?.resumeTrend || []
   const interviewTrend = deferredAnalyticsQuery.data?.interviewTrend || []
-  const loading = overviewQuery.isLoading && !overviewQuery.data
+  const loading = statsQuery.isLoading && !statsQuery.data
 
 
   // Force close modal on mount and prevent any stuck state
@@ -238,12 +248,38 @@ export default function Dashboard() {
   }, [])
 
   useEffect(() => {
+    setShouldLoadDashboardDetails(false)
     setShouldLoadDeferredAnalytics(false)
     setLazyCardData(null)
   }, [dashboardParams])
 
   useEffect(() => {
-    if (!overviewQuery.isSuccess) return undefined
+    if (!statsQuery.isSuccess) return undefined
+
+    let cancelled = false
+    const loadDashboardDetails = () => {
+      if (!cancelled) {
+        setShouldLoadDashboardDetails(true)
+      }
+    }
+
+    if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+      const idleId = window.requestIdleCallback(loadDashboardDetails, { timeout: 300 })
+      return () => {
+        cancelled = true
+        window.cancelIdleCallback(idleId)
+      }
+    }
+
+    const timeoutId = window.setTimeout(loadDashboardDetails, 150)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timeoutId)
+    }
+  }, [statsQuery.isSuccess, dashboardParams])
+
+  useEffect(() => {
+    if (!detailsQuery.isSuccess) return undefined
 
     let cancelled = false
     const loadDeferredAnalytics = () => {
@@ -265,7 +301,7 @@ export default function Dashboard() {
       cancelled = true
       window.clearTimeout(timeoutId)
     }
-  }, [overviewQuery.isSuccess, dashboardParams])
+  }, [detailsQuery.isSuccess, dashboardParams])
 
   useEffect(() => {
     if (user?.role === 'admin' && typeof user?.wallet_balance === 'number' && user.wallet_balance <= 10) {

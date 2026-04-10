@@ -31,6 +31,12 @@ export function Header() {
   const [showNotifications, setShowNotifications] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [showSearchResults, setShowSearchResults] = useState(false)
+  const [shouldLoadFilterOptions, setShouldLoadFilterOptions] = useState(() => Boolean(
+    searchParams.get('client') ||
+    searchParams.get('job_id') ||
+    localStorage.getItem(CLIENT_FILTER_STORAGE_KEY) ||
+    localStorage.getItem(JOB_FILTER_STORAGE_KEY),
+  ))
   const [selectedClient, setSelectedClient] = useState(() => (
     searchParams.get('client') ||
     localStorage.getItem(CLIENT_FILTER_STORAGE_KEY) ||
@@ -46,6 +52,7 @@ export function Header() {
 
   const filterOptionsQuery = useQuery({
     queryKey: ['header-filter-options'],
+    enabled: shouldLoadFilterOptions,
     queryFn: async () => {
       const jobsData = await api.getJobs({ limit: 100, offset: 0 })
       const uniqueClients = [...new Set((jobsData || []).map((job) => job.company_name).filter(Boolean))]
@@ -58,6 +65,7 @@ export function Header() {
 
   const notificationsQuery = useQuery({
     queryKey: ['header-notifications'],
+    enabled: showNotifications,
     queryFn: async () => {
       const [candidates, interviews] = await Promise.all([
         api.getCandidates({ limit: 5, offset: 0 }),
@@ -101,7 +109,7 @@ export function Header() {
 
       return notificationList.sort((a, b) => b.unread - a.unread)
     },
-    refetchInterval: 5 * 60 * 1000,
+    refetchInterval: showNotifications ? 5 * 60 * 1000 : false,
   })
 
   const globalSearchQuery = useQuery({
@@ -270,6 +278,12 @@ export function Header() {
     setShowNotifications(false)
   }
 
+  const handleOpenFilterOptions = () => {
+    if (!shouldLoadFilterOptions) {
+      setShouldLoadFilterOptions(true)
+    }
+  }
+
   const getInitials = (name) => {
     return name
       ?.split(' ')
@@ -404,6 +418,8 @@ export function Header() {
           className="h-9 rounded-md border border-input bg-background px-3 text-sm"
           value={selectedClient}
           onChange={(e) => handleClientChange(e.target.value)}
+          onFocus={handleOpenFilterOptions}
+          onPointerDown={handleOpenFilterOptions}
         >
           <option value="">All Clients</option>
           {clients.map((client) => (
@@ -417,6 +433,8 @@ export function Header() {
           className="h-9 max-w-[260px] rounded-md border border-input bg-background px-3 text-sm"
           value={selectedJobId}
           onChange={(e) => handleJobChange(e.target.value)}
+          onFocus={handleOpenFilterOptions}
+          onPointerDown={handleOpenFilterOptions}
         >
           <option value="">All Jobs</option>
           {jobs.map((job) => (
