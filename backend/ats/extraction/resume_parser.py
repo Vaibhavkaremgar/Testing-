@@ -207,6 +207,8 @@ def _is_valid_name_line(line: str) -> bool:
     candidate = _normalize_docx_line(line)
     if not candidate:
         return False
+    if not _normalize_name_candidate(candidate):
+        return False
     if NAME_LINE_DISALLOWED_PATTERN.search(candidate):
         return False
     if EMAIL_PATTERN.search(candidate) or PHONE_LINE_PATTERN.search(candidate):
@@ -698,6 +700,34 @@ def _score_text_quality(text_parts: List[str]) -> float:
     return round(max(score - broken_penalty, 0.0), 3)
 
 
+def _needs_pdf_fallback(text_parts: List[str]) -> bool:
+    lines = [line.strip() for part in text_parts for line in str(part or "").splitlines() if line.strip()]
+    if not lines:
+        return False
+
+    first_section_index = next(
+        (index for index, line in enumerate(lines[:40]) if SECTION_START_PATTERN.match(line)),
+        None,
+    )
+    first_contact_index = next(
+        (index for index, line in enumerate(lines[:40]) if EMAIL_PATTERN.search(line) or PHONE_LINE_PATTERN.search(line)),
+        None,
+    )
+    if (
+        first_section_index is not None
+        and first_contact_index is not None
+        and first_section_index + 2 < first_contact_index
+    ):
+        return True
+
+    if first_contact_index is not None and first_contact_index >= 10:
+        nearby_window = lines[max(0, first_contact_index - 3): first_contact_index + 2]
+        if any(UPPERCASE_NAME_PATTERN.match(line) for line in nearby_window):
+            return True
+
+    return False
+
+
 def _select_best_pdf_text(
     parser_outputs: Dict[str, Dict[str, Any]]
 ) -> Tuple[List[str], str, Dict[str, float], Dict[str, Any]]:
@@ -947,6 +977,7 @@ def extract_document(file_path: str, fast_mode: bool = False) -> Dict[str, Any]:
                 and (
                     not _has_meaningful_text(text_parts)
                     or native_score < 0.45
+                    or _needs_pdf_fallback(text_parts)
                     or bool(layout_signals.get("is_multi_column"))
                 )
             )

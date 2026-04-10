@@ -852,6 +852,49 @@ Teamwork
         self.assertIn("Bright Academy", extracted)
         self.assertNotIn("ri tika sha rma", extracted)
 
+    def test_pdf_parser_falls_back_when_header_contact_block_is_delayed(self):
+        with tempfile.NamedTemporaryFile("wb", suffix=".pdf", delete=False) as handle:
+            handle.write(b"")
+            temp_path = handle.name
+
+        pymupdf_text = [
+            "\n".join(
+                [
+                    "SUMMARY",
+                    "Dec 2022 - Present",
+                    "Cognizant Technology Solutions, Hyderabad",
+                    "Built automation coverage across UI and APIs.",
+                    "BHIMARAJU KOWSHIK",
+                    "Hyderabad | +91 8106148797 | bhimaraju.kowshik@gmail.com",
+                    "QA AUTOMATION ENGINEER",
+                ]
+            )
+        ]
+        pdfplumber_text = [
+            "\n".join(
+                [
+                    "BHIMARAJU KOWSHIK",
+                    "QA AUTOMATION ENGINEER",
+                    "Hyderabad | +91 8106148797 | bhimaraju.kowshik@gmail.com",
+                    "PROFESSIONAL EXPERIENCE",
+                    "Cognizant Technology Solutions, Hyderabad",
+                    "Dec 2022 - Present",
+                    "QA Automation Engineer",
+                ]
+            )
+        ]
+
+        try:
+            with patch("ats.extraction.resume_parser._extract_pdf_text_with_pymupdf", return_value=(pymupdf_text, [])), \
+                 patch("ats.extraction.resume_parser._extract_pdf_text_with_pdfplumber", return_value=(pdfplumber_text, [])), \
+                 patch("ats.extraction.resume_parser._extract_pdf_text_via_ocr", return_value=[]):
+                parsed = parse_resume(temp_path, "bhimaraju_kowshik.pdf")
+        finally:
+            Path(temp_path).unlink(missing_ok=True)
+
+        self.assertEqual(parsed["name"], "Bhimaraju Kowshik")
+        self.assertEqual(parsed["email"], "bhimaraju.kowshik@gmail.com")
+
     def test_pdf_parser_selection_breaks_ties_in_favor_of_pymupdf(self):
         with tempfile.NamedTemporaryFile("wb", suffix=".pdf", delete=False) as handle:
             handle.write(b"")
