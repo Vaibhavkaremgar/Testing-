@@ -221,6 +221,13 @@ export default function Resumes() {
     await refetchResumeData()
   }, [refetchResumeData])
 
+  // Refresh list whenever an upload reaches 'completed'
+  useEffect(() => {
+    if (uploadProgress.status === 'completed') {
+      fetchCandidates()
+    }
+  }, [uploadProgress.status, fetchCandidates])
+
   useEffect(() => {
     if (!uploadProgress.show || !uploadProgress.uploadId || uploadProgress.status === 'completed' || uploadProgress.status === 'error') {
       return
@@ -234,12 +241,10 @@ export default function Resumes() {
           current: progress.current ?? prev.current,
           total: progress.total ?? prev.total,
           status: progress.status || prev.status,
-          message: progress.message || prev.message
+          message: progress.message || prev.message,
         }))
-
         if (progress.status === 'completed' || progress.status === 'error') {
           clearInterval(intervalId)
-          await fetchCandidates()
         }
       } catch (error) {
         console.error('Failed to fetch upload progress:', error)
@@ -247,7 +252,7 @@ export default function Resumes() {
     }, 1500)
 
     return () => clearInterval(intervalId)
-  }, [uploadProgress.show, uploadProgress.uploadId, uploadProgress.status, fetchCandidates])
+  }, [uploadProgress.show, uploadProgress.uploadId, uploadProgress.status])
 
   useEffect(() => { setVisibleCount(20) }, [candidates.length])
 
@@ -410,9 +415,6 @@ export default function Resumes() {
         shouldRefreshCandidates = true
       }
       
-      if (shouldRefreshCandidates) {
-        await fetchCandidates()
-      }
     } catch (error) {
       console.error('Upload failed:', error)
       setError(`Upload failed: ${error.message}`)
@@ -1218,13 +1220,20 @@ export default function Resumes() {
             </div>
             
             <div className="space-y-6">
+              {selectedCandidate.parsing_status === 'processing' && (
+                <div className="flex items-center gap-2 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg text-sm text-yellow-800 dark:text-yellow-200">
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-yellow-600 flex-shrink-0"></div>
+                  <span>Resume is still being analyzed. Details will appear once processing completes — refresh to check.</span>
+                </div>
+              )}
+
               {/* Candidate Info */}
               <div>
                 <h3 className="font-semibold mb-3">Personal Information</h3>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <p className="text-sm text-muted-foreground">Name</p>
-                    <p className="font-medium">{selectedCandidate.name}</p>
+                    <p className="font-medium">{formatCandidateDisplayName(selectedCandidate.name)}</p>
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">Email</p>
