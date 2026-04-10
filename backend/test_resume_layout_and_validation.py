@@ -6,10 +6,24 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from ats.extraction.information_extraction import extract_resume_information  # noqa: E402
 from ats.extraction.layout_detection import infer_layout_signals  # noqa: E402
-from ats.extraction.resume_parser import parse_resume_text  # noqa: E402
+from ats.extraction.resume_parser import _order_pdf_segments, parse_resume_text  # noqa: E402
 
 
 class ResumeLayoutAndValidationTests(unittest.TestCase):
+    def test_block_ordering_keeps_left_column_before_right_column(self):
+        ordered = _order_pdf_segments(
+            [
+                {"text": "Skills\nPython\nDocker", "x0": 340.0, "x1": 520.0, "top": 120.0},
+                {"text": "Ananya Rao", "x0": 40.0, "x1": 220.0, "top": 20.0},
+                {"text": "Experience\nSenior Engineer | Acme Ltd", "x0": 40.0, "x1": 250.0, "top": 90.0},
+                {"text": "ananya.rao@email.com", "x0": 340.0, "x1": 520.0, "top": 10.0},
+            ],
+            595.0,
+        )
+
+        self.assertLess(ordered.find("Ananya Rao"), ordered.find("Skills"))
+        self.assertLess(ordered.find("Experience"), ordered.find("Skills"))
+
     def test_sidebar_layout_is_detected(self):
         text_parts = [
             """

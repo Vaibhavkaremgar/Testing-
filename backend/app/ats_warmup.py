@@ -21,6 +21,7 @@ from ats.extraction.information_extraction import (
     STRICT_EMAIL_PATTERN,
     warm_skill_keyword_processor,
 )
+from ats.extraction.layout_detection import infer_layout_signals
 from ats.extraction.resume_parser import fitz, get_parser_runtime_status
 from ats.extraction.skill_intelligence import get_skill_engine
 from ats.preprocessing.section_segmentation import (
@@ -40,6 +41,7 @@ GLOBAL_MODELS: Dict[str, Any] = {
     "skill_engine": None,
     "skill_keyword_processor": None,
     "entity_extraction": None,
+    "layout_detection": None,
     "parser_vocabulary": None,
     "skill_overlays": None,
     "regex_patterns": {},
@@ -161,6 +163,34 @@ def _warm_parser_config() -> Dict[str, Any]:
     }
 
 
+def _warm_layout_detection() -> Dict[str, Any]:
+    runtime = get_parser_runtime_status()
+    layout_payload: Dict[str, Any] = {
+        "blocks_executed": False,
+        "layout_signals_compiled": False,
+    }
+    if fitz is not None:
+        try:
+            with fitz.open(stream=_DUMMY_PDF_BYTES, filetype="pdf") as document:
+                page = document.load_page(0)
+                blocks = page.get_text("blocks") or []
+                layout_payload["blocks_executed"] = isinstance(blocks, list)
+        except Exception:
+            layout_payload["blocks_executed"] = False
+    sample_layout = infer_layout_signals(
+        text_parts=[
+            "Jane Doe\njane@example.com | +91 9876543210\nSKILLS\nPython\nEXPERIENCE\nEngineer | Acme Ltd"
+        ],
+        page_metrics=[{"width": 595.0, "height": 842.0, "has_multi_column": True, "has_header_block": True}],
+    )
+    layout_payload["layout_signals_compiled"] = bool(sample_layout.get("layout_labels"))
+    GLOBAL_MODELS["layout_detection"] = layout_payload
+    return {
+        "ok": bool(runtime.get("pymupdf_available")) or bool(runtime.get("pdfplumber_available")),
+        "details": layout_payload,
+    }
+
+
 def run_ats_warmup(force: bool = False) -> Dict[str, Any]:
     with _warmup_lock:
         if _warmup_state.get("ready") and not force:
@@ -171,6 +201,7 @@ def run_ats_warmup(force: bool = False) -> Dict[str, Any]:
         warmers = {
             "spacy": _warm_spacy,
             "pdf_stack": _warm_pdf_stack,
+            "layout_detection": _warm_layout_detection,
             "skill_engine": _warm_skill_engine,
             "skill_keywords": _warm_skill_keywords,
             "parser_config": _warm_parser_config,

@@ -528,6 +528,68 @@ def _extract_pdf_page_text(page: pdfplumber.page.Page) -> str:
     return "\n".join(line["text"] for line in ordered_lines)
 
 
+def _order_pdf_segments(segments: List[Dict[str, Any]], page_width: float) -> str:
+    if not segments:
+        return ""
+
+    split = _detect_pdf_column_split(segments, page_width)
+    if split is None:
+        return "\n".join(
+            segment["text"]
+            for segment in sorted(segments, key=lambda item: (item["top"], item["x0"]))
+            if segment.get("text")
+        )
+
+    left_segments = [segment for segment in segments if segment["x0"] < split]
+    right_segments = [segment for segment in segments if segment["x0"] >= split]
+    if not left_segments or not right_segments:
+        return "\n".join(
+            segment["text"]
+            for segment in sorted(segments, key=lambda item: (item["top"], item["x0"]))
+            if segment.get("text")
+        )
+
+    left_first_top = min(segment["top"] for segment in left_segments)
+    header_cutoff = max(0.0, left_first_top - 35.0)
+    header_segments = [segment for segment in right_segments if segment["top"] < header_cutoff]
+    remaining_right_segments = [segment for segment in right_segments if segment["top"] >= header_cutoff]
+    ordered_segments = (
+        sorted(header_segments, key=lambda item: (item["top"], item["x0"]))
+        + sorted(left_segments, key=lambda item: (item["top"], item["x0"]))
+        + sorted(remaining_right_segments, key=lambda item: (item["top"], item["x0"]))
+    )
+    return "\n".join(segment["text"] for segment in ordered_segments if segment.get("text"))
+
+
+def _extract_pymupdf_page_text(page) -> Tuple[str, List[Dict[str, Any]]]:
+    blocks = page.get_text("blocks") or []
+    segments: List[Dict[str, Any]] = []
+    for block in blocks:
+        if len(block) < 5:
+            continue
+        raw_text = str(block[4] or "").strip()
+        if not raw_text:
+            continue
+        segment_text = normalize_common_artifacts(raw_text)
+        segment_text = re.sub(r"\n{2,}", "\n", segment_text)
+        segment_text = "\n".join(line.strip() for line in segment_text.splitlines() if line.strip())
+        if not segment_text:
+            continue
+        segments.append(
+            {
+                "text": segment_text,
+                "x0": float(block[0]),
+                "x1": float(block[2]),
+                "top": float(block[1]),
+            }
+        )
+
+    ordered_text = _order_pdf_segments(segments, float(page.rect.width)) if segments else ""
+    if not ordered_text:
+        ordered_text = (page.get_text("text") or "").strip()
+    return ordered_text, segments
+
+
 def _extract_pdf_text_with_pymupdf(file_path: str) -> Tuple[List[str], List[Dict[str, Any]]]:
     if fitz is None:
         return [], []
@@ -539,19 +601,18 @@ def _extract_pdf_text_with_pymupdf(file_path: str) -> Tuple[List[str], List[Dict
         document = fitz.open(file_path)
         for page_index in range(min(len(document), MAX_RESUME_PAGES)):
             page = document.load_page(page_index)
-            page_text = (page.get_text("text") or "").strip()
+            page_text, segments = _extract_pymupdf_page_text(page)
             if page_text:
                 text_parts.append(page_text)
-            blocks = page.get_text("blocks") or []
-            text_blocks = [block for block in blocks if len(block) >= 5 and str(block[4]).strip()]
+            text_blocks = segments
             upper_header_blocks = [
                 block
                 for block in text_blocks
-                if float(block[1]) <= float(page.rect.height) * 0.22
+                if float(block["top"]) <= float(page.rect.height) * 0.22
             ]
             image_count = len(page.get_images(full=True))
             block_centers = sorted(
-                float((block[0] + block[2]) / 2.0)
+                float((block["x0"] + block["x1"]) / 2.0)
                 for block in text_blocks
             )
             has_multi_column = False
