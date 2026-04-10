@@ -70,6 +70,7 @@ DEFAULT_INVALID_NAME_TOKENS = {
     "engineer", "manager", "analyst", "summary", "profile", "objective", "resume",
     "curriculum", "vitae", "experience", "skills", "education", "project", "projects",
     "email", "phone", "address", "location", "contact", "details", "snapshot", "professional", "job", "name",
+    "portfolio", "linkedin", "github", "gmail",
 }
 DEFAULT_NAME_STOP_TOKENS = {
     "senior", "sr", "junior", "jr", "principal", "staff", "assistant",
@@ -116,6 +117,7 @@ NAME_CREDENTIAL_SUFFIX = re.compile(
     r",?\s*(mba|phd|ph\.d|b\.tech|m\.tech|bca|mca|b\.e|m\.e|cpa|cfa)\s*$",
     re.IGNORECASE
 )
+EXTRA_INVALID_NAME_TOKENS = {"portfolio", "linkedin", "github", "gmail"}
 PROSE_NAME_LEAD_PATTERN = re.compile(
     r"^(?P<name>[A-Z][A-Za-z'`.-]+(?:\s+[A-Z][A-Za-z'`.-]+){1,3})\s+"
     r"(?:is|was|has|worked|works|serves|served|brings|specializes)\b"
@@ -137,6 +139,11 @@ BROKEN_MONTH_PATTERN = re.compile(
 SPLIT_EMAIL_ARTIFACT_PATTERN = re.compile(r"(?i)\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\s+[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
 PDF_PARSER_PREFERENCE = {"pymupdf": 2, "pdfplumber": 1}
 CONFIDENCE_RETRY_THRESHOLD = 0.7
+SKILL_FALLBACK_LABEL_PATTERN = re.compile(
+    r"(?i)\b(?:technical skills?|core skills?|key skills?|primary skills?|professional skills?|"
+    r"tool stack|technology stack|tools(?: and technologies)?|frameworks|databases|platforms|technologies|"
+    r"programming languages?|libraries|cloud|devops|testing tools?)\b"
+)
 
 _parser_config_loader = ParserConfigLoader()
 _parser_vocabulary = _parser_config_loader.load_parser_vocabulary()
@@ -1111,7 +1118,7 @@ def extract_text(file_path: str) -> str:
 
 
 def _normalize_name_candidate(value: str) -> str:
-    candidate = re.sub(r"\s+", " ", (value or "").strip(" ,.-"))
+    candidate = _strip_name_noise_suffix(re.sub(r"\s+", " ", (value or "").strip(" ,.-")))
     if not candidate:
         return ""
     candidate = _strip_trailing_location_from_name(candidate)
@@ -1121,7 +1128,7 @@ def _normalize_name_candidate(value: str) -> str:
     if any(any(char.isdigit() for char in word) for word in words):
         return ""
     lowered_words = [word.lower().strip(".,") for word in words]
-    if any(word in INVALID_NAME_TOKENS for word in lowered_words):
+    if any(word in INVALID_NAME_TOKENS or word in EXTRA_INVALID_NAME_TOKENS for word in lowered_words):
         return ""
     if set(lowered_words) <= {"contact", "details", "information", "resume", "profile", "summary"}:
         return ""
@@ -1150,9 +1157,54 @@ def _normalize_name_candidate(value: str) -> str:
     return " ".join(word if len(word) == 1 else word.title() for word in words)
 
 
+def _normalize_single_token_name_candidate(value: str, *, allow_ambiguous: bool = False) -> str:
+    candidate = _strip_name_noise_suffix(re.sub(r"\s+", " ", (value or "").strip(" ,.-")))
+    if not candidate:
+        return ""
+    if " " in candidate:
+        return ""
+    lowered = candidate.lower()
+    if lowered in INVALID_NAME_TOKENS or lowered in EXTRA_INVALID_NAME_TOKENS or lowered in NAME_STOP_TOKENS:
+        return ""
+    if NAME_COMPANY_PATTERN.search(candidate) or NAME_CONTEXT_ROLE_PATTERN.search(candidate):
+        return ""
+    if not allow_ambiguous and extract_normalized_location(candidate, use_spacy=False):
+        return ""
+    if any(char.isdigit() for char in candidate):
+        return ""
+    if "@" in candidate or PHONE_LINE_PATTERN.search(candidate):
+        return ""
+    if not candidate.replace(".", "").replace("'", "").replace("-", "").isalpha():
+        return ""
+    if not (candidate.isupper() or candidate[:1].isupper()):
+        return ""
+    return candidate.title() if candidate.isupper() else candidate
+
+
+def _normalize_name_candidate_with_optional_single_token(value: str, *, allow_single_token: bool = False) -> str:
+    normalized = _normalize_name_candidate(value)
+    if normalized:
+        return normalized
+    if allow_single_token:
+        return _normalize_single_token_name_candidate(value)
+    return ""
+
+
+def _strip_name_noise_suffix(candidate: str) -> str:
+    compact = re.sub(r"\s+", " ", (candidate or "").strip(" ,.-"))
+    if not compact:
+        return ""
+    tokens = [token for token in compact.split() if token]
+    while tokens and tokens[-1].lower().strip(".,") in EXTRA_INVALID_NAME_TOKENS:
+        tokens.pop()
+    return " ".join(tokens).strip()
+
+
 def _looks_like_trailing_location(suffix: str) -> bool:
     normalized_suffix = re.sub(r"\s+", " ", (suffix or "").strip(" ,.-"))
     if not normalized_suffix:
+        return False
+    if len(normalized_suffix.split()) == 1:
         return False
     if validate_location(normalized_suffix):
         return True
@@ -1350,6 +1402,10 @@ def _extract_name(text: str, original_filename: Optional[str] = None) -> str:
         normalized_first_line_name = _normalize_name_candidate(role_match)
         if normalized_first_line_name:
             return normalized_first_line_name
+        if len(strict_header_lines) > 1 and (EMAIL_PATTERN.search(strict_header_lines[1]) or PHONE_LINE_PATTERN.search(strict_header_lines[1])):
+            single_token_name = _normalize_single_token_name_candidate(role_match, allow_ambiguous=True)
+            if single_token_name:
+                return single_token_name
 
     for line in _header_name_candidates(text)[:2]:
         lowered_line = line.strip().lower()
@@ -1364,13 +1420,25 @@ def _extract_name(text: str, original_filename: Optional[str] = None) -> str:
             continue
         label_match = NAME_LABEL_PATTERN.match(line)
         if label_match:
-            labeled_name = _normalize_name_candidate(label_match.group("value"))
+            labeled_name = _normalize_name_candidate_with_optional_single_token(
+                label_match.group("value"),
+                allow_single_token=True,
+            )
             if labeled_name:
                 return labeled_name
+            single_token_labeled_name = _normalize_single_token_name_candidate(
+                label_match.group("value"),
+                allow_ambiguous=True,
+            )
+            if single_token_labeled_name:
+                return single_token_labeled_name
         prefix_segment = re.split(r"\s+\|\s+|\s+[•·]\s+", line, maxsplit=1)[0].strip()
         normalized = _normalize_name_candidate(prefix_segment)
         if normalized:
             return normalized
+        single_token_prefix_name = _normalize_single_token_name_candidate(prefix_segment, allow_ambiguous=True)
+        if single_token_prefix_name and (EMAIL_PATTERN.search(line) or PHONE_LINE_PATTERN.search(line)):
+            return single_token_prefix_name
         inline_prefix_name = _extract_inline_header_name(prefix_segment)
         if inline_prefix_name:
             return inline_prefix_name
@@ -1425,9 +1493,18 @@ def _extract_name(text: str, original_filename: Optional[str] = None) -> str:
             continue
         label_match = NAME_LABEL_PATTERN.match(line)
         if label_match:
-            labeled_name = _normalize_name_candidate(label_match.group("value"))
+            labeled_name = _normalize_name_candidate_with_optional_single_token(
+                label_match.group("value"),
+                allow_single_token=True,
+            )
             if labeled_name:
                 return labeled_name
+            single_token_labeled_name = _normalize_single_token_name_candidate(
+                label_match.group("value"),
+                allow_ambiguous=True,
+            )
+            if single_token_labeled_name:
+                return single_token_labeled_name
         normalized = _normalize_name_candidate(line)
         if normalized:
             return normalized
@@ -1438,13 +1515,14 @@ def _extract_name(text: str, original_filename: Optional[str] = None) -> str:
 
 
 def _score_name_confidence(name: str) -> float:
-    normalized = _normalize_name_candidate(name)
+    normalized = _normalize_name_candidate(name) or _normalize_single_token_name_candidate(name)
     if not normalized:
         return 0.0
-    score = 0.45
-    if 2 <= len(normalized.split()) <= 4:
+    token_count = len(normalized.split())
+    score = 0.4 if token_count == 1 else 0.45
+    if 1 <= token_count <= 4:
         score += 0.2
-    if not any(token.lower() in INVALID_NAME_TOKENS for token in normalized.split()):
+    if not any(token.lower() in INVALID_NAME_TOKENS or token.lower() in EXTRA_INVALID_NAME_TOKENS for token in normalized.split()):
         score += 0.15
     if not NAME_COMPANY_PATTERN.search(normalized) and not NAME_CONTEXT_ROLE_PATTERN.search(normalized):
         score += 0.2
@@ -1545,10 +1623,10 @@ def _rerun_low_confidence_fields(
 
     if field_confidence.get("skills", 0.0) < CONFIDENCE_RETRY_THRESHOLD:
         explicit_skills_section = str((updated.get("sections", {}) or {}).get("skills") or "").strip()
-        if not explicit_skills_section:
-            pass  # Keep existing skills even without explicit section
         fallback_skill_candidates: List[str] = []
         normalized_corpus = explicit_skills_section.lower()
+        if not normalized_corpus and SKILL_FALLBACK_LABEL_PATTERN.search(str(updated.get("normalized_text") or updated.get("full_text") or "")):
+            normalized_corpus = str(updated.get("normalized_text") or updated.get("full_text") or "").lower()
         for skill in entities.get("skills", []) or []:
             normalized_skill = str(skill).strip().lower()
             if not normalized_skill:
@@ -1667,6 +1745,18 @@ def parse_resume_text(
         experience_text=sections.get("experience", ""),
     )
     stage_timings["spaCy Execution"] = _normalize_timing_ms(spacy_started_at)
+    populated_sections = [name for name, value in sections.items() if str(value or "").strip()]
+    logger.info(
+        "Resume parser diagnostics: raw_text_length=%s normalized_length=%s sections=%s entities=%s",
+        len(raw_text or ""),
+        len(normalized_text or ""),
+        populated_sections,
+        {
+            "persons": len(entities.get("persons") or []),
+            "skills": len(entities.get("skills") or []),
+            "locations": len(entities.get("locations") or []),
+        },
+    )
     raw_name_started_at = time.perf_counter()
     raw_detected_name = _extract_name(normalized_text or raw_text, original_filename)
     extracted_name, split_role = _split_name_and_role(
@@ -1896,7 +1986,7 @@ def parse_resume_text(
 
 def parse_resume(file_path: str, original_filename: Optional[str] = None, fast_mode: bool = False) -> Dict[str, Any]:
     document_payload = extract_document(file_path, fast_mode=fast_mode)
-    raw_text = str(document_payload.get("text") or "")[:5000]
+    raw_text = str(document_payload.get("text") or "")
     layout_signals = document_payload.get("layout") or _default_layout_signals()
     parsed_resume = parse_resume_text(raw_text, original_filename=original_filename, layout_signals=layout_signals)
     parsed_resume["document_tables"] = document_payload.get("tables") or []

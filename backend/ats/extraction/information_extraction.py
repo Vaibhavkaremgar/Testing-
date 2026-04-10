@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 STRICT_EMAIL_PATTERN = re.compile(r"(?i)(?P<email>[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,})(?=$|[\s,;:|)\]>])")
 ROBUST_EMAIL_PATTERN = re.compile(r"[a-zA-Z0-9._%+-]+\s*@\s*[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}")
 RELAXED_EMAIL_PATTERN = re.compile(r"[a-zA-Z0-9._%+-]+\s*@\s*[a-zA-Z0-9,._-]+\.[a-zA-Z]{2,}")
+STRONG_EMAIL_PATTERN = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[a-z]{2,}", re.IGNORECASE)
 EMAIL_COMMON_TLDS = (
     ".com", ".org", ".net", ".edu", ".gov", ".co", ".io", ".ai", ".in", ".uk", ".us", ".de", ".fr", ".au",
 )
@@ -367,6 +368,11 @@ SKILL_SECTION_BREAK_PATTERN = re.compile(
     r"projects?|education|certifications?|achievements?|awards?|languages?|references?|internship|job objective|objective)$"
 )
 SOFT_SKILLS_HEADER_PATTERN = re.compile(r"(?i)^soft skills?$")
+SKILL_FALLBACK_LINE_PATTERN = re.compile(
+    r"(?i)\b(?:technical skills?|core skills?|key skills?|primary skills?|professional skills?|"
+    r"tool stack|technology stack|tools(?: and technologies)?|frameworks|databases|platforms|technologies|"
+    r"programming languages?|libraries|cloud|devops|testing tools?)\b"
+)
 PERSON_NAME_BLOCKLIST = {
     "management", "planning", "development", "assessment", "communication", "pedagogy",
     "teaching", "analysis", "analytics", "framework", "testing", "learning", "vision",
@@ -419,6 +425,43 @@ def _sanitize_skill_section(section_text: str) -> str:
         sanitized_lines.append(line)
         previous_kept = line
     return "\n".join(sanitized_lines)
+
+
+def _extract_skill_fallback_text(text: str) -> str:
+    if not text:
+        return ""
+
+    normalized_lines = [line.strip() for line in normalize_document_structure(text).splitlines() if line.strip()]
+    fallback_lines: List[str] = []
+    capture_remaining = 0
+
+    for line in normalized_lines[:120]:
+        cleaned_line = line.strip(" -*\t")
+        if not cleaned_line:
+            capture_remaining = 0
+            continue
+        if SECTION_START_PATTERN.match(cleaned_line) and not SKILL_FALLBACK_LINE_PATTERN.search(cleaned_line):
+            capture_remaining = 0
+            continue
+        if DATE_RANGE_REGEX.search(cleaned_line):
+            capture_remaining = 0
+            continue
+
+        explicit_skill_label = SKILL_FALLBACK_LINE_PATTERN.search(cleaned_line) or SKILL_CHUNK_LEADIN_PATTERN.match(cleaned_line)
+        if explicit_skill_label:
+            fallback_lines.append(cleaned_line)
+            capture_remaining = 3
+            continue
+
+        if capture_remaining > 0:
+            if ROLE_TITLE_LINE_PATTERN.match(cleaned_line) or _looks_like_person_name_line(cleaned_line):
+                capture_remaining = 0
+                continue
+            fallback_lines.append(cleaned_line)
+            capture_remaining -= 1
+            continue
+
+    return _sanitize_skill_section("\n".join(fallback_lines))
 
 
 def _looks_like_person_name_line(value: str) -> bool:
@@ -1058,40 +1101,39 @@ def extract_email(text: str) -> str:
     )
     normalized_text = normalized_text.replace("mailto:", " ").replace("MAILTO:", " ")
     normalized_text = re.sub(r"([A-Za-z0-9._%+-]+)\s*@\s*([A-Za-z0-9,._-]+\.[A-Za-z]{2,6})", lambda m: f"{m.group(1)}@{m.group(2).replace(',', '')}", normalized_text)
-    relaxed_match = RELAXED_EMAIL_PATTERN.search(normalized_text)
-    if relaxed_match:
-        email = _clean_email_candidate(relaxed_match.group(0))
-        if "@" in email:
-            logger.debug("Email extracted with relaxed pattern: %s", email)
-            return email
-    match = ROBUST_EMAIL_PATTERN.search(normalized_text)
-    if match:
-        email = _clean_email_candidate(match.group(0))
-        logger.debug("Email extracted with robust pattern: %s", email)
-        return email
-    match = STRICT_EMAIL_PATTERN.search(normalized_text)
-    if match:
-        email = _clean_email_candidate(match.group("email"))
-        logger.debug("Email extracted with strict pattern: %s", email)
-        return email
     compact_text = normalized_text.replace("(at)", "@").replace("[at]", "@").replace(" at ", "@")
     compact_text = compact_text.replace("(dot)", ".").replace("[dot]", ".").replace(" dot ", ".")
-    relaxed_match = RELAXED_EMAIL_PATTERN.search(compact_text)
-    if relaxed_match:
-        email = _clean_email_candidate(relaxed_match.group(0))
-        if "@" in email:
-            logger.debug("Email extracted after relaxed artifact cleanup: %s", email)
+    candidates: List[str] = []
+    seen_candidates: set[str] = set()
+    for source_text, source_label in (
+        (normalized_text, "normalized"),
+        (compact_text, "compact"),
+    ):
+        for pattern, label in (
+            (STRONG_EMAIL_PATTERN, "strong"),
+            (RELAXED_EMAIL_PATTERN, "relaxed"),
+            (ROBUST_EMAIL_PATTERN, "robust"),
+            (STRICT_EMAIL_PATTERN, "strict"),
+        ):
+            for match in pattern.finditer(source_text):
+                raw_value = match.group("email") if "email" in match.groupdict() else match.group(0)
+                email = _clean_email_candidate(raw_value)
+                if not email or "@" not in email:
+                    continue
+                lowered = email.lower()
+                if lowered in seen_candidates:
+                    continue
+                seen_candidates.add(lowered)
+                candidates.append(email)
+                logger.debug("Email regex match (%s/%s): %s", source_label, label, email)
+
+    for email in candidates:
+        if STRONG_EMAIL_PATTERN.fullmatch(email):
+            logger.debug("Email extracted from strong candidate list: %s", email)
             return email
-    match = ROBUST_EMAIL_PATTERN.search(compact_text)
-    if match:
-        email = _clean_email_candidate(match.group(0))
-        logger.debug("Email extracted after artifact cleanup: %s", email)
-        return email
-    match = STRICT_EMAIL_PATTERN.search(compact_text)
-    if match:
-        email = _clean_email_candidate(match.group("email"))
-        logger.debug("Email extracted after strict artifact cleanup: %s", email)
-        return email
+    if candidates:
+        logger.debug("Email extracted from fallback candidate list: %s", candidates[0])
+        return candidates[0]
     return ""
 
 
@@ -1865,13 +1907,22 @@ def extract_resume_information(text: str) -> Dict:
     
     structural_source = normalize_document_structure(text or "")
     raw_sections = segment_resume_sections(structural_source)
+    explicit_education_header = re.search(
+        r"(?im)^\s*(?:education|academic background|academic profile|academic qualifications?|qualification|qualifications|education details)\s*$",
+        structural_source,
+    )
+    if not explicit_education_header:
+        raw_sections["education"] = ""
     header_section = raw_sections.get("header", "") or sections.get("header", "")
     contact_section = raw_sections.get("contact", "") or sections.get("contact", "")
     skills_section = _sanitize_skill_section(raw_sections.get("skills", "") or sections.get("skills", ""))
+    skill_fallback_text = ""
     experience_section = raw_sections.get("experience", "") or sections.get("experience", "")
     if not experience_section.strip():
         experience_section = _infer_unstructured_experience_section(structural_text)
-    education_section = raw_sections.get("education", "") or sections.get("education", "")
+    education_section = raw_sections.get("education", "")
+    if not education_section.strip() and explicit_education_header:
+        education_section = sections.get("education", "")
     projects_section = raw_sections.get("projects", "") or sections.get("projects", "")
     certifications_section = raw_sections.get("certifications", "") or sections.get("certifications", "")
     contact_context = _build_contact_context(header_section, contact_section)
@@ -1895,7 +1946,13 @@ def extract_resume_information(text: str) -> Dict:
         skills = future_skills.result()
     debug_timings["parallel_extraction_ms"] = round((time.perf_counter() - parallel_started_at) * 1000.0, 2)
     debug_timings["name_extraction_ms"] = debug_timings["parallel_extraction_ms"]
-    skills = _unique_in_order(skills) if skills_section.strip() else []
+    skills = _unique_in_order(skills)
+    if not skills:
+        skill_fallback_text = _extract_skill_fallback_text(
+            "\n".join(filter(None, [header_section, contact_section, sections.get("summary", ""), cleaned_text]))
+        )
+        if skill_fallback_text and skill_fallback_text != skills_section:
+            skills = _unique_in_order(extract_skill_keywords(skill_fallback_text, skill_fallback_text))
     debug_timings["skill_extraction_ms"] = debug_timings["parallel_extraction_ms"]
     
     experience_started_at = time.perf_counter()
@@ -2009,12 +2066,20 @@ def extract_resume_information(text: str) -> Dict:
         location,
         total_experience_years,
     )
-    skills_source_text = skills_section if skills_section.strip() else ""
+    populated_sections = [name for name, value in sections.items() if str(value or "").strip()]
+    logger.info(
+        "Resume extraction diagnostics: raw_text_length=%s sections=%s skill_fallback=%s email_found=%s",
+        len(text or ""),
+        populated_sections,
+        bool(skill_fallback_text.strip()),
+        bool(primary_email),
+    )
+    skills_source_text = skills_section if skills_section.strip() else skill_fallback_text
     skills = _finalize_skills(
         skills,
         skills_source_text,
         "\n".join(filter(None, [header_section, contact_section, location])),
-        from_section=bool(skills_section.strip()),
+        from_section=bool(skills_source_text.strip()),
         name_text=primary_name,
         education_entries=extract_education_entries(cleaned_text, education_section),
         header_text=header_section,
@@ -2034,7 +2099,7 @@ def extract_resume_information(text: str) -> Dict:
         "phone": primary_phone or "",
         "experience": experience_entries,
         "projects": extract_project_entries(cleaned_text, projects_section),
-        "education": extract_education_entries(cleaned_text, education_section),
+        "education": extract_education_entries(cleaned_text, education_section if education_section.strip() else " "),
         "certifications": extract_certification_entries(cleaned_text, certifications_section),
         "location": location or "",
         "current_company": current_entry.get("company"),

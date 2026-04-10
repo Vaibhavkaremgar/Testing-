@@ -1339,6 +1339,57 @@ gmail.com
 
         self.assertEqual(parsed["email"], "aneeshrudravaram@gmail.com")
 
+    def test_first_valid_email_is_selected_when_multiple_candidates_exist(self):
+        resume_text = """
+Rahul Candidate
+Primary Email: rahul.candidate@example.com | Alternate: rahul.alt@example.org
+Phone: +91 9876543210
+        """
+
+        parsed = self._parse_resume_text(resume_text, "rahul_candidate.txt")
+
+        self.assertEqual(parsed["email"], "rahul.candidate@example.com")
+
+    def test_skill_fallback_extracts_labeled_technology_lines_without_skills_section(self):
+        resume_text = """
+Maya Thomas
+Austin, Texas | maya.thomas.engineer@gmail.com
+
+Technologies: Python, FastAPI, PostgreSQL, Docker
+Cloud: AWS, Terraform
+
+Professional Experience
+Principal Backend Engineer | Acme Cloud Systems
+2023/01 - Present
+Built backend services for hiring workflows.
+        """
+
+        result = extract_resume_information(resume_text)
+
+        self.assertIn("python", result["skills"])
+        self.assertIn("fastapi", result["skills"])
+        self.assertIn("docker", result["skills"])
+        self.assertIn("aws", result["skills"])
+
+    def test_parse_resume_keeps_late_skills_section_beyond_initial_text_window(self):
+        filler = "Experience summary line. " * 320
+        resume_text = f"""
+Late Skills Candidate
+late.skills@example.com
+
+Summary
+{filler}
+
+Skills
+Python, FastAPI, Docker
+        """
+
+        parsed = self._parse_resume_text(resume_text, "late_skills_candidate.txt")
+
+        self.assertIn("python", parsed["skills"])
+        self.assertIn("fastapi", parsed["skills"])
+        self.assertIn("docker", parsed["skills"])
+
     def test_current_role_is_trimmed_without_company_and_location_suffix(self):
         resume_text = """
 Rhea Kapoor

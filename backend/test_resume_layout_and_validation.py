@@ -112,6 +112,31 @@ Built a data mining pipeline SaaS for real estate arbitrage.
 
         self.assertEqual(result["name"], "Tashrif Apon")
 
+    def test_name_label_supports_single_token_names(self):
+        resume_text = """
+Name: Praveen
+Email: p@example.com
+
+EXPERIENCE
+Developer | ABC Ltd | 2021 - Present
+        """
+
+        result = parse_resume_text(resume_text)
+
+        self.assertEqual(result["name"], "Praveen")
+
+    def test_header_name_strips_portfolio_suffix_noise(self):
+        resume_text = """
+Akhil Portfolio | akhil@gmail.com | GitHub | Bengaluru
+
+EXPERIENCE
+Software Engineer | Acme Ltd | 2022 - Present
+        """
+
+        result = parse_resume_text(resume_text)
+
+        self.assertEqual(result["name"], "Akhil")
+
     def test_multi_column_resume_keeps_experience_structure(self):
         resume_text = """
 Ananya Rao

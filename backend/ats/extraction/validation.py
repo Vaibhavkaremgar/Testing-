@@ -16,6 +16,11 @@ LOCATION_CANDIDATE_PATTERN = re.compile(
 )
 EMAIL_PATTERN = re.compile(r"(?i)^[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$")
 NAME_PATTERN = re.compile(r"^[A-Z][A-Za-z'`.-]*(?:\s+[A-Z][A-Za-z'`.-]*){1,3}$")
+SINGLE_TOKEN_NAME_PATTERN = re.compile(r"^[A-Z][A-Za-z'`.-]+$")
+INVALID_NAME_WORDS = {
+    "contact", "profile", "summary", "skills", "experience", "education", "certifications",
+    "portfolio", "linkedin", "github", "gmail",
+}
 INVALID_LOCATION_TOKENS = {"contact", "profile", "summary", "skills", "experience", "education", "certifications"}
 INVALID_LOCATION_WORDS = {
     "job",
@@ -194,13 +199,11 @@ def validate_name(
     current_role: Optional[str] = None,
 ) -> str:
     candidate = _normalize(value)
-    if not candidate or not NAME_PATTERN.match(candidate):
+    if not candidate or not (NAME_PATTERN.match(candidate) or SINGLE_TOKEN_NAME_PATTERN.match(candidate)):
         return ""
+    is_single_token = " " not in candidate
     lowered = candidate.lower()
-    invalid_tokens = {
-        "contact", "profile", "summary", "skills", "experience", "education", "certifications",
-    }
-    if any(token in invalid_tokens for token in lowered.split()):
+    if any(token in INVALID_NAME_WORDS for token in lowered.split()):
         return ""
     if ROLE_HINT_PATTERN.search(candidate):
         return ""
@@ -216,7 +219,7 @@ def validate_name(
     }
     if lowered in blocked_values:
         return ""
-    if validate_location(candidate):
+    if not is_single_token and validate_location(candidate):
         return ""
     return candidate
 
@@ -320,10 +323,11 @@ def _score_name_confidence(value: Optional[str]) -> float:
     candidate = _normalize(value)
     if not candidate:
         return 0.0
-    score = 0.45
-    if 2 <= len(candidate.split()) <= 4:
+    token_count = len(candidate.split())
+    score = 0.4 if token_count == 1 else 0.45
+    if 1 <= token_count <= 4:
         score += 0.2
-    if NAME_PATTERN.match(candidate):
+    if NAME_PATTERN.match(candidate) or SINGLE_TOKEN_NAME_PATTERN.match(candidate):
         score += 0.2
     if not COMPANY_PATTERN.search(candidate) and not ROLE_HINT_PATTERN.search(candidate):
         score += 0.15
