@@ -35,10 +35,11 @@ def _resolve_user_snapshot(current_user: User) -> SimpleNamespace:
 
 
 def _serialize_candidate(candidate: Candidate):
+    from app.routes.candidates import _compute_field_confidence
     return build_safe_candidate_response(
         {
             "id": candidate.id,
-            "name": candidate.name,
+            "name": candidate.name or "",
             "email": sanitize_candidate_email(candidate.email),
             "phone": candidate.phone,
             "current_company": candidate.current_company,

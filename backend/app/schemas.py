@@ -127,7 +127,7 @@ class JobDescriptionResponse(JobDescriptionBase):
 
 # Candidate Schemas
 class CandidateBase(BaseModel):
-    name: str
+    name: Optional[str] = None
     email: Optional[EmailStr] = None
     phone: Optional[str] = None
     current_company: Optional[str] = None
