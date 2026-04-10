@@ -370,6 +370,65 @@ Led automation initiatives across release trains.
         self.assertEqual(result["name"], "A K Reddy")
         self.assertEqual(result["current_company"], "Nova Systems Ltd")
 
+    def test_first_line_name_and_third_line_role_are_extracted_separately(self):
+        resume_text = """
+John Doe
+john.doe@example.com | +91 99887 66554
+Senior QA Automation Engineer
+
+Work Experience
+QA Automation Engineer
+Acme Systems Ltd
+Dec 2022 - Present
+        """
+
+        parsed = self._parse_resume_text(resume_text, "john_doe.txt")
+        result = extract_resume_information(resume_text)
+
+        self.assertEqual(parsed["name"], "John Doe")
+        self.assertEqual(result["current_role"], "QA Automation Engineer")
+        self.assertEqual(result["header_role"], "Senior QA Automation Engineer")
+
+    def test_first_line_name_with_attached_role_is_split(self):
+        resume_text = """
+John Doe Senior Developer
+john.doe@example.com | +91 99887 66554
+Hyderabad, Telangana
+
+Work Experience
+Senior Developer
+Acme Systems Ltd
+Jan 2023 - Current
+        """
+
+        parsed = self._parse_resume_text(resume_text, "john_doe_senior_dev.txt")
+        result = extract_resume_information(resume_text)
+
+        self.assertEqual(parsed["name"], "John Doe")
+        self.assertEqual(parsed["current_role"], "Senior Developer")
+        self.assertEqual(result["current_role"], "Senior Developer")
+
+    def test_present_and_current_month_ranges_calculate_experience(self):
+        resume_text = """
+Rahul Sharma
+rahul.sharma@example.com | +91 99887 66554
+Backend Engineer
+
+Work Experience
+Backend Engineer
+Acme Systems Ltd
+Dec 2022 - Present
+
+Software Engineer
+Nova Labs
+Jan 2023 - Current
+        """
+
+        parsed = self._parse_resume_text(resume_text, "rahul_sharma.txt")
+
+        self.assertGreater(parsed["total_experience_years"], 2.0)
+        self.assertEqual(len(parsed["experience"]), 2)
+
     def test_technical_skills_section_keeps_real_skills_and_drops_noise(self):
         resume_text = """
 Karan Shah

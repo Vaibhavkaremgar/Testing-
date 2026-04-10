@@ -363,6 +363,7 @@ export default function Resumes() {
     })
     
     try {
+      let shouldRefreshCandidates = false
       
       if (uploadType === 'zip') {
         console.log('ZIP file upload')
@@ -378,6 +379,7 @@ export default function Resumes() {
           uploadId: result.upload_id,
           message: result.message || `Queued ${queuedCount} resumes for screening`
         })
+        shouldRefreshCandidates = true
       } else if (files.length === 1) {
         console.log('Single file upload')
         const result = await api.uploadResume(files[0], jobId, threshold)
@@ -390,6 +392,7 @@ export default function Resumes() {
           uploadId: result.upload_id,
           message: result.message || 'Resume queued for analysis'
         })
+        shouldRefreshCandidates = true
       } else {
         console.log('Bulk file upload')
         setUploadProgress({ show: true, current: 0, total: files.length, status: 'uploading', message: 'Uploading resumes...' })
@@ -404,9 +407,10 @@ export default function Resumes() {
           uploadId: result.upload_id,
           message: result.message || `Queued ${queuedCount} resumes for screening`
         })
+        shouldRefreshCandidates = true
       }
       
-      if (uploadType !== 'zip' && files.length > 1) {
+      if (shouldRefreshCandidates) {
         await fetchCandidates()
       }
     } catch (error) {

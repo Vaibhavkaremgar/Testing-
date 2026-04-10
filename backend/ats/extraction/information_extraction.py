@@ -89,6 +89,9 @@ ADDRESS_LABEL_PATTERN = re.compile(r"(?i)\baddress\b\s*[:\-]?\s*(?P<value>.+)")
 EXPLICIT_TOTAL_EXPERIENCE_PATTERN = re.compile(
     r"(?i)\b(?P<years>\d+(?:\.\d+)?)\s+years?(?:\s+(?:and|&)\s+(?P<months>\d+)\s+months?)?\s+of\s+experience\b"
 )
+HEADER_ROLE_STOP_PATTERN = re.compile(
+    r"(?i)\b(?:engineer|developer|manager|analyst|consultant|architect|lead|intern|qa|automation)\b"
+)
 UNSTRUCTURED_EXPERIENCE_STOP_PATTERN = re.compile(
     r"(?i)^(?:education|academic background|qualification|qualifications|projects?|certifications?|skills|technical skills|key skills|core skills|summary|profile|publications|achievements|awards|references)$"
 )
@@ -625,6 +628,10 @@ def normalize_skill_name(skill: str) -> str:
 def extract_name(text: str, use_spacy: bool = True) -> str:
     if not text:
         return ""
+
+    strict_name, _ = _extract_name_and_role_from_first_line(text)
+    if strict_name:
+        return strict_name
 
     lines = _clean_header_lines(text, limit=12)
     first_five_lines = lines[:5]
@@ -1573,6 +1580,71 @@ def _build_contact_context(*parts: str) -> str:
     return "\n".join(ordered_lines)
 
 
+def _get_header_contact_role_lines(text: str) -> tuple[str, str, str]:
+    lines = [line.strip() for line in normalize_document_structure(text or "").splitlines() if line.strip()]
+    return (
+        lines[0] if len(lines) > 0 else "",
+        lines[1] if len(lines) > 1 else "",
+        lines[2] if len(lines) > 2 else "",
+    )
+
+
+def _normalize_header_role_line(value: str) -> str:
+    candidate = clean_text_pipeline(value or "").strip(" ,|-")
+    if not candidate:
+        return ""
+    candidate = re.sub(r"(?i)^(?:role|designation|title)\s*[:\-]\s*", "", candidate).strip()
+    if SECTION_START_PATTERN.match(candidate):
+        return ""
+    if EMAIL_PATTERN.search(candidate) or any(pattern.search(candidate) for pattern in PHONE_PATTERNS):
+        return ""
+    if validate_location(candidate):
+        return ""
+    if ROLE_TITLE_LINE_PATTERN.match(candidate):
+        return candidate
+    words = candidate.split()
+    if 2 <= len(words) <= 6 and HEADER_ROLE_STOP_PATTERN.search(candidate):
+        return candidate
+    return ""
+
+
+def _extract_name_and_role_from_first_line(text: str) -> tuple[str, str]:
+    name_line, _, role_line = _get_header_contact_role_lines(text)
+    if not name_line:
+        return "", _normalize_header_role_line(role_line)
+
+    candidate = clean_text_pipeline(name_line).strip()
+    candidate = re.sub(r"(?i)^(?:name)\s*[:\-]\s*", "", candidate).strip()
+    candidate = re.split(r"\s+\|\s+|\s+[Â·â€¢]\s+|, (?=\+?\d|[A-Za-z0-9._%+-]+@)", candidate, maxsplit=1)[0].strip()
+    if not candidate:
+        return "", _normalize_header_role_line(role_line)
+
+    extracted_role = _normalize_header_role_line(role_line)
+    role_match = HEADER_ROLE_STOP_PATTERN.search(candidate)
+    if role_match:
+        extracted_role = extracted_role or _normalize_header_role_line(candidate[role_match.start():])
+        candidate = candidate[:role_match.start()].strip(" ,|-")
+        candidate = re.sub(r"(?i)\b(?:senior|sr|junior|jr|lead|principal|staff|associate|assistant)\b\s*$", "", candidate).strip()
+
+    normalized_name = " ".join(part.capitalize() if len(part) > 1 else part.upper() for part in candidate.split())
+    lowered_name = normalized_name.lower()
+    if (
+        not normalized_name
+        or any(term in lowered_name for term in NAME_IGNORE_TERMS)
+        or NAME_COMPANY_PATTERN.search(normalized_name)
+        or validate_location(normalized_name)
+        or any(char.isdigit() for char in normalized_name)
+    ):
+        normalized_name = ""
+    else:
+        words = normalized_name.split()
+        if not (2 <= len(words) <= 4):
+            normalized_name = ""
+        elif not all(re.match(r"^[A-Z][A-Za-z'`.-]*$", word) for word in words):
+            normalized_name = ""
+    return normalized_name or "", extracted_role or ""
+
+
 def _infer_unstructured_experience_section(text: str) -> str:
     lines = [line.strip() for line in normalize_document_structure(text or "").splitlines() if line.strip()]
     if not lines:
@@ -1792,11 +1864,14 @@ def extract_resume_information(text: str) -> Dict:
     projects_section = raw_sections.get("projects", "") or sections.get("projects", "")
     certifications_section = raw_sections.get("certifications", "") or sections.get("certifications", "")
     contact_context = _build_contact_context(header_section, contact_section)
+    _, header_contact_line, header_role_line = _get_header_contact_role_lines(contact_context or cleaned_text)
+    _, header_role_from_name_line = _extract_name_and_role_from_first_line(contact_context or cleaned_text)
+    header_role = header_role_from_name_line or _normalize_header_role_line(header_role_line)
     parallel_started_at = time.perf_counter()
     with ThreadPoolExecutor(max_workers=5) as executor:
         future_name = executor.submit(extract_name, contact_context or cleaned_text, False)
-        future_email = executor.submit(extract_email, contact_context or cleaned_text)
-        future_phone = executor.submit(extract_phone, contact_context or cleaned_text)
+        future_email = executor.submit(extract_email, header_contact_line or contact_context or cleaned_text)
+        future_phone = executor.submit(extract_phone, header_contact_line or contact_context or cleaned_text)
         future_experience = executor.submit(
             extract_total_experience,
             f"Experience\n{experience_section}" if experience_section.strip() else "",
@@ -1964,8 +2039,9 @@ def extract_resume_information(text: str) -> Dict:
         "certifications": extract_certification_entries(cleaned_text, certifications_section),
         "location": location or "",
         "current_company": current_entry.get("company"),
-        "current_role": current_entry.get("role") or None,
-        "designation": current_entry.get("role") or None,
+        "current_role": current_entry.get("role") or header_role or None,
+        "designation": current_entry.get("role") or header_role or None,
+        "header_role": header_role or None,
         "experience_years": total_experience_years,
         "total_experience_years": total_experience_years,
         "total_experience_months": total_experience_months,

@@ -84,10 +84,10 @@ DEFAULT_NAME_STOP_TOKENS = {
     "location", "email", "phone", "mobile", "linkedin", "github",
 }
 ROLE_KEYWORD_PATTERN = re.compile(
-    r"(?i)\b(engineer|developer|manager|analyst|consultant|architect|lead|intern)\b"
+    r"(?i)\b(engineer|developer|manager|analyst|consultant|architect|lead|intern|qa|automation|backend|frontend|tester|specialist)\b"
 )
 NAME_ROLE_SPLIT_PATTERN = re.compile(
-    r"(?i)^(?P<name>[A-Z][A-Za-z'`.-]+(?:\s+[A-Z][A-Za-z'`.-]+){1,3})[\s,|/-]+(?P<role>.*?\b(?:engineer|developer|manager|analyst|consultant|architect|lead|intern)\b.*)$"
+    r"(?i)^(?P<name>[A-Z][A-Za-z'`.-]+(?:\s+[A-Z][A-Za-z'`.-]+){1,3})[\s,|/-]+(?P<role>.*?\b(?:engineer|developer|manager|analyst|consultant|architect|lead|intern|qa|automation|backend|frontend|tester|specialist)\b.*)$"
 )
 HEADER_NAME_SPLIT_PATTERN = re.compile(r"\s+[|,/-]\s+|\s{2,}")
 INLINE_CONTACT_PATTERN = re.compile(
@@ -1239,6 +1239,18 @@ def _extract_name_with_spacy(text: str) -> str:
 
 
 def _extract_name(text: str, original_filename: Optional[str] = None) -> str:
+    strict_header_lines = [line.strip() for line in normalize_document_structure(text or "").splitlines() if line.strip()][:3]
+    if strict_header_lines:
+        first_line = re.sub(r"(?i)^(?:name)\s*[:\-]\s*", "", strict_header_lines[0]).strip()
+        role_match = HEADER_NAME_SPLIT_PATTERN.split(first_line)[0].strip() if first_line else ""
+        role_stop_match = re.search(r"(?i)\b(?:engineer|developer|manager|analyst|consultant|architect|lead|intern|qa|automation|backend|frontend|tester|specialist)\b", role_match)
+        if role_stop_match:
+            role_match = role_match[:role_stop_match.start()].strip(" ,|-")
+            role_match = re.sub(r"(?i)\b(?:senior|sr|junior|jr|lead|principal|staff|associate|assistant)\b\s*$", "", role_match).strip()
+        normalized_first_line_name = _normalize_name_candidate(role_match)
+        if normalized_first_line_name:
+            return normalized_first_line_name
+
     for line in _header_name_candidates(text)[:2]:
         lowered_line = line.strip().lower()
         if lowered_line in {"contact details", "contact information"}:
@@ -1354,6 +1366,22 @@ def _score_skill_confidence(skills: List[str], entities: Dict[str, Any], from_ex
 
 def _confidence_to_percent(value: float) -> int:
     return int(round(max(0.0, min(1.0, value)) * 100))
+
+
+def _score_role_confidence(role: str) -> float:
+    if not role:
+        return 0.0
+    score = 0.35
+    role_pattern = re.compile(
+        r"(?i)\b(engineer|developer|manager|analyst|consultant|architect|lead|intern|qa|automation|backend|frontend|tester|specialist)\b"
+    )
+    if role_pattern.search(role):
+        score += 0.4
+    if 2 <= len(role.split()) <= 6:
+        score += 0.15
+    if not any(char.isdigit() for char in role):
+        score += 0.1
+    return round(min(score, 1.0), 2)
 
 
 def _score_location_confidence(location: str) -> float:
@@ -1628,6 +1656,8 @@ def parse_resume_text(
             "name": 0.0,
             "email": 0.0,
             "phone": 0.0,
+            "location": 0.0,
+            "role": 0.0,
             "experience": extracted_info.get("experience_extraction_confidence", 0.0),
         },
     }
@@ -1646,6 +1676,7 @@ def parse_resume_text(
         entities,
         bool(sections.get("skills", "").strip()),
     )
+    result["field_confidence"]["role"] = _score_role_confidence(result.get("current_role") or "")
     if not result.get("experience_entries") and result.get("total_experience_years") is None:
         result["field_confidence"]["experience"] = 1.0
     if any(score < CONFIDENCE_RETRY_THRESHOLD for score in result["field_confidence"].values()):
@@ -1670,6 +1701,7 @@ def parse_resume_text(
             entities,
             bool(sections.get("skills", "").strip()),
         )
+        result["field_confidence"]["role"] = _score_role_confidence(result.get("current_role") or "")
         if not result.get("experience_entries") and result.get("total_experience_years") is None:
             result["field_confidence"]["experience"] = 1.0
     result["confidence"] = {
@@ -1684,6 +1716,15 @@ def parse_resume_text(
         ),
         "all_fields_above_80": all(value >= 80 for value in result["confidence"].values()),
     }
+    result["display_fields"] = {
+        field: value
+        for field, value in result["final_output"].items()
+        if result["confidence"].get(field, 100) >= 60
+    }
+    result["hidden_fields"] = [
+        field for field in result["final_output"]
+        if result["confidence"].get(field, 100) < 60
+    ]
     result["final_output"] = {
         "name": result.get("name") or "",
         "email": result.get("email") or "",
