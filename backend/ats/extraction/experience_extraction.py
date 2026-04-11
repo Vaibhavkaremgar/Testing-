@@ -17,9 +17,9 @@ logger = logging.getLogger(__name__)
 MONTH_PATTERN = r"(?:jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)"
 PRESENT_PATTERN = r"(?:present|current|currently|now|today|ongoing|till date|till now|till-date|tilldate)"
 DATE_TOKEN_PATTERN = (
-    rf"(?:{MONTH_PATTERN}[.\-/\s,']+\d{{2,4}}"
-    rf"|\d{{1,2}}[.\-/\s](?:{MONTH_PATTERN})[.\-/\s,']+\d{{2,4}}"
-    rf"|(?:{MONTH_PATTERN})[.\-/\s,']+\d{{1,2}}(?:st|nd|rd|th)?[,\s.\-/]+\d{{2,4}}"
+    rf"(?:{MONTH_PATTERN}[.\-/\s,'’]+\d{{2,4}}"
+    rf"|\d{{1,2}}[.\-/\s](?:{MONTH_PATTERN})[.\-/\s,'’]+\d{{2,4}}"
+    rf"|(?:{MONTH_PATTERN})[.\-/\s,'’]+\d{{1,2}}(?:st|nd|rd|th)?[,\s.\-/]+\d{{2,4}}"
     rf"|\d{{1,2}}[/-]\d{{1,2}}[/-]\d{{2,4}}"
     rf"|\d{{1,2}}[/-]\d{{2,4}}"
     rf"|\d{{4}}\.\d{{1,2}}"
@@ -408,7 +408,44 @@ def extract_experience_section(text: str) -> str:
     cleaned = _normalize_text(text)
     if not cleaned:
         return ""
-    return get_section_content(cleaned, "experience")
+    explicit_section = get_section_content(cleaned, "experience")
+    if explicit_section and len(explicit_section.splitlines()) >= 2:
+        return explicit_section
+    fallback_section = _infer_experience_section_from_full_text(cleaned)
+    return explicit_section or fallback_section
+
+
+def _infer_experience_section_from_full_text(text: str) -> str:
+    lines = [_normalize_line(line) for line in _normalize_text(text).split("\n") if _normalize_line(line)]
+    if not lines:
+        return ""
+
+    collected: List[str] = []
+    active = False
+    for index, line in enumerate(lines[:240]):
+        if NON_EXPERIENCE_HEADER_PATTERN.match(line):
+            if active:
+                break
+            continue
+        if EXPERIENCE_HEADER_PATTERN.match(line) or EXPERIENCE_CONTINUATION_HEADER_PATTERN.match(line):
+            active = True
+            collected.append(line)
+            continue
+        if DATE_RANGE_REGEX.search(line) or OPEN_ENDED_DATE_RANGE_REGEX.search(line):
+            if not active and index > 0:
+                previous = lines[index - 1]
+                if previous and not NON_EXPERIENCE_HEADER_PATTERN.match(previous):
+                    collected.append(previous)
+            active = True
+            collected.append(line)
+            continue
+        if active:
+            if SECTION_BREAK_PATTERN.match(line):
+                break
+            collected.append(line)
+
+    inferred = "\n".join(collected).strip()
+    return inferred if (DATE_RANGE_REGEX.search(inferred) or OPEN_ENDED_DATE_RANGE_REGEX.search(inferred)) else ""
 
 
 def extract_date_ranges(text: str) -> List[Dict[str, Any]]:

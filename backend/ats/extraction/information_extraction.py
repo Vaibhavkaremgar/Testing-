@@ -5,6 +5,7 @@ import re
 import time
 import importlib.util
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from threading import Lock
 from typing import Any, Dict, List, Optional
 from dateutil import parser as date_parser
@@ -53,7 +54,10 @@ ALLOWED_SOFT_SKILLS = {"problem-solving", "critical thinking", "stakeholder mana
 EXCLUDED_SOFT_SKILLS = {
     "negotiation", "communication", "leadership", "teamwork", "responsible", "motivated",
 }
-INVALID_LOCATION_WORDS = {"job", "objective", "contact", "details", "summary", "profile", "linkedin", "github", "portfolio", "career", "passing"}
+INVALID_LOCATION_WORDS = {
+    "job", "objective", "contact", "details", "summary", "profile", "linkedin", "github",
+    "portfolio", "career", "passing", "resume", "software", "developer", "engineer",
+}
 LOCATION_FALSE_POSITIVE_TECH_PATTERN = re.compile(
     r"(?i)\b(?:python|java|selenium|playwright|robot framework|robot|sql|typescript|react|docker|jenkins|postman|restassured|pytest|fastapi|power bi|tableau|jira|maven|ui)\b"
 )
@@ -391,6 +395,52 @@ PERSON_NAME_BLOCKLIST = {
 }
 NAME_FIELD_LABELS = {"mobile", "phone", "email", "dob", "date", "address", "contact"}
 COMMON_WORD_SKILLS = {"office", "word", "go"}
+NAME_SECTION_PRIORITY_LABELS = (
+    "header",
+    "contact",
+    "personal",
+    "top_lines",
+    "emphasis",
+)
+NAME_SECTION_WEIGHT = {
+    "header": 0,
+    "contact": 1,
+    "personal": 2,
+    "top_lines": 3,
+    "emphasis": 4,
+}
+NAME_IGNORE_LINE_PATTERN = re.compile(
+    r"(?i)\b(?:resume|curriculum vitae|curriculum|vitae|cv|profile|summary)\b"
+)
+SKILL_SUBSECTION_HEADER_PATTERN = re.compile(
+    r"(?i)^\s*(?:languages?|frameworks?|tools?|databases?|platforms?|libraries|cloud|devops|testing(?: tools?)?|"
+    r"technologies|expertise|tech(?:nical)? stack)\s*[:\-]?\s*$"
+)
+SKILL_INLINE_SUBSECTION_PATTERN = re.compile(
+    r"(?i)\b(?:languages?|frameworks?|tools?|databases?|platforms?|libraries|cloud|devops|testing(?: tools?)?|technologies)\s*:\s*"
+)
+EXPERIENCE_SKILL_SENTENCE_PATTERN = re.compile(
+    r"(?i)\b(?:worked with|experience with|hands-on|used|using|built with|developed with|implemented with|technologies?:|stack:)\b"
+)
+COMMON_NON_TECH_EXPERIENCE_WORDS = {
+    "worked", "developed", "responsible", "managed", "manage", "built", "using", "used",
+    "experience", "team", "client", "projects", "project", "support", "analysis", "delivery",
+}
+TECHNICAL_LANGUAGE_HINT_PATTERN = re.compile(
+    r"(?i)\b(?:python|java|javascript|typescript|c\+\+|c#|sql|go|golang|rust|scala|php|ruby|react|fastapi|node(?:\.js)?)\b"
+)
+HTML_MAILTO_PATTERN = re.compile(
+    r"(?is)(?:href\s*=\s*[\"']mailto:(?P<href>[^\"'>\s]+)|mailto:(?P<plain>[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}))"
+)
+BROKEN_EMAIL_LINE_PATTERN = re.compile(
+    r"(?im)(?P<local>[A-Za-z0-9._%+-]+)\s*@\s*(?P<domain>[A-Za-z0-9.-]+)\s*\n\s*(?P<tld>\.[A-Za-z]{2,10})"
+)
+BROKEN_EMAIL_DOMAIN_PATTERN = re.compile(
+    r"(?im)(?P<local>[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+)\s*\n\s*(?P<tld>\.[A-Za-z]{2,10})"
+)
+BROKEN_EMAIL_HTML_PATTERN = re.compile(
+    r"(?im)(?P<local>[A-Za-z0-9._%+-]+)\s*@\s*(?:</?[^>]+>\s*)*(?P<domain>[A-Za-z0-9.-]+)\s*(?:</?[^>]+>\s*)*(?P<tld>\.[A-Za-z]{2,10})"
+)
 
 
 def _language_label_lines(*sections: str) -> str:
@@ -712,6 +762,158 @@ def _extract_contact_priority_blocks(text: str, *, include_document_fallback: bo
     return deduped
 
 
+def _collect_name_priority_candidates(text: str) -> List[Dict[str, Any]]:
+    normalized_text = normalize_document_structure(text or "")
+    if not normalized_text:
+        return []
+
+    sections = segment_resume_sections(normalized_text)
+    lines = [line.strip() for line in normalized_text.splitlines() if line.strip()]
+    personal_lines = _extract_personal_detail_lines(lines)
+    priority_sources = [
+        ("header", sections.get("header", "") or "\n".join(lines[:4])),
+        ("contact", sections.get("contact", "") or "\n".join(lines[:8])),
+        ("personal", "\n".join(personal_lines[:10])),
+        ("top_lines", "\n".join(lines[:3])),
+        ("emphasis", "\n".join(line for line in lines[:8] if len(line.split()) <= 6)),
+    ]
+
+    ordered_candidates: List[Dict[str, Any]] = []
+    seen: set[tuple[str, str, int]] = set()
+    for source_label, source_text in priority_sources:
+        for line_index, raw_line in enumerate(str(source_text or "").splitlines()):
+            compact_line = re.sub(r"\s+", " ", raw_line.strip())
+            if not compact_line:
+                continue
+            if NAME_IGNORE_LINE_PATTERN.search(compact_line):
+                continue
+            ordered_candidates.append(
+                {
+                    "text": compact_line,
+                    "source": source_label,
+                    "line_index": line_index,
+                }
+            )
+            seen.add((source_label, compact_line.lower(), line_index))
+
+    for line_index, raw_line in enumerate(lines[:12]):
+        compact_line = re.sub(r"\s+", " ", raw_line.strip())
+        key = ("top_lines", compact_line.lower(), line_index)
+        if not compact_line or key in seen or NAME_IGNORE_LINE_PATTERN.search(compact_line):
+            continue
+        ordered_candidates.append({"text": compact_line, "source": "top_lines", "line_index": line_index})
+
+    return ordered_candidates
+
+
+def _score_name_candidate_line(candidate: str, *, source: str, line_index: int) -> tuple[int, int, int, int, int]:
+    compact = re.sub(r"\s+", " ", candidate.strip())
+    words = compact.split()
+    proper_case_words = sum(1 for word in words if re.match(r"^[A-Z][A-Za-z'`.-]+$", word))
+    uppercase_words = sum(1 for word in words if re.match(r"^[A-Z][A-Z'`.-]+$", word))
+    contact_bonus = 1 if any(token in compact.lower() for token in ("@", "+", "linkedin", "github")) else 0
+    return (
+        -NAME_SECTION_WEIGHT.get(source, 99),
+        contact_bonus,
+        proper_case_words,
+        uppercase_words,
+        -line_index,
+    )
+
+
+def _extract_subsection_skill_text(section_text: str) -> str:
+    if not section_text:
+        return ""
+
+    lines = [line.strip() for line in normalize_document_structure(section_text).splitlines() if line.strip()]
+    collected: List[str] = []
+    capture_remaining = 0
+    for line in lines:
+        if SKILL_SECTION_BREAK_PATTERN.match(line):
+            break
+        if SKILL_SUBSECTION_HEADER_PATTERN.match(line):
+            collected.append(line)
+            capture_remaining = 4
+            continue
+        if SKILL_INLINE_SUBSECTION_PATTERN.search(line):
+            collected.append(line)
+            continue
+        if capture_remaining > 0:
+            if DATE_RANGE_REGEX.search(line) or ROLE_TITLE_LINE_PATTERN.match(line):
+                capture_remaining = 0
+                continue
+            collected.append(line)
+            capture_remaining -= 1
+    return "\n".join(collected)
+
+
+def _extract_experience_skill_fallback_text(experience_text: str) -> str:
+    if not experience_text:
+        return ""
+
+    normalized_lines = [line.strip() for line in normalize_document_structure(experience_text).splitlines() if line.strip()]
+    candidate_lines: List[str] = []
+    for line in normalized_lines[:80]:
+        if DATE_RANGE_REGEX.search(line):
+            continue
+        if len(line.split()) > 20:
+            continue
+        lowered = line.lower()
+        if not EXPERIENCE_SKILL_SENTENCE_PATTERN.search(lowered) and not SKILL_INLINE_SUBSECTION_PATTERN.search(line):
+            continue
+        candidate_lines.append(line)
+    return "\n".join(candidate_lines)
+
+
+def _augment_skills_section_with_related_blocks(
+    skills_section: str,
+    *,
+    languages_section: str = "",
+    header_section: str = "",
+) -> str:
+    augmented_parts = [skills_section] if skills_section else []
+    for candidate_section in (languages_section, header_section):
+        normalized_section = normalize_document_structure(candidate_section or "")
+        if not normalized_section:
+            continue
+        if SKILL_INLINE_SUBSECTION_PATTERN.search(normalized_section) or SKILL_SUBSECTION_HEADER_PATTERN.search(normalized_section):
+            augmented_parts.append(normalized_section)
+            continue
+        if TECHNICAL_LANGUAGE_HINT_PATTERN.search(normalized_section):
+            augmented_parts.append(normalized_section)
+    return "\n".join(part for part in augmented_parts if part).strip()
+
+
+def _select_latest_experience_entry(entries: List[Dict[str, Any]], preferred_company: str = "", preferred_role: str = "") -> Dict[str, Any]:
+    if not entries:
+        return {}
+
+    preferred_company_key = str(preferred_company or "").strip().lower()
+    preferred_role_key = str(preferred_role or "").strip().lower()
+    for entry in entries:
+        if (
+            preferred_company_key
+            and preferred_role_key
+            and str(entry.get("company") or "").strip().lower() == preferred_company_key
+            and str(entry.get("role") or "").strip().lower() == preferred_role_key
+        ):
+            return entry
+
+    from ats.extraction.experience_extraction import parse_date
+
+    def _entry_sort_key(item: Dict[str, Any]) -> tuple[int, Any, Any]:
+        end_value = parse_date(str(item.get("end_date") or ""), is_end=True)
+        start_value = parse_date(str(item.get("start_date") or ""), is_end=False)
+        return (
+            1 if item.get("is_current") else 0,
+            end_value or datetime.min,
+            start_value or datetime.min,
+        )
+
+    ordered = sorted(entries, key=_entry_sort_key, reverse=True)
+    return ordered[0] if ordered else {}
+
+
 def _normalize_phone_candidate(value: str) -> str:
     candidate = re.sub(r"\s+", " ", (value or "").strip(" ,.;:"))
     candidate = re.sub(r"\s*-\s*", "-", candidate)
@@ -908,6 +1110,23 @@ def extract_name(text: str, use_spacy: bool = True) -> str:
             if _is_valid_name_line(candidate):
                 logger.debug("Fallback used for name extraction")
                 return _format_name(candidate)
+
+    scored_candidates: List[tuple[tuple[int, int, int, int, int], str]] = []
+    for candidate_meta in _collect_name_priority_candidates(text):
+        candidate = _sanitize_name_candidate(candidate_meta["text"])
+        if not _is_valid_name_line(candidate):
+            continue
+        score = _score_name_candidate_line(
+            candidate_meta["text"],
+            source=str(candidate_meta["source"]),
+            line_index=int(candidate_meta["line_index"]),
+        )
+        scored_candidates.append((score, candidate))
+    if scored_candidates:
+        scored_candidates.sort(reverse=True)
+        resolved = _format_name(scored_candidates[0][1])
+        logger.debug("Name extracted from scored fallback candidate: %s", resolved)
+        return resolved
 
     return ""
 
@@ -1154,6 +1373,17 @@ def extract_skill_keywords(text: str, section_text: str = "") -> List[str]:
     skill_engine = _get_skill_intelligence()
     skill_keyword_processor = _get_skill_keyword_processor()
     source = _sanitize_skill_section(section_text) if section_text else ""
+    if source:
+        subsection_text = _extract_subsection_skill_text(source)
+        if subsection_text:
+            source = "\n".join(filter(None, [source, subsection_text]))
+    if not source:
+        source = _extract_skill_fallback_text(text)
+    experience_skill_context = _extract_experience_skill_fallback_text(
+        segment_resume_sections(text or "").get("experience", "")
+    )
+    if experience_skill_context and experience_skill_context not in source:
+        source = "\n".join(filter(None, [source, experience_skill_context]))
     if not source:
         return []
 
@@ -1204,7 +1434,13 @@ def extract_skill_keywords(text: str, section_text: str = "") -> List[str]:
                     matches.append(candidate)
 
     normalized_matches = skill_engine.map_skills(matches)
-    return _unique_in_order(_suppress_generic_overlaps(normalized_matches))[:50]
+    contextual_matches = _extract_contextual_skills(experience_skill_context, source)
+    contextual_matches = [
+        skill for skill in contextual_matches
+        if skill and skill.lower() not in COMMON_NON_TECH_EXPERIENCE_WORDS
+    ]
+    merged_matches = [*normalized_matches, *contextual_matches]
+    return _unique_in_order(_suppress_generic_overlaps(merged_matches))[:50]
 
 
 def extract_email(text: str) -> str:
@@ -1226,8 +1462,25 @@ def extract_email(text: str) -> str:
             return candidate[: at_index + 1 + tld_match.end()] if at_index >= 0 else candidate[:tld_match.end()]
         return candidate
 
+    def _email_priority(candidate: str) -> tuple[int, int]:
+        lowered = candidate.lower()
+        personal_markers = ("gmail.", "yahoo.", "outlook.", "hotmail.", "icloud.", "proton.")
+        return (0 if any(marker in lowered for marker in personal_markers) else 1, len(candidate))
+
     def _prepare_email_text(source_text: str) -> tuple[str, str]:
         normalized_text = normalize_common_artifacts(source_text or "")
+        normalized_text = BROKEN_EMAIL_LINE_PATTERN.sub(
+            lambda m: f"{m.group('local')}@{m.group('domain')}{m.group('tld')}",
+            normalized_text,
+        )
+        normalized_text = BROKEN_EMAIL_DOMAIN_PATTERN.sub(
+            lambda m: f"{m.group('local')}{m.group('tld')}",
+            normalized_text,
+        )
+        normalized_text = BROKEN_EMAIL_HTML_PATTERN.sub(
+            lambda m: f"{m.group('local')}@{m.group('domain')}{m.group('tld')}",
+            normalized_text,
+        )
         normalized_text = re.sub(r"(\w+)\s*@\s*\n\s*(\w+\.\w+)", r"\1@\2", normalized_text)
         normalized_text = re.sub(
             r"(?i)([A-Za-z0-9._%+-]+)@([A-Za-z0-9.-]{1,8})\s*\n\s*([A-Za-z0-9.-]{1,12}\.[A-Za-z]{2,6})",
@@ -1259,6 +1512,15 @@ def extract_email(text: str) -> str:
     search_blocks = _extract_contact_priority_blocks(text, include_document_fallback=True)
     for block_index, block in enumerate(search_blocks):
         normalized_text, compact_text = _prepare_email_text(block)
+        for mailto_match in HTML_MAILTO_PATTERN.finditer(normalized_text):
+            raw_value = mailto_match.group("href") or mailto_match.group("plain") or ""
+            email = _clean_email_candidate(raw_value)
+            lowered = email.lower()
+            if not email or "@" not in email or lowered in seen_candidates:
+                continue
+            seen_candidates.add(lowered)
+            candidates.append(email)
+            logger.debug("Email href/mailto match (%s): %s", block_index, email)
         for source_text, source_label in (
             (normalized_text, f"normalized_{block_index}"),
             (compact_text, f"compact_{block_index}"),
@@ -1282,13 +1544,14 @@ def extract_email(text: str) -> str:
                     candidates.append(email)
                     logger.debug("Email regex match (%s/%s): %s", source_label, label, email)
 
-    for email in candidates:
+    ordered_candidates = sorted(candidates, key=_email_priority)
+    for email in ordered_candidates:
         if STRONG_EMAIL_PATTERN.fullmatch(email):
             logger.debug("Email extracted from strong candidate list: %s", email)
             return email
-    if candidates:
-        logger.debug("Email extracted from fallback candidate list: %s", candidates[0])
-        return candidates[0]
+    if ordered_candidates:
+        logger.debug("Email extracted from fallback candidate list: %s", ordered_candidates[0])
+        return ordered_candidates[0]
     return ""
 
 
@@ -1542,6 +1805,8 @@ def _looks_like_location_fragment(value: str) -> bool:
     lowered = candidate.lower()
     if not candidate:
         return False
+    if _is_location_noise_candidate(candidate):
+        return False
     if _contains_non_location_context(candidate):
         return False
     if any(char.isdigit() for char in candidate):
@@ -1645,6 +1910,22 @@ def _extract_city_from_address_block(lines: List[str]) -> str:
     return ""
 
 
+def _is_location_noise_candidate(value: str) -> bool:
+    compact = re.sub(r"\s+", " ", (value or "").strip(" ,.|/:-"))
+    if not compact:
+        return True
+    lowered = compact.lower()
+    if NAME_LIKE_SKILL_PATTERN.match(compact):
+        return True
+    if ROLE_KEYWORD_PATTERN.search(compact):
+        return True
+    if lowered in INVALID_LOCATION_WORDS or lowered in INVALID_LOCATION_LABELS:
+        return True
+    if LOCATION_FALSE_POSITIVE_TECH_PATTERN.search(lowered):
+        return True
+    return False
+
+
 def _canonicalize_location_token(value: str) -> str:
     compact = re.sub(r"\s+", " ", (value or "").strip(" ,.|/:-"))
     lowered = LOCATION_CANONICAL_OVERRIDES.get(compact.lower(), compact.lower())
@@ -1661,6 +1942,8 @@ def _canonicalize_location_pair(value: str) -> str:
         return ""
     parts = [part.strip(" ,.|/:-") for part in compact.split(",") if part.strip(" ,.|/:-")]
     if len(parts) < 2:
+        return ""
+    if any(_is_location_noise_candidate(part) for part in parts):
         return ""
     left = _canonicalize_location_token(parts[0])
     right = _canonicalize_location_token(parts[1])
@@ -1689,6 +1972,7 @@ def _pick_primary_location(value: str) -> str:
                 or lowered in INVALID_LOCATION_WORDS
                 or lowered in INVALID_LOCATION_LABELS
                 or SECTION_START_PATTERN.match(part)
+                or _is_location_noise_candidate(part)
             ):
                 continue
             comma_pair_match = re.search(
@@ -2098,6 +2382,11 @@ def extract_resume_information(text: str) -> Dict:
     header_section = raw_sections.get("header", "") or sections.get("header", "")
     contact_section = raw_sections.get("contact", "") or sections.get("contact", "")
     skills_section = _sanitize_skill_section(raw_sections.get("skills", "") or sections.get("skills", ""))
+    skills_section = _augment_skills_section_with_related_blocks(
+        skills_section,
+        languages_section=raw_sections.get("languages", "") or sections.get("languages", ""),
+        header_section=header_section,
+    )
     skill_fallback_text = ""
     experience_section = raw_sections.get("experience", "") or sections.get("experience", "")
     if not experience_section.strip():
@@ -2107,15 +2396,17 @@ def extract_resume_information(text: str) -> Dict:
         education_section = sections.get("education", "")
     projects_section = raw_sections.get("projects", "") or sections.get("projects", "")
     certifications_section = raw_sections.get("certifications", "") or sections.get("certifications", "")
+    structural_lines = [line.strip() for line in normalize_document_structure(text or "").splitlines() if line.strip()]
     contact_context = _build_contact_context(header_section, contact_section)
+    contact_extraction_context = _build_contact_context(header_section, contact_section, "\n".join(structural_lines[:8]))
     _, header_contact_line, header_role_line = _get_header_contact_role_lines(contact_context or cleaned_text)
     _, header_role_from_name_line = _extract_name_and_role_from_first_line(contact_context or cleaned_text)
     header_role = header_role_from_name_line or _normalize_header_role_line(header_role_line)
     parallel_started_at = time.perf_counter()
     with ThreadPoolExecutor(max_workers=5) as executor:
         future_name = executor.submit(extract_name, contact_context or cleaned_text, False)
-        future_email = executor.submit(extract_email, header_contact_line or contact_context or cleaned_text)
-        future_phone = executor.submit(extract_phone, header_contact_line or contact_context or cleaned_text)
+        future_email = executor.submit(extract_email, contact_extraction_context or contact_context or cleaned_text)
+        future_phone = executor.submit(extract_phone, contact_extraction_context or contact_context or cleaned_text)
         future_experience = executor.submit(
             extract_total_experience,
             f"Experience\n{experience_section}" if experience_section.strip() else "",
@@ -2131,7 +2422,7 @@ def extract_resume_information(text: str) -> Dict:
     skills = _unique_in_order(skills)
     if not skills:
         skill_fallback_text = _extract_skill_fallback_text(
-            "\n".join(filter(None, [header_section, contact_section, sections.get("summary", ""), cleaned_text]))
+            "\n".join(filter(None, [header_section, contact_section, sections.get("summary", ""), experience_section, cleaned_text]))
         )
         if skill_fallback_text and skill_fallback_text != skills_section:
             skills = _unique_in_order(extract_skill_keywords(skill_fallback_text, skill_fallback_text))
@@ -2207,21 +2498,13 @@ def extract_resume_information(text: str) -> Dict:
     if experience_entries:
         current_company = experience_result.get("current_company")
         current_role = experience_result.get("current_role")
-        if current_company or current_role:
-            for entry in experience_entries:
-                if entry.get("company") == current_company and entry.get("role") == current_role:
-                    current_entry = entry
-                    break
-        if not current_entry:
-            experience_entries_sorted = sorted(
-                experience_entries,
-                key=lambda x: (x.get("is_current"), x.get("start_date") or "", x.get("end_date") or ""),
-                reverse=True,
-            )
-            current_entry = experience_entries_sorted[0]
+        current_entry = _select_latest_experience_entry(
+            experience_entries,
+            preferred_company=str(current_company or ""),
+            preferred_role=str(current_role or ""),
+        )
 
     location = ""
-    structural_lines = [line.strip() for line in normalize_document_structure(text or "").splitlines() if line.strip()]
     header_only_lines: List[str] = []
     for line in structural_lines[:8]:
         if re.match(r"(?i)^(?:professional summary|summary|profile summary|skills|technical skills|experience|work experience|period|education|projects|certifications?)$", line):
@@ -2303,9 +2586,9 @@ def extract_resume_information(text: str) -> Dict:
         "education": extract_education_entries(cleaned_text, education_section if education_section.strip() else " "),
         "certifications": extract_certification_entries(cleaned_text, certifications_section),
         "location": location or "",
-        "current_company": current_entry.get("company"),
-        "current_role": current_entry.get("role") or header_role or None,
-        "designation": current_entry.get("role") or header_role or None,
+        "current_company": current_entry.get("company") or experience_result.get("current_company"),
+        "current_role": current_entry.get("role") or experience_result.get("current_role") or header_role or None,
+        "designation": current_entry.get("role") or experience_result.get("current_role") or header_role or None,
         "header_role": header_role or None,
         "experience_years": total_experience_years,
         "total_experience_years": total_experience_years,
