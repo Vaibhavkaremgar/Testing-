@@ -4,6 +4,7 @@ import calendar
 import logging
 import re
 from datetime import datetime, timedelta
+from functools import lru_cache
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from dateutil import parser as date_parser
@@ -16,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 MONTH_PATTERN = r"(?:jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)"
 PRESENT_PATTERN = r"(?:present|current|currently|now|today|ongoing|till date|till now|till-date|tilldate)"
+EXTENDED_PRESENT_PATTERN = r"(?:present|current|currently|now|today|ongoing|continuing|till date|till now|till-date|tilldate|to date|date)"
 DATE_TOKEN_PATTERN = (
     rf"(?:{MONTH_PATTERN}[.\-/\s,'’]+\d{{2,4}}"
     rf"|\d{{1,2}}[.\-/\s](?:{MONTH_PATTERN})[.\-/\s,'’]+\d{{2,4}}"
@@ -119,6 +121,32 @@ OPEN_ENDED_DATE_RANGE_REGEX = re.compile(
     re.IGNORECASE,
 )
 YEAR_SPAN_PATTERN = re.compile(r"^(?P<start>\d{4})\s*[-/]\s*(?P<end>\d{2,4})$")
+FISCAL_YEAR_TOKEN_PATTERN = re.compile(r"(?i)^(?P<prefix>FY|AY)\s*[- ]?(?P<start>\d{4})(?:\s*[-/]\s*(?P<end>\d{2,4}))?$")
+OPEN_RANGE_PREFIX_PATTERN = re.compile(
+    rf"(?i)\b(?:since|from|starting)\s+(?P<start>{DATE_TOKEN_PATTERN}|FY\s*\d{{4}}(?:[-/]\d{{2,4}})?|AY\s*\d{{4}}(?:[-/]\d{{2,4}})?)\b"
+)
+SENTENCE_RANGE_PATTERN = re.compile(
+    rf"(?i)\b(?:worked\s+from|from|joined|starting|started)\s+(?P<start>{DATE_TOKEN_PATTERN})\b"
+    rf"(?:.*?\b(?:to|till|until|through)\b\s+(?P<end>{EXTENDED_PRESENT_PATTERN}|{DATE_TOKEN_PATTERN}))?"
+)
+BRACKETED_DATE_PATTERN = re.compile(
+    rf"[\[\(]\s*(?P<value>{DATE_TOKEN_PATTERN}|FY\s*\d{{4}}(?:[-/]\d{{2,4}})?|AY\s*\d{{4}}(?:[-/]\d{{2,4}})?)\s*[\]\)]",
+    re.IGNORECASE,
+)
+OPEN_ENDED_SENTENCE_PATTERN = re.compile(
+    rf"(?i)\b(?P<start>{DATE_TOKEN_PATTERN})\s*(?:-|–|—|~)\s*$"
+)
+DATE_LIKE_PATTERN = re.compile(
+    rf"(?i)\b(?:{DATE_TOKEN_PATTERN}|FY\s*\d{{4}}(?:[-/]\d{{2,4}})?|AY\s*\d{{4}}(?:[-/]\d{{2,4}})?|{EXTENDED_PRESENT_PATTERN})\b"
+)
+LAYER2_RANGE_REGEX = re.compile(
+    rf"(?P<start>{DATE_TOKEN_PATTERN}|FY\s*\d{{4}}(?:[-/]\d{{2,4}})?|AY\s*\d{{4}}(?:[-/]\d{{2,4}})?)\s*"
+    rf"(?:-|–|—|to|till|until|through|~)\s*"
+    rf"(?P<end>{EXTENDED_PRESENT_PATTERN}|{DATE_TOKEN_PATTERN}|FY\s*\d{{4}}(?:[-/]\d{{2,4}})?|AY\s*\d{{4}}(?:[-/]\d{{2,4}})?)",
+    re.IGNORECASE,
+)
+MERGE_ADJACENT_INTERVAL_DAYS = 31
+MAX_REASONABLE_EXPERIENCE_MONTHS = 45 * 12
 TEXT_DURATION_PATTERN = re.compile(
     r"(?i)\b(?:(?P<years>\d+(?:\.\d+)?)\s+years?)?(?:\s*(?P<months>\d+)\s+months?)?\b"
 )
@@ -147,11 +175,36 @@ def _normalize_text(value: str) -> str:
     }
     for source, target in replacements.items():
         normalized = normalized.replace(source, target)
+    normalized = BRACKETED_DATE_PATTERN.sub(lambda match: match.group("value"), normalized)
     normalized = re.sub(r"(?i)\bfrom\s+", "", normalized)
     normalized = re.sub(r"(?i)\btill date\b", "Present", normalized)
     normalized = re.sub(r"(?i)\btill now\b", "Present", normalized)
     normalized = re.sub(r"(?i)\btill-date\b", "Present", normalized)
     normalized = re.sub(r"(?i)\btilldate\b", "Present", normalized)
+    normalized = re.sub(r"(?i)\bto date\b", "Present", normalized)
+    normalized = re.sub(r"(?i)\bcontinuing\b", "Present", normalized)
+    normalized = re.sub(
+        rf"(?P<start>{DATE_TOKEN_PATTERN}|FY\s*\d{{4}}(?:[-/]\d{{2,4}})?|AY\s*\d{{4}}(?:[-/]\d{{2,4}})?)\s+/\s+(?P<end>{DATE_TOKEN_PATTERN}|{EXTENDED_PRESENT_PATTERN}|FY\s*\d{{4}}(?:[-/]\d{{2,4}})?|AY\s*\d{{4}}(?:[-/]\d{{2,4}})?)",
+        r"\g<start> - \g<end>",
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    normalized = re.sub(
+        rf"(?i)\bjoined\s+(?P<start>{DATE_TOKEN_PATTERN})\s+and\s+worked\s+until\s+(?P<end>{DATE_TOKEN_PATTERN}|{EXTENDED_PRESENT_PATTERN})",
+        r"\g<start> - \g<end>",
+        normalized,
+    )
+    normalized = re.sub(
+        rf"(?i)\bworked\s+from\s+(?P<start>{DATE_TOKEN_PATTERN})\s+to\s+(?P<end>{DATE_TOKEN_PATTERN}|{EXTENDED_PRESENT_PATTERN})",
+        r"\g<start> - \g<end>",
+        normalized,
+    )
+    normalized = OPEN_RANGE_PREFIX_PATTERN.sub(lambda match: f"{match.group('start')} - Present", normalized)
+    normalized = re.sub(
+        rf"(?im)\b(?P<start>{DATE_TOKEN_PATTERN}|FY\s*\d{{4}}(?:[-/]\d{{2,4}})?|AY\s*\d{{4}}(?:[-/]\d{{2,4}})?)\s*(?:-|–|—|~)\s*$",
+        r"\g<start> - Present",
+        normalized,
+    )
     normalized = re.sub(
         rf"(?i)(?P<start>{DATE_TOKEN_PATTERN}|{PRESENT_PATTERN})\s+\?\s+(?P<end>{DATE_TOKEN_PATTERN}|{PRESENT_PATTERN})",
         r"\g<start> - \g<end>",
@@ -171,7 +224,7 @@ def _normalize_line(line: str) -> str:
 
 def _is_present_token(token: str) -> bool:
     compact = re.sub(r"\s+", " ", str(token or "").strip(" -|,.:")).lower()
-    return bool(compact and re.fullmatch(PRESENT_PATTERN, compact, flags=re.IGNORECASE))
+    return bool(compact and re.fullmatch(EXTENDED_PRESENT_PATTERN, compact, flags=re.IGNORECASE))
 
 
 def _safe_build_datetime(year: int, month: int, *, is_end: bool) -> Optional[datetime]:
@@ -233,6 +286,22 @@ def _parse_year_span(token: str, *, is_end: bool) -> Optional[datetime]:
     return _safe_build_datetime(end_year if is_end else start_year, 12 if is_end else 1, is_end=is_end)
 
 
+def _parse_fiscal_year_token(token: str, *, is_end: bool) -> Optional[datetime]:
+    match = FISCAL_YEAR_TOKEN_PATTERN.fullmatch(token.strip())
+    if not match:
+        return None
+    start_year = int(match.group("start"))
+    end_fragment = match.group("end")
+    end_year = start_year
+    if end_fragment:
+        end_year = int(end_fragment)
+        if len(end_fragment) == 2:
+            end_year = (start_year // 100) * 100 + end_year
+            if end_year < start_year:
+                end_year += 100
+    return _safe_build_datetime(end_year if is_end else start_year, 12 if is_end else 1, is_end=is_end)
+
+
 def _parse_text_duration_months(token: str) -> int:
     match = TEXT_DURATION_PATTERN.search(token or "")
     if not match:
@@ -289,6 +358,7 @@ def _clean_company_name(value: Optional[str]) -> Optional[str]:
     if not candidate:
         return None
     # Remove role fragments and connector words before validating the company.
+    candidate = re.sub(r"(?i)^(?:worked|working|joined|serving)\s+", "", candidate)
     candidate = re.sub(r"(?i)\b(?:at|with|for)\b\s+", "", candidate)
     role_match = ROLE_TITLE_PATTERN.search(candidate)
     if role_match:
@@ -317,13 +387,14 @@ def _parse_date_token(token: str, is_end: bool = False, today: Optional[datetime
         _parse_month_name_year,
         _parse_numeric_month_year,
         _parse_year_month_numeric,
+        _parse_fiscal_year_token,
         _parse_year_span,
         _parse_year_only,
     ):
         try:
             parsed = parser_fn(normalized_token, is_end=is_end)
         except Exception as exc:
-            logger.debug("Date parser %s failed for %s: %s", parser_fn.__name__, token, exc)
+            logger.warning("Experience date parser %s failed for token=%s error=%s", parser_fn.__name__, token, exc)
             parsed = None
         if parsed is not None:
             return parsed
@@ -375,6 +446,7 @@ def _parse_date_token(token: str, is_end: bool = False, today: Optional[datetime
         default = datetime(current.year, 12, 31) if is_end else datetime(current.year, 1, 1)
         parsed = date_parser.parse(raw, fuzzy=True, default=default)
     except (ValueError, OverflowError, TypeError):
+        logger.warning("Experience date parse failed for token=%s normalized=%s", token, raw)
         return None
 
     if parsed.year < 1950 or parsed.year > current.year + 2:
@@ -396,7 +468,14 @@ def _parse_date_token(token: str, is_end: bool = False, today: Optional[datetime
     return parsed
 
 
+@lru_cache(maxsize=4096)
+def _parse_date_token_cached(token: str, is_end: bool) -> Optional[datetime]:
+    return _parse_date_token(token, is_end=is_end)
+
+
 def parse_date(date_string: str, is_end: bool = False, today: Optional[datetime] = None) -> Optional[datetime]:
+    if today is None:
+        return _parse_date_token_cached(str(date_string or ""), is_end)
     return _parse_date_token(date_string, is_end=is_end, today=today)
 
 
@@ -457,6 +536,7 @@ def extract_date_ranges(text: str) -> List[Dict[str, Any]]:
         start_date = parse_date(start_text, is_end=False)
         end_date = parse_date(end_text, is_end=True)
         if not _is_valid_experience_window(start_date, end_date):
+            logger.warning("Experience range rejected start=%s end=%s matched=%s", start_text, end_text, match.group(0))
             continue
         matches.append(
             {
@@ -473,6 +553,7 @@ def extract_date_ranges(text: str) -> List[Dict[str, Any]]:
         start_date = parse_date(start_text, is_end=False)
         end_date = parse_date("Present", is_end=True)
         if not _is_valid_experience_window(start_date, end_date):
+            logger.warning("Open-ended experience range rejected start=%s matched=%s", start_text, match.group(0))
             continue
         matches.append(
             {
@@ -485,6 +566,76 @@ def extract_date_ranges(text: str) -> List[Dict[str, Any]]:
             }
         )
     return matches
+
+
+def _extract_layer2_date_ranges(text: str) -> List[Dict[str, Any]]:
+    normalized_text = _normalize_text(text)
+    ranges: List[Dict[str, Any]] = []
+    for match in LAYER2_RANGE_REGEX.finditer(normalized_text):
+        start_text = match.group("start")
+        end_text = match.group("end")
+        start_date = parse_date(start_text, is_end=False)
+        end_date = parse_date(end_text, is_end=True)
+        if not _is_valid_experience_window(start_date, end_date):
+            logger.warning("Layer2 experience range parse failed start=%s end=%s matched=%s", start_text, end_text, match.group(0))
+            continue
+        ranges.append(
+            {
+                "start": start_text,
+                "end": end_text,
+                "start_date": start_date,
+                "end_date": end_date,
+                "matched_text": match.group(0),
+                "span": match.span(),
+            }
+        )
+
+    for match in SENTENCE_RANGE_PATTERN.finditer(normalized_text):
+        start_text = match.group("start")
+        end_text = match.group("end") or "Present"
+        start_date = parse_date(start_text, is_end=False)
+        end_date = parse_date(end_text, is_end=True)
+        if not _is_valid_experience_window(start_date, end_date):
+            logger.warning("Sentence experience range parse failed start=%s end=%s matched=%s", start_text, end_text, match.group(0))
+            continue
+        ranges.append(
+            {
+                "start": start_text,
+                "end": end_text,
+                "start_date": start_date,
+                "end_date": end_date,
+                "matched_text": match.group(0),
+                "span": match.span(),
+            }
+        )
+
+    standalone_token = _normalize_line(normalized_text)
+    if YEAR_SPAN_PATTERN.fullmatch(standalone_token) or FISCAL_YEAR_TOKEN_PATTERN.fullmatch(standalone_token):
+        start_date = parse_date(standalone_token, is_end=False)
+        end_date = parse_date(standalone_token, is_end=True)
+        if _is_valid_experience_window(start_date, end_date):
+            ranges.append(
+                {
+                    "start": standalone_token,
+                    "end": standalone_token,
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "matched_text": standalone_token,
+                    "span": (0, len(standalone_token)),
+                }
+            )
+        else:
+            logger.warning("Standalone experience token parse failed token=%s", standalone_token)
+
+    deduped: List[Dict[str, Any]] = []
+    seen = set()
+    for item in ranges:
+        key = (item["start_date"], item["end_date"], item["matched_text"].lower())
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(item)
+    return deduped
 
 
 def _split_experience_blocks(section_text: str) -> List[List[str]]:
@@ -798,7 +949,7 @@ def _format_duration(total_months: int) -> str:
         parts.append(f"{years} year" + ("s" if years != 1 else ""))
     if months:
         parts.append(f"{months} month" + ("s" if months != 1 else ""))
-    return " ".join(parts) if parts else "0 months"
+    return " ".join(parts) if parts else "Less than 1 month"
 
 
 def _is_valid_experience_window(
@@ -991,8 +1142,14 @@ def merge_overlapping_ranges(ranges: Sequence[Tuple[datetime, datetime]]) -> Lis
         return []
     merged: List[List[datetime]] = [[valid_ranges[0][0], valid_ranges[0][1]]]
     for start, end in valid_ranges[1:]:
-        if start <= merged[-1][1]:
+        if start <= (merged[-1][1] + timedelta(days=MERGE_ADJACENT_INTERVAL_DAYS)):
             if end > merged[-1][1]:
+                logger.info(
+                    "Merging experience intervals existing_end=%s next_start=%s next_end=%s",
+                    merged[-1][1].date(),
+                    start.date(),
+                    end.date(),
+                )
                 merged[-1][1] = end
         else:
             merged.append([start, end])
@@ -1210,6 +1367,199 @@ def _select_current_experience(entries: Sequence[Dict[str, Any]]) -> Optional[Di
     return ordered[0] if ordered else None
 
 
+def _infer_role_company_from_context(block_lines: Sequence[str]) -> tuple[Optional[str], Optional[str]]:
+    for raw_line in block_lines[:3]:
+        line = _remove_date_range_text(raw_line)
+        if not line:
+            continue
+        for separator in (" - ", " | ", " @ "):
+            if separator not in line:
+                continue
+            left, right = [part.strip(" |-,:") for part in line.split(separator, 1)]
+            left_is_role = bool(ROLE_HINT_PATTERN.search(left))
+            right_is_role = bool(ROLE_HINT_PATTERN.search(right))
+            left_company = _clean_company_name(left)
+            right_company = _clean_company_name(right)
+            if left_is_role and right and not right_is_role:
+                return left, right_company or right
+            if right_is_role and left and not left_is_role:
+                return right, left_company or left
+        at_match = re.search(r"(?i)^(?P<role>.+?)\s+at\s+(?P<company>.+)$", line)
+        if at_match:
+            role = _normalize_line(at_match.group("role"))
+            company = _clean_company_name(at_match.group("company"))
+            if role or company:
+                return role or None, company or None
+    return None, None
+
+
+def _build_layer2_entry(block_lines: Sequence[str], date_range: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    if not block_lines:
+        return None
+    company = _extract_company_candidate(block_lines)
+    role = _extract_role_candidate(block_lines, company)
+    inferred_role, inferred_company = _infer_role_company_from_context(block_lines)
+    if not role and inferred_role:
+        role = inferred_role
+    if not company and inferred_company:
+        company = inferred_company
+    if role and not company:
+        for separator in (" - ", " | ", " @ "):
+            if separator in role:
+                role_part, company_part = [part.strip(" |-,:") for part in role.split(separator, 1)]
+                if ROLE_HINT_PATTERN.search(role_part):
+                    role = _normalize_line(role_part)
+                    company = _clean_company_name(company_part)
+                break
+        split_role, split_company = _infer_role_company_from_context([role])
+        if split_role and split_company:
+            role = split_role
+            company = split_company
+    if company and DATE_LIKE_PATTERN.search(str(company)):
+        company = None
+    start_date = date_range.get("start_date")
+    end_date = date_range.get("end_date")
+    if not _is_valid_experience_window(start_date, end_date):
+        logger.warning("Layer2 entry rejected due to invalid window block=%s", " | ".join(block_lines[:3]))
+        return None
+    duration_months = _months_between(start_date, end_date)
+    entry = {
+        "role": role,
+        "title": role,
+        "company": company,
+        "start": _serialize_year_month(start_date),
+        "end": _serialize_year_month(end_date),
+        "start_date": _serialize_year_month(start_date),
+        "end_date": _serialize_year_month(end_date),
+        "duration_years": round(duration_months / 12.0, 1),
+        "duration_months": duration_months,
+        "duration": _format_duration(duration_months),
+        "raw_text": "\n".join(block_lines)[:1000],
+        "is_current": bool(_is_present_token(str(date_range.get("end") or ""))),
+        "description": " ".join(line for line in block_lines if not DATE_LIKE_PATTERN.search(line))[:600],
+        "confidence": 0.55,
+        "is_fallback_layer2": True,
+    }
+    if entry["company"] or entry["role"]:
+        entry["confidence"] = _experience_confidence(entry)
+    return entry
+
+
+def _extract_layer2_experience_entries(text: str, ignore_internships: bool = False) -> List[Dict[str, Any]]:
+    experience_section = extract_experience_section(text)
+    if not experience_section:
+        logger.warning("Layer2 experience parser could not find an experience section")
+        return []
+
+    normalized_lines = [_normalize_line(line) for line in _normalize_text(experience_section).split("\n") if _normalize_line(line)]
+    entries: List[Dict[str, Any]] = []
+    for index, line in enumerate(normalized_lines):
+        line_ranges = _extract_layer2_date_ranges(line)
+        if not line_ranges and index + 1 < len(normalized_lines):
+            paired_text = f"{line}\n{normalized_lines[index + 1]}"
+            line_ranges = _extract_layer2_date_ranges(paired_text)
+        if not line_ranges:
+            continue
+        context_block = [
+            candidate for candidate in normalized_lines[max(0, index - 1): min(len(normalized_lines), index + 3)]
+            if candidate and not NON_EXPERIENCE_HEADER_PATTERN.match(candidate)
+        ]
+        for date_range in line_ranges:
+            entry = _build_layer2_entry(context_block, date_range)
+            if not entry:
+                continue
+            internship_source = " ".join(filter(None, [entry.get("role") or "", entry.get("company") or "", entry.get("raw_text") or ""]))
+            if ignore_internships and re.search(r"(?i)\b(?:intern|internship|trainee|apprentice)\b", internship_source):
+                logger.info("Layer2 experience parser skipped internship entry=%s", internship_source[:120])
+                continue
+            entries.append(entry)
+    if not entries:
+        logger.warning("Layer2 experience parser found no entries in section")
+    return _dedupe_entries(entries)
+
+
+def _summarize_experience_result(entries: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
+    ranges: List[Tuple[datetime, datetime]] = []
+    for entry in entries:
+        start = parse_date(entry.get("start_date", ""), is_end=False)
+        end = parse_date(entry.get("end_date", ""), is_end=True)
+        if not _is_valid_experience_window(start, end):
+            continue
+        ranges.append((start, end))
+    merged = merge_overlapping_ranges(ranges)
+    total_months = sum(_months_between(start, end) for start, end in merged)
+    current_entry = _select_current_experience(entries)
+    return {
+        "entries": list(entries),
+        "merged_ranges": merged,
+        "total_months": total_months,
+        "current_entry": current_entry,
+        "average_confidence": round(
+            sum(float(entry.get("confidence") or 0.0) for entry in entries) / len(entries),
+            2,
+        ) if entries else 0.0,
+    }
+
+
+def _result_needs_review(total_months: int, entries: Sequence[Dict[str, Any]]) -> bool:
+    if total_months < 0:
+        logger.warning("Experience summary flagged: negative total_months=%s", total_months)
+        return True
+    if total_months > MAX_REASONABLE_EXPERIENCE_MONTHS:
+        logger.warning("Experience summary flagged: unrealistic total_months=%s", total_months)
+        return True
+    if entries and total_months == 0:
+        logger.warning("Experience summary flagged: entries present but total months is zero")
+        return True
+    return False
+
+
+def _should_use_layer2(primary_summary: Dict[str, Any], layer2_summary: Dict[str, Any]) -> bool:
+    if not layer2_summary["entries"]:
+        return False
+    layer2_current = layer2_summary.get("current_entry") or {}
+    layer2_has_current_signal = bool(layer2_current.get("company") or layer2_current.get("role"))
+    if not primary_summary["entries"]:
+        logger.info("Layer2 experience summary selected because Layer1 found no entries")
+        return True
+    if layer2_summary["total_months"] > primary_summary["total_months"]:
+        logger.info(
+            "Layer2 experience summary selected because it improved total_months old=%s new=%s",
+            primary_summary["total_months"],
+            layer2_summary["total_months"],
+        )
+        return True
+    if (
+        layer2_has_current_signal
+        and not primary_summary["current_entry"]
+    ):
+        logger.info("Layer2 experience summary selected because it resolved a current role/company")
+        return True
+    if (
+        len(layer2_summary["entries"]) > len(primary_summary["entries"])
+        and layer2_summary["average_confidence"] >= max(primary_summary["average_confidence"] - 0.05, 0)
+    ):
+        logger.info("Layer2 experience summary selected because it captured more entries with comparable confidence")
+        return True
+    return False
+
+
+def _normalize_current_role_company(entry: Optional[Dict[str, Any]]) -> tuple[Optional[str], Optional[str], Optional[str]]:
+    if not entry:
+        return None, None, None
+    current_role = entry.get("role")
+    current_company = entry.get("company")
+    if current_role and not current_company:
+        for separator in (" - ", " | ", " @ "):
+            if separator in str(current_role):
+                role_part, company_part = [part.strip(" |-,:") for part in str(current_role).split(separator, 1)]
+                if ROLE_HINT_PATTERN.search(role_part):
+                    current_role = role_part
+                    current_company = _clean_company_name(company_part)
+                break
+    return current_role, current_company, entry.get("start_date")
+
+
 def extract_experience_entries(text: str, ignore_internships: bool = False) -> List[Dict[str, Any]]:
     experience_section = extract_experience_section(text)
     if not experience_section:
@@ -1242,14 +1592,13 @@ def extract_experience_entries(text: str, ignore_internships: bool = False) -> L
 
 
 def extract_total_experience(text: str, ignore_internships: bool = False) -> Dict[str, Any]:
-    entries = extract_experience_entries(text, ignore_internships=ignore_internships)
-    ranges = []
-    normalized_entries = []
-    total_months = 0
-    for entry in entries:
-        start = parse_date(entry["start_date"], is_end=False)
-        end = parse_date(entry["end_date"], is_end=True)
+    layer1_entries = extract_experience_entries(text, ignore_internships=ignore_internships)
+    normalized_layer1_entries: List[Dict[str, Any]] = []
+    for entry in layer1_entries:
+        start = parse_date(entry.get("start_date", ""), is_end=False)
+        end = parse_date(entry.get("end_date", ""), is_end=True)
         if not _is_valid_experience_window(start, end):
+            logger.warning("Layer1 experience entry rejected role=%s company=%s", entry.get("role"), entry.get("company"))
             continue
         if not entry.get("duration_months"):
             explicit_duration = _parse_text_duration_months(entry.get("raw_text", ""))
@@ -1257,31 +1606,68 @@ def extract_total_experience(text: str, ignore_internships: bool = False) -> Dic
                 entry["duration_months"] = explicit_duration
                 entry["duration_years"] = round(explicit_duration / 12.0, 1)
                 entry["duration"] = _format_duration(explicit_duration)
-        ranges.append((start, end))
-        normalized_entries.append(entry)
-    if ranges:
-        merged_ranges = merge_overlapping_ranges(ranges)
-        total_months = sum(_months_between(start, end) for start, end in merged_ranges)
-        total_years = round(total_months / 12.0, 1)
-    else:
-        total_years = None
+        elif start and end:
+            computed_duration = _months_between(start, end)
+            if abs(int(entry.get("duration_months") or 0) - computed_duration) > 1:
+                logger.info(
+                    "Experience duration cross-validation mismatch role=%s company=%s stated=%s computed=%s",
+                    entry.get("role"),
+                    entry.get("company"),
+                    entry.get("duration_months"),
+                    computed_duration,
+                )
+        normalized_layer1_entries.append(entry)
 
-    current_entry = _select_current_experience(normalized_entries)
-    average_confidence = round(
-        sum(float(entry.get("confidence") or 0.0) for entry in normalized_entries) / len(normalized_entries),
-        2,
-    ) if normalized_entries else 0.0
+    layer1_summary = _summarize_experience_result(normalized_layer1_entries)
+    layer2_entries = _extract_layer2_experience_entries(text, ignore_internships=ignore_internships)
+    layer2_summary = _summarize_experience_result(layer2_entries)
+
+    selected_summary = layer2_summary if _should_use_layer2(layer1_summary, layer2_summary) else layer1_summary
+    normalized_entries = list(selected_summary["entries"])
+    total_months = int(selected_summary["total_months"] or 0)
+    if total_months > MAX_REASONABLE_EXPERIENCE_MONTHS:
+        logger.warning("Selected experience summary exceeded max allowed months=%s", total_months)
+        total_months = 0
+        normalized_entries = []
+        selected_summary = {
+            **selected_summary,
+            "entries": [],
+            "total_months": 0,
+            "merged_ranges": [],
+            "current_entry": None,
+        }
+
+    total_years = round(total_months / 12.0, 1) if total_months > 0 else None
+    current_entry = selected_summary["current_entry"]
+    average_confidence = selected_summary["average_confidence"]
     years_part, months_part = _duration_parts(total_months)
+    total_experience_text = _format_duration(total_months) if total_months else ""
+    if normalized_entries and not total_experience_text:
+        total_experience_text = "Less than 1 month"
+    needs_review = _result_needs_review(total_months, normalized_entries)
+    if layer1_summary["total_months"] and layer2_summary["total_months"] and layer1_summary["total_months"] != layer2_summary["total_months"]:
+        logger.info(
+            "Experience cross validation mismatch layer1_months=%s layer2_months=%s",
+            layer1_summary["total_months"],
+            layer2_summary["total_months"],
+        )
+
+    current_role, current_company, current_role_start = _normalize_current_role_company(current_entry)
+
     return {
         "total_experience_years": total_years,
         "total_experience_months": total_months,
+        "experience_months": total_months,
         "total_experience_years_component": years_part,
         "total_experience_months_component": months_part,
-        "total_experience": _format_duration(total_months) if total_months else "",
-        "experience_duration": _format_duration(total_months) if total_months else "",
-        "current_company": current_entry.get("company") if current_entry else None,
-        "current_role": current_entry.get("role") if current_entry else None,
+        "total_experience": total_experience_text,
+        "experience_duration": total_experience_text,
+        "current_company": current_company,
+        "current_role": current_role,
+        "current_role_start": current_role_start,
         "experience_extraction_confidence": average_confidence,
+        "needs_review": needs_review,
+        "experience_parser_layer": "layer2" if selected_summary is layer2_summary else "layer1",
         "experience": normalized_entries,
         "experiences": normalized_entries,
     }
