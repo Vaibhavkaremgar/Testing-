@@ -152,6 +152,7 @@ def _serialize_interview_response(interview: Interview, recording_availability: 
         async_token=interview.async_token,
         session_token=recording_data.get("session_token"),
         recording_path=recording_data.get("recording_path"),
+        recording_format=recording_data.get("recording_format"),
         interview_type=interview.interview_type or "General",
         scheduled_at=interview.scheduled_at,
         duration_minutes=interview.duration_minutes if interview.duration_minutes is not None else 60,
@@ -1236,6 +1237,8 @@ def _fetch_recording_availability(interviews: List[Interview]) -> dict[str, dict
                     params.extend(all_keys)
 
                 select_fields = [*(f"{column_name}::text" for column_name in lookup_columns)]
+                if "recording_format" in columns:
+                    select_fields.append("recording_format::text AS recording_format")
                 if has_recording_path:
                     select_fields.append("recording_path::text AS recording_path")
                 query = f"""
@@ -1249,9 +1252,11 @@ def _fetch_recording_availability(interviews: List[Interview]) -> dict[str, dict
                 session_token_index = lookup_columns.index("session_token") if "session_token" in lookup_columns else None
                 for row in cursor.fetchall():
                     matched_interview_ids: set[str] = set()
+                    recording_format_index = len(lookup_columns) if "recording_format" in columns else None
                     session_token_value = row[session_token_index] if session_token_index is not None else None
                     recording_path_value = row[-1] if has_recording_path else None
-                    lookup_values = row[:-1] if has_recording_path else row
+                    recording_format_value = row[recording_format_index] if recording_format_index is not None else None
+                    lookup_values = row[:len(lookup_columns)]
                     for value in lookup_values:
                         if value and value in value_to_interview_ids:
                             matched_interview_ids.update(value_to_interview_ids[value])
@@ -1262,12 +1267,13 @@ def _fetch_recording_availability(interviews: List[Interview]) -> dict[str, dict
                             "has_recording": True,
                             "session_token": existing.get("session_token") or session_token_value,
                             "recording_path": existing.get("recording_path") or recording_path_value,
+                            "recording_format": existing.get("recording_format") or recording_format_value,
                         }
 
                 return {
                     str(interview.id): recording_metadata.get(
                         str(interview.id),
-                        {"has_recording": False, "session_token": None, "recording_path": None},
+                        {"has_recording": False, "session_token": None, "recording_path": None, "recording_format": None},
                     )
                     for interview in interviews
                 }

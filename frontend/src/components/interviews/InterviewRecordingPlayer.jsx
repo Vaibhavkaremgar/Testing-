@@ -48,7 +48,7 @@ function buildRecordingUrls({ sessionToken, interviewId, asyncToken, recordingPa
   return Array.from(new Set(urls.filter(Boolean)))
 }
 
-function inferVideoMimeType(recordingPath) {
+function inferVideoMimeType(recordingPath, recordingFormat) {
   const normalizedPath = String(recordingPath || '').trim().toLowerCase()
   if (normalizedPath.endsWith('.webm')) {
     return 'video/webm'
@@ -56,19 +56,29 @@ function inferVideoMimeType(recordingPath) {
   if (normalizedPath.endsWith('.mp4')) {
     return 'video/mp4'
   }
+  const normalizedFormat = String(recordingFormat || '').trim().toLowerCase()
+  if (normalizedFormat === 'webm') {
+    return 'video/webm'
+  }
+  if (normalizedFormat === 'mp4') {
+    return 'video/mp4'
+  }
   return undefined
 }
 
-function buildAuthorizedRecordingSources(videoUrl, recordingPath, token) {
+function buildAuthorizedRecordingSources(videoUrl, recordingPath, recordingFormat, token) {
   if (!videoUrl) {
     return []
   }
 
-  const mimeType = inferVideoMimeType(recordingPath) || 'video/webm'
+  const mimeType = inferVideoMimeType(recordingPath, recordingFormat)
   const source = {
     src: videoUrl,
-    type: mimeType,
     withCredentials: true,
+  }
+
+  if (mimeType) {
+    source.type = mimeType
   }
 
   if (token) {
@@ -93,6 +103,7 @@ export default function InterviewRecordingPlayer({
   interviewId,
   asyncToken,
   recordingPath,
+  recordingFormat,
   className,
   poster = '',
 }) {
@@ -114,8 +125,8 @@ export default function InterviewRecordingPlayer({
   const authToken = useMemo(() => api.getToken(), [])
   console.log('FINAL VIDEO URL:', videoUrl)
   const sources = useMemo(
-    () => buildAuthorizedRecordingSources(videoUrl, recordingPath, authToken),
-    [authToken, recordingPath, videoUrl]
+    () => buildAuthorizedRecordingSources(videoUrl, recordingPath, recordingFormat, authToken),
+    [authToken, recordingFormat, recordingPath, videoUrl]
   )
   const hasRecording = Boolean(videoUrl)
   const hasValidRecordingPath = (

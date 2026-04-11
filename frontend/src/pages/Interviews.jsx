@@ -745,6 +745,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
                       interviewId={selectedInterview.id}
                       asyncToken={selectedInterview.async_token}
                       recordingPath={selectedInterview.recording_path}
+                      recordingFormat={selectedInterview.recording_format}
                       className="h-full w-full"
                     />
                   </div>
