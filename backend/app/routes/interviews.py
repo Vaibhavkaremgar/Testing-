@@ -7,12 +7,15 @@ from datetime import datetime
 from uuid import UUID
 from threading import Lock
 from time import monotonic, perf_counter
+from http.client import IncompleteRead
 from urllib.parse import quote
 import base64
 import binascii
 import random
 import psycopg2
 import requests
+from requests.exceptions import ChunkedEncodingError, ConnectionError
+from urllib3.exceptions import ProtocolError
 from app.database import get_db
 from app.config import settings
 from app.models import Interview, Candidate, CandidateStage, User
@@ -27,6 +30,7 @@ recording_router = APIRouter(prefix="/recording", tags=["Interviews"])
 
 VIDEO_CHUNK_SIZE = 1024 * 1024
 PROXY_STREAM_CHUNK_SIZE = 64 * 1024
+PROXY_STREAM_MAX_RETRIES = 3
 FORWARDED_STREAM_RESPONSE_HEADERS = (
     "Accept-Ranges",
     "Content-Length",
@@ -512,7 +516,7 @@ def _request_upstream_recording(
         upstream_url,
         headers=upstream_headers,
         stream=True,
-        timeout=(5, 300),
+        timeout=(5, 30),
     )
 
 
@@ -525,13 +529,166 @@ def _collect_upstream_stream_headers(upstream_response: requests.Response) -> di
     return headers
 
 
-def _stream_upstream_response(upstream_response: requests.Response):
+def _parse_single_range_header(range_header: Optional[str]) -> Optional[tuple[int, Optional[int]]]:
+    if not range_header or "," in range_header:
+        return None
+
+    normalized_range = range_header.strip()
+    if not normalized_range.startswith("bytes="):
+        return None
+
+    start_text, separator, end_text = normalized_range[6:].partition("-")
+    if separator != "-" or not start_text.isdigit():
+        return None
+
+    start = int(start_text)
+    end = int(end_text) if end_text.isdigit() else None
+    if end is not None and start > end:
+        return None
+    return start, end
+
+
+def _build_resume_range_header(
+    range_header: Optional[str],
+    bytes_streamed: int,
+    *,
+    initial_status_code: int,
+    initial_content_length: Optional[str],
+) -> Optional[str]:
+    parsed_requested_range = _parse_single_range_header(range_header)
+    if parsed_requested_range is not None:
+        start, end = parsed_requested_range
+        next_start = start + bytes_streamed
+        if end is not None and next_start > end:
+            return None
+        return f"bytes={next_start}-{end}" if end is not None else f"bytes={next_start}-"
+
+    # For normal 200 responses, resume from the next unread byte without changing
+    # the response contract seen by the client.
+    if initial_status_code != 200:
+        return None
+
+    if not initial_content_length or not initial_content_length.isdigit():
+        return None
+
+    total_length = int(initial_content_length)
+    if bytes_streamed >= total_length:
+        return None
+    return f"bytes={bytes_streamed}-{total_length - 1}"
+
+
+def _parse_content_range_start(content_range: Optional[str]) -> Optional[int]:
+    if not content_range:
+        return None
+
+    normalized_content_range = content_range.strip()
+    if not normalized_content_range.startswith("bytes "):
+        return None
+
+    byte_range, _, _ = normalized_content_range[6:].partition("/")
+    start_text, separator, _ = byte_range.partition("-")
+    if separator != "-" or not start_text.isdigit():
+        return None
+    return int(start_text)
+
+
+def _stream_upstream_response(
+    upstream_response: requests.Response,
+    *,
+    upstream_url: str,
+    upstream_headers: dict[str, str],
+    session_token: str,
+):
+    bytes_streamed = 0
+    retry_count = 0
+    active_response = upstream_response
+    initial_status_code = upstream_response.status_code
+    initial_content_length = upstream_response.headers.get("Content-Length")
     try:
-        for chunk in upstream_response.iter_content(chunk_size=PROXY_STREAM_CHUNK_SIZE):
-            if chunk:
-                yield chunk
+        while True:
+            try:
+                for chunk in active_response.iter_content(chunk_size=PROXY_STREAM_CHUNK_SIZE):
+                    if chunk:
+                        bytes_streamed += len(chunk)
+                        yield chunk
+                break
+            except (ChunkedEncodingError, ProtocolError, IncompleteRead, ConnectionError) as exc:
+                _log_recording_debug(
+                    "proxy_recording_stream.stream_error",
+                    session_token=session_token,
+                    upstream_url=upstream_url,
+                    bytes_streamed=bytes_streamed,
+                    error_type=type(exc).__name__,
+                    error=str(exc),
+                )
+
+                retry_range = _build_resume_range_header(
+                    upstream_headers.get("Range"),
+                    bytes_streamed,
+                    initial_status_code=initial_status_code,
+                    initial_content_length=initial_content_length,
+                )
+
+                if not retry_range or retry_count >= PROXY_STREAM_MAX_RETRIES:
+                    # Stop the generator cleanly so broken upstream chunks do not crash the request lifecycle.
+                    _log_recording_debug(
+                        "proxy_recording_stream.stream_stop",
+                        session_token=session_token,
+                        upstream_url=upstream_url,
+                        bytes_streamed=bytes_streamed,
+                        retry_count=retry_count,
+                        retry_range=retry_range,
+                    )
+                    break
+
+                active_response.close()
+                retry_count += 1
+                retry_headers = dict(upstream_headers)
+                retry_headers["Range"] = retry_range
+                try:
+                    active_response = _request_upstream_recording("GET", upstream_url, retry_headers)
+                except requests.RequestException as retry_exc:
+                    _log_recording_debug(
+                        "proxy_recording_stream.retry_error",
+                        session_token=session_token,
+                        upstream_url=upstream_url,
+                        retry_range=retry_range,
+                        retry_count=retry_count,
+                        error_type=type(retry_exc).__name__,
+                        error=str(retry_exc),
+                    )
+                    break
+
+                _log_recording_debug(
+                    "proxy_recording_stream.retry",
+                    session_token=session_token,
+                    upstream_url=upstream_url,
+                    retry_range=retry_range,
+                    retry_count=retry_count,
+                    status_code=active_response.status_code,
+                    content_range=active_response.headers.get("Content-Range"),
+                )
+
+                expected_resume_start = _parse_single_range_header(retry_range)
+                actual_resume_start = _parse_content_range_start(active_response.headers.get("Content-Range"))
+                if (
+                    active_response.status_code != 206
+                    or expected_resume_start is None
+                    or actual_resume_start != expected_resume_start[0]
+                ):
+                    # Only continue when the upstream honors the exact resume byte we asked for.
+                    _log_recording_debug(
+                        "proxy_recording_stream.retry_rejected",
+                        session_token=session_token,
+                        upstream_url=upstream_url,
+                        retry_range=retry_range,
+                        retry_count=retry_count,
+                        status_code=active_response.status_code,
+                        content_range=active_response.headers.get("Content-Range"),
+                    )
+                    break
     finally:
-        upstream_response.close()
+        active_response.close()
 
 
 def _extract_upstream_error_body(upstream_response: requests.Response) -> str:
@@ -656,7 +813,12 @@ def _proxy_recording_stream(session_token: str, request_method: str, range_heade
         return Response(status_code=status_code, headers=response_headers)
 
     return StreamingResponse(
-        _stream_upstream_response(upstream_response),
+        _stream_upstream_response(
+            upstream_response,
+            upstream_url=selected_upstream_url or upstream_url,
+            upstream_headers=upstream_headers,
+            session_token=session_token,
+        ),
         status_code=status_code,
         headers=response_headers,
         media_type=media_type,
