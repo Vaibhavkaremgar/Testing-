@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from ats.extraction.information_extraction import extract_resume_information  # noqa: E402
+from ats.extraction.information_extraction import _select_latest_experience_entry, extract_resume_information  # noqa: E402
 from ats.extraction.resume_parser import extract_document, extract_text, parse_resume, run_ocr  # noqa: E402
 from app.routes.candidates import resolve_current_company_for_storage, resolve_current_role_for_storage  # noqa: E402
 
@@ -42,6 +42,33 @@ SEO, Machine Learning, Product Analytics
         self.assertEqual(result["current_company"], "Bright Technologies Pvt Ltd")
         self.assertGreater(result["experience_years"], 4.0)
         self.assertNotEqual(result["current_role"], "Go-to-Market Strategy")
+
+    def test_latest_experience_selector_ignores_preferred_hints(self):
+        entries = [
+            {
+                "company": "Alpha Systems",
+                "role": "Consultant",
+                "start_date": "2021-01",
+                "end_date": "2022-12",
+                "is_current": False,
+            },
+            {
+                "company": "Beta Labs",
+                "role": "Senior Consultant",
+                "start_date": "2023-01",
+                "end_date": "2026-04",
+                "is_current": True,
+            },
+        ]
+
+        selected = _select_latest_experience_entry(
+            entries,
+            preferred_company="Alpha Systems",
+            preferred_role="Consultant",
+        )
+
+        self.assertEqual(selected["company"], "Beta Labs")
+        self.assertEqual(selected["role"], "Senior Consultant")
 
     def test_unstructured_experience_section_still_extracts_role_and_company(self):
         resume_text = """
@@ -639,6 +666,47 @@ Using JIRA, Maven while continuously improving regression suites.
 
         self.assertEqual(result["location"], "")
         self.assertGreaterEqual(result["experience_years"], 2.0)
+
+    def test_location_prefers_header_contact_line_over_role_style_header(self):
+        resume_text = """
+LAVANYA REDDY
+Content Strategist | Brand Writer | Growth Marketer
+Bangalore | lavanya.reddy07@gmail.com
+
+Work Experience
+Lead Content Strategist
+MakeMyTrip India Pvt. Ltd. - Bangalore
+2022 to now
+
+Content Writer
+Internshala
+2018 - 2020
+        """
+
+        result = extract_resume_information(resume_text)
+
+        self.assertEqual(result["location"], "Bangalore")
+        self.assertEqual(result["current_company"], "MakeMyTrip Pvt. Ltd")
+
+    def test_location_can_be_extracted_from_about_section_after_header_miss(self):
+        resume_text = """
+Lavanya Reddy
+Content Strategist | Brand Writer | Growth Marketer
+lavanya.reddy07@gmail.com
+
+About
+Based in Bangalore, India with 5 years of experience building content strategy.
+
+Work Experience
+Lead Content Strategist
+MakeMyTrip India Pvt. Ltd.
+2022 - Present
+        """
+
+        result = extract_resume_information(resume_text)
+
+        self.assertEqual(result["location"], "Bangalore")
+        self.assertEqual(result["current_company"], "MakeMyTrip Pvt. Ltd")
 
     def test_month_based_experience_ranges_are_counted(self):
         resume_text = """

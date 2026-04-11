@@ -70,12 +70,61 @@ SKILL_LIKE_PATTERN = re.compile(
 )
 COMPANY_STOPWORD_PATTERN = re.compile(r"(?i)\b(?:strategy|analytics|marketing|platform|pipeline|roadmap|adoption|enterprise)\b")
 BULLET_PREFIX_PATTERN = re.compile(r"^\s*[\u2022\u25aa\u25e6\u25cf\u00b7\-\*]+\s*")
-SECTION_BREAK_PATTERN = re.compile(r"(?i)^(?:education|projects?|skills|technical skills|certifications?|summary|profile|languages?)$")
-EXPERIENCE_HEADER_PATTERN = re.compile(r"(?i)^(?:work experience|professional experience|employment history|employment|career history|experience|period)$")
-NON_EXPERIENCE_HEADER_PATTERN = re.compile(
-    r"(?i)^(?:certifications?|soft skills?|technical skills|skills|education|projects?|languages?|profile summary|summary|job objective|objective|contact details|areas of expertise)$"
+EXPERIENCE_SECTION_HEADINGS = (
+    "experience",
+    "work experience",
+    "professional experience",
+    "employment history",
+    "career history",
+    "professional background",
+    "work history",
+    "experience summary",
+    "employment",
+    "period",
 )
-EXPERIENCE_CONTINUATION_HEADER_PATTERN = re.compile(r"(?i)^(?:previous experience|prior experience|internship|internships?)$")
+EXPERIENCE_SECTION_END_HEADINGS = (
+    "education",
+    "skills",
+    "technical skills",
+    "projects",
+    "project",
+    "certifications",
+    "certification",
+    "awards",
+    "award",
+    "achievements",
+    "achievement",
+    "summary",
+    "professional summary",
+    "profile",
+    "profile summary",
+    "objective",
+    "career objective",
+    "job objective",
+    "publications",
+    "publication",
+    "interests",
+    "interest",
+    "languages",
+    "language",
+    "personal info",
+    "personal information",
+    "personal details",
+)
+SECTION_BREAK_PATTERN = re.compile(
+    rf"(?i)^(?:{'|'.join(re.escape(value) for value in EXPERIENCE_SECTION_END_HEADINGS)})$"
+)
+EXPERIENCE_HEADER_PATTERN = re.compile(
+    rf"(?i)^(?:{'|'.join(re.escape(value) for value in EXPERIENCE_SECTION_HEADINGS)})$"
+)
+NON_EXPERIENCE_HEADER_PATTERN = re.compile(
+    r"(?i)^(?:certifications?|soft skills?|technical skills|skills|education|projects?|languages?|profile summary|summary|"
+    r"professional summary|profile|job objective|objective|career objective|publications?|interests?|awards?|"
+    r"achievements?|personal info(?:rmation)?|personal details|contact details|areas of expertise)$"
+)
+EXPERIENCE_CONTINUATION_HEADER_PATTERN = re.compile(
+    r"(?i)^(?:previous experience|prior experience|internship(?: experience)?|internships?)$"
+)
 CERTIFICATION_ROLE_PATTERN = re.compile(r"(?i)\b(?:certified|certification|certificate|ccna|azure fundamentals|associate - back-end)\b")
 ORGANIZATION_LINE_PATTERN = re.compile(r"(?i)^organization\s*:\s*(?P<value>.+)$")
 DESIGNATION_LINE_PATTERN = re.compile(r"(?i)^designation\s*:\s*(?P<value>.+)$")
@@ -145,7 +194,7 @@ LAYER2_RANGE_REGEX = re.compile(
     rf"(?P<end>{EXTENDED_PRESENT_PATTERN}|{DATE_TOKEN_PATTERN}|FY\s*\d{{4}}(?:[-/]\d{{2,4}})?|AY\s*\d{{4}}(?:[-/]\d{{2,4}})?)",
     re.IGNORECASE,
 )
-MERGE_ADJACENT_INTERVAL_DAYS = 31
+MERGE_ADJACENT_INTERVAL_DAYS = 1
 MAX_REASONABLE_EXPERIENCE_MONTHS = 45 * 12
 TEXT_DURATION_PATTERN = re.compile(
     r"(?i)\b(?:(?P<years>\d+(?:\.\d+)?)\s+years?)?(?:\s*(?P<months>\d+)\s+months?)?\b"
@@ -483,15 +532,72 @@ def normalize_date(date_string: str, is_end: bool = False, today: Optional[datet
     return parse_date(date_string, is_end=is_end, today=today)
 
 
+def _extract_bounded_experience_section(text: str) -> str:
+    normalized_text = _normalize_text(text)
+    raw_lines = [line.rstrip() for line in normalized_text.split("\n")]
+    if not raw_lines:
+        logger.warning("Experience section detection failure: empty normalized text")
+        return ""
+
+    normalized_lines = [_normalize_line(line) for line in raw_lines]
+    start_index: Optional[int] = None
+    for index, normalized_line in enumerate(normalized_lines):
+        if EXPERIENCE_HEADER_PATTERN.match(normalized_line) or EXPERIENCE_CONTINUATION_HEADER_PATTERN.match(normalized_line):
+            start_index = index
+            break
+
+    if start_index is None:
+        logger.warning("Experience section detection failure: no supported experience heading found")
+        return ""
+
+    end_index = len(raw_lines)
+    for index in range(start_index + 1, len(normalized_lines)):
+        normalized_line = normalized_lines[index]
+        if SECTION_BREAK_PATTERN.match(normalized_line) or NON_EXPERIENCE_HEADER_PATTERN.match(normalized_line):
+            end_index = index
+            break
+
+    section_lines = [line for line in raw_lines[start_index:end_index] if line.strip()]
+    section_text = "\n".join(section_lines).strip()
+    if not section_text:
+        logger.warning(
+            "Experience section detection failure: heading found but section body was empty start_heading=%s",
+            normalized_lines[start_index],
+        )
+        return ""
+
+    if end_index == len(raw_lines):
+        logger.info(
+            "Experience section boundary reached document end start_heading=%s",
+            normalized_lines[start_index],
+        )
+    else:
+        logger.info(
+            "Experience section boundaries detected start_heading=%s end_heading=%s",
+            normalized_lines[start_index],
+            normalized_lines[end_index],
+        )
+    return section_text
+
+
 def extract_experience_section(text: str) -> str:
     cleaned = _normalize_text(text)
     if not cleaned:
         return ""
+    bounded_section = _extract_bounded_experience_section(cleaned)
+    if bounded_section:
+        return bounded_section
+
     explicit_section = get_section_content(cleaned, "experience")
-    if explicit_section and len(explicit_section.splitlines()) >= 2:
+    if explicit_section and any(
+        EXPERIENCE_HEADER_PATTERN.match(_normalize_line(line))
+        for line in cleaned.splitlines()
+    ):
+        logger.warning("Experience section detection fallback: using segmented experience section after bounded detection failed")
         return explicit_section
-    fallback_section = _infer_experience_section_from_full_text(cleaned)
-    return explicit_section or fallback_section
+
+    logger.warning("Experience section detection failure: no bounded or segmented experience section could be resolved")
+    return ""
 
 
 def _infer_experience_section_from_full_text(text: str) -> str:
@@ -1455,7 +1561,20 @@ def _extract_layer2_experience_entries(text: str, ignore_internships: bool = Fal
     entries: List[Dict[str, Any]] = []
     for index, line in enumerate(normalized_lines):
         line_ranges = _extract_layer2_date_ranges(line)
-        if not line_ranges and index + 1 < len(normalized_lines):
+        should_pair_with_next = bool(
+            not line_ranges
+            and index + 1 < len(normalized_lines)
+            and (
+                ROLE_HINT_PATTERN.search(line)
+                or COMPANY_PATTERN.search(line)
+                or " | " in line
+                or " at " in line.lower()
+                or " in " in line.lower()
+                or ORGANIZATION_LINE_PATTERN.match(line)
+                or DESIGNATION_LINE_PATTERN.match(line)
+            )
+        )
+        if should_pair_with_next:
             paired_text = f"{line}\n{normalized_lines[index + 1]}"
             line_ranges = _extract_layer2_date_ranges(paired_text)
         if not line_ranges:

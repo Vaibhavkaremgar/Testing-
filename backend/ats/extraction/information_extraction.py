@@ -46,7 +46,7 @@ PHONE_PATTERNS = (
 )
 PHONE_CANDIDATE_PATTERN = re.compile(r"(?<!\d)(\+?\d[\d\s().-]{8,}\d)(?!\d)")
 ROLE_KEYWORD_PATTERN = re.compile(
-    r"(?i)\b(?:engineer|developer|manager|analyst|consultant|architect|lead|intern|tester|qa|software|automation)\b"
+    r"(?i)\b(?:engineer|developer|manager|analyst|consultant|architect|lead|intern|tester|qa|software|automation|strategist|writer|marketer)\b"
 )
 HEADER_NAME_SEPARATOR_PATTERN = re.compile(r"\s+\|\s+|\s+-\s+|\s+\((?=[A-Za-z])")
 NON_NAME_CHARS_PATTERN = re.compile(r"[^A-Za-z'`.\- ]")
@@ -88,9 +88,12 @@ LOCATION_CONNECTOR_TERMS = {
 }
 LOCATION_ROLE_BLOCKLIST = {
     "engineer", "analyst", "developer", "tester", "consultant", "manager", "specialist",
-    "architect", "soc", "cybersecurity", "penetration", "software", "data", "business",
+    "architect", "strategist", "writer", "marketer", "soc", "cybersecurity", "penetration", "software", "data", "business",
     "intelligence", "visualization",
 }
+LOCATION_ROLE_FALSE_POSITIVE_PATTERN = re.compile(
+    r"(?i)\b(?:strategist|developer|engineer|manager|writer|marketer|consultant)\b"
+)
 ADDRESS_CITY_HINT_PATTERN = re.compile(
     r"(?i)\b(?P<city>[A-Za-z][A-Za-z\s.-]{1,40})\s*(?:\(?(?:dist|district|city)\)?\b)"
 )
@@ -256,10 +259,14 @@ LOCATION_CANDIDATE_PATTERN = re.compile(
 )
 PLACE_LINE_PATTERN = re.compile(r"(?i)\bplace\s*[:\-]?\s*(?P<value>[A-Za-z][A-Za-z\s.-]{1,40})")
 LOCATION_CONTEXT_PATTERN = re.compile(
-    r"(?i)\b(?:preferably in|based in|located in|from)\s+(?P<value>[A-Z][A-Za-z.-]+(?:\s+[A-Z][A-Za-z.-]+){0,2})\b"
+    r"(?i)\b(?:preferably in|based in|located in|currently in|living in|from|residing in)\s+"
+    r"(?P<value>[A-Z][A-Za-z.-]+(?:\s+[A-Z][A-Za-z.-]+){0,3}(?:,\s*[A-Z][A-Za-z.-]+(?:\s+[A-Z][A-Za-z.-]+){0,2})?)\b"
 )
 LOCATION_OR_PATTERN = re.compile(
     r"(?i)\bor\s+(?P<value>[A-Z][A-Za-z.-]+(?:\s+[A-Z][A-Za-z.-]+){0,2})\b"
+)
+ABOUT_SECTION_HEADER_PATTERN = re.compile(
+    r"(?i)^\s*(?:about|about me|profile|summary|professional summary|overview|introduction)\s*[:\-]*\s*$"
 )
 PERSONAL_DETAILS_HEADER_PATTERN = re.compile(
     r"(?i)^\s*(?:personal details?|personal information|personal profile|contact details?|contact information|address details?)\s*[:\-]*\s*$"
@@ -888,24 +895,26 @@ def _select_latest_experience_entry(entries: List[Dict[str, Any]], preferred_com
     if not entries:
         return {}
 
-    preferred_company_key = str(preferred_company or "").strip().lower()
-    preferred_role_key = str(preferred_role or "").strip().lower()
-    for entry in entries:
-        if (
-            preferred_company_key
-            and preferred_role_key
-            and str(entry.get("company") or "").strip().lower() == preferred_company_key
-            and str(entry.get("role") or "").strip().lower() == preferred_role_key
-        ):
-            return entry
-
     from ats.extraction.experience_extraction import parse_date
+
+    if preferred_company or preferred_role:
+        logger.info(
+            "Current company detection fallback: ignoring preferred hints and selecting latest experience entry only preferred_company=%s preferred_role=%s",
+            preferred_company,
+            preferred_role,
+        )
+
+    def _has_current_signal(item: Dict[str, Any]) -> bool:
+        if item.get("is_current"):
+            return True
+        raw_text = str(item.get("raw_text") or "")
+        return bool(re.search(r"(?i)\b(?:present|now|current|ongoing|till now|till date|continuing)\b", raw_text))
 
     def _entry_sort_key(item: Dict[str, Any]) -> tuple[int, Any, Any]:
         end_value = parse_date(str(item.get("end_date") or ""), is_end=True)
         start_value = parse_date(str(item.get("start_date") or ""), is_end=False)
         return (
-            1 if item.get("is_current") else 0,
+            1 if _has_current_signal(item) else 0,
             end_value or datetime.min,
             start_value or datetime.min,
         )
@@ -1919,6 +1928,8 @@ def _is_location_noise_candidate(value: str) -> bool:
         return True
     if ROLE_KEYWORD_PATTERN.search(compact):
         return True
+    if LOCATION_ROLE_FALSE_POSITIVE_PATTERN.search(compact):
+        return True
     if lowered in INVALID_LOCATION_WORDS or lowered in INVALID_LOCATION_LABELS:
         return True
     if LOCATION_FALSE_POSITIVE_TECH_PATTERN.search(lowered):
@@ -1949,6 +1960,8 @@ def _canonicalize_location_pair(value: str) -> str:
     right = _canonicalize_location_token(parts[1])
     if not left or not right:
         return ""
+    if right.lower() == "india":
+        return left
     return f"{left}, {right}"
 
 
@@ -2068,6 +2081,33 @@ def _extract_personal_detail_lines(lines: List[str], window: int = 20) -> List[s
                 break
             captured.append(candidate)
     return captured
+
+
+def _extract_about_section_for_location(text: str, *candidate_sections: str) -> str:
+    normalized_candidates = [
+        normalize_document_structure(section or "").strip()
+        for section in candidate_sections
+        if normalize_document_structure(section or "").strip()
+    ]
+    if normalized_candidates:
+        return "\n".join(dict.fromkeys(normalized_candidates))
+
+    lines = [line.strip() for line in normalize_document_structure(text or "").splitlines() if line.strip()]
+    if not lines:
+        return ""
+
+    collected: List[str] = []
+    active = False
+    for line in lines[:120]:
+        if ABOUT_SECTION_HEADER_PATTERN.match(line):
+            active = True
+            collected.append(line)
+            continue
+        if active and SECTION_START_PATTERN.match(line) and not ABOUT_SECTION_HEADER_PATTERN.match(line):
+            break
+        if active:
+            collected.append(line)
+    return "\n".join(collected).strip()
 
 
 def _build_contact_context(*parts: str) -> str:
@@ -2247,10 +2287,21 @@ def extract_location(text: str, use_spacy: bool = True) -> str:
                 logger.debug("Location extracted from place line: %s", candidate)
                 return candidate
 
+    for line in lines[:25]:
+        if re.match(r"(?i)^(?:languages?|known|nationality)\b", line):
+            continue
+        for match in LOCATION_CONTEXT_PATTERN.finditer(line):
+            candidate = _pick_primary_location(match.group("value"))
+            if candidate:
+                logger.debug("Location extracted from contextual phrase: %s", candidate)
+                return candidate
+
     for line in prioritized_lines[:15]:
         if re.match(r"(?i)^(?:languages?|known|nationality)\b", line):
             continue
         if re.search(r"(?i)\b(?:technology|project|responsibilit|power apps|power automate|dataverse|sharepoint)\b", line):
+            continue
+        if LOCATION_ROLE_FALSE_POSITIVE_PATTERN.search(line) and "|" in line and "@" not in line:
             continue
         direct_candidate = _pick_primary_location(line)
         if direct_candidate:
@@ -2514,16 +2565,24 @@ def extract_resume_information(text: str) -> Dict:
     header_context = "\n".join(header_only_lines)
     personal_detail_lines = _extract_personal_detail_lines(structural_lines)
     personal_details_context = _build_contact_context(contact_section, "\n".join(personal_detail_lines))
+    about_context = _extract_about_section_for_location(
+        structural_source,
+        raw_sections.get("summary", ""),
+        sections.get("summary", ""),
+        raw_sections.get("profile", ""),
+        sections.get("profile", ""),
+    )
+    near_name_context = _build_contact_context("\n".join(structural_lines[:5]))
 
     header_present = bool(header_context.strip()) or bool(sections.get("header", "").strip())
-    for source in (header_context, personal_details_context):
+    for source in (header_context, personal_details_context, about_context, near_name_context):
         if not source:
             continue
         location = extract_location(source, use_spacy=False)
         if location:
             break
     if not location:
-        for source in (header_context, personal_details_context):
+        for source in (header_context, personal_details_context, about_context, near_name_context):
             for line in [line.strip() for line in source.splitlines() if line.strip()][:10]:
                 location = validate_location(line)
                 if location:
@@ -2536,7 +2595,7 @@ def extract_resume_information(text: str) -> Dict:
         primary_name = extract_name(contact_context or cleaned_text, use_spacy=True)
 
     if not location and need_slow_path and SPACY_AVAILABLE:
-        for source in (header_context, personal_details_context):
+        for source in (header_context, personal_details_context, about_context, near_name_context):
             if not source:
                 continue
             location = extract_location(source, use_spacy=True)

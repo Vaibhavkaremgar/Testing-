@@ -119,6 +119,31 @@ Built ETL jobs and analytics pipelines.
         self.assertEqual(result["current_company"], "Insight Works")
         self.assertAlmostEqual(result["total_experience_years"], 2.4, delta=0.15)
 
+    def test_work_history_section_stops_at_publications_and_ignores_following_dates(self):
+        resume_text = """
+Alex Candidate
+
+Work History
+Senior Data Engineer
+Northwind Technologies
+Jan 2021 - Present
+Built hiring analytics pipelines.
+
+Publications
+Modern Resume Parsing
+2024
+
+Education
+Bachelor of Engineering
+2014 - 2018
+        """
+
+        result = extract_total_experience(resume_text)
+
+        self.assertEqual(len(result["experiences"]), 1)
+        self.assertEqual(result["current_company"], "Northwind Technologies")
+        self.assertNotIn("2014 - 2018", result["experience"][0]["raw_text"])
+
     def test_headerless_resume_returns_no_experience_under_section_only_rule(self):
         resume_text = """
 Neha Kapoor
@@ -154,6 +179,25 @@ Led enterprise delivery.
         self.assertEqual(result["current_company"], "Beta Labs")
         self.assertEqual(result["current_role"], "Senior Consultant")
         self.assertEqual(result["experiences"][0]["company"], "Beta Labs")
+
+    def test_current_company_prefers_latest_end_date_when_no_present_role(self):
+        resume_text = """
+Professional Background
+Software Engineer | Alpha Systems | Jan 2020 - Mar 2022
+Built internal tools.
+
+Senior Software Engineer | Beta Labs | Apr 2022 - Feb 2024
+Led platform delivery.
+
+Skills
+Python
+        """
+
+        result = extract_total_experience(resume_text)
+
+        self.assertEqual(result["current_company"], "Beta Labs")
+        self.assertEqual(result["current_role"], "Senior Software Engineer")
+        self.assertEqual(result["current_role_start"], "2022-04")
 
     def test_future_dated_entry_is_ignored(self):
         resume_text = """

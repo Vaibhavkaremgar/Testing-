@@ -54,6 +54,9 @@ NON_LOCATION_CONTEXT_TERMS = {
 LOCATION_FALSE_POSITIVE_TECH_PATTERN = re.compile(
     r"(?i)\b(?:python|java|selenium|playwright|robot framework|robot|sql|typescript|react|docker|jenkins|postman|restassured|pytest|fastapi|power bi|tableau|jira|maven|ui)\b"
 )
+LOCATION_ROLE_FALSE_POSITIVE_PATTERN = re.compile(
+    r"(?i)\b(?:strategist|developer|engineer|manager|writer|marketer|consultant)\b"
+)
 
 _parser_config_loader = ParserConfigLoader()
 _parser_vocabulary = _parser_config_loader.load_parser_vocabulary()
@@ -139,14 +142,21 @@ def validate_current_company(value: Optional[str], experience_section: str) -> O
     if not candidate:
         return None
     experience_source = experience_section or ""
-    if candidate.lower() not in experience_source.lower():
-        return None
     if len(candidate.split()) > 8:
         return None
     if SENTENCE_NOISE_PATTERN.search(candidate):
         return None
     if not COMPANY_PATTERN.search(candidate) and not FALLBACK_COMPANY_PATTERN.match(candidate) and not SINGLE_TOKEN_COMPANY_PATTERN.match(candidate) and not TITLECASE_SINGLE_TOKEN_COMPANY_PATTERN.match(candidate):
         return None
+    normalized_candidate_tokens = {
+        token
+        for token in re.findall(r"[a-z0-9]+", candidate.lower())
+        if token not in {"india", "private", "pvt", "ltd", "limited", "inc", "corp", "corporation", "llc", "llp", "services", "solutions", "systems", "technologies", "technology"}
+    }
+    experience_tokens = set(re.findall(r"[a-z0-9]+", experience_source.lower()))
+    if candidate.lower() not in experience_source.lower():
+        if not normalized_candidate_tokens or not normalized_candidate_tokens.issubset(experience_tokens):
+            return None
     return candidate
 
 
@@ -169,6 +179,8 @@ def validate_location(value: Optional[str]) -> str:
     if tokens & INVALID_LOCATION_WORDS:
         return ""
     if LOCATION_NOISE_PATTERN.search(candidate):
+        return ""
+    if LOCATION_ROLE_FALSE_POSITIVE_PATTERN.search(candidate):
         return ""
     if LOCATION_FALSE_POSITIVE_TECH_PATTERN.search(candidate):
         return ""
