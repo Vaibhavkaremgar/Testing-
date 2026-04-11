@@ -82,6 +82,10 @@ function getEffectiveInterviewStatus(interview) {
   return normalizedStatus || 'pending'
 }
 
+function formatJobFilterLabel(job) {
+  return [job?.title, job?.company_name].filter(Boolean).join(' - ') || 'Untitled Job'
+}
+
 function getInterviewResultMeta(interview, candidateStage) {
   const normalizedCandidateStage = String(candidateStage || '').toUpperCase()
   if (normalizedCandidateStage === 'SELECTED') {
@@ -229,7 +233,13 @@ export default function Interviews({ superAdminAgencyId = null }) {
     ))
   }, [candidateJobMap, interviews, selectedJobFilter])
 
-  const filteredInterviews = jobFilteredInterviews
+  const filteredInterviews = useMemo(() => (
+    jobFilteredInterviews.filter((interview) => {
+      const effectiveStatus = getEffectiveInterviewStatus(interview)
+      const candidateStage = String(candidateStageMap.get(String(interview.candidate_id)) || '').toLowerCase()
+      return effectiveStatus === 'completed' || candidateStage === 'selected' || candidateStage === 'rejected'
+    })
+  ), [candidateStageMap, jobFilteredInterviews])
   const transcriptSegments = useMemo(
     () => parseTranscriptSegments(selectedInterview?.transcript),
     [selectedInterview?.transcript]
@@ -542,7 +552,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
               <option value="all">All Active Jobs</option>
               {activeJobs.map((job) => (
                 <option key={job.id} value={job.id}>
-                  {job.title}
+                  {formatJobFilterLabel(job)}
                 </option>
               ))}
             </select>

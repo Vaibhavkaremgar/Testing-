@@ -1725,7 +1725,7 @@ def get_upcoming_interviews(
     from datetime import datetime, timedelta
     
     # Get interviews scheduled for next 7 days
-    today = datetime.now()
+    today = datetime.utcnow().date()
     next_week = today + timedelta(days=7)
     
     interview_query = db.query(Interview).filter(Interview.status == 'scheduled')
@@ -1738,8 +1738,8 @@ def get_upcoming_interviews(
         )
     else:
         interview_query = interview_query.filter(
-            Interview.scheduled_at >= today,
-            Interview.scheduled_at <= next_week,
+            func.date(Interview.scheduled_at) >= today,
+            func.date(Interview.scheduled_at) <= next_week,
         )
 
     if _role_name(current_user) != UserRole.ADMIN.value:

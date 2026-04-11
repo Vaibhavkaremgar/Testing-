@@ -436,7 +436,7 @@ export function Header() {
           onFocus={handleOpenFilterOptions}
           onPointerDown={handleOpenFilterOptions}
         >
-          <option value="">All Jobs</option>
+          <option value="" disabled>Select Job</option>
           {jobs.map((job) => (
             <option key={job.id} value={job.id}>
               {[job.title, job.company_name].filter(Boolean).join(' - ') || 'Untitled Job'}
