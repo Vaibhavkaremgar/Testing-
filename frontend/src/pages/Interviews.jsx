@@ -721,8 +721,12 @@ export default function Interviews({ superAdminAgencyId = null }) {
             )}
           </CardHeader>
           <CardContent className="min-h-0 flex-1 overflow-hidden p-4">
-            <Tabs defaultValue="video" className="flex h-full w-full flex-col overflow-hidden">
+            <Tabs defaultValue="analysis" className="flex h-full w-full flex-col overflow-hidden">
               <TabsList className="grid w-full shrink-0 grid-cols-3">
+                <TabsTrigger value="analysis" className="flex-1">
+                  <Brain className="h-4 w-4 mr-2" />
+                  AI Analysis
+                </TabsTrigger>
                 <TabsTrigger value="video" className="flex-1">
                   <Video className="h-4 w-4 mr-2" />
                   Video
@@ -730,10 +734,6 @@ export default function Interviews({ superAdminAgencyId = null }) {
                 <TabsTrigger value="transcript" className="flex-1">
                   <FileText className="h-4 w-4 mr-2" />
                   Transcript
-                </TabsTrigger>
-                <TabsTrigger value="analysis" className="flex-1">
-                  <Brain className="h-4 w-4 mr-2" />
-                  AI Analysis
                 </TabsTrigger>
               </TabsList>
 
