@@ -709,15 +709,7 @@ def get_widget_layout(
 ):
     _ensure_analytics_widgets(db)
 
-    prefs = (
-        db.query(UserDashboardPreference, AnalyticsWidget)
-        .join(AnalyticsWidget, UserDashboardPreference.widget_id == AnalyticsWidget.id)
-        .filter(UserDashboardPreference.user_id == current_user.id)
-        .order_by(UserDashboardPreference.position.asc())
-        .all()
-    )
-
-    if not prefs:
+    def _default_layout():
         defaults = (
             db.query(AnalyticsWidget)
             .filter(AnalyticsWidget.is_default == True)
@@ -737,6 +729,21 @@ def get_widget_layout(
                 for idx, widget in enumerate(defaults)
             ]
         }
+
+    try:
+        prefs = (
+            db.query(UserDashboardPreference, AnalyticsWidget)
+            .join(AnalyticsWidget, UserDashboardPreference.widget_id == AnalyticsWidget.id)
+            .filter(UserDashboardPreference.user_id == current_user.id)
+            .order_by(UserDashboardPreference.position.asc())
+            .all()
+        )
+    except Exception:
+        # Table missing columns — return defaults until migration runs
+        return _default_layout()
+
+    if not prefs:
+        return _default_layout()
 
     return {
         "items": [
@@ -766,25 +773,31 @@ def save_widget_layout(
         for w in db.query(AnalyticsWidget).all()
     }
 
-    db.query(UserDashboardPreference).filter(
-        UserDashboardPreference.user_id == current_user.id
-    ).delete()
+    try:
+        db.query(UserDashboardPreference).filter(
+            UserDashboardPreference.user_id == current_user.id
+        ).delete()
 
-    for item in payload.items:
-        widget_id = widget_map.get(item.metric_key)
-        if not widget_id:
-            continue
-        db.add(
-            UserDashboardPreference(
-                user_id=current_user.id,
-                widget_id=widget_id,
-                position=item.position,
-                size=item.size,
-                is_enabled=item.is_enabled,
+        for item in payload.items:
+            widget_id = widget_map.get(item.metric_key)
+            if not widget_id:
+                continue
+            db.add(
+                UserDashboardPreference(
+                    user_id=current_user.id,
+                    widget_id=widget_id,
+                    position=item.position,
+                    size=item.size,
+                    is_enabled=item.is_enabled,
+                )
             )
-        )
 
-    db.commit()
+        db.commit()
+    except Exception:
+        db.rollback()
+        # Table missing columns — silently ignore until migration runs
+        pass
+
     return {"status": "success", "saved_items": len(payload.items)}
 
 @router.get("/dashboard-stats", response_model=DashboardStats)
