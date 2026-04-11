@@ -130,7 +130,7 @@ export default function Dashboard() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const selectedClient = searchParams.get('client')
-  const [dateRange, setDateRange] = useState(() => getDateRangePreset('last_7_days'))
+  const [dateRange, setDateRange] = useState(() => getDateRangePreset('all_time'))
   const [selectedCard, setSelectedCard] = useState(null)
   const [cardCandidates, setCardCandidates] = useState([])
   const [cardLoading, setCardLoading] = useState(false)

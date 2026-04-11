@@ -7,6 +7,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { cn, formatDateRangeLabel, getDateRangePreset } from '@/lib/utils'
 
 const PRESETS = [
+  { id: 'all_time', label: 'All Time' },
   { id: 'today', label: 'Today' },
   { id: 'yesterday', label: 'Yesterday' },
   { id: 'last_7_days', label: 'Last 7 days' },
@@ -22,10 +23,10 @@ export default function DateRangeFilter({
   align = 'end',
 }) {
   const [open, setOpen] = useState(false)
-  const [draftRange, setDraftRange] = useState(value || getDateRangePreset('last_7_days'))
+  const [draftRange, setDraftRange] = useState(value || getDateRangePreset('all_time'))
 
   useEffect(() => {
-    setDraftRange(value || getDateRangePreset('last_7_days'))
+    setDraftRange(value || getDateRangePreset('all_time'))
   }, [value])
 
   const hasActiveRange = Boolean(value?.from && value?.to)
@@ -51,7 +52,7 @@ export default function DateRangeFilter({
   }
 
   const clearRange = () => {
-    const defaultRange = getDateRangePreset('last_7_days')
+    const defaultRange = getDateRangePreset('all_time')
     setDraftRange(defaultRange)
     onChange?.(defaultRange)
   }

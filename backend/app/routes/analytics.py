@@ -838,7 +838,7 @@ def get_dashboard_stats(
             to_date=to_date,
         )
         candidate_sq = _candidate_metrics_subquery(query)
-        candidate_metrics = _aggregate_candidate_stage_metrics(db, candidate_sq, exclude_applied=True)
+        candidate_metrics = _aggregate_candidate_stage_metrics(db, candidate_sq, exclude_applied=False)
         active_candidate_query = query.filter(Candidate.stage != CandidateStage.APPLIED)
         interview_metrics = _latest_interview_metrics(
             db,
@@ -938,7 +938,7 @@ def get_hiring_funnel(
         date=date,
     )
     candidate_sq = _candidate_metrics_subquery(query)
-    candidate_metrics = _aggregate_candidate_stage_metrics(db, candidate_sq, exclude_applied=True)
+    candidate_metrics = _aggregate_candidate_stage_metrics(db, candidate_sq, exclude_applied=False)
     interview_metrics = _latest_interview_metrics(
         db,
         query.filter(Candidate.stage != CandidateStage.APPLIED),

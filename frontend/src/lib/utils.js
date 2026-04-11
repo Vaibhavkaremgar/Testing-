@@ -23,6 +23,8 @@ export function getDateRangePreset(preset = 'last_7_days') {
   const today = getRelativeDate(0)
 
   switch (preset) {
+    case 'all_time':
+      return { preset, from: '', to: '' }
     case 'today':
       return { preset, from: today, to: today }
     case 'yesterday': {
@@ -40,6 +42,7 @@ export function getDateRangePreset(preset = 'last_7_days') {
 }
 
 export function formatDateRangeLabel(range) {
+  if (range?.preset === 'all_time') return 'All Time'
   if (!range?.from || !range?.to) return 'Select Date Range'
 
   const fromLabel = formatDate(range.from)

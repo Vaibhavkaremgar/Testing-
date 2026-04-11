@@ -115,7 +115,7 @@ export default function Resumes() {
   const [search, setSearch] = useState('')
   const [selectedJobForUpload, setSelectedJobForUpload] = useState('')
   const [selectedJobForFilter, setSelectedJobForFilter] = useState('')
-  const [dateRange, setDateRange] = useState(() => getDateRangePreset('last_7_days'))
+  const [dateRange, setDateRange] = useState(() => getDateRangePreset('all_time'))
   const [jobFilter, setJobFilter] = useState([])
   const [scoreFilter, setScoreFilter] = useState([])
   const [statusFilter, setStatusFilter] = useState([])
