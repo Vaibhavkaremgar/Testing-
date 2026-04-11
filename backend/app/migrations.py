@@ -63,7 +63,24 @@ def run_migrations():
             if "user_dashboard_preferences" not in get_tables():
                 print("Running migration: creating user_dashboard_preferences...")
                 UserDashboardPreference.__table__.create(bind=engine, checkfirst=True)
+                conn.commit()
                 print("Migration completed: user_dashboard_preferences created")
+            else:
+                dashboard_pref_columns = get_columns("user_dashboard_preferences")
+                dashboard_pref_additions = {
+                    "user_id": "ALTER TABLE user_dashboard_preferences ADD COLUMN user_id UUID REFERENCES users(id)",
+                    "widget_id": "ALTER TABLE user_dashboard_preferences ADD COLUMN widget_id INTEGER REFERENCES analytics_widgets(id)",
+                    "position": "ALTER TABLE user_dashboard_preferences ADD COLUMN position INTEGER",
+                    "size": "ALTER TABLE user_dashboard_preferences ADD COLUMN size VARCHAR(50)",
+                    "is_enabled": "ALTER TABLE user_dashboard_preferences ADD COLUMN is_enabled BOOLEAN DEFAULT TRUE",
+                    "created_at": "ALTER TABLE user_dashboard_preferences ADD COLUMN created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()",
+                }
+                for column_name, statement in dashboard_pref_additions.items():
+                    if column_name not in dashboard_pref_columns:
+                        print(f"Running migration: adding user_dashboard_preferences.{column_name}...")
+                        conn.execute(text(statement))
+                        conn.commit()
+                        print(f"Migration completed: user_dashboard_preferences.{column_name} added")
 
             # agency_discounts table
             if "agency_discounts" not in get_tables():
