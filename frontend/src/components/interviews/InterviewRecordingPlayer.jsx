@@ -20,6 +20,15 @@ function buildRecordingUrls({ sessionToken, interviewId, asyncToken, recordingPa
   const normalizedSessionToken = normalizeSessionToken(sessionToken)
   const normalizedAsyncToken = normalizeSessionToken(asyncToken)
   const normalizedInterviewId = String(interviewId || '').trim()
+  const normalizedRecordingPath = String(recordingPath || '').trim()
+
+  if (normalizedRecordingPath) {
+    try {
+      urls.push(api.getUploadedRecordingUrl(normalizedRecordingPath))
+    } catch {
+      // Ignore invalid URL construction.
+    }
+  }
 
   if (normalizedSessionToken) {
     try {
@@ -260,6 +269,9 @@ export default function InterviewRecordingPlayer({
     // Fail fast when the recording service is slow or unreachable so the UI
     // doesn't remain stuck in a spinner forever.
     loadTimeoutRef.current = setTimeout(() => {
+      if (tryNextSource()) {
+        return
+      }
       setIsInitializing(false)
       setErrorMessage('Recording load timeout')
     }, LOAD_TIMEOUT_MS)

@@ -145,12 +145,16 @@ def _apply_interview_score_normalization(interview: Interview) -> None:
 
 def _serialize_interview_response(interview: Interview, recording_availability: dict[str, dict] | None = None):
     recording_data = (recording_availability or {}).get(str(interview.id), {})
+    resolved_session_token = _extract_recording_session_token(
+        recording_data.get("session_token"),
+        recording_data.get("recording_path"),
+    )
     return InterviewResponse(
         id=interview.id,
         candidate_id=interview.candidate_id,
         candidate_name=interview.candidate.name if interview.candidate else None,
         async_token=interview.async_token,
-        session_token=recording_data.get("session_token"),
+        session_token=resolved_session_token or None,
         recording_path=recording_data.get("recording_path"),
         recording_format=recording_data.get("recording_format"),
         interview_type=interview.interview_type or "General",
@@ -500,6 +504,19 @@ def _normalize_recording_session_token(session_token: str) -> str:
         if lowered_token.endswith(extension):
             return normalized_token[: -len(extension)]
     return normalized_token
+
+
+def _extract_recording_session_token(session_token: Optional[str], recording_path: Optional[str]) -> str:
+    normalized_session_token = _normalize_recording_session_token(session_token or "")
+    if normalized_session_token:
+        return normalized_session_token
+
+    normalized_path = str(recording_path or "").strip().replace("\\", "/")
+    if not normalized_path:
+        return ""
+
+    path_tail = normalized_path.rsplit("/", 1)[-1]
+    return _normalize_recording_session_token(path_tail)
 
 
 def _build_internal_recording_url(base_url: str, path_prefix: str, session_token: str) -> str:
@@ -1439,7 +1456,38 @@ def stream_interview_video(
         )
         raise HTTPException(status_code=404, detail="Interview not found")
 
-    session_token = _normalize_recording_session_token(interview.async_token)
+    session_token = ""
+    connection = None
+    try:
+        connection = psycopg2.connect(settings.DATABASE_URL)
+        with connection:
+            with connection.cursor() as cursor:
+                session_row = None
+                for lookup_key in (str(interview.id), interview.async_token):
+                    if not lookup_key:
+                        continue
+                    try:
+                        session_row = _fetch_interview_session_row_by_lookup_key(cursor, str(lookup_key))
+                    except HTTPException:
+                        continue
+                    if session_row:
+                        break
+
+                if session_row:
+                    session_token = _extract_recording_session_token(
+                        session_row.get("session_token"),
+                        session_row.get("recording_path"),
+                    )
+    except Exception as exc:
+        print(f"Interview video session lookup failed for {interview.id}: {exc}")
+    finally:
+        try:
+            connection.close()
+        except Exception:
+            pass
+
+    if not session_token:
+        session_token = _normalize_recording_session_token(interview.async_token)
 
     _log_recording_debug(
         "stream_interview_video.lookup",
