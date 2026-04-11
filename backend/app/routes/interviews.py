@@ -1,7 +1,7 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload, load_only
-from sqlalchemy import or_, text
+from sqlalchemy import func, or_, text
 from typing import List, Optional
 from datetime import datetime
 from uuid import UUID
@@ -69,6 +69,12 @@ SAMPLE_TRANSCRIPTS = """
 [20:10] Candidate: Yes, I'd love to learn more about the team structure and the technologies you're currently using.
 """
 
+INTERVIEW_SCORE_WEIGHTS = {
+    "technical": 0.5,
+    "communication": 0.3,
+    "culture_fit": 0.2,
+}
+
 
 def normalize_legacy_candidate_stages(db: Session) -> None:
     """Self-heal stale candidate enum values before interview queries touch relationships."""
@@ -99,6 +105,81 @@ def _perf_log(endpoint: str, total_start: float, **fields) -> None:
     print(f"[PERF] {endpoint} " + " ".join(parts))
 
 
+def _normalize_score_to_ten(score: Optional[float]) -> Optional[float]:
+    if score is None or score == "":
+        return None
+
+    numeric_score = float(score)
+    if numeric_score > 10:
+        numeric_score = numeric_score / 10
+    return round(max(0.0, min(numeric_score, 10.0)), 1)
+
+
+def _apply_interview_score_normalization(interview: Interview) -> None:
+    normalized_technical = _normalize_score_to_ten(interview.technical_score)
+    normalized_communication = _normalize_score_to_ten(interview.communication_score)
+    normalized_culture_fit = _normalize_score_to_ten(interview.culture_fit_score)
+
+    interview.technical_score = normalized_technical
+    interview.communication_score = normalized_communication
+    interview.culture_fit_score = normalized_culture_fit
+
+    weighted_components = []
+    if normalized_technical is not None:
+        weighted_components.append(normalized_technical * INTERVIEW_SCORE_WEIGHTS["technical"])
+    if normalized_communication is not None:
+        weighted_components.append(normalized_communication * INTERVIEW_SCORE_WEIGHTS["communication"])
+    if normalized_culture_fit is not None:
+        weighted_components.append(normalized_culture_fit * INTERVIEW_SCORE_WEIGHTS["culture_fit"])
+
+    if weighted_components and len(weighted_components) == 3:
+        interview.interview_score = round(sum(weighted_components), 1)
+        return
+
+    interview.interview_score = _normalize_score_to_ten(interview.interview_score)
+
+
+def _serialize_interview_response(interview: Interview, recording_availability: dict[str, dict] | None = None):
+    recording_data = (recording_availability or {}).get(str(interview.id), {})
+    return InterviewResponse(
+        id=interview.id,
+        candidate_id=interview.candidate_id,
+        candidate_name=interview.candidate.name if interview.candidate else None,
+        async_token=interview.async_token,
+        session_token=recording_data.get("session_token"),
+        recording_path=recording_data.get("recording_path"),
+        interview_type=interview.interview_type or "General",
+        scheduled_at=interview.scheduled_at,
+        duration_minutes=interview.duration_minutes if interview.duration_minutes is not None else 60,
+        meeting_link=interview.meeting_link,
+        status=interview.status,
+        has_recording=recording_data.get("has_recording", False),
+        video_url=interview.video_url,
+        transcript=interview.transcript,
+        ai_summary=interview.ai_summary,
+        interview_score=interview.interview_score,
+        feedback=interview.feedback,
+        technical_score=interview.technical_score,
+        communication_score=interview.communication_score,
+        culture_fit_score=interview.culture_fit_score,
+        created_at=interview.created_at,
+    )
+
+
+def _apply_interview_date_filters(
+    query,
+    *,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+):
+    interview_date_field = func.coalesce(Interview.scheduled_at, Interview.created_at)
+    if from_date:
+        query = query.filter(func.date(interview_date_field) >= from_date)
+    if to_date:
+        query = query.filter(func.date(interview_date_field) <= to_date)
+    return query
+
+
 def _derive_candidate_stage_from_interview(interview: Interview) -> Optional[CandidateStage]:
     """Map the latest interview status to the candidate pipeline stage."""
     interview_status = (interview.status or "").strip().lower()
@@ -106,7 +187,7 @@ def _derive_candidate_stage_from_interview(interview: Interview) -> Optional[Can
     today = datetime.now().date()
 
     if interview_status == "completed":
-        interview_score = interview.interview_score if interview.interview_score is not None else 0
+        interview_score = _normalize_score_to_ten(interview.interview_score) or 0
         return CandidateStage.SELECTED if interview_score >= 6 else CandidateStage.REJECTED
 
     status_to_stage = {
@@ -1065,6 +1146,8 @@ def get_interviews(
     offset: Optional[int] = None,
     candidate_id: Optional[UUID] = None,
     status: Optional[str] = None,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
     agency_id: Optional[UUID] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
@@ -1084,6 +1167,11 @@ def get_interviews(
         query = query.join(Candidate).join(JobDescription, Candidate.job_id == JobDescription.id).filter(JobDescription.agency_id == agency_id)
     else:
         query = _apply_interview_scope(query, current_user)
+    query = _apply_interview_date_filters(
+        query,
+        from_date=from_date,
+        to_date=to_date,
+    )
     
     effective_offset = offset if offset is not None else max(0, (page - 1) * limit)
     query_start = perf_counter()
@@ -1129,30 +1217,8 @@ def get_interviews(
     serialization_start = perf_counter()
     result = []
     for interview in interviews:
-        interview_dict = {
-            "id": interview.id,
-            "candidate_id": interview.candidate_id,
-            "candidate_name": interview.candidate.name if interview.candidate else None,
-            "async_token": interview.async_token,
-            "session_token": recording_availability.get(str(interview.id), {}).get("session_token"),
-            "recording_path": recording_availability.get(str(interview.id), {}).get("recording_path"),
-            "interview_type": interview.interview_type or "General",
-            "scheduled_at": interview.scheduled_at,
-            "duration_minutes": interview.duration_minutes if interview.duration_minutes is not None else 60,
-            "meeting_link": interview.meeting_link,
-            "status": interview.status,
-            "has_recording": recording_availability.get(str(interview.id), {}).get("has_recording", False),
-            "video_url": interview.video_url,
-            "transcript": interview.transcript,
-            "ai_summary": interview.ai_summary,
-            "interview_score": interview.interview_score,
-            "feedback": interview.feedback,
-            "technical_score": interview.technical_score,
-            "communication_score": interview.communication_score,
-            "culture_fit_score": interview.culture_fit_score,
-            "created_at": interview.created_at
-        }
-        result.append(InterviewResponse(**interview_dict))
+        _apply_interview_score_normalization(interview)
+        result.append(_serialize_interview_response(interview, recording_availability))
     _perf_log(
         "interviews",
         total_start,
@@ -1311,31 +1377,8 @@ def get_interview(
     has_recording = recording_availability.get(str(interview.id), {}).get("has_recording", False)
     if _charge_completed_interview_if_needed(db, interview, has_recording=has_recording) is not None:
         db.commit()
-    
-    interview_dict = {
-        "id": interview.id,
-        "candidate_id": interview.candidate_id,
-        "candidate_name": interview.candidate.name if interview.candidate else None,
-        "async_token": interview.async_token,
-        "session_token": recording_availability.get(str(interview.id), {}).get("session_token"),
-        "recording_path": recording_availability.get(str(interview.id), {}).get("recording_path"),
-        "interview_type": interview.interview_type or "General",
-        "scheduled_at": interview.scheduled_at,
-        "duration_minutes": interview.duration_minutes if interview.duration_minutes is not None else 60,
-        "meeting_link": interview.meeting_link,
-        "status": interview.status,
-        "has_recording": has_recording,
-        "video_url": interview.video_url,
-        "transcript": interview.transcript,
-        "ai_summary": interview.ai_summary,
-        "interview_score": interview.interview_score,
-        "feedback": interview.feedback,
-        "technical_score": interview.technical_score,
-        "communication_score": interview.communication_score,
-        "culture_fit_score": interview.culture_fit_score,
-        "created_at": interview.created_at
-    }
-    return InterviewResponse(**interview_dict)
+    _apply_interview_score_normalization(interview)
+    return _serialize_interview_response(interview, recording_availability)
 
 @router.post("/public", response_model=InterviewResponse)
 def create_interview_public(
@@ -1349,6 +1392,7 @@ def create_interview_public(
         raise HTTPException(status_code=404, detail="Candidate not found")
 
     db_interview = Interview(**interview.model_dump())
+    _apply_interview_score_normalization(db_interview)
     db.add(db_interview)
     _sync_candidate_stage_from_interview(candidate, db_interview)
     db.commit()
@@ -1361,27 +1405,7 @@ def create_interview_public(
     except Exception as exc:
         print(f"Failed to queue interview invitation: {exc}")
 
-    return InterviewResponse(
-        id=db_interview.id,
-        candidate_id=db_interview.candidate_id,
-        candidate_name=candidate.name,
-        async_token=db_interview.async_token,
-        recording_path=None,
-        interview_type=db_interview.interview_type,
-        scheduled_at=db_interview.scheduled_at,
-        duration_minutes=db_interview.duration_minutes,
-        meeting_link=db_interview.meeting_link,
-        status=db_interview.status,
-        video_url=db_interview.video_url,
-        transcript=db_interview.transcript,
-        ai_summary=db_interview.ai_summary,
-        interview_score=db_interview.interview_score,
-        feedback=db_interview.feedback,
-        technical_score=db_interview.technical_score,
-        communication_score=db_interview.communication_score,
-        culture_fit_score=db_interview.culture_fit_score,
-        created_at=db_interview.created_at
-    )
+    return _serialize_interview_response(db_interview)
 
 @router.post("", response_model=InterviewResponse)
 def create_interview(
@@ -1398,6 +1422,7 @@ def create_interview(
     _ensure_interview_scheduling_credits(db, candidate)
     
     db_interview = Interview(**interview.model_dump())
+    _apply_interview_score_normalization(db_interview)
     db.add(db_interview)
     
     # Keep candidate stage aligned with interview status.
@@ -1419,28 +1444,7 @@ def create_interview(
     except Exception as exc:
         print(f"Failed to queue interview invitation: {exc}")
     
-    interview_dict = {
-        "id": db_interview.id,
-        "candidate_id": db_interview.candidate_id,
-        "candidate_name": candidate.name,
-        "async_token": db_interview.async_token,
-        "recording_path": None,
-        "interview_type": db_interview.interview_type,
-        "scheduled_at": db_interview.scheduled_at,
-        "duration_minutes": db_interview.duration_minutes,
-        "meeting_link": db_interview.meeting_link,
-        "status": db_interview.status,
-        "video_url": db_interview.video_url,
-        "transcript": db_interview.transcript,
-        "ai_summary": db_interview.ai_summary,
-        "interview_score": db_interview.interview_score,
-        "feedback": db_interview.feedback,
-        "technical_score": db_interview.technical_score,
-        "communication_score": db_interview.communication_score,
-        "culture_fit_score": db_interview.culture_fit_score,
-        "created_at": db_interview.created_at
-    }
-    return InterviewResponse(**interview_dict)
+    return _serialize_interview_response(db_interview)
 
 @router.put("/{interview_id}", response_model=InterviewResponse)
 def update_interview(
@@ -1457,6 +1461,7 @@ def update_interview(
     
     for field, value in update_data.items():
         setattr(db_interview, field, value)
+    _apply_interview_score_normalization(db_interview)
     
     candidate = db.query(Candidate).filter(Candidate.id == db_interview.candidate_id).first()
     if candidate:
@@ -1465,28 +1470,7 @@ def update_interview(
     db.commit()
     db.refresh(db_interview)
     
-    interview_dict = {
-        "id": db_interview.id,
-        "candidate_id": db_interview.candidate_id,
-        "candidate_name": db_interview.candidate.name if db_interview.candidate else None,
-        "async_token": db_interview.async_token,
-        "recording_path": None,
-        "interview_type": db_interview.interview_type,
-        "scheduled_at": db_interview.scheduled_at,
-        "duration_minutes": db_interview.duration_minutes,
-        "meeting_link": db_interview.meeting_link,
-        "status": db_interview.status,
-        "video_url": db_interview.video_url,
-        "transcript": db_interview.transcript,
-        "ai_summary": db_interview.ai_summary,
-        "interview_score": db_interview.interview_score,
-        "feedback": db_interview.feedback,
-        "technical_score": db_interview.technical_score,
-        "communication_score": db_interview.communication_score,
-        "culture_fit_score": db_interview.culture_fit_score,
-        "created_at": db_interview.created_at
-    }
-    return InterviewResponse(**interview_dict)
+    return _serialize_interview_response(db_interview)
 
 @router.post("/{interview_id}/complete")
 def complete_interview(
@@ -1503,10 +1487,10 @@ def complete_interview(
     db_interview.status = "completed"
     db_interview.transcript = SAMPLE_TRANSCRIPTS
     db_interview.ai_summary = random.choice(SAMPLE_SUMMARIES)
-    db_interview.interview_score = round(random.uniform(65, 95), 1)
-    db_interview.technical_score = round(random.uniform(60, 98), 1)
-    db_interview.communication_score = round(random.uniform(70, 95), 1)
-    db_interview.culture_fit_score = round(random.uniform(65, 95), 1)
+    db_interview.technical_score = round(random.uniform(6.0, 9.8), 1)
+    db_interview.communication_score = round(random.uniform(7.0, 9.5), 1)
+    db_interview.culture_fit_score = round(random.uniform(6.5, 9.5), 1)
+    _apply_interview_score_normalization(db_interview)
     db_interview.video_url = "https://example.com/interview-recording.mp4"
     
     candidate = db.query(Candidate).filter(Candidate.id == db_interview.candidate_id).first()
@@ -1533,6 +1517,7 @@ def receive_interview_results(
         setattr(db_interview, field, value)
 
     db_interview.status = "completed"
+    _apply_interview_score_normalization(db_interview)
 
     candidate = db.query(Candidate).filter(Candidate.id == db_interview.candidate_id).first()
     if candidate:
@@ -1543,26 +1528,7 @@ def receive_interview_results(
     db.commit()
     db.refresh(db_interview)
 
-    return InterviewResponse(
-        id=db_interview.id,
-        candidate_id=db_interview.candidate_id,
-        candidate_name=candidate.name if candidate else None,
-        async_token=db_interview.async_token,
-        interview_type=db_interview.interview_type,
-        scheduled_at=db_interview.scheduled_at,
-        duration_minutes=db_interview.duration_minutes,
-        meeting_link=db_interview.meeting_link,
-        status=db_interview.status,
-        video_url=db_interview.video_url,
-        transcript=db_interview.transcript,
-        ai_summary=db_interview.ai_summary,
-        interview_score=db_interview.interview_score,
-        feedback=db_interview.feedback,
-        technical_score=db_interview.technical_score,
-        communication_score=db_interview.communication_score,
-        culture_fit_score=db_interview.culture_fit_score,
-        created_at=db_interview.created_at
-    )
+    return _serialize_interview_response(db_interview)
 
 @router.delete("/{interview_id}")
 def delete_interview(

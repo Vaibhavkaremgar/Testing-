@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import ExpandableList from '@/components/ExpandableList'
 import { api } from '@/lib/api'
 import { cn, getScoreColor } from '@/lib/utils'
 import { Briefcase, Star, Undo2 } from 'lucide-react'
@@ -73,13 +74,7 @@ function CandidateCard({ candidate, onCardClick, isDragging }) {
   )
 }
 
-const STAGE_SHOW_MORE_STEP = 20
-
 function StageColumn({ stage, candidates, onCardClick, isOver }) {
-  const isShortlisted = stage.id === 'SHORTLISTED'
-  const [visibleCount, setVisibleCount] = useState(10)
-  const visible = candidates.slice(0, visibleCount)
-
   return (
     <div className="flex flex-col w-72 flex-shrink-0">
       <div className="flex items-center gap-2 mb-3">
@@ -96,35 +91,32 @@ function StageColumn({ stage, candidates, onCardClick, isOver }) {
         )}
       >
         <div className="space-y-2">
-          {visible.map((candidate) => (
-            <div
-              key={candidate.id}
-              draggable
-              onDragStart={(e) => {
-                e.dataTransfer.effectAllowed = 'move'
-                e.dataTransfer.setData('candidateId', candidate.id)
-                e.dataTransfer.setData('fromStage', stage.id)
-              }}
-            >
-              <CandidateCard 
-                candidate={candidate} 
-                onCardClick={onCardClick} 
-              />
-            </div>
-          ))}
+          <ExpandableList
+            items={candidates}
+            initialCount={5}
+            controlsClassName="pt-1"
+            renderItem={(candidate) => (
+              <div
+                key={candidate.id}
+                draggable
+                onDragStart={(e) => {
+                  e.dataTransfer.effectAllowed = 'move'
+                  e.dataTransfer.setData('candidateId', candidate.id)
+                  e.dataTransfer.setData('fromStage', stage.id)
+                }}
+              >
+                <CandidateCard
+                  candidate={candidate}
+                  onCardClick={onCardClick}
+                />
+              </div>
+            )}
+          />
         </div>
         {candidates.length === 0 && (
           <div className="flex items-center justify-center h-24 text-muted-foreground text-sm">
             No candidates
           </div>
-        )}
-        {visibleCount < candidates.length && (
-          <button
-            className="w-full mt-2 py-1.5 text-xs text-primary hover:underline"
-            onClick={() => setVisibleCount(v => v + STAGE_SHOW_MORE_STEP)}
-          >
-            Show More ({candidates.length - visibleCount} remaining)
-          </button>
         )}
       </div>
     </div>

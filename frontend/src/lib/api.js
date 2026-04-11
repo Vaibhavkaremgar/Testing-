@@ -281,8 +281,11 @@ class ApiClient {
   }
 
   // Candidates
-  async getCandidates(params = {}) {
-    return this.request(`/candidates${this.buildQuery(params, { defaultLimit: DEFAULT_LIST_LIMIT })}`)
+  async getCandidates(params = {}, options = {}) {
+    return this.request(`/candidates${this.buildQuery(
+      params,
+      options.includeDefaultLimit === false ? {} : { defaultLimit: DEFAULT_LIST_LIMIT }
+    )}`)
   }
 
   async getCandidatesCount(params = {}) {
@@ -444,8 +447,11 @@ class ApiClient {
   }
 
   // Jobs
-  async getJobs(params = {}) {
-    return this.request(`/jobs${this.buildQuery(params, { defaultLimit: DEFAULT_LIST_LIMIT })}`)
+  async getJobs(params = {}, options = {}) {
+    return this.request(`/jobs${this.buildQuery(
+      params,
+      options.includeDefaultLimit === false ? {} : { defaultLimit: DEFAULT_LIST_LIMIT }
+    )}`)
   }
 
   async getDashboardData(params = {}) {
@@ -486,9 +492,12 @@ class ApiClient {
   }
 
   // Interviews
-  async getInterviews(params = {}) {
+  async getInterviews(params = {}, options = {}) {
     const searchParams = new URLSearchParams()
-    Object.entries(params).forEach(([key, value]) => {
+    const source = options.includeDefaultLimit === false || params.limit !== undefined
+      ? params
+      : { ...params, limit: DEFAULT_LIST_LIMIT }
+    Object.entries(source).forEach(([key, value]) => {
       if (value !== undefined && value !== null) {
         searchParams.append(key, value)
       }
@@ -631,12 +640,12 @@ class ApiClient {
     return this.request(`/analytics/score-distribution${query ? `?${query}` : ''}`)
   }
 
-  async getResumeScoresTrend() {
-    return this.request('/analytics/resume-scores-trend')
+  async getResumeScoresTrend(params = {}) {
+    return this.request(`/analytics/resume-scores-trend${this.buildQuery(params)}`)
   }
 
-  async getInterviewScoresTrend() {
-    return this.request('/analytics/interview-scores-trend')
+  async getInterviewScoresTrend(params = {}) {
+    return this.request(`/analytics/interview-scores-trend${this.buildQuery(params)}`)
   }
 
   async getHiringByDepartment(params = {}) {
@@ -670,12 +679,12 @@ class ApiClient {
     return this.request('/analytics/hiring-intelligence')
   }
 
-  async getActiveJobs() {
-    return this.request('/analytics/active-jobs')
+  async getActiveJobs(params = {}) {
+    return this.request(`/analytics/active-jobs${this.buildQuery(params)}`)
   }
 
-  async getUpcomingInterviews() {
-    return this.request('/analytics/upcoming-interviews')
+  async getUpcomingInterviews(params = {}) {
+    return this.request(`/analytics/upcoming-interviews${this.buildQuery(params)}`)
   }
 
   async getTimeToHireStages(params = {}) {

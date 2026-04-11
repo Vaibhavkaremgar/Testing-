@@ -6,22 +6,22 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import ExpandableList from '@/components/ExpandableList'
 import { api } from '@/lib/api'
 import { useAuth } from '@/context/AuthContext'
+import { useToast } from '@/hooks/use-toast'
 import { formatDate } from '@/lib/utils'
-import { Plus, Briefcase, MapPin, Clock, Users, Edit, Trash2, Upload, FileText } from 'lucide-react'
+import { Plus, MapPin, Clock, Users, Edit, Trash2, Upload, Loader2 } from 'lucide-react'
 
 export default function Jobs({ superAdminAgencyId = null }) {
   const [searchParams] = useSearchParams()
   const selectedClient = searchParams.get('client')
   const { user: currentUser } = useAuth()
+  const { toast } = useToast()
   const isSuperAdminView = superAdminAgencyId !== null
   const canManageJobs = currentUser?.role === 'admin' && !isSuperAdminView
   const [jobs, setJobs] = useState([])
-  const [allJobs, setAllJobs] = useState([])
   const [loading, setLoading] = useState(true)
-  const [visibleCount, setVisibleCount] = useState(10)
-  const SHOW_MORE_STEP = 10
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingJob, setEditingJob] = useState(null)
   const [clientNames, setClientNames] = useState([])
@@ -50,6 +50,7 @@ export default function Jobs({ superAdminAgencyId = null }) {
   const [extracting, setExtracting] = useState(false)
   const [currentQuestion, setCurrentQuestion] = useState('')
   const [deleteJobModal, setDeleteJobModal] = useState({ open: false, job: null })
+  const [toggleLoadingByJobId, setToggleLoadingByJobId] = useState({})
 
   const parseSkillsInput = (value) => {
     const normalized = String(value || '').trim()
@@ -74,8 +75,7 @@ export default function Jobs({ superAdminAgencyId = null }) {
       const params = {}
       if (selectedClient) params.client = selectedClient
       if (superAdminAgencyId) params.agency_id = superAdminAgencyId
-      const data = await api.getJobs(params)
-      setAllJobs(data)
+      const data = await api.getJobs(params, { includeDefaultLimit: false })
       setJobs(data)
     } catch (error) {
       console.error('Failed to fetch jobs:', error)
@@ -97,8 +97,6 @@ export default function Jobs({ superAdminAgencyId = null }) {
     fetchJobs()
     fetchClientNames()
   }, [selectedClient, superAdminAgencyId])
-
-  useEffect(() => { setVisibleCount(10) }, [selectedClient, superAdminAgencyId])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -177,11 +175,34 @@ export default function Jobs({ superAdminAgencyId = null }) {
   }
 
   const handleToggleActive = async (job) => {
+    const nextIsActive = !job.is_active
+    const previousJobs = jobs
+
+    setToggleLoadingByJobId((currentValue) => ({
+      ...currentValue,
+      [job.id]: true,
+    }))
+    setJobs((currentJobs) => currentJobs.map((currentJob) => (
+      currentJob.id === job.id
+        ? { ...currentJob, is_active: nextIsActive }
+        : currentJob
+    )))
+
     try {
-      await api.updateJob(job.id, { ...job, is_active: !job.is_active })
-      await fetchJobs()
+      await api.updateJob(job.id, { ...job, is_active: nextIsActive })
     } catch (error) {
       console.error('Failed to toggle job status:', error)
+      setJobs(previousJobs)
+      toast({
+        title: 'Unable to update job status',
+        description: error.message || 'The job status was restored to its previous value.',
+        variant: 'destructive',
+      })
+    } finally {
+      setToggleLoadingByJobId((currentValue) => ({
+        ...currentValue,
+        [job.id]: false,
+      }))
     }
   }
 
@@ -523,13 +544,12 @@ export default function Jobs({ superAdminAgencyId = null }) {
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium">Responsibilities *</label>
+                <label className="text-sm font-medium">Responsibilities</label>
                 <textarea
                   className="flex min-h-[100px] w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
                   value={formData.responsibilities}
                   onChange={(e) => setFormData({ ...formData, responsibilities: e.target.value })}
                   disabled={inputMethod === 'upload'}
-                  required
                 />
               </div>
               <div className="space-y-2">
@@ -591,8 +611,17 @@ export default function Jobs({ superAdminAgencyId = null }) {
         </Dialog>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-        {jobs.slice(0, visibleCount).map((job) => (
+      <ExpandableList
+        items={jobs}
+        initialCount={3}
+        className="space-y-0"
+        listClassName="grid gap-4 md:grid-cols-2 lg:grid-cols-3"
+        emptyState={
+          <div className="rounded-lg border border-dashed py-10 text-center text-muted-foreground">
+            No jobs found
+          </div>
+        }
+        renderItem={(job) => (
           <Card key={job.id} className="hover:shadow-md transition-shadow">
             <CardHeader className="pb-3">
               <div className="flex items-start justify-between">
@@ -653,9 +682,15 @@ export default function Jobs({ superAdminAgencyId = null }) {
               {canManageJobs && (
                 <div className="flex items-center justify-between pt-2 border-t">
                   <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2">
+                      {toggleLoadingByJobId[job.id] ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                      ) : null}
+                    </div>
                     <Switch 
                       checked={job.is_active} 
                       onCheckedChange={() => handleToggleActive(job)}
+                      disabled={Boolean(toggleLoadingByJobId[job.id])}
                       className="scale-75"
                     />
                     <span className="text-xs text-muted-foreground">
@@ -674,16 +709,8 @@ export default function Jobs({ superAdminAgencyId = null }) {
               )}
             </CardContent>
           </Card>
-        ))}
-      </div>
-
-      {visibleCount < jobs.length && (
-        <div className="flex justify-center pt-2">
-          <Button variant="outline" onClick={() => setVisibleCount(v => v + SHOW_MORE_STEP)}>
-            Show More ({jobs.length - visibleCount} remaining)
-          </Button>
-        </div>
-      )}
+        )}
+      />
 
       <Dialog
         open={deleteJobModal.open}

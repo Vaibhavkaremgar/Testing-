@@ -147,6 +147,13 @@ class CandidateUpdate(BaseModel):
     current_role: Optional[str] = None
     experience_years: Optional[float] = None
     location: Optional[str] = None
+    linkedin_url: Optional[str] = None
+    skills: Optional[List[str]] = None
+    education: Optional[List[Any]] = None
+    work_experience: Optional[List[Any]] = None
+    summary: Optional[str] = None
+    internal_notes: Optional[str] = None
+    predefined_questions: Optional[str] = None
     stage: Optional[CandidateStage] = None
     job_id: Optional[UUID] = None
 
@@ -173,6 +180,7 @@ class CandidateResponse(CandidateBase):
     job_id: Optional[UUID] = None
     job_title: Optional[str] = None
     summary: Optional[str] = None
+    internal_notes: Optional[str] = None
     predefined_questions: Optional[str] = None
     created_at: datetime
     

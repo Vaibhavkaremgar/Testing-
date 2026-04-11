@@ -6,9 +6,11 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
+import DateRangeFilter from '@/components/DateRangeFilter'
+import ExpandableList from '@/components/ExpandableList'
 import { api } from '@/lib/api'
 import { useAuth } from '@/context/AuthContext'
-import { cn, formatDate, getScoreColor, getStageColor, formatStage } from '@/lib/utils'
+import { cn, formatDate, getDateRangePreset, getScoreColor } from '@/lib/utils'
 import {
   Upload, FileText, Search, Filter, MoreHorizontal, Edit, CheckCircle, Clock, AlertCircle, Trash2, Sheet, Eye, X
 } from 'lucide-react'
@@ -22,6 +24,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogDescription,
   DialogFooter,
@@ -112,6 +115,7 @@ export default function Resumes() {
   const [search, setSearch] = useState('')
   const [selectedJobForUpload, setSelectedJobForUpload] = useState('')
   const [selectedJobForFilter, setSelectedJobForFilter] = useState('')
+  const [dateRange, setDateRange] = useState(() => getDateRangePreset('last_7_days'))
   const [jobFilter, setJobFilter] = useState([])
   const [scoreFilter, setScoreFilter] = useState([])
   const [statusFilter, setStatusFilter] = useState([])
@@ -120,7 +124,21 @@ export default function Resumes() {
   const [selectedFiles, setSelectedFiles] = useState([])
   const [dragActive, setDragActive] = useState(false)
   const [editingCandidate, setEditingCandidate] = useState(null)
-  const [editForm, setEditForm] = useState({ name: '', email: '', phone: '' })
+  const [editForm, setEditForm] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    experience_years: '',
+    skills: '',
+    education: '',
+    internal_notes: '',
+    current_company: '',
+    current_role: '',
+    location: '',
+    linkedin_url: '',
+    summary: '',
+    predefined_questions: '',
+  })
   const [selectedCandidate, setSelectedCandidate] = useState(null)
   const [candidateJob, setCandidateJob] = useState(null)
   const [minPassingScore, setMinPassingScore] = useState(60)
@@ -138,10 +156,8 @@ export default function Resumes() {
   const [emailModal, setEmailModal] = useState({ show: false, type: '', subject: '', message: '' })
   const [sending, setSending] = useState(false)
   const [isEditingEmail, setIsEditingEmail] = useState(false)
-  const [visibleCount, setVisibleCount] = useState(20)
   const [deleteCandidateModal, setDeleteCandidateModal] = useState({ open: false, candidates: [] })
   const uploadInFlightRef = useRef(false)
-  const SHOW_MORE_STEP = 20
   const selectedCandidateStatus = selectedCandidate ? getResumeDisplayStatus(selectedCandidate) : null
 
   const {
@@ -149,10 +165,11 @@ export default function Resumes() {
     isLoading: loading,
     refetch: refetchResumeData,
   } = useQuery({
-    queryKey: ['dashboard-data', 'resumes', selectedClient, selectedGlobalJobId],
+    queryKey: ['dashboard-data', 'resumes', selectedClient, selectedGlobalJobId, dateRange.from, dateRange.to],
     queryFn: () => api.getDashboardData({
       client: selectedClient || undefined,
-      candidate_limit: DEFAULT_LIST_LIMIT,
+      from_date: dateRange.from || undefined,
+      to_date: dateRange.to || undefined,
       job_limit: DEFAULT_LIST_LIMIT,
       user_limit: DEFAULT_LIST_LIMIT,
     }),
@@ -205,8 +222,6 @@ export default function Resumes() {
 
     return filteredData
   }, [dashboardData, jobFilter, scoreFilter, search, selectedGlobalJobId, statusFilter])
-  const visibleCandidates = useMemo(() => candidates.slice(0, visibleCount), [candidates, visibleCount])
-
   useEffect(() => {
     if (selectedGlobalJobId) {
       setSelectedJobForFilter(selectedGlobalJobId)
@@ -254,8 +269,6 @@ export default function Resumes() {
 
     return () => clearInterval(intervalId)
   }, [uploadProgress.show, uploadProgress.uploadId, uploadProgress.status])
-
-  useEffect(() => { setVisibleCount(20) }, [candidates.length])
 
   useEffect(() => {
     setSelectedCandidates((prev) => prev.filter((candidateId) => candidates.some((candidate) => candidate.id === candidateId)))
@@ -431,13 +444,49 @@ export default function Resumes() {
     setEditForm({
       name: candidate.name || '',
       email: candidate.email || '',
-      phone: candidate.phone || ''
+      phone: candidate.phone || '',
+      experience_years: candidate.experience_years ?? '',
+      skills: Array.isArray(candidate.skills) ? candidate.skills.join(', ') : '',
+      education: Array.isArray(candidate.education) ? candidate.education.map((item) => (
+        typeof item === 'string' ? item : JSON.stringify(item)
+      )).join('\n') : '',
+      internal_notes: candidate.internal_notes || '',
+      current_company: candidate.current_company || '',
+      current_role: candidate.current_role || '',
+      location: candidate.location || '',
+      linkedin_url: candidate.linkedin_url || '',
+      summary: candidate.summary || '',
+      predefined_questions: candidate.predefined_questions || '',
     })
   }
 
+  const parseMultilineValues = (value) => String(value || '')
+    .split('\n')
+    .map((item) => item.trim())
+    .filter(Boolean)
+
   const handleSaveEdit = async () => {
     try {
-      await api.updateCandidate(editingCandidate.id, editForm)
+      const payload = {
+        name: editForm.name.trim(),
+        email: editForm.email.trim() || null,
+        phone: editForm.phone.trim() || null,
+        experience_years: editForm.experience_years === '' ? null : Number(editForm.experience_years),
+        skills: editForm.skills
+          .split(/[,\n]/)
+          .map((item) => item.trim())
+          .filter(Boolean),
+        education: parseMultilineValues(editForm.education),
+        internal_notes: editForm.internal_notes.trim() || null,
+        current_company: editForm.current_company.trim() || null,
+        current_role: editForm.current_role.trim() || null,
+        location: editForm.location.trim() || null,
+        linkedin_url: editForm.linkedin_url.trim() || null,
+        summary: editForm.summary.trim() || null,
+        predefined_questions: editForm.predefined_questions.trim() || null,
+      }
+
+      await api.updateCandidate(editingCandidate.id, payload)
       setEditingCandidate(null)
       await fetchCandidates()
       alert('✓ Candidate updated successfully')
@@ -451,7 +500,21 @@ export default function Resumes() {
 
   const handleCancelEdit = () => {
     setEditingCandidate(null)
-    setEditForm({ name: '', email: '', phone: '' })
+    setEditForm({
+      name: '',
+      email: '',
+      phone: '',
+      experience_years: '',
+      skills: '',
+      education: '',
+      internal_notes: '',
+      current_company: '',
+      current_role: '',
+      location: '',
+      linkedin_url: '',
+      summary: '',
+      predefined_questions: '',
+    })
   }
 
   const handleDelete = async (id) => {
@@ -892,7 +955,7 @@ export default function Resumes() {
       )}
 
       {/* Filters */}
-      <div className="flex gap-4 items-center">
+      <div className="flex flex-wrap gap-4 items-center">
         <div className="relative flex-1 max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
@@ -902,6 +965,7 @@ export default function Resumes() {
             className="pl-10"
           />
         </div>
+        <DateRangeFilter value={dateRange} onChange={setDateRange} />
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="outline" className="w-32">
@@ -1033,36 +1097,40 @@ export default function Resumes() {
       <Card>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b bg-muted/50">
-                  {currentUser?.role === 'admin' && (
-                    <th className="text-left p-4 font-medium w-12">
-                      <input
-                        type="checkbox"
-                        checked={selectedCandidates.length === candidates.length && candidates.length > 0}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setSelectedCandidates(candidates.map(c => c.id))
-                          } else {
-                            setSelectedCandidates([])
-                          }
-                        }}
-                        className="w-4 h-4"
-                      />
-                    </th>
-                  )}
-                  <th className="text-left p-4 font-medium">Candidate</th>
-                  <th className="text-left p-4 font-medium">Job</th>
-                  <th className="text-left p-4 font-medium">Score</th>
-                  <th className="text-left p-4 font-medium">Status</th>
-                  <th className="text-left p-4 font-medium">Skills</th>
-                  <th className="text-left p-4 font-medium">Date</th>
-                  <th className="text-right p-4 font-medium">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleCandidates.map((candidate) => {
+            <ExpandableList
+              items={candidates}
+              initialCount={5}
+              renderItems={({ items }) => (
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b bg-muted/50">
+                      {currentUser?.role === 'admin' && (
+                        <th className="text-left p-4 font-medium w-12">
+                          <input
+                            type="checkbox"
+                            checked={selectedCandidates.length === candidates.length && candidates.length > 0}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedCandidates(candidates.map(c => c.id))
+                              } else {
+                                setSelectedCandidates([])
+                              }
+                            }}
+                            className="w-4 h-4"
+                          />
+                        </th>
+                      )}
+                      <th className="text-left p-4 font-medium">Candidate</th>
+                      <th className="text-left p-4 font-medium">Job</th>
+                      <th className="text-left p-4 font-medium">Score</th>
+                      <th className="text-left p-4 font-medium">Status</th>
+                      <th className="text-left p-4 font-medium">Skills</th>
+                      <th className="text-left p-4 font-medium">Date</th>
+                      <th className="text-right p-4 font-medium">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {items.map((candidate) => {
                   const jobDetails = jobsById[candidate.job_id]
 
                   return (
@@ -1084,33 +1152,10 @@ export default function Resumes() {
                       </td>
                     )}
                     <td className="p-4" onClick={(e) => e.stopPropagation()}>
-                      {editingCandidate?.id === candidate.id ? (
-                        <div className="space-y-2">
-                          <Input
-                            value={editForm.name}
-                            onChange={(e) => setEditForm({...editForm, name: e.target.value})}
-                            placeholder="Name"
-                            className="h-8"
-                          />
-                          <Input
-                            value={editForm.email}
-                            onChange={(e) => setEditForm({...editForm, email: e.target.value})}
-                            placeholder="Email"
-                            className="h-8"
-                          />
-                          <Input
-                            value={editForm.phone}
-                            onChange={(e) => setEditForm({...editForm, phone: e.target.value})}
-                            placeholder="Phone"
-                            className="h-8"
-                          />
-                        </div>
-                      ) : (
-                        <div onClick={() => handleViewCandidate(candidate)}>
-                          <p className="font-medium text-primary hover:underline cursor-pointer">{formatCandidateDisplayName(candidate.name)}</p>
-                          <p className="text-sm text-muted-foreground">{candidate.email}</p>
-                        </div>
-                      )}
+                      <div onClick={() => handleViewCandidate(candidate)}>
+                        <p className="font-medium text-primary hover:underline cursor-pointer">{formatCandidateDisplayName(candidate.name)}</p>
+                        <p className="text-sm text-muted-foreground">{candidate.email}</p>
+                      </div>
                     </td>
                     <td className="p-4">
                       {candidate.job_title ? (
@@ -1162,52 +1207,127 @@ export default function Resumes() {
                     </td>
                     <td className="p-4" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-end gap-2">
-                        {editingCandidate?.id === candidate.id ? (
-                          <>
-                            <Button variant="outline" size="sm" onClick={handleSaveEdit}>
-                              Save
-                            </Button>
-                            <Button variant="ghost" size="sm" onClick={handleCancelEdit}>
-                              Cancel
-                            </Button>
-                          </>
-                        ) : (
-                          <>
-                            <Button variant="ghost" size="icon" onClick={() => handleViewResume(candidate)} title="View Resume">
-                              <Eye className="h-4 w-4" />
-                            </Button>
-                            <Button variant="ghost" size="icon" onClick={() => handleEdit(candidate)} title="Edit">
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                            {canDeleteResumes && (
-                              <Button variant="ghost" size="icon" onClick={() => handleDelete(candidate.id)} title="Delete">
-                                <Trash2 className="h-4 w-4 text-destructive" />
-                              </Button>
-                            )}
-                          </>
+                        <Button variant="ghost" size="icon" onClick={() => handleViewResume(candidate)} title="View Resume">
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon" onClick={() => handleEdit(candidate)} title="Edit">
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                        {canDeleteResumes && (
+                          <Button variant="ghost" size="icon" onClick={() => handleDelete(candidate.id)} title="Delete">
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
                         )}
                       </div>
                     </td>
                   </tr>
                   )
-                })}
-              </tbody>
-            </table>
+                    })}
+                  </tbody>
+                </table>
+              )}
+            />
             {candidates.length === 0 && (
               <div className="text-center py-12 text-muted-foreground">
                 No candidates found
               </div>
             )}
           </div>
-          {visibleCount < candidates.length && (
-            <div className="flex justify-center p-4 border-t">
-              <Button variant="outline" onClick={() => setVisibleCount(v => v + SHOW_MORE_STEP)}>
-                Show More ({candidates.length - visibleCount} remaining)
-              </Button>
-            </div>
-          )}
         </CardContent>
       </Card>
+
+      <Dialog open={Boolean(editingCandidate)} onOpenChange={(open) => {
+        if (!open) {
+          handleCancelEdit()
+        }
+      }}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit Resume Data</DialogTitle>
+            <DialogDescription>Update parsed candidate details without changing the existing workflow.</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-2 md:grid-cols-2">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Name</label>
+              <Input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} required />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Email</label>
+              <Input type="email" value={editForm.email} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Phone Number</label>
+              <Input value={editForm.phone} onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })} />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Experience</label>
+              <Input type="number" min="0" step="0.1" value={editForm.experience_years} onChange={(e) => setEditForm({ ...editForm, experience_years: e.target.value })} />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Current Company</label>
+              <Input value={editForm.current_company} onChange={(e) => setEditForm({ ...editForm, current_company: e.target.value })} />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Current Role</label>
+              <Input value={editForm.current_role} onChange={(e) => setEditForm({ ...editForm, current_role: e.target.value })} />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Location</label>
+              <Input value={editForm.location} onChange={(e) => setEditForm({ ...editForm, location: e.target.value })} />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">LinkedIn URL</label>
+              <Input value={editForm.linkedin_url} onChange={(e) => setEditForm({ ...editForm, linkedin_url: e.target.value })} />
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <label className="text-sm font-medium">Skills</label>
+              <textarea
+                className="min-h-[88px] w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                value={editForm.skills}
+                onChange={(e) => setEditForm({ ...editForm, skills: e.target.value })}
+                placeholder="Comma or newline separated skills"
+              />
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <label className="text-sm font-medium">Education</label>
+              <textarea
+                className="min-h-[88px] w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                value={editForm.education}
+                onChange={(e) => setEditForm({ ...editForm, education: e.target.value })}
+                placeholder="One item per line"
+              />
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <label className="text-sm font-medium">Notes</label>
+              <textarea
+                className="min-h-[100px] w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                value={editForm.internal_notes}
+                onChange={(e) => setEditForm({ ...editForm, internal_notes: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <label className="text-sm font-medium">Summary</label>
+              <textarea
+                className="min-h-[100px] w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                value={editForm.summary}
+                onChange={(e) => setEditForm({ ...editForm, summary: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <label className="text-sm font-medium">Predefined Questions</label>
+              <textarea
+                className="min-h-[88px] w-full rounded-lg border border-input bg-background px-3 py-2 text-sm"
+                value={editForm.predefined_questions}
+                onChange={(e) => setEditForm({ ...editForm, predefined_questions: e.target.value })}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={handleCancelEdit}>Cancel</Button>
+            <Button onClick={handleSaveEdit} disabled={!editForm.name.trim()}>Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Candidate Details Modal */}
       {selectedCandidate && (

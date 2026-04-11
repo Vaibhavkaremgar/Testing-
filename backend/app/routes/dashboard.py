@@ -16,6 +16,7 @@ from app.routes.auth import _resolve_pagination as resolve_user_pagination
 from app.routes.candidates import (
     _apply_candidate_list_scope,
     _apply_client_filter,
+    _apply_candidate_created_at_filters,
     build_safe_candidate_response,
     normalize_legacy_candidate_stages,
     sanitize_candidate_email,
@@ -62,18 +63,32 @@ def _serialize_candidate(candidate: Candidate):
             "job_id": candidate.job_id,
             "job_title": candidate.job.title if candidate.job else None,
             "summary": candidate.summary,
+            "internal_notes": candidate.internal_notes,
             "predefined_questions": candidate.predefined_questions,
             "created_at": candidate.created_at,
         }
     ).model_dump()
 
 
-def _fetch_candidates(current_user: SimpleNamespace, client: Optional[str], page: Optional[int], limit: Optional[int], offset: Optional[int]):
+def _fetch_candidates(
+    current_user: SimpleNamespace,
+    client: Optional[str],
+    page: Optional[int],
+    limit: Optional[int],
+    offset: Optional[int],
+    from_date: Optional[str],
+    to_date: Optional[str],
+):
     db = SessionLocal()
     try:
         normalize_legacy_candidate_stages(db)
         query = _apply_candidate_list_scope(db.query(Candidate), current_user)
         query = _apply_client_filter(query, client)
+        query = _apply_candidate_created_at_filters(
+            query,
+            from_date=from_date,
+            to_date=to_date,
+        )
         query = query.options(
             load_only(
                 Candidate.id,
@@ -99,6 +114,7 @@ def _fetch_candidates(current_user: SimpleNamespace, client: Optional[str], page
                 Candidate.applied_at,
                 Candidate.job_id,
                 Candidate.summary,
+                Candidate.internal_notes,
                 Candidate.predefined_questions,
                 Candidate.created_at,
             ),
@@ -239,6 +255,8 @@ def _fetch_scores(current_user: SimpleNamespace, client: Optional[str], page: Op
 @router.get("/dashboard-data")
 def get_dashboard_data(
     client: Optional[str] = None,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
     candidate_page: Optional[int] = None,
     candidate_limit: Optional[int] = None,
     candidate_offset: Optional[int] = None,
@@ -263,6 +281,8 @@ def get_dashboard_data(
             candidate_page,
             candidate_limit,
             candidate_offset,
+            from_date,
+            to_date,
         )
         jobs_future = executor.submit(
             _fetch_jobs,

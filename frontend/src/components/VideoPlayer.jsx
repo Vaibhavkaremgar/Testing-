@@ -83,8 +83,8 @@ const VideoPlayer = forwardRef(function VideoPlayer(
 
     const player = videojs(videoElementRef.current, {
       controls: true,
-      responsive: true,
-      fluid: true,
+      responsive: false,
+      fluid: false,
       preload,
       playsinline: playsInline,
       sources: normalizedSources,

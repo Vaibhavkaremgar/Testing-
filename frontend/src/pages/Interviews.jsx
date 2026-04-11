@@ -20,7 +20,51 @@ function getNumericInterviewScore(interview) {
   const rawScore = interview?.interview_score
   if (rawScore === null || rawScore === undefined || rawScore === '') return null
   const numericScore = Number(rawScore)
-  return Number.isFinite(numericScore) ? numericScore : null
+  if (!Number.isFinite(numericScore)) return null
+  return numericScore > 10 ? Number((numericScore / 10).toFixed(1)) : numericScore
+}
+
+function formatInterviewScore(score) {
+  if (score === null || score === undefined) return '-'
+  return `${Number(score).toFixed(1)}/10`
+}
+
+function getInterviewProgressValue(score) {
+  if (score === null || score === undefined) return 0
+  return Math.max(0, Math.min(Number(score) * 10, 100))
+}
+
+function parseTranscriptSegments(transcript) {
+  return String(transcript || '')
+    .split(/\n{2,}/)
+    .map((segment, index) => {
+      const trimmedSegment = segment.trim()
+      if (!trimmedSegment) return null
+
+      const match = trimmedSegment.match(/^\[(?<time>[^\]]+)\]\s*(?<speaker>[^:]+):\s*(?<message>[\s\S]+)$/)
+      if (!match?.groups) {
+        return {
+          id: `${index}-${trimmedSegment.slice(0, 12)}`,
+          time: '',
+          speaker: 'Transcript',
+          message: trimmedSegment,
+          role: 'bot',
+        }
+      }
+
+      const speaker = match.groups.speaker.trim()
+      const loweredSpeaker = speaker.toLowerCase()
+      const role = /candidate|user|applicant/.test(loweredSpeaker) ? 'user' : 'bot'
+
+      return {
+        id: `${index}-${speaker}`,
+        time: match.groups.time.trim(),
+        speaker,
+        message: match.groups.message.trim(),
+        role,
+      }
+    })
+    .filter(Boolean)
 }
 
 function getEffectiveInterviewStatus(interview) {
@@ -186,6 +230,10 @@ export default function Interviews({ superAdminAgencyId = null }) {
   }, [candidateJobMap, interviews, selectedJobFilter])
 
   const filteredInterviews = jobFilteredInterviews
+  const transcriptSegments = useMemo(
+    () => parseTranscriptSegments(selectedInterview?.transcript),
+    [selectedInterview?.transcript]
+  )
 
   useEffect(() => {
     if (filteredInterviews.length === 0) {
@@ -552,7 +600,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
                       </span>
                       {getEffectiveInterviewStatus(interview) === 'completed' ? (
                         <span className={cn('text-sm font-semibold', getScoreColor(interviewScore ?? 0))}>
-                          {interviewScore !== null ? interviewScore : '-'}
+                          {formatInterviewScore(interviewScore)}
                         </span>
                       ) : (
                         <span className="text-xs font-medium capitalize text-muted-foreground">
@@ -639,7 +687,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
               </TabsList>
 
               <TabsContent value="video" className="min-h-0 flex-1 overflow-hidden">
-                <div className="video-tab-container">
+                <div className="video-tab-container space-y-4">
                   <div className="video-wrapper">
                     <InterviewRecordingPlayer
                       sessionToken={selectedInterview.session_token}
@@ -670,9 +718,25 @@ export default function Interviews({ superAdminAgencyId = null }) {
 
               <TabsContent value="transcript" className="mt-4 min-h-0 flex-1 overflow-hidden">
                 {selectedInterview.transcript ? (
-                  <div className="h-full overflow-hidden rounded-xl bg-muted p-4">
-                    <div className="h-full overflow-y-auto font-mono text-sm whitespace-pre-wrap">
-                      {selectedInterview.transcript}
+                  <div className="h-full overflow-hidden rounded-xl bg-muted/40 p-4">
+                    <div className="h-full space-y-3 overflow-y-auto pr-1">
+                      {transcriptSegments.map((segment) => (
+                        <div
+                          key={segment.id}
+                          className={cn(
+                            'max-w-[92%] rounded-2xl px-4 py-3 text-sm shadow-sm',
+                            segment.role === 'user'
+                              ? 'ml-auto bg-blue-100 text-blue-950 dark:bg-blue-950/70 dark:text-blue-100'
+                              : 'mr-auto bg-slate-100 text-slate-900 dark:bg-slate-900/80 dark:text-slate-100'
+                          )}
+                        >
+                          <div className="mb-1 flex items-center justify-between gap-3 text-[11px] font-semibold uppercase tracking-wide opacity-75">
+                            <span>{segment.speaker}</span>
+                            {segment.time ? <span>{segment.time}</span> : null}
+                          </div>
+                          <p className="whitespace-pre-wrap leading-6">{segment.message}</p>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 ) : (
@@ -703,43 +767,43 @@ export default function Interviews({ superAdminAgencyId = null }) {
                           <div className="flex items-center justify-between mb-2">
                             <span className="text-xs font-medium">Overall</span>
                             <span className={cn('text-lg font-bold', getScoreColor(selectedInterview.interview_score))}>
-                              {selectedInterview.interview_score}
+                              {formatInterviewScore(getNumericInterviewScore(selectedInterview))}
                             </span>
                           </div>
-                          <Progress value={selectedInterview.interview_score} />
+                          <Progress value={getInterviewProgressValue(getNumericInterviewScore(selectedInterview))} />
                         </CardContent>
                       </Card>
                       <Card>
                         <CardContent className="p-3">
                           <div className="flex items-center justify-between mb-2">
                             <span className="text-xs font-medium">Technical</span>
-                            <span className={cn('text-lg font-bold', getScoreColor(selectedInterview.technical_score))}>
-                              {selectedInterview.technical_score}
+                            <span className={cn('text-lg font-bold', getScoreColor(getNumericInterviewScore({ interview_score: selectedInterview.technical_score })))}>
+                              {formatInterviewScore(getNumericInterviewScore({ interview_score: selectedInterview.technical_score }))}
                             </span>
                           </div>
-                          <Progress value={selectedInterview.technical_score} />
+                          <Progress value={getInterviewProgressValue(getNumericInterviewScore({ interview_score: selectedInterview.technical_score }))} />
                         </CardContent>
                       </Card>
                       <Card>
                         <CardContent className="p-3">
                           <div className="flex items-center justify-between mb-2">
                             <span className="text-xs font-medium">Communication</span>
-                            <span className={cn('text-lg font-bold', getScoreColor(selectedInterview.communication_score))}>
-                              {selectedInterview.communication_score}
+                            <span className={cn('text-lg font-bold', getScoreColor(getNumericInterviewScore({ interview_score: selectedInterview.communication_score })))}>
+                              {formatInterviewScore(getNumericInterviewScore({ interview_score: selectedInterview.communication_score }))}
                             </span>
                           </div>
-                          <Progress value={selectedInterview.communication_score} />
+                          <Progress value={getInterviewProgressValue(getNumericInterviewScore({ interview_score: selectedInterview.communication_score }))} />
                         </CardContent>
                       </Card>
                       <Card>
                         <CardContent className="p-3">
                           <div className="flex items-center justify-between mb-2">
                             <span className="text-xs font-medium">Culture Fit</span>
-                            <span className={cn('text-lg font-bold', getScoreColor(selectedInterview.culture_fit_score))}>
-                              {selectedInterview.culture_fit_score}
+                            <span className={cn('text-lg font-bold', getScoreColor(getNumericInterviewScore({ interview_score: selectedInterview.culture_fit_score })))}>
+                              {formatInterviewScore(getNumericInterviewScore({ interview_score: selectedInterview.culture_fit_score }))}
                             </span>
                           </div>
-                          <Progress value={selectedInterview.culture_fit_score} />
+                          <Progress value={getInterviewProgressValue(getNumericInterviewScore({ interview_score: selectedInterview.culture_fit_score }))} />
                         </CardContent>
                       </Card>
                     </div>

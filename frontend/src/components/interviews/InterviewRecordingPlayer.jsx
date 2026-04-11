@@ -329,7 +329,7 @@ export default function InterviewRecordingPlayer({
   return (
     <div className={cn('video-tab-container', className)}>
       <div className="video-wrapper">
-        <div className="interview-recording-player-shell relative h-full min-h-[550px] w-full overflow-hidden rounded-[1.5rem] border border-slate-800/80 bg-black">
+        <div className="interview-recording-player-shell relative aspect-video w-full overflow-hidden rounded-[1.5rem] border border-slate-800/80 bg-black">
           {shouldRenderPlayer && !errorMessage ? (
             <VideoPlayer
               key={`${videoUrl}-${retryKey}`}
@@ -373,11 +373,9 @@ export default function InterviewRecordingPlayer({
               options={{
                 controls: true,
 
-                fluid: false,        // ✅ disable
-                responsive: false,   // ✅ disable
-                fill: true,          // ✅ IMPORTANT
-                aspectRatio: null,   // ✅ remove forced ratio
-                aspectRatio: undefined,
+                fluid: false,
+                responsive: false,
+                fill: true,
 
                 inactivityTimeout: 0,
                 playbackRates: [0.75, 1, 1.25, 1.5, 2],

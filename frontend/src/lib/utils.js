@@ -5,6 +5,53 @@ export function cn(...inputs) {
   return twMerge(clsx(inputs))
 }
 
+export function formatDateInput(date) {
+  if (!date) return ''
+  const parsedDate = date instanceof Date ? date : new Date(date)
+  if (Number.isNaN(parsedDate.getTime())) return ''
+  return parsedDate.toISOString().slice(0, 10)
+}
+
+export function getRelativeDate(daysOffset = 0) {
+  const date = new Date()
+  date.setHours(0, 0, 0, 0)
+  date.setDate(date.getDate() + daysOffset)
+  return formatDateInput(date)
+}
+
+export function getDateRangePreset(preset = 'last_7_days') {
+  const today = getRelativeDate(0)
+
+  switch (preset) {
+    case 'today':
+      return { preset, from: today, to: today }
+    case 'yesterday': {
+      const yesterday = getRelativeDate(-1)
+      return { preset, from: yesterday, to: yesterday }
+    }
+    case 'last_30_days':
+      return { preset, from: getRelativeDate(-29), to: today }
+    case 'custom':
+      return { preset, from: '', to: '' }
+    case 'last_7_days':
+    default:
+      return { preset: 'last_7_days', from: getRelativeDate(-6), to: today }
+  }
+}
+
+export function formatDateRangeLabel(range) {
+  if (!range?.from || !range?.to) return 'Select Date Range'
+
+  const fromLabel = formatDate(range.from)
+  const toLabel = formatDate(range.to)
+
+  if (range.from === range.to) {
+    return fromLabel
+  }
+
+  return `${fromLabel} - ${toLabel}`
+}
+
 export function formatDate(date) {
   return new Date(date).toLocaleDateString('en-US', {
     year: 'numeric',
@@ -24,12 +71,24 @@ export function formatDateTime(date) {
 }
 
 export function getScoreColor(score) {
+  if (score === null || score === undefined) return 'text-muted-foreground'
+  if (score <= 10) {
+    if (score >= 8) return 'text-green-600 dark:text-green-400'
+    if (score >= 6) return 'text-yellow-600 dark:text-yellow-400'
+    return 'text-red-600 dark:text-red-400'
+  }
   if (score >= 80) return 'text-green-600 dark:text-green-400'
   if (score >= 60) return 'text-yellow-600 dark:text-yellow-400'
   return 'text-red-600 dark:text-red-400'
 }
 
 export function getScoreBgColor(score) {
+  if (score === null || score === undefined) return 'bg-muted'
+  if (score <= 10) {
+    if (score >= 8) return 'bg-green-100 dark:bg-green-900/30'
+    if (score >= 6) return 'bg-yellow-100 dark:bg-yellow-900/30'
+    return 'bg-red-100 dark:bg-red-900/30'
+  }
   if (score >= 80) return 'bg-green-100 dark:bg-green-900/30'
   if (score >= 60) return 'bg-yellow-100 dark:bg-yellow-900/30'
   return 'bg-red-100 dark:bg-red-900/30'

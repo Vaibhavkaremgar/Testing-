@@ -3,24 +3,21 @@ import { useQuery } from '@tanstack/react-query'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import DateRangeFilter from '@/components/DateRangeFilter'
+import ExpandableList from '@/components/ExpandableList'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { api } from '@/lib/api'
-import { cn, getScoreColor, formatDate } from '@/lib/utils'
+import { cn, getDateRangePreset, getScoreColor, formatDate } from '@/lib/utils'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import HiringIntelligence from '@/components/HiringIntelligence'
 import {
-  Users, UserCheck, UserX, Calendar, Award, FileText, X, CalendarIcon, Briefcase, Clock, CheckCircle, DollarSign, Target, TrendingDown
+  Users, UserCheck, UserX, Calendar, Award, X, Briefcase, Clock, DollarSign
 } from 'lucide-react'
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer
 } from 'recharts'
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover'
-
 const SAVED_DASHBOARD_VIEWS_KEY = 'dashboardSavedViews'
 const LOW_CREDIT_MODAL_DISMISSED_KEY = 'dashboardLowCreditModalDismissed'
 const INTERVIEW_REJECTION_SCORE_THRESHOLD = 6
@@ -63,13 +60,6 @@ function resolveDashboardDisplayStage(candidate, latestInterview) {
 
   return candidate?.stage
 }
-
-const getDefaultView = () => ({
-  selectedMonth: 'all',
-  selectedDate: null,
-  selectedYear: new Date().getFullYear(),
-  selectedMonthNum: null
-})
 
 function buildDashboardCandidateBuckets(candidatesData = [], interviewRows = []) {
   const candidateMap = new Map((candidatesData || []).map((candidate) => [candidate.id, candidate]))
@@ -140,11 +130,7 @@ export default function Dashboard() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const selectedClient = searchParams.get('client')
-  const [selectedMonth, setSelectedMonth] = useState('all')
-  const [selectedDate, setSelectedDate] = useState(null)
-  const [calendarOpen, setCalendarOpen] = useState(false)
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear())
-  const [selectedMonthNum, setSelectedMonthNum] = useState(null)
+  const [dateRange, setDateRange] = useState(() => getDateRangePreset('last_7_days'))
   const [selectedCard, setSelectedCard] = useState(null)
   const [cardCandidates, setCardCandidates] = useState([])
   const [cardLoading, setCardLoading] = useState(false)
@@ -160,13 +146,10 @@ export default function Dashboard() {
   const dashboardParams = useMemo(() => {
     const params = {}
     if (selectedClient) params.client = selectedClient
-    if (selectedDate) {
-      params.date = selectedDate
-    } else if (selectedMonth !== 'all') {
-      params.month = selectedMonth
-    }
+    if (dateRange?.from) params.from_date = dateRange.from
+    if (dateRange?.to) params.to_date = dateRange.to
     return params
-  }, [selectedClient, selectedDate, selectedMonth])
+  }, [dateRange, selectedClient])
 
   const statsQuery = useQuery({
     queryKey: ['dashboard-overview-stats', dashboardParams],
@@ -185,11 +168,11 @@ export default function Dashboard() {
     enabled: shouldLoadDashboardDetails,
     queryFn: async () => {
       const [activeJobs, upcomingInterviews, hiringMetrics, intelligence] = await Promise.all([
-        api.getActiveJobs().catch((error) => {
+        api.getActiveJobs(dashboardParams).catch((error) => {
           console.error('Jobs error:', error)
           return []
         }),
-        api.getUpcomingInterviews().catch((error) => {
+        api.getUpcomingInterviews(dashboardParams).catch((error) => {
           console.error('Interviews error:', error)
           return []
         }),
@@ -214,11 +197,11 @@ export default function Dashboard() {
     enabled: shouldLoadDeferredAnalytics,
     queryFn: async () => {
       const [resumeTrend, interviewTrend] = await Promise.all([
-        api.getResumeScoresTrend().catch((error) => {
+        api.getResumeScoresTrend(dashboardParams).catch((error) => {
           console.error('Resume trend error:', error)
           return []
         }),
-        api.getInterviewScoresTrend().catch((error) => {
+        api.getInterviewScoresTrend(dashboardParams).catch((error) => {
           console.error('Interview trend error:', error)
           return []
         }),
@@ -345,11 +328,11 @@ export default function Dashboard() {
     }
 
     const [candidatesData, interviewRows] = await Promise.all([
-      api.getCandidates({ ...dashboardParams, limit: 20, offset: 0 }).catch((error) => {
+      api.getCandidates(dashboardParams, { includeDefaultLimit: false }).catch((error) => {
         console.error('Candidates error:', error)
         return []
       }),
-      api.getInterviews({ limit: 20, offset: 0 }).catch((error) => {
+      api.getInterviews(dashboardParams, { includeDefaultLimit: false }).catch((error) => {
         console.error('Interviews list error:', error)
         return []
       }),
@@ -403,11 +386,8 @@ export default function Dashboard() {
       if (selectedClient) {
         filter.client = selectedClient
       }
-      if (selectedDate) {
-        filter.date = selectedDate
-      } else if (selectedMonth !== 'all') {
-        filter.month = selectedMonth
-      }
+      if (dateRange?.from) filter.from_date = dateRange.from
+      if (dateRange?.to) filter.to_date = dateRange.to
       
       // Handle multiple stages filter
       if (filter.stages && filter.stages.length > 0) {
@@ -416,12 +396,12 @@ export default function Dashboard() {
         for (const stage of filter.stages) {
           const stageFilter = { ...filter, stage }
           delete stageFilter.stages
-          const candidates = await api.getCandidates(stageFilter)
+          const candidates = await api.getCandidates(stageFilter, { includeDefaultLimit: false })
           allCandidates.push(...(candidates || []))
         }
         setCardCandidates(allCandidates)
       } else {
-        const candidates = await api.getCandidates(filter)
+        const candidates = await api.getCandidates(filter, { includeDefaultLimit: false })
         setCardCandidates(candidates || [])
       }
     } catch (error) {
@@ -430,7 +410,7 @@ export default function Dashboard() {
     } finally {
       setCardLoading(false)
     }
-  }, [dashboardParams, loadCardBuckets, selectedClient, selectedDate, selectedMonth])
+  }, [dashboardParams, dateRange, loadCardBuckets, selectedClient])
 
   const closeModal = () => {
     console.log('Closing modal')
@@ -448,58 +428,6 @@ export default function Dashboard() {
     return () => document.removeEventListener('keydown', handleEscape)
   }, [])
 
-  const handleDateSelect = (day) => {
-    if (selectedMonthNum !== null) {
-      const dateStr = `${selectedYear}-${String(selectedMonthNum).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-      setSelectedDate(dateStr)
-      setSelectedMonth('all')
-      setCalendarOpen(false)
-    }
-  }
-
-  const handleMonthSelect = (month) => {
-    setSelectedMonthNum(month)
-  }
-
-  const applyMonthFilter = () => {
-    if (selectedMonthNum !== null) {
-      const monthStr = `${selectedYear}-${String(selectedMonthNum).padStart(2, '0')}`
-      setSelectedMonth(monthStr)
-      setSelectedDate(null)
-      setCalendarOpen(false)
-    }
-  }
-
-  const handleYearChange = (direction) => {
-    setSelectedYear(prev => prev + direction)
-    setSelectedMonthNum(null)
-  }
-
-  const clearFilter = () => {
-    setSelectedDate(null)
-    setSelectedMonth('all')
-    setSelectedMonthNum(null)
-  }
-
-
-
-  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-  
-  const getDaysInMonth = (year, month) => {
-    return new Date(year, month, 0).getDate()
-  }
-
-  const getFilterLabel = () => {
-    if (selectedDate) {
-      return new Date(selectedDate).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
-    }
-    if (selectedMonth !== 'all') {
-      const [year, month] = selectedMonth.split('-')
-      return new Date(year, parseInt(month) - 1).toLocaleDateString('en-US', { year: 'numeric', month: 'long' })
-    }
-    return 'Select Date'
-  }
-
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -515,85 +443,7 @@ export default function Dashboard() {
           <h1 className="text-2xl font-bold">Dashboard</h1>
           <p className="text-muted-foreground">Overview of your recruitment pipeline</p>
         </div>
-        <div className="flex items-center gap-2">
-          <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
-            <PopoverTrigger asChild>
-              <Button variant="outline" className="w-[240px] justify-start text-left font-normal">
-                <CalendarIcon className="mr-2 h-4 w-4" />
-                {getFilterLabel()}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-0" align="end">
-              <div className="p-3">
-                {/* Year Selector */}
-                <div className="flex items-center justify-between mb-3">
-                  <Button variant="outline" size="sm" onClick={() => handleYearChange(-1)}>←</Button>
-                  <span className="font-semibold">{selectedYear}</span>
-                  <Button variant="outline" size="sm" onClick={() => handleYearChange(1)}>→</Button>
-                </div>
-                
-                {/* Month Selector */}
-                {selectedMonthNum === null ? (
-                  <div className="grid grid-cols-3 gap-2">
-                    {monthNames.map((month, idx) => (
-                      <Button
-                        key={idx}
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleMonthSelect(idx + 1)}
-                        className="h-9"
-                      >
-                        {month}
-                      </Button>
-                    ))}
-                  </div>
-                ) : (
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <Button variant="ghost" size="sm" onClick={() => setSelectedMonthNum(null)}>← Back</Button>
-                      <span className="font-medium">{monthNames[selectedMonthNum - 1]} {selectedYear}</span>
-                    </div>
-                    
-                    {/* Option to select entire month or specific date */}
-                    <div className="mb-3 flex gap-2">
-                      <Button
-                        variant="default"
-                        size="sm"
-                        onClick={applyMonthFilter}
-                        className="flex-1"
-                      >
-                        Entire Month
-                      </Button>
-                      <span className="text-xs text-muted-foreground self-center">or select a date below</span>
-                    </div>
-                    
-                    <div className="grid grid-cols-7 gap-1">
-                      {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, idx) => (
-                        <div key={idx} className="text-center text-xs font-medium text-muted-foreground p-1">{day}</div>
-                      ))}
-                      {Array.from({ length: getDaysInMonth(selectedYear, selectedMonthNum) }, (_, i) => i + 1).map(day => (
-                        <Button
-                          key={day}
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleDateSelect(day)}
-                          className="h-8 w-8 p-0"
-                        >
-                          {day}
-                        </Button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            </PopoverContent>
-          </Popover>
-          {(selectedDate || selectedMonth !== 'all') && (
-            <Button variant="ghost" size="sm" onClick={clearFilter}>
-              <X className="h-4 w-4" />
-            </Button>
-          )}
-        </div>
+        <DateRangeFilter value={dateRange} onChange={setDateRange} />
       </div>
 
       {/* KPI Cards */}
@@ -744,7 +594,7 @@ export default function Dashboard() {
                 <BarChart data={interviewTrend}>
                   <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                   <XAxis dataKey="month" className="text-xs" />
-                  <YAxis domain={[0, 100]} className="text-xs" />
+                  <YAxis domain={[0, 10]} className="text-xs" />
                   <Tooltip 
                     contentStyle={{ 
                       backgroundColor: 'hsl(var(--card))', 
@@ -781,47 +631,52 @@ export default function Dashboard() {
                 <p className="text-muted-foreground">Total: {cardCandidates.length} candidates</p>
                 
                 {cardCandidates.length > 0 ? (
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead>
-                        <tr className="border-b bg-muted/50">
-                          <th className="text-left p-3 font-medium">Name</th>
-                          <th className="text-left p-3 font-medium">Email</th>
-                          <th className="text-left p-3 font-medium">Job</th>
-                          <th className="text-left p-3 font-medium">Score</th>
-                          <th className="text-left p-3 font-medium">Stage</th>
-                          <th className="text-left p-3 font-medium">Date</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {cardCandidates.map((candidate) => (
-                          <tr key={candidate.id} className="border-b hover:bg-muted/50">
-                            <td className="p-3 font-medium">{candidate.name}</td>
-                            <td className="p-3 text-sm text-muted-foreground">{candidate.email}</td>
-                            <td className="p-3 text-sm">{candidate.job_title || '-'}</td>
-                            <td className="p-3">
-                              {((candidate.display_score !== undefined && candidate.display_score !== null)
-                                || (candidate.resume_score !== undefined && candidate.resume_score !== null)) ? (
-                                <span className={cn('font-semibold', getScoreColor(candidate.display_score ?? candidate.resume_score))}>
-                                  {candidate.display_score ?? candidate.resume_score}
-                                </span>
-                              ) : (
-                                <span className="text-muted-foreground">-</span>
-                              )}
-                            </td>
-                            <td className="p-3">
-                              <Badge variant="outline" className="capitalize">
-                                {(candidate.display_stage || candidate.stage).replaceAll('_', ' ')}
-                              </Badge>
-                            </td>
-                            <td className="p-3 text-sm text-muted-foreground">
-                              {formatDate(candidate.rejected_at || candidate.created_at)}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                  <ExpandableList
+                    items={cardCandidates}
+                    initialCount={5}
+                    loading={cardLoading}
+                    renderItems={({ items }) => (
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="bg-muted/50 hover:bg-muted/50">
+                            <TableHead>Name</TableHead>
+                            <TableHead>Email</TableHead>
+                            <TableHead>Job</TableHead>
+                            <TableHead>Score</TableHead>
+                            <TableHead>Stage</TableHead>
+                            <TableHead>Date</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {items.map((candidate) => (
+                            <TableRow key={candidate.id}>
+                              <TableCell className="font-medium">{candidate.name}</TableCell>
+                              <TableCell className="text-sm text-muted-foreground">{candidate.email}</TableCell>
+                              <TableCell className="text-sm">{candidate.job_title || '-'}</TableCell>
+                              <TableCell>
+                                {((candidate.display_score !== undefined && candidate.display_score !== null)
+                                  || (candidate.resume_score !== undefined && candidate.resume_score !== null)) ? (
+                                  <span className={cn('font-semibold', getScoreColor(candidate.display_score ?? candidate.resume_score))}>
+                                    {candidate.display_score ?? candidate.resume_score}
+                                  </span>
+                                ) : (
+                                  <span className="text-muted-foreground">-</span>
+                                )}
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant="outline" className="capitalize">
+                                  {(candidate.display_stage || candidate.stage).replaceAll('_', ' ')}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="text-sm text-muted-foreground">
+                                {formatDate(candidate.rejected_at || candidate.created_at)}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    )}
+                  />
                 ) : (
                   <div className="text-center py-8 text-muted-foreground">
                     No candidates found for this category

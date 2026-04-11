@@ -213,6 +213,19 @@ def _apply_client_filter(query, client: Optional[str]):
     )
 
 
+def _apply_candidate_created_at_filters(
+    query,
+    *,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+):
+    if from_date:
+        query = query.filter(func.date(Candidate.created_at) >= from_date)
+    if to_date:
+        query = query.filter(func.date(Candidate.created_at) <= to_date)
+    return query
+
+
 def get_bulk_processing_workers(item_count: int) -> int:
     """Keep worker count bounded so batch uploads scale without exhausting the host."""
     cpu_count = os.cpu_count() or 4
@@ -2217,6 +2230,8 @@ def get_candidates_count(
     job_id: Optional[UUID] = None,
     min_score: Optional[float] = None,
     client: Optional[str] = None,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
     agency_id: Optional[UUID] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
@@ -2239,6 +2254,11 @@ def get_candidates_count(
         query = query.filter(Candidate.job_id == job_id)
     if min_score is not None:
         query = query.filter(Candidate.resume_score >= min_score)
+    query = _apply_candidate_created_at_filters(
+        query,
+        from_date=from_date,
+        to_date=to_date,
+    )
     return {"count": query.count()}
 
 @router.get("", response_model=List[CandidateResponse])
@@ -2251,6 +2271,8 @@ def get_candidates(
     job_id: Optional[UUID] = None,
     min_score: Optional[float] = None,
     client: Optional[str] = None,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
     agency_id: Optional[UUID] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
@@ -2281,6 +2303,11 @@ def get_candidates(
         query = query.filter(Candidate.job_id == job_id)
     if min_score is not None:
         query = query.filter(Candidate.resume_score >= min_score)
+    query = _apply_candidate_created_at_filters(
+        query,
+        from_date=from_date,
+        to_date=to_date,
+    )
     effective_limit, effective_offset = _resolve_pagination(page, limit, offset)
     query_start = perf_counter()
     query = (
@@ -2309,6 +2336,7 @@ def get_candidates(
                 Candidate.applied_at,
                 Candidate.job_id,
                 Candidate.summary,
+                Candidate.internal_notes,
                 Candidate.predefined_questions,
                 Candidate.created_at,
             ),
@@ -2351,6 +2379,7 @@ def get_candidates(
             "job_id": c.job_id,
             "job_title": c.job.title if c.job else None,
             "summary": c.summary,
+            "internal_notes": c.internal_notes,
             "predefined_questions": c.predefined_questions,
             "created_at": c.created_at,
             "field_confidence": _compute_field_confidence(c),

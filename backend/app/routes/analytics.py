@@ -124,12 +124,40 @@ def _aggregate_candidate_stage_metrics(db: Session, candidate_sq, *, exclude_app
     }
 
 
+def _apply_date_window(
+    query,
+    field,
+    *,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+    month: Optional[str] = None,
+    date: Optional[str] = None,
+):
+    if from_date:
+        query = query.filter(func.date(field) >= from_date)
+    if to_date:
+        query = query.filter(func.date(field) <= to_date)
+    if from_date or to_date:
+        return query
+    if date:
+        return query.filter(func.date(field) == date)
+    if month:
+        year, month_num = map(int, month.split('-'))
+        return query.filter(
+            extract('year', field) == year,
+            extract('month', field) == month_num,
+        )
+    return query
+
+
 def _latest_interview_metrics(
     db: Session,
     candidate_query,
     *,
     month: Optional[str] = None,
     date: Optional[str] = None,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
 ) -> dict:
     candidate_sq = candidate_query.with_entities(
         Candidate.id.label("candidate_id"),
@@ -149,30 +177,35 @@ def _latest_interview_metrics(
         .join(candidate_sq, Interview.candidate_id == candidate_sq.c.candidate_id)
     )
 
-    if date:
-        interview_rank_sq = interview_rank_sq.filter(func.date(interview_date_field) == date)
-    elif month:
-        year, month_num = map(int, month.split('-'))
-        interview_rank_sq = interview_rank_sq.filter(
-            extract('year', interview_date_field) == year,
-            extract('month', interview_date_field) == month_num,
-        )
+    interview_rank_sq = _apply_date_window(
+        interview_rank_sq,
+        interview_date_field,
+        from_date=from_date,
+        to_date=to_date,
+        month=month,
+        date=date,
+    )
 
     latest_sq = interview_rank_sq.subquery()
     status_column = func.lower(func.trim(func.coalesce(latest_sq.c.status, "")))
+    normalized_interview_score = case(
+        (latest_sq.c.interview_score.is_(None), None),
+        (latest_sq.c.interview_score > 10, latest_sq.c.interview_score / 10.0),
+        else_=latest_sq.c.interview_score,
+    )
 
     row = db.query(
         func.sum(case(((status_column.in_(["scheduled", "ongoing"]) & (latest_sq.c.row_number == 1)), 1), else_=0)).label("interviews_scheduled"),
-        func.sum(case((((status_column == "completed") & (func.coalesce(latest_sq.c.interview_score, 0) >= INTERVIEW_RESULT_THRESHOLD) & (latest_sq.c.row_number == 1)), 1), else_=0)).label("selected"),
-        func.sum(case((((status_column == "completed") & (func.coalesce(latest_sq.c.interview_score, 0) < INTERVIEW_RESULT_THRESHOLD) & (latest_sq.c.row_number == 1)), 1), else_=0)).label("rejected"),
-        func.avg(case(((latest_sq.c.row_number == 1) & latest_sq.c.interview_score.isnot(None), latest_sq.c.interview_score), else_=None)).label("avg_interview_score"),
+        func.sum(case((((status_column == "completed") & (func.coalesce(normalized_interview_score, 0) >= INTERVIEW_RESULT_THRESHOLD) & (latest_sq.c.row_number == 1)), 1), else_=0)).label("selected"),
+        func.sum(case((((status_column == "completed") & (func.coalesce(normalized_interview_score, 0) < INTERVIEW_RESULT_THRESHOLD) & (latest_sq.c.row_number == 1)), 1), else_=0)).label("rejected"),
+        func.avg(case(((latest_sq.c.row_number == 1) & normalized_interview_score.isnot(None), normalized_interview_score), else_=None)).label("avg_interview_score"),
         func.sum(case((((status_column == "completed") & (latest_sq.c.row_number == 1)), 1), else_=0)).label("completed_interviews"),
         func.sum(
             case(
                 (
                     (
                         (status_column == "completed")
-                        & (func.coalesce(latest_sq.c.interview_score, 0) >= INTERVIEW_RESULT_THRESHOLD)
+                        & (func.coalesce(normalized_interview_score, 0) >= INTERVIEW_RESULT_THRESHOLD)
                         & (func.coalesce(candidate_sq.c.resume_score, 0) >= 80)
                         & (latest_sq.c.row_number == 1)
                     ),
@@ -203,6 +236,8 @@ def _apply_candidate_dashboard_filters(
     client: Optional[str] = None,
     month: Optional[str] = None,
     date: Optional[str] = None,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
 ):
     query = _apply_candidate_visibility(query, current_user)
 
@@ -217,16 +252,14 @@ def _apply_candidate_dashboard_filters(
         else:
             return query.filter(False)
 
-    if date:
-        query = query.filter(func.date(Candidate.created_at) == date)
-    elif month:
-        year, month_num = map(int, month.split('-'))
-        query = query.filter(
-            extract('year', Candidate.created_at) == year,
-            extract('month', Candidate.created_at) == month_num
-        )
-
-    return query
+    return _apply_date_window(
+        query,
+        Candidate.created_at,
+        from_date=from_date,
+        to_date=to_date,
+        month=month,
+        date=date,
+    )
 
 
 def _map_interview_to_pipeline_stage(interview: Interview) -> Optional[CandidateStage]:
@@ -236,6 +269,8 @@ def _map_interview_to_pipeline_stage(interview: Interview) -> Optional[Candidate
     interview_status = (interview.status or '').strip().lower()
     if interview_status == 'completed':
         interview_score = interview.interview_score if interview.interview_score is not None else 0
+        if interview_score > 10:
+            interview_score = interview_score / 10
         return CandidateStage.SELECTED if interview_score >= INTERVIEW_RESULT_THRESHOLD else CandidateStage.REJECTED
     if interview_status == 'ongoing':
         return CandidateStage.INTERVIEWED
@@ -250,6 +285,8 @@ def _get_latest_filtered_interviews_by_candidate(
     candidate_ids: List,
     month: Optional[str] = None,
     date: Optional[str] = None,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
 ):
     latest_interviews_by_candidate = {}
     if not candidate_ids:
@@ -257,14 +294,14 @@ def _get_latest_filtered_interviews_by_candidate(
 
     interview_query = db.query(Interview).filter(Interview.candidate_id.in_(candidate_ids))
     interview_date_field = func.coalesce(Interview.scheduled_at, Interview.created_at)
-    if date:
-        interview_query = interview_query.filter(func.date(interview_date_field) == date)
-    elif month:
-        year, month_num = map(int, month.split('-'))
-        interview_query = interview_query.filter(
-            extract('year', interview_date_field) == year,
-            extract('month', interview_date_field) == month_num
-        )
+    interview_query = _apply_date_window(
+        interview_query,
+        interview_date_field,
+        from_date=from_date,
+        to_date=to_date,
+        month=month,
+        date=date,
+    )
 
     interviews = (
         interview_query
@@ -754,6 +791,8 @@ def save_widget_layout(
 def get_dashboard_stats(
     month: Optional[str] = Query(None),
     date: Optional[str] = Query(None),
+    from_date: Optional[str] = Query(None),
+    to_date: Optional[str] = Query(None),
     client: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
@@ -765,6 +804,8 @@ def get_dashboard_stats(
             current_user,
             month=month,
             date=date,
+            from_date=from_date,
+            to_date=to_date,
             client=client,
         )
         cached = _get_cached_analytics_response(cache_key)
@@ -780,6 +821,8 @@ def get_dashboard_stats(
             client=client,
             month=month,
             date=date,
+            from_date=from_date,
+            to_date=to_date,
         )
         candidate_sq = _candidate_metrics_subquery(query)
         candidate_metrics = _aggregate_candidate_stage_metrics(db, candidate_sq, exclude_applied=True)
@@ -789,6 +832,8 @@ def get_dashboard_stats(
             active_candidate_query,
             month=month,
             date=date,
+            from_date=from_date,
+            to_date=to_date,
         )
         query_time = perf_counter() - query_start
         print(f"[DB PERF] dashboard-stats query={query_time:.4f}s")
@@ -1389,12 +1434,19 @@ def get_score_distribution(
 
 @router.get("/resume-scores-trend")
 def get_resume_scores_trend(
+    from_date: Optional[str] = Query(None),
+    to_date: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    candidates = _apply_candidate_visibility(
+    candidates = _apply_date_window(
+        _apply_candidate_visibility(
         db.query(Candidate).filter(Candidate.resume_score.isnot(None)),
         current_user
+        ),
+        Candidate.created_at,
+        from_date=from_date,
+        to_date=to_date,
     ).all()
 
     month_scores = {}
@@ -1415,11 +1467,20 @@ def get_resume_scores_trend(
 
 @router.get("/interview-scores-trend")
 def get_interview_scores_trend(
+    from_date: Optional[str] = Query(None),
+    to_date: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    interviews = db.query(Interview).join(Candidate, Interview.candidate_id == Candidate.id)
-    interviews = _apply_candidate_visibility(interviews, current_user).all()
+    interviews = _apply_date_window(
+        _apply_candidate_visibility(
+            db.query(Interview).join(Candidate, Interview.candidate_id == Candidate.id),
+            current_user,
+        ),
+        func.coalesce(Interview.scheduled_at, Interview.created_at),
+        from_date=from_date,
+        to_date=to_date,
+    ).all()
 
     month_scores = {}
     for interview in interviews:
@@ -1428,17 +1489,17 @@ def get_interview_scores_trend(
         month_key = interview.created_at.strftime("%b")
         month_scores.setdefault(month_key, {"technical": [], "communication": []})
         if interview.technical_score is not None:
-            month_scores[month_key]["technical"].append(interview.technical_score)
+            month_scores[month_key]["technical"].append(interview.technical_score / 10 if interview.technical_score > 10 else interview.technical_score)
         if interview.communication_score is not None:
-            month_scores[month_key]["communication"].append(interview.communication_score)
+            month_scores[month_key]["communication"].append(interview.communication_score / 10 if interview.communication_score > 10 else interview.communication_score)
 
     if not month_scores:
         months = ["Aug", "Sep", "Oct", "Nov", "Dec", "Jan"]
         return [
             {
                 "month": month,
-                "technical": round(random.uniform(65, 85), 1),
-                "communication": round(random.uniform(70, 90), 1)
+                "technical": round(random.uniform(6.5, 8.5), 1),
+                "communication": round(random.uniform(7.0, 9.0), 1)
             }
             for month in months
         ]
@@ -1556,11 +1617,13 @@ def get_offer_acceptance_rate(
 
 @router.get("/active-jobs")
 def get_active_jobs(
+    from_date: Optional[str] = Query(None),
+    to_date: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
     total_start = perf_counter()
-    cache_key = _analytics_cache_key("active-jobs", current_user)
+    cache_key = _analytics_cache_key("active-jobs", current_user, from_date=from_date, to_date=to_date)
     cached = _get_cached_analytics_response(cache_key)
     if cached is not None:
         _perf_log("active-jobs", total_start, cache="hit", row_count=len(cached))
@@ -1580,7 +1643,26 @@ def get_active_jobs(
         JobDescription.status,
     ).all()
     role_name = _role_name(current_user)
-    candidate_counts = _candidate_counts_by_job(db, current_user)
+    candidate_query = _apply_date_window(
+        _apply_candidate_visibility(db.query(Candidate), current_user),
+        Candidate.created_at,
+        from_date=from_date,
+        to_date=to_date,
+    )
+    candidate_rows = candidate_query.with_entities(
+        Candidate.job_id.label("job_id"),
+        func.sum(case(((Candidate.stage != CandidateStage.APPLIED), 1), else_=0)).label("candidate_count"),
+        func.sum(case(((Candidate.stage == CandidateStage.SHORTLISTED), 1), else_=0)).label("shortlisted_count"),
+        func.sum(case(((Candidate.stage == CandidateStage.SELECTED), 1), else_=0)).label("selected_count"),
+    ).filter(Candidate.job_id.isnot(None)).group_by(Candidate.job_id).all()
+    candidate_counts = {
+        row.job_id: {
+            "candidate_count": int(row.candidate_count or 0),
+            "shortlisted_count": int(row.shortlisted_count or 0),
+            "selected_count": int(row.selected_count or 0),
+        }
+        for row in candidate_rows
+    }
     query_time = perf_counter() - query_start
     print(f"[DB PERF] active-jobs query={query_time:.4f}s")
 
@@ -1622,6 +1704,8 @@ def get_active_jobs(
 
 @router.get("/upcoming-interviews")
 def get_upcoming_interviews(
+    from_date: Optional[str] = Query(None),
+    to_date: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -1631,11 +1715,19 @@ def get_upcoming_interviews(
     today = datetime.now()
     next_week = today + timedelta(days=7)
     
-    interview_query = db.query(Interview).filter(
-        Interview.scheduled_at >= today,
-        Interview.scheduled_at <= next_week,
-        Interview.status == 'scheduled'
-    )
+    interview_query = db.query(Interview).filter(Interview.status == 'scheduled')
+    if from_date or to_date:
+        interview_query = _apply_date_window(
+            interview_query,
+            Interview.scheduled_at,
+            from_date=from_date,
+            to_date=to_date,
+        )
+    else:
+        interview_query = interview_query.filter(
+            Interview.scheduled_at >= today,
+            Interview.scheduled_at <= next_week,
+        )
 
     if _role_name(current_user) != UserRole.ADMIN.value:
         interview_query = interview_query.join(Candidate, Interview.candidate_id == Candidate.id)
