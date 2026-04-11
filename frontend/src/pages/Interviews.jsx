@@ -126,6 +126,7 @@ function getInterviewResultMeta(interview, candidateStage) {
 export default function Interviews({ superAdminAgencyId = null }) {
   const [searchParams] = useSearchParams()
   const selectedClient = searchParams.get('client')
+  const selectedJobIdFromQuery = searchParams.get('job_id') || 'all'
   const [interviews, setInterviews] = useState([])
   const [selectedInterview, setSelectedInterview] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -134,7 +135,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
   const SHOW_MORE_STEP = 20
   const [candidates, setCandidates] = useState([])
   const [jobs, setJobs] = useState([])
-  const [selectedJobFilter, setSelectedJobFilter] = useState('all')
+  const [selectedJobFilter, setSelectedJobFilter] = useState(selectedJobIdFromQuery)
   const [decisionLoading, setDecisionLoading] = useState(null)
   const [approveModalOpen, setApproveModalOpen] = useState(false)
   const [candidateDropdownOpen, setCandidateDropdownOpen] = useState(false)
@@ -164,7 +165,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
         const params = {}
         if (selectedClient) params.client = selectedClient
         if (superAdminAgencyId) params.agency_id = superAdminAgencyId
-        const interviewsData = (await api.getInterviews({ ...params, limit: DEFAULT_LIST_LIMIT, offset: 0 })) || []
+        const interviewsData = (await api.getInterviews(params, { includeDefaultLimit: false })) || []
         
         setInterviews(interviewsData)
         if (interviewsData.length > 0) {
@@ -179,9 +180,9 @@ export default function Interviews({ superAdminAgencyId = null }) {
     
     const fetchCandidates = async () => {
       try {
-        const params = { limit: DEFAULT_LIST_LIMIT, offset: 0 }
+        const params = {}
         if (superAdminAgencyId) params.agency_id = superAdminAgencyId
-        const data = await api.getCandidates(params)
+        const data = await api.getCandidates(params, { includeDefaultLimit: false })
         setCandidates(data)
       } catch (error) {
         console.error('Failed to fetch candidates:', error)
@@ -190,9 +191,9 @@ export default function Interviews({ superAdminAgencyId = null }) {
     
     const fetchJobs = async () => {
       try {
-        const params = { limit: DEFAULT_LIST_LIMIT, offset: 0 }
+        const params = {}
         if (superAdminAgencyId) params.agency_id = superAdminAgencyId
-        const data = await api.getJobs(params)
+        const data = await api.getJobs(params, { includeDefaultLimit: false })
         setJobs(data)
       } catch (error) {
         console.error('Failed to fetch jobs:', error)
@@ -203,6 +204,10 @@ export default function Interviews({ superAdminAgencyId = null }) {
     fetchCandidates()
     fetchJobs()
   }, [selectedClient, superAdminAgencyId])
+
+  useEffect(() => {
+    setSelectedJobFilter(selectedJobIdFromQuery)
+  }, [selectedJobIdFromQuery])
 
   const activeJobs = useMemo(
     () => (jobs || []).filter((job) => job.is_active),
@@ -224,6 +229,35 @@ export default function Interviews({ superAdminAgencyId = null }) {
     })
     return map
   }, [candidates])
+
+  const candidateMap = useMemo(() => {
+    const map = new Map()
+    ;(candidates || []).forEach((candidate) => {
+      map.set(String(candidate.id), candidate)
+    })
+    return map
+  }, [candidates])
+
+  const jobMap = useMemo(() => {
+    const map = new Map()
+    ;(jobs || []).forEach((job) => {
+      map.set(String(job.id), job)
+    })
+    return map
+  }, [jobs])
+
+  const interviewJobContextMap = useMemo(() => {
+    const map = new Map()
+    ;(interviews || []).forEach((interview) => {
+      const candidate = candidateMap.get(String(interview.candidate_id))
+      const job = candidate?.job_id ? jobMap.get(String(candidate.job_id)) : null
+      map.set(String(interview.id), {
+        jobTitle: candidate?.job_title || job?.title || '',
+        companyName: job?.company_name || '',
+      })
+    })
+    return map
+  }, [candidateMap, interviews, jobMap])
 
   const jobFilteredInterviews = useMemo(() => {
     if (selectedJobFilter === 'all') return interviews
@@ -582,6 +616,10 @@ export default function Interviews({ superAdminAgencyId = null }) {
                 {filteredInterviews.slice(0, visibleCount).map((interview) => {
                   const resultMeta = getInterviewResultMeta(interview, candidateStageMap.get(String(interview.candidate_id)))
                   const interviewScore = getNumericInterviewScore(interview)
+                  const interviewJobContext = interviewJobContextMap.get(String(interview.id)) || {}
+                  const candidateJobLine = [interviewJobContext.jobTitle, interviewJobContext.companyName]
+                    .filter(Boolean)
+                    .join(' - ')
                   return (
                   <button
                     key={interview.id}
@@ -596,6 +634,9 @@ export default function Interviews({ superAdminAgencyId = null }) {
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <p className="font-medium truncate">{interview.candidate_name}</p>
+                        {candidateJobLine ? (
+                          <p className="text-xs text-muted-foreground mt-1 truncate">{candidateJobLine}</p>
+                        ) : null}
                         <p className="text-xs text-muted-foreground mt-1">
                           {formatDateTime(interview.scheduled_at)}
                         </p>

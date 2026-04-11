@@ -226,6 +226,36 @@ def _apply_candidate_created_at_filters(
     return query
 
 
+def _normalize_candidate_duplicate_name(value: Optional[str]) -> str:
+    return re.sub(r"\s+", " ", str(value or "").strip()).lower()
+
+
+def _normalize_candidate_duplicate_phone(value: Optional[str]) -> str:
+    return re.sub(r"\D", "", str(value or ""))
+
+
+def _find_duplicate_candidate_for_job(
+    db: Session,
+    *,
+    name: Optional[str],
+    phone: Optional[str],
+    job_id: Optional[UUID],
+):
+    normalized_name = _normalize_candidate_duplicate_name(name)
+    normalized_phone = _normalize_candidate_duplicate_phone(phone)
+    if not normalized_name or not normalized_phone or not job_id:
+        return None
+
+    candidates = db.query(Candidate).filter(Candidate.job_id == job_id).all()
+    for candidate in candidates:
+        if (
+            _normalize_candidate_duplicate_name(candidate.name) == normalized_name
+            and _normalize_candidate_duplicate_phone(candidate.phone) == normalized_phone
+        ):
+            return candidate
+    return None
+
+
 def get_bulk_processing_workers(item_count: int) -> int:
     """Keep worker count bounded so batch uploads scale without exhausting the host."""
     cpu_count = os.cpu_count() or 4
@@ -1147,6 +1177,23 @@ def process_single_resume_upload(
         resume_data["file_upload_ms"] = file_upload_ms
         needs_refinement = should_defer_resume_refinement(resume_data)
 
+        duplicate_candidate = _find_duplicate_candidate_for_job(
+            db,
+            name=resume_data.get("name"),
+            phone=resume_data.get("phone"),
+            job_id=job_id,
+        )
+        if duplicate_candidate:
+            set_upload_progress(
+                upload_id,
+                current=0,
+                total=1,
+                status="error",
+                message="Application already exists",
+                candidate_id=str(duplicate_candidate.id),
+            )
+            return
+
         candidate = Candidate(
             name=resume_data['name'],
             email=resume_data['email'],
@@ -1354,6 +1401,17 @@ def process_bulk_upload_batch(
                 try:
                     processed = future.result()
                     resume_data = processed["resume_data"]
+                    duplicate_candidate = _find_duplicate_candidate_for_job(
+                        db,
+                        name=resume_data.get("name"),
+                        phone=resume_data.get("phone"),
+                        job_id=job_id,
+                    )
+                    if duplicate_candidate:
+                        print(
+                            f"Skipping duplicate candidate for bulk upload filename={item['filename']} job_id={job_id}"
+                        )
+                        continue
                     candidate = Candidate(
                         name=resume_data['name'],
                         email=resume_data['email'],
@@ -1475,6 +1533,17 @@ def process_zip_upload_batch(
                 try:
                     processed = future.result()
                     resume_data = processed["resume_data"]
+                    duplicate_candidate = _find_duplicate_candidate_for_job(
+                        db,
+                        name=resume_data.get("name"),
+                        phone=resume_data.get("phone"),
+                        job_id=job_id,
+                    )
+                    if duplicate_candidate:
+                        print(
+                            f"Skipping duplicate candidate for zip upload filename={item['filename']} job_id={job_id}"
+                        )
+                        continue
                     candidate = Candidate(
                         name=resume_data['name'],
                         email=resume_data['email'],
@@ -2443,6 +2512,15 @@ def create_candidate(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
+    duplicate_candidate = _find_duplicate_candidate_for_job(
+        db,
+        name=candidate.name,
+        phone=candidate.phone,
+        job_id=candidate.job_id,
+    )
+    if duplicate_candidate:
+        raise HTTPException(status_code=409, detail="Application already exists")
+
     db_candidate = Candidate(
         **candidate.model_dump(),
         agency_id=current_user.agency_id,

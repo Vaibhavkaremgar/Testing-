@@ -42,11 +42,6 @@ export function Header() {
     localStorage.getItem(CLIENT_FILTER_STORAGE_KEY) ||
     ''
   ))
-  const [selectedJobId, setSelectedJobId] = useState(() => (
-    searchParams.get('job_id') ||
-    localStorage.getItem(JOB_FILTER_STORAGE_KEY) ||
-    ''
-  ))
   const isDark = theme === 'dark'
   const debouncedSearchQuery = useDebouncedValue(searchQuery, 300)
 
@@ -133,7 +128,6 @@ export function Header() {
   })
 
   const clients = filterOptionsQuery.data?.clients || []
-  const jobs = filterOptionsQuery.data?.jobs || []
   const searchResults = globalSearchQuery.data || { candidates: [], jobs: [], interviews: [] }
   const searching = globalSearchQuery.isFetching
 
@@ -148,8 +142,6 @@ export function Header() {
     let shouldReplace = false
 
     setSelectedClient(nextClient)
-    setSelectedJobId(nextJobId)
-
     if (nextClient) {
       localStorage.setItem(CLIENT_FILTER_STORAGE_KEY, nextClient)
       if (urlClient !== nextClient) {
@@ -224,19 +216,6 @@ export function Header() {
     }
     localStorage.removeItem(JOB_FILTER_STORAGE_KEY)
     nextParams.delete('job_id')
-    setSearchParams(nextParams, { replace: location.pathname !== '/login' })
-  }
-
-  const handleJobChange = (jobId) => {
-    setSelectedJobId(jobId)
-    const nextParams = new URLSearchParams(searchParams)
-    if (jobId) {
-      localStorage.setItem(JOB_FILTER_STORAGE_KEY, jobId)
-      nextParams.set('job_id', jobId)
-    } else {
-      localStorage.removeItem(JOB_FILTER_STORAGE_KEY)
-      nextParams.delete('job_id')
-    }
     setSearchParams(nextParams, { replace: location.pathname !== '/login' })
   }
 
@@ -425,21 +404,6 @@ export function Header() {
           {clients.map((client) => (
             <option key={client} value={client}>
               {client}
-            </option>
-          ))}
-        </select>
-
-        <select
-          className="h-9 max-w-[260px] rounded-md border border-input bg-background px-3 text-sm"
-          value={selectedJobId}
-          onChange={(e) => handleJobChange(e.target.value)}
-          onFocus={handleOpenFilterOptions}
-          onPointerDown={handleOpenFilterOptions}
-        >
-          <option value="" disabled>Select Job</option>
-          {jobs.map((job) => (
-            <option key={job.id} value={job.id}>
-              {[job.title, job.company_name].filter(Boolean).join(' - ') || 'Untitled Job'}
             </option>
           ))}
         </select>

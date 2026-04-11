@@ -4,7 +4,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from app.main import app
 from app.database import get_db, Base
-from app.models import User, UserRole
+from app.models import JobDescription, User, UserRole
 from app.auth import get_password_hash
 
 # Test database
@@ -78,3 +78,29 @@ def test_get_candidates(client, auth_headers):
     response = client.get("/api/candidates", headers=auth_headers)
     assert response.status_code == 200
     assert isinstance(response.json(), list)
+
+
+def test_create_candidate_rejects_duplicate_for_same_job(client, auth_headers, test_user):
+    db = TestingSessionLocal()
+    job = JobDescription(
+        title="Backend Engineer",
+        company_name="Acme Corp",
+        agency_id=test_user.agency_id,
+    )
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+    db.close()
+
+    payload = {
+        "name": "Lavanya Reddy",
+        "phone": "+91 98765 43210",
+        "job_id": str(job.id),
+    }
+
+    first_response = client.post("/api/candidates", json=payload, headers=auth_headers)
+    assert first_response.status_code == 200
+
+    duplicate_response = client.post("/api/candidates", json=payload, headers=auth_headers)
+    assert duplicate_response.status_code == 409
+    assert duplicate_response.json()["detail"] == "Application already exists"
