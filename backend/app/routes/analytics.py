@@ -19,6 +19,7 @@ from app.schemas import (
     TimeToHireData, SkillHeatmapData, ScoreDistribution
 )
 from app.auth import get_current_active_user
+from app.routes.candidates import normalize_legacy_candidate_stages
 from collections import Counter
 import random
 from datetime import datetime, timedelta, timezone
@@ -472,6 +473,10 @@ def _client_org_name(current_user: User) -> str:
 
 
 def _apply_candidate_visibility(query, current_user: User):
+    session = getattr(query, "session", None)
+    if session is not None:
+        normalize_legacy_candidate_stages(session)
+
     role_name = _role_name(current_user)
 
     if role_name == "super_admin":
