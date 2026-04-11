@@ -708,6 +708,28 @@ MakeMyTrip India Pvt. Ltd.
         self.assertEqual(result["location"], "Bangalore")
         self.assertEqual(result["current_company"], "MakeMyTrip Pvt. Ltd")
 
+    def test_location_can_be_extracted_from_contact_and_personal_details_blocks(self):
+        resume_text = """
+Nisha Sharma
+
+Contact Information
+Email: nisha.sharma@gmail.com
+Phone: +91 9876543210
+
+Personal Details
+Current Location: Hyderabad
+
+Work Experience
+Senior Analyst
+Bright Solutions Ltd
+2023 - Present
+        """
+
+        result = extract_resume_information(resume_text)
+
+        self.assertEqual(result["location"], "Hyderabad")
+        self.assertEqual(result["current_company"], "Bright Solutions Ltd")
+
     def test_month_based_experience_ranges_are_counted(self):
         resume_text = """
 Deepak Sharma

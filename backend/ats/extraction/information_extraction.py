@@ -15,7 +15,7 @@ from flashtext import KeywordProcessor
 from ats.datasets.parser_config_loader import ParserConfigLoader
 from ats.extraction.experience_extraction import extract_total_experience
 from ats.extraction.skill_intelligence import LANGUAGE_TERMS, get_skill_engine
-from ats.extraction.validation import validate_parsed_fields, validate_location
+from ats.extraction.validation import validate_current_company, validate_parsed_fields, validate_location
 from ats.preprocessing.section_segmentation import segment_resume_sections
 from ats.preprocessing.text_cleaning import (
     clean_text_pipeline,
@@ -921,6 +921,42 @@ def _select_latest_experience_entry(entries: List[Dict[str, Any]], preferred_com
 
     ordered = sorted(entries, key=_entry_sort_key, reverse=True)
     return ordered[0] if ordered else {}
+
+
+def _resolve_current_company_from_entries(
+    entries: List[Dict[str, Any]],
+    *,
+    fallback_company: Optional[str],
+    experience_text: str,
+) -> Optional[str]:
+    latest_entry = _select_latest_experience_entry(entries, preferred_company="", preferred_role="")
+    candidates: List[Optional[str]] = []
+    if latest_entry:
+        candidates.append(latest_entry.get("company"))
+    candidates.extend(
+        entry.get("company")
+        for entry in entries
+        if isinstance(entry, dict)
+    )
+    candidates.append(fallback_company)
+
+    seen = set()
+    for candidate in candidates:
+        if not isinstance(candidate, str):
+            continue
+        normalized = candidate.strip().lower()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        validated = validate_current_company(candidate, experience_text or "")
+        if validated:
+            if latest_entry and normalized == str(latest_entry.get("company") or "").strip().lower():
+                logger.info("Current company resolved from latest experience entry company=%s", validated)
+            else:
+                logger.info("Current company detection fallback resolved company=%s", validated)
+            return validated
+    logger.warning("Current company detection fallback failed to resolve a valid company")
+    return None
 
 
 def _normalize_phone_candidate(value: str) -> str:
@@ -2123,6 +2159,37 @@ def _build_contact_context(*parts: str) -> str:
     return "\n".join(ordered_lines)
 
 
+def _collect_location_priority_sources(
+    *,
+    structural_source: str,
+    header_context: str,
+    personal_details_context: str,
+    about_context: str,
+    near_name_context: str,
+    contact_context: str,
+) -> List[str]:
+    sources: List[str] = []
+    seen = set()
+
+    def _add(value: str) -> None:
+        compact = normalize_document_structure(value or "").strip()
+        if not compact or compact in seen:
+            return
+        seen.add(compact)
+        sources.append(compact)
+
+    _add(header_context)
+    _add(personal_details_context)
+    _add(contact_context)
+    _add(about_context)
+    _add(near_name_context)
+
+    for block in _extract_contact_priority_blocks(structural_source, include_document_fallback=False):
+        _add(block)
+
+    return sources
+
+
 def _get_header_contact_role_lines(text: str) -> tuple[str, str, str]:
     lines = [line.strip() for line in normalize_document_structure(text or "").splitlines() if line.strip()]
     return (
@@ -2573,16 +2640,24 @@ def extract_resume_information(text: str) -> Dict:
         sections.get("profile", ""),
     )
     near_name_context = _build_contact_context("\n".join(structural_lines[:5]))
+    location_sources = _collect_location_priority_sources(
+        structural_source=structural_source,
+        header_context=header_context,
+        personal_details_context=personal_details_context,
+        about_context=about_context,
+        near_name_context=near_name_context,
+        contact_context=contact_context,
+    )
 
     header_present = bool(header_context.strip()) or bool(sections.get("header", "").strip())
-    for source in (header_context, personal_details_context, about_context, near_name_context):
+    for source in location_sources:
         if not source:
             continue
         location = extract_location(source, use_spacy=False)
         if location:
             break
     if not location:
-        for source in (header_context, personal_details_context, about_context, near_name_context):
+        for source in location_sources:
             for line in [line.strip() for line in source.splitlines() if line.strip()][:10]:
                 location = validate_location(line)
                 if location:
@@ -2595,7 +2670,7 @@ def extract_resume_information(text: str) -> Dict:
         primary_name = extract_name(contact_context or cleaned_text, use_spacy=True)
 
     if not location and need_slow_path and SPACY_AVAILABLE:
-        for source in (header_context, personal_details_context, about_context, near_name_context):
+        for source in location_sources:
             if not source:
                 continue
             location = extract_location(source, use_spacy=True)
@@ -2645,7 +2720,11 @@ def extract_resume_information(text: str) -> Dict:
         "education": extract_education_entries(cleaned_text, education_section if education_section.strip() else " "),
         "certifications": extract_certification_entries(cleaned_text, certifications_section),
         "location": location or "",
-        "current_company": current_entry.get("company") or experience_result.get("current_company"),
+        "current_company": _resolve_current_company_from_entries(
+            experience_entries,
+            fallback_company=str(current_entry.get("company") or experience_result.get("current_company") or ""),
+            experience_text=experience_section,
+        ),
         "current_role": current_entry.get("role") or experience_result.get("current_role") or header_role or None,
         "designation": current_entry.get("role") or experience_result.get("current_role") or header_role or None,
         "header_role": header_role or None,
