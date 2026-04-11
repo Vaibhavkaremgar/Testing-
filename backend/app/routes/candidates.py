@@ -74,13 +74,34 @@ def normalize_legacy_candidate_stages(db: Session) -> None:
             return
         _legacy_stage_last_checked_at = now
 
+    # Map every known legacy value to its valid replacement
+    legacy_stage_map = {
+        'INTERVIEW_REVIEW': 'INTERVIEWED',
+        'INTERVIEW_FAILED': 'REJECTED',
+        'OFFER_MADE': 'SELECTED',
+        'OFFER_ACCEPTED': 'SELECTED',
+        'OFFER_REJECTED': 'REJECTED',
+        'WITHDRAWN': 'REJECTED',
+        'ON_HOLD': 'REVIEW',
+    }
+    valid_stages = {s.value for s in CandidateStage}
+    total_updated = 0
+    for legacy_value, replacement in legacy_stage_map.items():
+        result = db.execute(text(
+            f"UPDATE candidates SET stage = '{replacement}' "
+            f"WHERE stage::text = '{legacy_value}'"
+        ))
+        total_updated += result.rowcount
+    # Catch-all: any remaining unknown value → REVIEW
     result = db.execute(text(
-        "UPDATE candidates "
-        "SET stage = 'INTERVIEWED' "
-        "WHERE stage::text = 'INTERVIEW_REVIEW'"
+        "UPDATE candidates SET stage = 'REVIEW' "
+        "WHERE stage::text NOT IN ("
+        + ", ".join(f"'{v}'" for v in valid_stages)
+        + ")"
     ))
-    if result.rowcount:
-        print(f"Normalized legacy candidate stages before query: rows_updated={result.rowcount}")
+    total_updated += result.rowcount
+    if total_updated:
+        print(f"Normalized legacy candidate stages: rows_updated={total_updated}")
         db.commit()
 
 

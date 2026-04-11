@@ -79,9 +79,12 @@ def _fetch_candidates(
     from_date: Optional[str],
     to_date: Optional[str],
 ):
+    from app.models import CandidateStage
+    from sqlalchemy import cast, String
     db = SessionLocal()
     try:
         normalize_legacy_candidate_stages(db)
+        valid_stages = [s.value for s in CandidateStage]
         query = _apply_candidate_list_scope(db.query(Candidate), current_user)
         query = _apply_client_filter(query, client)
         query = _apply_candidate_created_at_filters(
@@ -89,6 +92,10 @@ def _fetch_candidates(
             from_date=from_date,
             to_date=to_date,
         )
+        # Filter out any rows whose stage value is not in the valid enum set.
+        # This prevents SQLAlchemy's C-level enum deserializer from crashing
+        # on legacy values that survive between normalization intervals.
+        query = query.filter(cast(Candidate.stage, String).in_(valid_stages))
         query = query.options(
             load_only(
                 Candidate.id,
