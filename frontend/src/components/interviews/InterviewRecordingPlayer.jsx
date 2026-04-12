@@ -9,6 +9,14 @@ import { cn } from '@/lib/utils'
 const LOAD_TIMEOUT_MS = 30000
 const RETRY_DELAY_MS = 500
 
+function nowMs() {
+  if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
+    return performance.now()
+  }
+
+  return Date.now()
+}
+
 function normalizeSessionToken(value) {
   return String(value || '')
     .trim()
@@ -132,7 +140,8 @@ function summarizeProbeResult(result) {
 
   const statusPart = typeof result.status === 'number' ? `status ${result.status}` : 'no status'
   const typePart = result.contentType ? `content-type ${result.contentType}` : 'no content-type'
-  return `${result.label}: ${statusPart}, ${typePart}`
+  const rangePart = result.rangeSupported ? 'range yes' : 'range no'
+  return `${result.label}: ${statusPart}, ${typePart}, ${rangePart}`
 }
 
 async function probeRecordingSource(source, authToken, signal) {
@@ -157,10 +166,13 @@ async function probeRecordingSource(source, authToken, signal) {
       const contentType = (response.headers.get('content-type') || '').toLowerCase()
       const contentLength = response.headers.get('content-length') || ''
       const acceptsRanges = response.headers.get('accept-ranges') || ''
+      const contentRange = response.headers.get('content-range') || ''
       const isVideoLike = (
         contentType.includes('video/')
         || contentType.includes('application/octet-stream')
       )
+      const rangeSupported = acceptsRanges.toLowerCase().includes('bytes') || response.status === 206
+      const streamingSupported = Boolean(contentLength) || rangeSupported || Boolean(contentRange)
 
       lastResult = {
         ok: response.ok && isVideoLike,
@@ -171,6 +183,15 @@ async function probeRecordingSource(source, authToken, signal) {
         contentType,
         contentLength,
         acceptsRanges,
+        contentRange,
+        responseHeaders: {
+          contentType,
+          contentLength,
+          acceptsRanges,
+          contentRange,
+        },
+        rangeSupported,
+        streamingSupported,
         reason: response.ok
           ? (isVideoLike ? 'playable_video_response' : 'non_video_content_type')
           : 'non_success_status',
@@ -218,10 +239,10 @@ export default function InterviewRecordingPlayer({
   const [isRetryPending, setIsRetryPending] = useState(false)
   const [availabilityStatus, setAvailabilityStatus] = useState('idle')
   const [activeUrlIndex, setActiveUrlIndex] = useState(0)
-  const [diagnosticMessage, setDiagnosticMessage] = useState('')
   const loadTimeoutRef = useRef(null)
   const retryTimeoutRef = useRef(null)
   const validationAbortRef = useRef(null)
+  const loadStartedAtRef = useRef(0)
 
   const candidateUrls = useMemo(
     () => buildRecordingUrls({ sessionToken, interviewId, asyncToken, recordingPath }),
@@ -268,7 +289,6 @@ export default function InterviewRecordingPlayer({
       clearLoadTimeout()
       clearValidationRequest()
       setErrorMessage('')
-      setDiagnosticMessage('')
       setAvailabilityStatus('checking')
       setIsInitializing(true)
       setActiveUrlIndex((currentIndex) => currentIndex + 1)
@@ -288,10 +308,20 @@ export default function InterviewRecordingPlayer({
     clearRetryTimeout()
     clearValidationRequest()
     setErrorMessage('')
-    setDiagnosticMessage('')
     setIsRetryPending(false)
     setAvailabilityStatus(hasRecording ? 'checking' : 'idle')
     setIsInitializing(hasRecording)
+    loadStartedAtRef.current = nowMs()
+
+    console.info('Interview recording source selection:', {
+      recordingPath,
+      recordingFormat,
+      sessionToken,
+      asyncToken,
+      interviewId,
+      selectedSource: activeSource,
+      candidateSources: candidateUrls,
+    })
 
     if (!hasValidRecordingPath) {
       setIsInitializing(false)
@@ -323,9 +353,18 @@ export default function InterviewRecordingPlayer({
 
         if (probeResult?.ok) {
           setAvailabilityStatus('available')
-          setDiagnosticMessage(
-            `${probeResult.label}: ${probeResult.status} ${probeResult.contentType || 'unknown-content-type'}`
-          )
+          console.info('Interview recording probe success:', {
+            selectedSource: activeSource,
+            selectedUrl: videoUrl,
+            statusCode: probeResult.status ?? null,
+            contentType: probeResult.contentType || '',
+            acceptRanges: probeResult.acceptsRanges || '',
+            contentRange: probeResult.contentRange || '',
+            contentLength: probeResult.contentLength || '',
+            streamingSupported: Boolean(probeResult.streamingSupported),
+            rangeSupported: Boolean(probeResult.rangeSupported),
+            probeMethod: probeResult.method || '',
+          })
           return
         }
 
@@ -337,7 +376,24 @@ export default function InterviewRecordingPlayer({
         setAvailabilityStatus('invalid')
         setIsInitializing(false)
         setErrorMessage('Invalid video response from server')
-        setDiagnosticMessage(summarizeProbeResult(probeResult))
+        console.warn('Interview recording probe rejected source:', {
+          recordingPath,
+          recordingFormat,
+          sessionToken,
+          asyncToken,
+          interviewId,
+          activeSource,
+          selectedUrl: videoUrl,
+          summary: summarizeProbeResult(probeResult),
+          statusCode: probeResult?.status ?? null,
+          contentType: probeResult?.contentType || '',
+          acceptRanges: probeResult?.acceptsRanges || '',
+          contentRange: probeResult?.contentRange || '',
+          contentLength: probeResult?.contentLength || '',
+          streamingSupported: Boolean(probeResult?.streamingSupported),
+          rangeSupported: Boolean(probeResult?.rangeSupported),
+          probeMethod: probeResult?.method || '',
+        })
       })
       .catch((error) => {
         if (error?.name === 'AbortError') {
@@ -362,7 +418,6 @@ export default function InterviewRecordingPlayer({
         setAvailabilityStatus('invalid')
         setIsInitializing(false)
         setErrorMessage('Unable to load interview recording')
-        setDiagnosticMessage(`${activeSource?.label || 'recording_source'}: ${error?.message || 'probe failed'}`)
       })
 
     loadTimeoutRef.current = setTimeout(() => {
@@ -371,11 +426,11 @@ export default function InterviewRecordingPlayer({
       }
       setIsInitializing(false)
       setErrorMessage('Recording load timeout')
-      setDiagnosticMessage(
-        activeSource
-          ? `${activeSource.label}: no playable response within ${LOAD_TIMEOUT_MS / 1000}s`
-          : `No playable response within ${LOAD_TIMEOUT_MS / 1000}s`
-      )
+      console.warn('Interview recording load timeout:', {
+        selectedSource: activeSource,
+        selectedUrl: videoUrl,
+        timeoutMs: LOAD_TIMEOUT_MS,
+      })
     }, LOAD_TIMEOUT_MS)
 
     return () => {
@@ -396,7 +451,12 @@ export default function InterviewRecordingPlayer({
     setIsInitializing(false)
     setAvailabilityStatus('available')
     setErrorMessage('')
-    setDiagnosticMessage(activeSource ? `${activeSource.label}: player ready` : '')
+    const playbackStartMs = Math.round(nowMs() - loadStartedAtRef.current)
+    console.info('Interview recording playback ready:', {
+      activeSource,
+      videoUrl,
+      playbackStartMs,
+    })
   }
 
   const handlePlayerError = (player) => {
@@ -409,11 +469,6 @@ export default function InterviewRecordingPlayer({
     clearLoadTimeout()
     setIsInitializing(false)
     setErrorMessage(getPlayerErrorMessage(playerError))
-    setDiagnosticMessage(
-      activeSource
-        ? `${activeSource.label}: Video.js code ${playerError?.code || 'unknown'} on ${videoUrl}`
-        : `Video.js code ${playerError?.code || 'unknown'}`
-    )
 
     console.error('Video playback error:', {
       recordingPath,
@@ -432,6 +487,7 @@ export default function InterviewRecordingPlayer({
       currentSrc: player?.currentSrc?.(),
       networkState: player?.networkState?.(),
       readyState: player?.readyState?.(),
+      playbackElapsedMs: Math.round(nowMs() - loadStartedAtRef.current),
     })
   }
 
@@ -439,7 +495,6 @@ export default function InterviewRecordingPlayer({
     clearLoadTimeout()
     clearRetryTimeout()
     setErrorMessage('')
-    setDiagnosticMessage('')
     setIsInitializing(false)
     setIsRetryPending(true)
 
@@ -565,11 +620,6 @@ export default function InterviewRecordingPlayer({
                           ? 'The recording endpoint responded with an unexpected status or content type.'
                     : 'Please try again. If the issue persists, verify the recording service and session token.'}
                 </p>
-                {diagnosticMessage ? (
-                  <p className="mt-2 text-xs text-white/50">
-                    Debug: {diagnosticMessage}
-                  </p>
-                ) : null}
               </div>
               <Button
                 type="button"

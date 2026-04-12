@@ -529,6 +529,14 @@ def _request_upstream_recording(
     upstream_url: str,
     upstream_headers: dict[str, str],
 ) -> requests.Response:
+    _log_recording_debug(
+        "proxy_recording_stream.outbound_request",
+        method=method,
+        upstream_url=upstream_url,
+        request_headers=upstream_headers,
+        request_mode="stream=True",
+        response_buffering="disabled",
+    )
     return requests.request(
         method,
         upstream_url,
@@ -545,6 +553,29 @@ def _collect_upstream_stream_headers(upstream_response: requests.Response) -> di
         if header_value:
             headers[header_name] = header_value
     return headers
+
+
+def _describe_streaming_capabilities(headers: dict[str, str]) -> dict[str, object]:
+    accept_ranges = str(headers.get("Accept-Ranges") or "")
+    content_length = str(headers.get("Content-Length") or "")
+    content_type = str(headers.get("Content-Type") or "")
+    content_range = str(headers.get("Content-Range") or "")
+    transfer_encoding = str(headers.get("Transfer-Encoding") or "")
+
+    range_supported = "bytes" in accept_ranges.lower() or bool(content_range)
+    partial_content_supported = bool(content_range)
+    streaming_supported = bool(content_length or transfer_encoding or range_supported)
+
+    return {
+        "accept_ranges": accept_ranges,
+        "content_length": content_length,
+        "content_type": content_type,
+        "content_range": content_range,
+        "transfer_encoding": transfer_encoding,
+        "range_supported": range_supported,
+        "partial_content_supported": partial_content_supported,
+        "streaming_supported": streaming_supported,
+    }
 
 
 def _parse_single_range_header(range_header: Optional[str]) -> Optional[tuple[int, Optional[int]]]:
@@ -753,6 +784,7 @@ def _proxy_recording_stream(session_token: str, request_method: str, range_heade
             upstream_url=upstream_url,
             has_internal_auth=bool(service_token),
             has_range=bool(range_header),
+            inbound_range_header=range_header,
         )
         upstream_response = _request_upstream_recording(
             selected_request_method,
@@ -760,6 +792,7 @@ def _proxy_recording_stream(session_token: str, request_method: str, range_heade
             upstream_headers,
         )
         selected_upstream_url = upstream_url
+        upstream_streaming_details = _describe_streaming_capabilities(dict(upstream_response.headers))
         _log_recording_debug(
             "proxy_recording_stream.response",
             session_token=session_token,
@@ -769,7 +802,21 @@ def _proxy_recording_stream(session_token: str, request_method: str, range_heade
             content_type=upstream_response.headers.get("Content-Type"),
             content_length=upstream_response.headers.get("Content-Length"),
             content_range=upstream_response.headers.get("Content-Range"),
+            accept_ranges=upstream_response.headers.get("Accept-Ranges"),
+            transfer_encoding=upstream_response.headers.get("Transfer-Encoding"),
+            range_supported=upstream_streaming_details["range_supported"],
+            partial_content_supported=upstream_streaming_details["partial_content_supported"],
+            streaming_supported=upstream_streaming_details["streaming_supported"],
+            is_chunked=upstream_response.headers.get("Transfer-Encoding") == "chunked",
+            is_buffered_before_send=False,
         )
+        if not upstream_streaming_details["streaming_supported"]:
+            _log_recording_debug(
+                "proxy_recording_stream.streaming_warning",
+                session_token=session_token,
+                upstream_url=upstream_url,
+                warning="Streaming not supported — full file download happening",
+            )
         if selected_request_method == "HEAD" and upstream_response.status_code in (404, 405):
             upstream_response.close()
             fallback_headers = dict(upstream_headers)
@@ -786,6 +833,7 @@ def _proxy_recording_stream(session_token: str, request_method: str, range_heade
                 upstream_url,
                 fallback_headers,
             )
+            upstream_streaming_details = _describe_streaming_capabilities(dict(upstream_response.headers))
             _log_recording_debug(
                 "proxy_recording_stream.response",
                 session_token=session_token,
@@ -795,7 +843,21 @@ def _proxy_recording_stream(session_token: str, request_method: str, range_heade
                 content_type=upstream_response.headers.get("Content-Type"),
                 content_length=upstream_response.headers.get("Content-Length"),
                 content_range=upstream_response.headers.get("Content-Range"),
+                accept_ranges=upstream_response.headers.get("Accept-Ranges"),
+                transfer_encoding=upstream_response.headers.get("Transfer-Encoding"),
+                range_supported=upstream_streaming_details["range_supported"],
+                partial_content_supported=upstream_streaming_details["partial_content_supported"],
+                streaming_supported=upstream_streaming_details["streaming_supported"],
+                is_chunked=upstream_response.headers.get("Transfer-Encoding") == "chunked",
+                is_buffered_before_send=False,
             )
+            if not upstream_streaming_details["streaming_supported"]:
+                _log_recording_debug(
+                    "proxy_recording_stream.streaming_warning",
+                    session_token=session_token,
+                    upstream_url=upstream_url,
+                    warning="Streaming not supported — full file download happening",
+                )
         if upstream_response.status_code not in (200, 206):
             print("Upstream error body:", _extract_upstream_error_body(upstream_response))
     except requests.RequestException as exc:
@@ -817,6 +879,7 @@ def _proxy_recording_stream(session_token: str, request_method: str, range_heade
     response_headers = _collect_upstream_stream_headers(upstream_response)
     status_code = upstream_response.status_code
     media_type = upstream_response.headers.get("Content-Type")
+    forwarded_streaming_details = _describe_streaming_capabilities(response_headers)
     _log_recording_debug(
         "proxy_recording_stream.forward",
         session_token=session_token,
@@ -824,6 +887,12 @@ def _proxy_recording_stream(session_token: str, request_method: str, range_heade
         upstream_url=selected_upstream_url,
         status_code=status_code,
         media_type=media_type,
+        forwarded_headers=response_headers,
+        range_supported=forwarded_streaming_details["range_supported"],
+        partial_content_supported=forwarded_streaming_details["partial_content_supported"],
+        streaming_supported=forwarded_streaming_details["streaming_supported"],
+        response_mode="streaming_proxy",
+        is_buffered_before_send=False,
     )
 
     if selected_request_method == "HEAD":
@@ -966,6 +1035,18 @@ def _build_video_stream_response(video_bytes: bytes, media_type: str, range_head
             **common_headers,
             "Content-Length": str(total_size),
         }
+        _log_recording_debug(
+            "recording_blob_stream.forward",
+            media_type=media_type,
+            total_size=total_size,
+            range_header_present=False,
+            response_mode="buffered_blob_to_streaming_response",
+            is_buffered_before_send=True,
+            range_supported=True,
+            partial_content_supported=False,
+            streaming_supported=True,
+            headers=headers,
+        )
         return StreamingResponse(
             _iter_video_chunks(video_bytes),
             media_type=media_type,
@@ -1002,6 +1083,19 @@ def _build_video_stream_response(video_bytes: bytes, media_type: str, range_head
         "Content-Length": str(content_length),
         "Content-Range": f"bytes {start}-{end}/{total_size}",
     }
+    _log_recording_debug(
+        "recording_blob_stream.forward",
+        media_type=media_type,
+        total_size=total_size,
+        range_header_present=True,
+        requested_range=range_header,
+        response_mode="buffered_blob_to_streaming_response",
+        is_buffered_before_send=True,
+        range_supported=True,
+        partial_content_supported=True,
+        streaming_supported=True,
+        headers=headers,
+    )
     return StreamingResponse(
         _iter_video_chunks(video_bytes, start=start, end=end),
         media_type=media_type,
@@ -1440,6 +1534,13 @@ def stream_interview_video(
         has_query_token=bool(token),
         has_bearer_token=bool(bearer_token),
         range_header=bool(range_header),
+        incoming_headers={
+            "range": request.headers.get("range"),
+            "accept": request.headers.get("accept"),
+            "user-agent": request.headers.get("user-agent"),
+            "origin": request.headers.get("origin"),
+            "referer": request.headers.get("referer"),
+        },
         user_id=current_user.id,
     )
     interview = _get_scoped_interview_for_video(db, session_id, current_user)
@@ -1526,6 +1627,13 @@ def stream_candidate_recording(
         has_query_token=bool(token),
         has_bearer_token=bool(bearer_token),
         range_header=bool(range_header),
+        incoming_headers={
+            "range": request.headers.get("range"),
+            "accept": request.headers.get("accept"),
+            "user-agent": request.headers.get("user-agent"),
+            "origin": request.headers.get("origin"),
+            "referer": request.headers.get("referer"),
+        },
         user_id=current_user.id,
     )
     print("Recording lookup tokens:", [session_token])
