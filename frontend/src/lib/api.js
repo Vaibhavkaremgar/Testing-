@@ -789,8 +789,20 @@ class ApiClient {
   }
 
   getUploadedRecordingUrl(recordingPath) {
-    const normalizedPath = String(recordingPath || '').replace(/^\/+/, '')
-    return normalizedPath ? `${APP_BASE}/uploads/${normalizedPath}` : ''
+    const normalizedPath = String(recordingPath || '').trim()
+    if (!normalizedPath) {
+      return ''
+    }
+
+    if (/^https?:\/\//i.test(normalizedPath)) {
+      return normalizedPath
+    }
+
+    const sanitizedPath = normalizedPath
+      .replace(/^\/+/, '')
+      .replace(/^uploads\/+/i, '')
+
+    return sanitizedPath ? `${APP_BASE}/uploads/${sanitizedPath}` : ''
   }
 
   // Extract job data from file

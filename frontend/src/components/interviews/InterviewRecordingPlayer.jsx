@@ -6,7 +6,7 @@ import api from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
-const LOAD_TIMEOUT_MS = 15000
+const LOAD_TIMEOUT_MS = 30000
 const RETRY_DELAY_MS = 500
 
 function normalizeSessionToken(value) {
@@ -22,9 +22,16 @@ function buildRecordingUrls({ sessionToken, interviewId, asyncToken, recordingPa
   const normalizedInterviewId = String(interviewId || '').trim()
   const normalizedRecordingPath = String(recordingPath || '').trim()
 
+  const appendSource = (url, label) => {
+    if (!url) {
+      return
+    }
+    urls.push({ url, label })
+  }
+
   if (normalizedRecordingPath) {
     try {
-      urls.push(api.getUploadedRecordingUrl(normalizedRecordingPath))
+      appendSource(api.getUploadedRecordingUrl(normalizedRecordingPath), 'uploaded_recording_path')
     } catch {
       // Ignore invalid URL construction.
     }
@@ -32,7 +39,7 @@ function buildRecordingUrls({ sessionToken, interviewId, asyncToken, recordingPa
 
   if (normalizedSessionToken) {
     try {
-      urls.push(api.getDashboardRecordingUrl(normalizedSessionToken))
+      appendSource(api.getDashboardRecordingUrl(normalizedSessionToken), 'session_token_proxy')
     } catch {
       // Ignore invalid URL construction.
     }
@@ -40,7 +47,7 @@ function buildRecordingUrls({ sessionToken, interviewId, asyncToken, recordingPa
 
   if (normalizedAsyncToken) {
     try {
-      urls.push(api.getDashboardRecordingUrl(normalizedAsyncToken))
+      appendSource(api.getDashboardRecordingUrl(normalizedAsyncToken), 'async_token_proxy')
     } catch {
       // Ignore invalid URL construction.
     }
@@ -48,13 +55,20 @@ function buildRecordingUrls({ sessionToken, interviewId, asyncToken, recordingPa
 
   if (normalizedInterviewId) {
     try {
-      urls.push(api.getInterviewVideoUrl(normalizedInterviewId))
+      appendSource(api.getInterviewVideoUrl(normalizedInterviewId), 'interview_id_proxy')
     } catch {
       // Ignore invalid URL construction.
     }
   }
 
-  return Array.from(new Set(urls.filter(Boolean)))
+  const seenUrls = new Set()
+  return urls.filter(({ url }) => {
+    if (!url || seenUrls.has(url)) {
+      return false
+    }
+    seenUrls.add(url)
+    return true
+  })
 }
 
 function inferVideoMimeType(recordingPath, recordingFormat) {
@@ -107,6 +121,88 @@ function getPlayerErrorMessage(error) {
   return 'Unable to load interview recording'
 }
 
+function summarizeProbeResult(result) {
+  if (!result) {
+    return 'Unknown probe failure'
+  }
+
+  if (result.error) {
+    return `${result.label}: ${result.error}`
+  }
+
+  const statusPart = typeof result.status === 'number' ? `status ${result.status}` : 'no status'
+  const typePart = result.contentType ? `content-type ${result.contentType}` : 'no content-type'
+  return `${result.label}: ${statusPart}, ${typePart}`
+}
+
+async function probeRecordingSource(source, authToken, signal) {
+  const headers = authToken ? { Authorization: `Bearer ${authToken}` } : undefined
+  const methods = ['HEAD', 'GET']
+  let lastResult = null
+
+  for (const method of methods) {
+    try {
+      const response = await fetch(source.url, {
+        method,
+        headers: method === 'GET'
+          ? {
+            ...(headers || {}),
+            Range: 'bytes=0-0',
+          }
+          : headers,
+        credentials: 'include',
+        signal,
+      })
+
+      const contentType = (response.headers.get('content-type') || '').toLowerCase()
+      const contentLength = response.headers.get('content-length') || ''
+      const acceptsRanges = response.headers.get('accept-ranges') || ''
+      const isVideoLike = (
+        contentType.includes('video/')
+        || contentType.includes('application/octet-stream')
+      )
+
+      lastResult = {
+        ok: response.ok && isVideoLike,
+        method,
+        label: source.label,
+        url: source.url,
+        status: response.status,
+        contentType,
+        contentLength,
+        acceptsRanges,
+        reason: response.ok
+          ? (isVideoLike ? 'playable_video_response' : 'non_video_content_type')
+          : 'non_success_status',
+      }
+
+      if (lastResult.ok) {
+        return lastResult
+      }
+    } catch (error) {
+      if (error?.name === 'AbortError') {
+        throw error
+      }
+
+      lastResult = {
+        ok: false,
+        method,
+        label: source.label,
+        url: source.url,
+        error: `${error?.name || 'Error'}: ${error?.message || 'request failed'}`,
+        reason: 'request_failed',
+      }
+    }
+  }
+
+  return lastResult || {
+    ok: false,
+    label: source.label,
+    url: source.url,
+    reason: 'probe_failed_without_response',
+  }
+}
+
 export default function InterviewRecordingPlayer({
   sessionToken,
   interviewId,
@@ -122,6 +218,7 @@ export default function InterviewRecordingPlayer({
   const [isRetryPending, setIsRetryPending] = useState(false)
   const [availabilityStatus, setAvailabilityStatus] = useState('idle')
   const [activeUrlIndex, setActiveUrlIndex] = useState(0)
+  const [diagnosticMessage, setDiagnosticMessage] = useState('')
   const loadTimeoutRef = useRef(null)
   const retryTimeoutRef = useRef(null)
   const validationAbortRef = useRef(null)
@@ -130,9 +227,9 @@ export default function InterviewRecordingPlayer({
     () => buildRecordingUrls({ sessionToken, interviewId, asyncToken, recordingPath }),
     [asyncToken, interviewId, recordingPath, sessionToken]
   )
-  const videoUrl = candidateUrls[activeUrlIndex] || ''
+  const activeSource = candidateUrls[activeUrlIndex] || null
+  const videoUrl = activeSource?.url || ''
   const authToken = useMemo(() => api.getToken(), [])
-  console.log('FINAL VIDEO URL:', videoUrl)
   const sources = useMemo(
     () => buildAuthorizedRecordingSources(videoUrl, recordingPath, recordingFormat, authToken),
     [authToken, recordingFormat, recordingPath, videoUrl]
@@ -171,6 +268,7 @@ export default function InterviewRecordingPlayer({
       clearLoadTimeout()
       clearValidationRequest()
       setErrorMessage('')
+      setDiagnosticMessage('')
       setAvailabilityStatus('checking')
       setIsInitializing(true)
       setActiveUrlIndex((currentIndex) => currentIndex + 1)
@@ -190,6 +288,7 @@ export default function InterviewRecordingPlayer({
     clearRetryTimeout()
     clearValidationRequest()
     setErrorMessage('')
+    setDiagnosticMessage('')
     setIsRetryPending(false)
     setAvailabilityStatus(hasRecording ? 'checking' : 'idle')
     setIsInitializing(hasRecording)
@@ -209,71 +308,74 @@ export default function InterviewRecordingPlayer({
     const abortController = new AbortController()
     validationAbortRef.current = abortController
 
-    // HEAD validation is only a UX hint. Some upstream recording services do
-    // not support HEAD for protected assets even when GET playback works.
-    fetch(videoUrl, {
-      headers: authToken ? {
-        Authorization: `Bearer ${authToken}`,
-      } : undefined,
-      method: 'HEAD',
-      signal: abortController.signal,
-      credentials: 'include',
-    })
-      .then((response) => {
-        const contentType = response.headers.get('content-type') || ''
-
-        console.info('Interview recording HEAD validation:', {
+    probeRecordingSource(activeSource, authToken, abortController.signal)
+      .then((probeResult) => {
+        console.info('Interview recording probe:', {
           recordingPath,
+          recordingFormat,
           sessionToken,
-          videoUrl,
-          status: response.status,
-          contentType,
+          asyncToken,
+          interviewId,
+          candidateSources: candidateUrls,
+          activeSource,
+          probeResult,
         })
 
-        if (response.ok) {
-          if (contentType && !contentType.toLowerCase().includes('video')) {
-            setAvailabilityStatus('maybe_invalid')
-          } else {
-            setAvailabilityStatus('available')
-          }
+        if (probeResult?.ok) {
+          setAvailabilityStatus('available')
+          setDiagnosticMessage(
+            `${probeResult.label}: ${probeResult.status} ${probeResult.contentType || 'unknown-content-type'}`
+          )
           return
         }
 
-        if (response.status === 404) {
-          console.info('Interview recording HEAD returned 404; continuing with playback attempt.', {
-            recordingPath,
-            sessionToken,
-            videoUrl,
-          })
+        const nextExists = tryNextSource()
+        if (nextExists) {
+          return
         }
 
-        setAvailabilityStatus('unknown')
+        setAvailabilityStatus('invalid')
+        setIsInitializing(false)
+        setErrorMessage('Invalid video response from server')
+        setDiagnosticMessage(summarizeProbeResult(probeResult))
       })
       .catch((error) => {
         if (error?.name === 'AbortError') {
           return
         }
 
-        // HEAD validation is only a UX hint. Ignore network/CORS failures and
-        // let the player attempt real playback with the same URL.
-        console.info('Interview recording HEAD validation skipped:', {
+        console.info('Interview recording probe failed:', {
           recordingPath,
+          recordingFormat,
           sessionToken,
+          asyncToken,
+          interviewId,
           videoUrl,
           errorMessage: error?.message,
           errorName: error?.name,
         })
-        setAvailabilityStatus('unknown')
+
+        if (tryNextSource()) {
+          return
+        }
+
+        setAvailabilityStatus('invalid')
+        setIsInitializing(false)
+        setErrorMessage('Unable to load interview recording')
+        setDiagnosticMessage(`${activeSource?.label || 'recording_source'}: ${error?.message || 'probe failed'}`)
       })
 
-    // Fail fast when the recording service is slow or unreachable so the UI
-    // doesn't remain stuck in a spinner forever.
     loadTimeoutRef.current = setTimeout(() => {
       if (tryNextSource()) {
         return
       }
       setIsInitializing(false)
       setErrorMessage('Recording load timeout')
+      setDiagnosticMessage(
+        activeSource
+          ? `${activeSource.label}: no playable response within ${LOAD_TIMEOUT_MS / 1000}s`
+          : `No playable response within ${LOAD_TIMEOUT_MS / 1000}s`
+      )
     }, LOAD_TIMEOUT_MS)
 
     return () => {
@@ -294,6 +396,7 @@ export default function InterviewRecordingPlayer({
     setIsInitializing(false)
     setAvailabilityStatus('available')
     setErrorMessage('')
+    setDiagnosticMessage(activeSource ? `${activeSource.label}: player ready` : '')
   }
 
   const handlePlayerError = (player) => {
@@ -306,11 +409,21 @@ export default function InterviewRecordingPlayer({
     clearLoadTimeout()
     setIsInitializing(false)
     setErrorMessage(getPlayerErrorMessage(playerError))
+    setDiagnosticMessage(
+      activeSource
+        ? `${activeSource.label}: Video.js code ${playerError?.code || 'unknown'} on ${videoUrl}`
+        : `Video.js code ${playerError?.code || 'unknown'}`
+    )
 
     console.error('Video playback error:', {
       recordingPath,
+      recordingFormat,
       sessionToken,
+      asyncToken,
+      interviewId,
       videoUrl,
+      activeSource,
+      candidateSources: candidateUrls,
       code: playerError?.code,
       message: playerError?.message,
       error: playerError,
@@ -326,6 +439,7 @@ export default function InterviewRecordingPlayer({
     clearLoadTimeout()
     clearRetryTimeout()
     setErrorMessage('')
+    setDiagnosticMessage('')
     setIsInitializing(false)
     setIsRetryPending(true)
 
@@ -448,9 +562,14 @@ export default function InterviewRecordingPlayer({
                         : errorMessage === 'Unsupported media format'
                           ? 'The recording endpoint responded, but not with a browser-supported video content type.'
                           : errorMessage === 'Invalid video response from server'
-                            ? 'The recording endpoint responded with an unexpected status or content type.'
+                          ? 'The recording endpoint responded with an unexpected status or content type.'
                     : 'Please try again. If the issue persists, verify the recording service and session token.'}
                 </p>
+                {diagnosticMessage ? (
+                  <p className="mt-2 text-xs text-white/50">
+                    Debug: {diagnosticMessage}
+                  </p>
+                ) : null}
               </div>
               <Button
                 type="button"
