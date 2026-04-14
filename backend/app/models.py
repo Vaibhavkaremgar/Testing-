@@ -1,6 +1,7 @@
 from sqlalchemy import Column, Integer, String, Text, Float, DateTime, ForeignKey, Enum, Boolean, JSON, Index, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
+from sqlalchemy.types import TypeDecorator
 from sqlalchemy.sql import func
 from app.database import Base
 import enum
@@ -42,6 +43,49 @@ class ReviewStatus(str, enum.Enum):
     PENDING = "pending"
     INTERVIEW_INVITED = "interview_invited"
     REJECTED = "rejected"
+
+
+class ReviewStatusType(TypeDecorator):
+    """
+    Backward-compatible storage for review status.
+    Accepts legacy enum names like 'UNASSIGNED' and canonical values like
+    'unassigned', while always returning a ReviewStatus enum instance.
+    """
+
+    impl = String(50)
+    cache_ok = True
+
+    _name_lookup = {status.name.upper(): status for status in ReviewStatus}
+    _value_lookup = {status.value.lower(): status for status in ReviewStatus}
+
+    @classmethod
+    def _coerce_to_enum(cls, value):
+        if value is None:
+            return None
+        if isinstance(value, ReviewStatus):
+            return value
+
+        normalized = str(value).strip()
+        if not normalized:
+            return None
+
+        by_name = cls._name_lookup.get(normalized.upper())
+        if by_name is not None:
+            return by_name
+
+        by_value = cls._value_lookup.get(normalized.lower())
+        if by_value is not None:
+            return by_value
+
+        raise ValueError(f"Unsupported review status: {value}")
+
+    def process_bind_param(self, value, dialect):
+        enum_value = self._coerce_to_enum(value)
+        return enum_value.value if enum_value is not None else None
+
+    def process_result_value(self, value, dialect):
+        enum_value = self._coerce_to_enum(value)
+        return enum_value if enum_value is not None else ReviewStatus.UNASSIGNED
 
 
 class TransactionType(str, enum.Enum):
@@ -169,14 +213,7 @@ class Candidate(Base):
 
     # Resume review assignment
     assigned_to_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True)
-    review_status = Column(
-        Enum(
-            ReviewStatus,
-            values_callable=lambda x: [e.value for e in x],
-            create_type=False,
-        ),
-        default=ReviewStatus.UNASSIGNED,
-    )
+    review_status = Column(ReviewStatusType(), default=ReviewStatus.UNASSIGNED.value)
     reviewed_at = Column(DateTime(timezone=True), nullable=True)
     reviewed_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
 
