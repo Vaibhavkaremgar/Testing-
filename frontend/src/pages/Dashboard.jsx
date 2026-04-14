@@ -450,7 +450,7 @@ export default function Dashboard() {
       <div className="sticky top-0 z-20 -mx-2 bg-background/95 px-2 py-2 backdrop-blur supports-[backdrop-filter]:bg-background/80">
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
           {kpiCards.map((kpi) => (
-            <Card key={kpi.title} className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => handleCardClick(kpi)}>
+            <Card key={kpi.title} className="dashboard-stat-card cursor-pointer transition-shadow hover:shadow-md" onClick={() => handleCardClick(kpi)}>
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
