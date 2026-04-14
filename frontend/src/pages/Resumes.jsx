@@ -627,6 +627,10 @@ export default function Resumes() {
     setIsEditingEmail(false)
   }
 
+  const selectedCandidateStage = String(selectedCandidate?.stage || '').toUpperCase()
+  const canSendRejectedInterviewInvite = selectedCandidateStage === 'REJECTED' || selectedCandidateStage === 'RESUME_REJECTED'
+  const shouldShowInviteButton = selectedCandidateStage !== 'SHORTLISTED' || canSendRejectedInterviewInvite
+
   const handleSendEmail = async () => {
     setSending(true)
     try {
@@ -1550,23 +1554,13 @@ export default function Resumes() {
               {/* Action Buttons */}
               <div className="pt-4 border-t">
                 <div className="flex gap-3">
-                  {selectedCandidate.stage === 'SHORTLISTED' ? (
-                    // SHORTLISTED: Only show Reschedule button
-                    <Button 
-                      variant="outline"
-                      className="flex-1"
-                      onClick={() => handleOpenEmailModal('reschedule')}
-                    >
-                      Interview Reschedule
-                    </Button>
-                  ) : (
-                    // Other stages: Show all 3 buttons
+                  {shouldShowInviteButton ? (
                     <>
                       <Button 
                         className="flex-1"
                         onClick={() => handleOpenEmailModal('invitation')}
                       >
-                        Send Interview Invitation
+                        {canSendRejectedInterviewInvite ? 'Send Interview Invite' : 'Send Interview Invitation'}
                       </Button>
                       <Button 
                         variant="outline"
@@ -1583,6 +1577,14 @@ export default function Resumes() {
                         Decline Invitation
                       </Button>
                     </>
+                  ) : (
+                    <Button 
+                      variant="outline"
+                      className="flex-1"
+                      onClick={() => handleOpenEmailModal('reschedule')}
+                    >
+                      Interview Reschedule
+                    </Button>
                   )}
                 </div>
               </div>

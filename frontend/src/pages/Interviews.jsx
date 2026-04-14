@@ -14,7 +14,6 @@ import {
 } from 'lucide-react'
 
 const DEFAULT_LIST_LIMIT = 20
-const INTERVIEW_REJECTION_SCORE_THRESHOLD = 6
 
 function getNumericInterviewScore(interview) {
   const rawScore = interview?.interview_score
@@ -96,21 +95,6 @@ function getInterviewResultMeta(interview, candidateStage) {
   }
 
   if (normalizedCandidateStage === 'REJECTED') {
-    return {
-      label: 'Rejected',
-      badgeClass: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
-    }
-  }
-
-  const interviewScore = getNumericInterviewScore(interview)
-  if (getEffectiveInterviewStatus(interview) === 'completed' && interviewScore !== null) {
-    if (interviewScore >= INTERVIEW_REJECTION_SCORE_THRESHOLD) {
-      return {
-        label: 'Selected',
-        badgeClass: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
-      }
-    }
-
     return {
       label: 'Rejected',
       badgeClass: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
@@ -688,25 +672,29 @@ export default function Interviews({ superAdminAgencyId = null }) {
                 </p>
               </div>
               <div className="flex items-center gap-2">
-                {selectedInterviewResultMeta && (
+                {selectedInterviewResultMeta && (isDecisionFinalized || !isDecisionReady) && (
                   <Badge className={selectedInterviewResultMeta.badgeClass}>
                     {selectedInterviewResultMeta.label}
                   </Badge>
                 )}
-                <Button
-                  className="bg-green-600 hover:bg-green-700 text-white"
-                  onClick={openApproveModal}
-                  disabled={decisionLoading !== null}
-                >
-                  {decisionLoading === 'approve' ? 'Sending...' : 'Approve'}
-                </Button>
-                <Button
-                  className="bg-red-600 hover:bg-red-700 text-white"
-                  onClick={handleReject}
-                  disabled={decisionLoading !== null}
-                >
-                  {decisionLoading === 'reject' ? 'Sending...' : 'Reject'}
-                </Button>
+                {isDecisionReady && !isDecisionFinalized && (
+                  <>
+                    <Button
+                      className="bg-green-600 hover:bg-green-700 text-white"
+                      onClick={openApproveModal}
+                      disabled={decisionLoading !== null}
+                    >
+                      {decisionLoading === 'approve' ? 'Sending...' : 'Approve'}
+                    </Button>
+                    <Button
+                      className="bg-red-600 hover:bg-red-700 text-white"
+                      onClick={handleReject}
+                      disabled={decisionLoading !== null}
+                    >
+                      {decisionLoading === 'reject' ? 'Sending...' : 'Reject'}
+                    </Button>
+                  </>
+                )}
               </div>
             </div>
             {!isDecisionReady && (

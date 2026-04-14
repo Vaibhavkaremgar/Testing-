@@ -529,7 +529,7 @@ export default function InterviewRecordingPlayer({
               poster={poster}
               preload="metadata"
               playsInline
-              className="h-full w-full rounded-[1.5rem] bg-black"
+              className="h-full w-full rounded-[1.5rem] bg-black [&_.vjs-control-bar]:bottom-3 [&_.vjs-control-bar]:left-3 [&_.vjs-control-bar]:right-3 [&_.vjs-control-bar]:w-auto [&_.vjs-control-bar]:rounded-xl [&_.vjs-control-bar]:px-2 [&_.vjs-control-bar]:py-1"
               videoClassName="video-js vjs-default-skin custom-video object-cover object-center bg-black"
               /*options={{
                 controls: true,

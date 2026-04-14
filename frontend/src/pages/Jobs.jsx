@@ -613,7 +613,7 @@ export default function Jobs({ superAdminAgencyId = null }) {
 
       <ExpandableList
         items={jobs}
-        initialCount={3}
+        initialCount={6}
         className="space-y-0"
         listClassName="grid gap-4 md:grid-cols-2 lg:grid-cols-3"
         emptyState={
