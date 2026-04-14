@@ -4,6 +4,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 import logging
 import os
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.ats_warmup import get_ats_warmup_state, run_ats_warmup
 from app.config import settings
@@ -30,6 +31,19 @@ from app.routes import (
 )
 from app.routes import settings as settings_routes
 logger = logging.getLogger(__name__)
+
+
+class CacheControlMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        path = request.url.path
+
+        if path.startswith("/uploads/"):
+            response.headers.setdefault("Cache-Control", "public, max-age=86400")
+        elif path == "/" or path.startswith("/api/"):
+            response.headers.setdefault("Cache-Control", "no-cache, no-store, must-revalidate")
+
+        return response
 
 
 def run_migrations():
@@ -70,6 +84,7 @@ if settings.allowed_origin_regex:
 app.add_middleware(CORSMiddleware, **cors_options)
 # Compress JSON-heavy list responses so refreshes move less data over the wire.
 app.add_middleware(GZipMiddleware, minimum_size=1024)
+app.add_middleware(CacheControlMiddleware)
 
 try:
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)

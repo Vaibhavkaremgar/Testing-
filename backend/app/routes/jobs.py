@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import List, Optional
@@ -15,6 +16,7 @@ from ats.extraction.skill_intelligence import get_skill_engine
 from ats.preprocessing.text_cleaning import clean_text
 
 router = APIRouter(prefix="/jobs", tags=["Job Descriptions"])
+JOBS_CACHE_TTL = 120  # 2 minutes
 
 
 def _resolve_pagination(page: Optional[int], limit: Optional[int], offset: Optional[int]) -> tuple[Optional[int], int]:
