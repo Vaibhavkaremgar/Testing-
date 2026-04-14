@@ -396,6 +396,17 @@ def build_safe_candidate_response(candidate_dict: Dict) -> CandidateResponse:
     except ValidationError:
         safe_candidate_dict = dict(candidate_dict)
         safe_candidate_dict["email"] = None
+        safe_candidate_dict["parsing_status"] = candidate_dict.get("parsing_status") or ParsingStatus.PENDING
+        safe_candidate_dict["stage"] = candidate_dict.get("stage") or (
+            CandidateStage.REVIEW if candidate_dict.get("job_id") else CandidateStage.APPLIED
+        )
+        safe_candidate_dict["stage_updated_at"] = (
+            candidate_dict.get("stage_updated_at")
+            or candidate_dict.get("stage_entered_at")
+            or candidate_dict.get("applied_at")
+            or candidate_dict.get("created_at")
+            or datetime.utcnow()
+        )
         return CandidateResponse(**safe_candidate_dict)
 
 

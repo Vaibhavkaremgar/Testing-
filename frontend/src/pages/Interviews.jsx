@@ -880,7 +880,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
               </Button>
             </div>
             
-            <div className="space-y-4 max-h-[calc(90vh-7rem)] overflow-y-auto pr-1">
+            <div className="space-y-4 max-h-[calc(90vh-7rem)] overflow-visible pr-1">
               <div>
                 <label className="text-sm font-medium mb-1 block">Candidate Name</label>
                 <div className="relative" ref={candidateDropdownRef}>
