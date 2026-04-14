@@ -3460,6 +3460,8 @@ def assign_candidate(
     current_user: User = Depends(get_current_active_user)
 ):
     """Assign candidate to a user for review (Admin only)"""
+    from app.models import ReviewStatus
+
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Only admins can assign candidates")
     
@@ -3472,7 +3474,7 @@ def assign_candidate(
         raise HTTPException(status_code=404, detail="User not found")
     
     candidate.assigned_to_user_id = user_id
-    candidate.review_status = "PENDING"
+    candidate.review_status = ReviewStatus.PENDING
     db.commit()
     
     return {"message": f"Candidate assigned to {user.full_name}", "assigned_to": user.full_name}
@@ -3505,6 +3507,8 @@ def bulk_assign_candidates(
     current_user: User = Depends(get_current_active_user)
 ):
     """Bulk assign multiple candidates to a user (Admin only)"""
+    from app.models import ReviewStatus
+
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Only admins can assign candidates")
     
@@ -3523,7 +3527,7 @@ def bulk_assign_candidates(
         candidate = db.query(Candidate).filter(Candidate.id == cid).first()
         if candidate:
             candidate.assigned_to_user_id = user_id
-            candidate.review_status = "PENDING"
+            candidate.review_status = ReviewStatus.PENDING
             assigned_count += 1
     
     db.commit()

@@ -169,7 +169,14 @@ class Candidate(Base):
 
     # Resume review assignment
     assigned_to_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True)
-    review_status = Column(Enum(ReviewStatus), default=ReviewStatus.UNASSIGNED)
+    review_status = Column(
+        Enum(
+            ReviewStatus,
+            values_callable=lambda x: [e.value for e in x],
+            create_type=False,
+        ),
+        default=ReviewStatus.UNASSIGNED,
+    )
     reviewed_at = Column(DateTime(timezone=True), nullable=True)
     reviewed_by_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True)
 
