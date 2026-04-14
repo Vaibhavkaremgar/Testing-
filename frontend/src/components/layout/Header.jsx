@@ -12,7 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Search, Bell, Sun, Moon, LogOut, User, Settings, X } from 'lucide-react'
+import { Search, Bell, Sun, Moon, LogOut, User, Settings, X, ChevronDown } from 'lucide-react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 import { api } from '@/lib/api'
@@ -393,20 +393,23 @@ export function Header() {
       {/* Right side */}
       <div className="flex items-center gap-3">
         {/* Client Filter */}
-        <select
-          className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-          value={selectedClient}
-          onChange={(e) => handleClientChange(e.target.value)}
-          onFocus={handleOpenFilterOptions}
-          onPointerDown={handleOpenFilterOptions}
-        >
-          <option value="">All Clients</option>
-          {clients.map((client) => (
-            <option key={client} value={client}>
-              {client}
-            </option>
-          ))}
-        </select>
+          <div className="relative">
+            <select
+              className="h-9 rounded-md border border-input bg-background pl-3 pr-10 text-sm appearance-none"
+              value={selectedClient}
+              onChange={(e) => handleClientChange(e.target.value)}
+              onFocus={handleOpenFilterOptions}
+              onPointerDown={handleOpenFilterOptions}
+            >
+              <option value="">All Clients</option>
+              {clients.map((client) => (
+                <option key={client} value={client}>
+                  {client}
+                </option>
+              ))}
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          </div>
 
         {/* Theme toggle */}
         <Button
