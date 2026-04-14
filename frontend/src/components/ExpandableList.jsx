@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils'
 export default function ExpandableList({
   items = [],
   initialCount = 5,
+  incrementCount = 20,
   loading = false,
   className,
   listClassName,
@@ -20,19 +21,18 @@ export default function ExpandableList({
   renderItem,
   getItemKey,
 }) {
-  const [expanded, setExpanded] = useState(false)
+  const [visibleCount, setVisibleCount] = useState(initialCount)
 
   useEffect(() => {
-    setExpanded(false)
+    setVisibleCount(initialCount)
   }, [items, initialCount])
 
   const visibleItems = useMemo(() => {
-    if (expanded) return items
-    return items.slice(0, initialCount)
-  }, [expanded, initialCount, items])
+    return items.slice(0, visibleCount)
+  }, [items, visibleCount])
 
-  const remainingCount = Math.max(items.length - initialCount, 0)
-  const canExpand = items.length > initialCount
+  const remainingCount = Math.max(items.length - visibleCount, 0)
+  const canExpand = visibleCount < items.length
   const resolvedShowMoreLabel = showMoreLabel || `Show More (${remainingCount} remaining)`
 
   if (loading) {
@@ -47,7 +47,7 @@ export default function ExpandableList({
     <div className={cn('space-y-4', className)}>
       <div className={listClassName}>
         {typeof renderItems === 'function'
-          ? renderItems({ items: visibleItems, expanded })
+          ? renderItems({ items: visibleItems, visibleCount })
           : visibleItems.map((item, index) => (
             <div key={getItemKey ? getItemKey(item, index) : index}>
               {renderItem ? renderItem(item, index) : null}
@@ -60,9 +60,9 @@ export default function ExpandableList({
           <Button
             type="button"
             variant={buttonVariant}
-            onClick={() => setExpanded((currentValue) => !currentValue)}
+            onClick={() => setVisibleCount((currentValue) => currentValue + incrementCount)}
           >
-            {expanded ? showLessLabel : resolvedShowMoreLabel}
+            {resolvedShowMoreLabel}
           </Button>
         </div>
       ) : null}
