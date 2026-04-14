@@ -12,7 +12,7 @@ import { api } from '@/lib/api'
 import { useAuth } from '@/context/AuthContext'
 import { cn, formatDate, getDateRangePreset, getScoreColor } from '@/lib/utils'
 import {
-  Upload, FileText, Search, Filter, MoreHorizontal, Edit, CheckCircle, Clock, AlertCircle, Trash2, Sheet, Eye, X
+  Upload, FileText, Search, Filter, MoreHorizontal, Edit, CheckCircle, Clock, AlertCircle, Trash2, Sheet, Eye, X, ChevronDown
 } from 'lucide-react'
 import {
   DropdownMenu,
@@ -814,29 +814,35 @@ export default function Resumes() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex gap-4 mb-4">
-            <select required
-              className="flex h-10 rounded-lg border border-input bg-background px-3 py-2 text-sm"
-              value={selectedJobForUpload}
-              onChange={(e) => setSelectedJobForUpload(e.target.value)}
-            >
-              <option value="">Select Job </option>
-              {jobs.map((job) => (
-                <option key={job.id} value={job.id}>
-                  {job.company_name ? `${job.company_name} - ${job.title}` : job.title}
-                </option>
-              ))}
-            </select>
-            <select
-              className="flex h-10 rounded-lg border border-input bg-background px-3 py-2 text-sm"
-              value={uploadType}
-              onChange={(e) => setUploadType(e.target.value)}
-            >
-              <option value="single">Single Upload</option>
-              <option value="bulk">Bulk Upload</option>
-              <option value="zip">ZIP Upload</option>
-            </select>
-          </div>
+            <div className="flex gap-4 mb-4">
+            <div className="relative flex-1">
+              <select required
+                className="flex h-10 w-full appearance-none rounded-lg border border-input bg-background pl-3 pr-10 py-2 text-sm"
+                value={selectedJobForUpload}
+                onChange={(e) => setSelectedJobForUpload(e.target.value)}
+              >
+                <option value="">Select Job </option>
+                {jobs.map((job) => (
+                  <option key={job.id} value={job.id}>
+                    {job.company_name ? `${job.company_name} - ${job.title}` : job.title}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            </div>
+            <div className="relative">
+              <select
+                className="flex h-10 appearance-none rounded-lg border border-input bg-background pl-3 pr-10 py-2 text-sm"
+                value={uploadType}
+                onChange={(e) => setUploadType(e.target.value)}
+              >
+                <option value="single">Single Upload</option>
+                <option value="bulk">Bulk Upload</option>
+                <option value="zip">ZIP Upload</option>
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            </div>
+            </div>
           {error && (
             <div className="mb-4 p-3 bg-red-100 border border-red-300 text-red-700 rounded-lg text-sm">
               {error}
