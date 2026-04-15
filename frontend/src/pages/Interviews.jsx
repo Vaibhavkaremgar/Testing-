@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -110,9 +111,18 @@ function getInterviewResultMeta(interview, candidateStage) {
   }
 }
 
+function applyInterviewDecisionStatus(interview, nextStage) {
+  if (!interview) return interview
+  return {
+    ...interview,
+    status: String(nextStage || '').toLowerCase(),
+  }
+}
+
 export default function Interviews({ superAdminAgencyId = null }) {
   const [searchParams] = useSearchParams()
   const { user } = useAuth()
+  const queryClient = useQueryClient()
   const selectedClient = searchParams.get('client')
   const selectedJobIdFromQuery = searchParams.get('job_id') || 'all'
   const [interviews, setInterviews] = useState([])
@@ -149,6 +159,49 @@ export default function Interviews({ superAdminAgencyId = null }) {
     meetingLink: '',
     predefinedQuestions: ''
   })
+
+  const refreshInterviewDecisionData = useCallback(async (candidateIdToKeepSelected = null) => {
+    const candidateParams = {}
+    const interviewParams = {}
+    if (selectedClient) interviewParams.client = selectedClient
+    if (superAdminAgencyId) {
+      candidateParams.agency_id = superAdminAgencyId
+      interviewParams.agency_id = superAdminAgencyId
+    }
+
+    const [freshCandidates, freshInterviews] = await Promise.all([
+      api.getCandidates(candidateParams, { includeDefaultLimit: false }).catch((error) => {
+        console.error('Failed to refresh candidates:', error)
+        return null
+      }),
+      api.getInterviews(interviewParams, { includeDefaultLimit: false }).catch((error) => {
+        console.error('Failed to refresh interviews:', error)
+        return null
+      }),
+    ])
+
+    if (freshCandidates) {
+      setCandidates(freshCandidates)
+    }
+
+    if (freshInterviews) {
+      setInterviews(freshInterviews)
+      setSelectedInterview((prev) => {
+        const selectedCandidateId = candidateIdToKeepSelected || prev?.candidate_id
+        return (
+          freshInterviews.find((interview) => interview.id === prev?.id)
+          || freshInterviews.find((interview) => String(interview.candidate_id) === String(selectedCandidateId))
+          || prev
+        )
+      })
+    }
+
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['dashboard-overview-stats'] }),
+      queryClient.invalidateQueries({ queryKey: ['dashboard-data'] }),
+      queryClient.invalidateQueries({ queryKey: ['dashboard-overview-details'] }),
+    ])
+  }, [queryClient, selectedClient, superAdminAgencyId])
 
   useEffect(() => {
     const fetchInterviews = async () => {
@@ -527,12 +580,19 @@ export default function Interviews({ superAdminAgencyId = null }) {
     }
     setDecisionLoading('approve')
     try {
-      await api.updateCandidateStage(selectedInterview.candidate_id, 'SELECTED');
+      const updatedCandidate = await api.updateCandidateStage(selectedInterview.candidate_id, 'SELECTED');
       setCandidates((prev) => prev.map((candidate) => (
         String(candidate.id) === String(selectedInterview.candidate_id)
-          ? { ...candidate, stage: 'SELECTED' }
+          ? { ...candidate, ...updatedCandidate, stage: 'SELECTED' }
           : candidate
       )))
+      setInterviews((prev) => prev.map((interview) => (
+        String(interview.candidate_id) === String(selectedInterview.candidate_id)
+          ? applyInterviewDecisionStatus(interview, 'SELECTED')
+          : interview
+      )))
+      setSelectedInterview((prev) => applyInterviewDecisionStatus(prev, 'SELECTED'))
+      await refreshInterviewDecisionData(selectedInterview.candidate_id)
       setApproveModalOpen(false)
       toast({
         title: 'Candidate Selected',
@@ -575,12 +635,19 @@ export default function Interviews({ superAdminAgencyId = null }) {
     }
     setDecisionLoading('reject')
     try {
-      await api.updateCandidateStage(selectedInterview.candidate_id, 'REJECTED', { suppress_notification: true });
+      const updatedCandidate = await api.updateCandidateStage(selectedInterview.candidate_id, 'REJECTED', { suppress_notification: true });
       setCandidates((prev) => prev.map((candidate) => (
         String(candidate.id) === String(selectedInterview.candidate_id)
-          ? { ...candidate, stage: 'REJECTED' }
+          ? { ...candidate, ...updatedCandidate, stage: 'REJECTED' }
           : candidate
       )))
+      setInterviews((prev) => prev.map((interview) => (
+        String(interview.candidate_id) === String(selectedInterview.candidate_id)
+          ? applyInterviewDecisionStatus(interview, 'REJECTED')
+          : interview
+      )))
+      setSelectedInterview((prev) => applyInterviewDecisionStatus(prev, 'REJECTED'))
+      await refreshInterviewDecisionData(selectedInterview.candidate_id)
       toast({
         title: 'Candidate Rejected',
         description: 'Candidate moved to Rejected without sending an interview email.',
