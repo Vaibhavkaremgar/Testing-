@@ -9,6 +9,7 @@ import InterviewRecordingPlayer from '@/components/interviews/InterviewRecording
 import { api } from '@/lib/api'
 import { cn, formatDateTime, getScoreColor } from '@/lib/utils'
 import { useToast } from '@/hooks/use-toast'
+import { useAuth } from '@/context/AuthContext'
 import {
   Video, Calendar, Clock, User, FileText, Brain, Star, Send, X, CheckCircle, RotateCcw, Plus, ExternalLink, ChevronDown
 } from 'lucide-react'
@@ -109,11 +110,14 @@ function getInterviewResultMeta(interview, candidateStage) {
 
 export default function Interviews({ superAdminAgencyId = null }) {
   const [searchParams] = useSearchParams()
+  const { user } = useAuth()
   const selectedClient = searchParams.get('client')
   const selectedJobIdFromQuery = searchParams.get('job_id') || 'all'
   const [interviews, setInterviews] = useState([])
   const [selectedInterview, setSelectedInterview] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [walletCredits, setWalletCredits] = useState(0)
+  const [walletCreditsLoaded, setWalletCreditsLoaded] = useState(false)
   const [showScheduleModal, setShowScheduleModal] = useState(false)
   const [visibleCount, setVisibleCount] = useState(20)
   const SHOW_MORE_STEP = 20
@@ -126,6 +130,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
   const [candidateSelectionLoading, setCandidateSelectionLoading] = useState(false)
   const [slotBookingLoading, setSlotBookingLoading] = useState(false)
   const candidateDropdownRef = useRef(null)
+  const candidateSelectionRequestRef = useRef(0)
   const { toast } = useToast()
   const [scheduleForm, setScheduleForm] = useState({
     name: '',
@@ -183,11 +188,31 @@ export default function Interviews({ superAdminAgencyId = null }) {
         console.error('Failed to fetch jobs:', error)
       }
     }
+
+    const fetchWalletCredits = async () => {
+      setWalletCreditsLoaded(false)
+      try {
+        if (user?.role === 'super_admin' && superAdminAgencyId) {
+          const response = await api.get(`/wallet/agency-admin/${superAdminAgencyId}`)
+          setWalletCredits(Number(response?.admin?.wallet_balance) || 0)
+          return
+        }
+
+        const response = await api.get('/wallet/balance')
+        setWalletCredits(Number(response?.balance) || 0)
+      } catch (error) {
+        console.error('Failed to fetch wallet credits:', error)
+        setWalletCredits(0)
+      } finally {
+        setWalletCreditsLoaded(true)
+      }
+    }
     
     fetchInterviews()
     fetchCandidates()
     fetchJobs()
-  }, [selectedClient, superAdminAgencyId])
+    fetchWalletCredits()
+  }, [selectedClient, superAdminAgencyId, user?.role])
 
   useEffect(() => {
     setSelectedJobFilter(selectedJobIdFromQuery)
@@ -294,13 +319,34 @@ export default function Interviews({ superAdminAgencyId = null }) {
     return () => document.removeEventListener('mousedown', handlePointerDown)
   }, [candidateDropdownOpen])
 
-  const scheduleCandidates = useMemo(
-    () => [...(candidates || [])].sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''))),
-    [candidates]
-  )
+  useEffect(() => {
+    if (!showScheduleModal) {
+      return undefined
+    }
+
+    const originalOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+
+    return () => {
+      document.body.style.overflow = originalOverflow
+    }
+  }, [showScheduleModal])
+
+  const scheduleCandidates = useMemo(() => {
+    const uniqueCandidates = new Map()
+
+    ;(candidates || []).forEach((candidate) => {
+      const candidateKey = candidate.candidate_id || candidate.email || candidate.id
+      if (!candidateKey || uniqueCandidates.has(String(candidateKey))) return
+      uniqueCandidates.set(String(candidateKey), candidate)
+    })
+
+    return [...uniqueCandidates.values()].sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
+  }, [candidates])
 
   const populateScheduleFormFromCandidate = async (selectedCandidate) => {
     if (!selectedCandidate) {
+      candidateSelectionRequestRef.current += 1
       setScheduleForm((prev) => ({
         ...prev,
         name: '',
@@ -315,9 +361,10 @@ export default function Interviews({ superAdminAgencyId = null }) {
       return
     }
 
+    const requestId = candidateSelectionRequestRef.current + 1
+    candidateSelectionRequestRef.current = requestId
     setCandidateSelectionLoading(true)
     try {
-      const job = jobs.find((item) => String(item.id) === String(selectedCandidate.job_id))
       let candidateDetails = selectedCandidate
 
       try {
@@ -326,20 +373,29 @@ export default function Interviews({ superAdminAgencyId = null }) {
         console.error('Failed to fetch candidate details:', error)
       }
 
+      if (candidateSelectionRequestRef.current !== requestId) {
+        return
+      }
+
+      const resolvedJobId = candidateDetails?.job_id || selectedCandidate.job_id || ''
+      const job = jobs.find((item) => String(item.id) === String(resolvedJobId))
+
       setScheduleForm((prev) => ({
         ...prev,
-        name: selectedCandidate.name || '',
+        name: candidateDetails?.name || selectedCandidate.name || '',
         email: candidateDetails?.email || selectedCandidate.email || '',
-        candidateId: selectedCandidate.id || '',
-        jobId: selectedCandidate.job_id || '',
+        candidateId: candidateDetails?.id || selectedCandidate.id || '',
+        jobId: resolvedJobId,
         jobTitle: job?.title || '',
         resumeText: candidateDetails?.resume_text || selectedCandidate.resume_text || 'No resume text available',
         jdText: job?.description || 'No job description available',
         predefinedQuestions: candidateDetails?.predefined_questions || 'No predefined questions available',
       }))
     } finally {
-      setCandidateSelectionLoading(false)
-      setCandidateDropdownOpen(false)
+      if (candidateSelectionRequestRef.current === requestId) {
+        setCandidateSelectionLoading(false)
+        setCandidateDropdownOpen(false)
+      }
     }
   }
 
@@ -456,6 +512,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
     ? getInterviewResultMeta(selectedInterview, selectedInterviewStage)
     : null
   const isDecisionFinalized = selectedInterviewResultMeta?.label === 'Selected' || selectedInterviewResultMeta?.label === 'Rejected'
+  const hasWalletCredits = (walletCredits ?? 0) > 0
   const handleApprove = async () => {
     if (!selectedInterview) return;
     if (!isDecisionReady) {
@@ -709,6 +766,14 @@ export default function Interviews({ superAdminAgencyId = null }) {
             )}
           </CardHeader>
           <CardContent className="min-h-0 flex-1 overflow-hidden p-4">
+            {!walletCreditsLoaded ? (
+              <div className="flex h-full items-center justify-center text-center text-muted-foreground">
+                <div>
+                  <div className="mx-auto h-8 w-8 animate-spin rounded-full border-b-2 border-primary"></div>
+                  <p className="mt-2 text-sm">Loading candidate details...</p>
+                </div>
+              </div>
+            ) : hasWalletCredits ? (
             <Tabs defaultValue="analysis" className="flex h-full w-full flex-col overflow-hidden">
               <TabsList className="grid w-full shrink-0 grid-cols-3">
                 <TabsTrigger value="analysis" className="flex-1">
@@ -857,6 +922,15 @@ export default function Interviews({ superAdminAgencyId = null }) {
                 )}
               </TabsContent>
             </Tabs>
+            ) : (
+              <div className="flex h-full items-center justify-center">
+                <div className="w-full max-w-md rounded-xl border border-amber-200 bg-amber-50 p-6 text-center dark:border-amber-900/60 dark:bg-amber-950/30">
+                  <p className="text-sm font-medium text-amber-900 dark:text-amber-100">
+                    Do recharge to continue the service.
+                  </p>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
         ) : filteredInterviews.length > 0 ? (
@@ -871,8 +945,8 @@ export default function Interviews({ superAdminAgencyId = null }) {
 
       {/* Schedule Interview Modal */}
       {showScheduleModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowScheduleModal(false)}>
-          <div className="bg-card rounded-lg p-6 max-w-md w-full mx-4 max-h-[90vh] overflow-visible" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/50 p-4" onClick={() => setShowScheduleModal(false)}>
+          <div className="bg-card w-full max-w-md rounded-lg p-6 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-bold">Schedule Interview</h2>
               <Button variant="ghost" size="icon" onClick={() => setShowScheduleModal(false)}>
@@ -880,7 +954,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
               </Button>
             </div>
             
-            <div className="space-y-4 max-h-[calc(90vh-7rem)] overflow-visible pr-1">
+            <div className="space-y-4 pr-1">
               <div>
                 <label className="text-sm font-medium mb-1 block">Candidate Name</label>
                 <div className="relative" ref={candidateDropdownRef}>
