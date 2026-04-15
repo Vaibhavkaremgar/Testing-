@@ -103,7 +103,9 @@ function getInterviewResultMeta(interview, candidateStage) {
   }
 
   return {
-    label: getEffectiveInterviewStatus(interview).replace('_', ' '),
+    label: getEffectiveInterviewStatus(interview)
+      .replace('_', ' ')
+      .replace(/\b\w/g, (char) => char.toUpperCase()),
     badgeClass: 'bg-slate-100 text-slate-700 dark:bg-slate-900/30 dark:text-slate-300',
   }
 }
