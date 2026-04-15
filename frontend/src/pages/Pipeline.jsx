@@ -1,14 +1,13 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import ExpandableList from '@/components/ExpandableList'
 import { api } from '@/lib/api'
 import { cn, getScoreColor } from '@/lib/utils'
 import { Briefcase, Star, Undo2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { DndContext, DragOverlay, closestCorners, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { useToast } from '@/hooks/use-toast'
 
 const STAGES = [
@@ -42,7 +41,8 @@ function getEffectiveInterviewStatus(interview) {
 }
 
 function buildPipelineStages(baseStages = {}, interviews = []) {
-  const nextStages = Object.fromEntries(STAGES.map((stage) => [stage.id, [...(baseStages[stage.id] || [])]))
+  const nextStages = Object.fromEntries(
+    STAGES.map((stage) => [stage.id, [...(baseStages[stage.id] || [])]])
   )
   const candidateStageMap = new Map()
 
