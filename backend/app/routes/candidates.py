@@ -2810,6 +2810,8 @@ def update_candidate(
     db.commit()
     db.refresh(db_candidate)
     if "stage" in update_data:
+        from app.routes.analytics import clear_analytics_cache
+        clear_analytics_cache()
         enqueue_stage_notification(background_tasks, db, db_candidate, db_candidate.stage.value, user_id=current_user.id)
     return db_candidate
 
@@ -2831,6 +2833,8 @@ def update_candidate_stage(
     
     db.commit()
     db.refresh(db_candidate)
+    from app.routes.analytics import clear_analytics_cache
+    clear_analytics_cache()
     if not stage_update.suppress_notification:
         enqueue_stage_notification(background_tasks, db, db_candidate, db_candidate.stage.value, user_id=current_user.id)
     candidate_dict = {

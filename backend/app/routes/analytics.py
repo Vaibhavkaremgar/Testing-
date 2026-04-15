@@ -92,6 +92,11 @@ def _set_cached_analytics_response(cache_key: tuple, payload):
         )
 
 
+def clear_analytics_cache() -> None:
+    with _analytics_cache_lock:
+        _analytics_cache.clear()
+
+
 def _candidate_metrics_subquery(query):
     return query.with_entities(
         Candidate.id.label("id"),
@@ -111,6 +116,7 @@ def _aggregate_candidate_stage_metrics(db: Session, candidate_sq, *, exclude_app
         func.sum(case(((base_condition & (stage_column == CandidateStage.SHORTLISTED)), 1), else_=0)).label("shortlisted"),
         func.sum(case(((base_condition & (stage_column == CandidateStage.RESUME_REJECTED)), 1), else_=0)).label("resume_rejected"),
         func.sum(case(((base_condition & (stage_column == CandidateStage.SELECTED)), 1), else_=0)).label("selected"),
+        func.sum(case(((base_condition & (stage_column == CandidateStage.REJECTED)), 1), else_=0)).label("rejected"),
         func.sum(case(((base_condition & candidate_sq.c.resume_score.isnot(None)), candidate_sq.c.resume_score), else_=0.0)).label("resume_score_sum"),
         func.sum(case(((base_condition & candidate_sq.c.resume_score.isnot(None)), 1), else_=0)).label("resume_score_count"),
     ).select_from(candidate_sq).first()
@@ -120,6 +126,7 @@ def _aggregate_candidate_stage_metrics(db: Session, candidate_sq, *, exclude_app
         "shortlisted": int(row.shortlisted or 0),
         "resume_rejected": int(row.resume_rejected or 0),
         "selected": int(row.selected or 0),
+        "rejected": int(row.rejected or 0),
         "resume_score_sum": float(row.resume_score_sum or 0.0),
         "resume_score_count": int(row.resume_score_count or 0),
     }
@@ -896,9 +903,9 @@ def get_dashboard_stats(
             "total_candidates": candidate_metrics["total_candidates"],
             "shortlisted": candidate_metrics["shortlisted"],
             "resume_rejected": candidate_metrics["resume_rejected"],
-            "rejected": interview_metrics["rejected"],
+            "rejected": candidate_metrics["rejected"] or interview_metrics["rejected"],
             "interviews_scheduled": interview_metrics["interviews_scheduled"],
-            "selected": interview_metrics["selected"],
+            "selected": candidate_metrics["selected"] or interview_metrics["selected"],
             "avg_resume_score": round(
                 candidate_metrics["resume_score_sum"] / candidate_metrics["resume_score_count"],
                 1,

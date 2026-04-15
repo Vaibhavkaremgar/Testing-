@@ -159,7 +159,8 @@ export default function Dashboard() {
         return null
       })
     },
-    staleTime: 60 * 1000,
+    staleTime: 0,
+    refetchOnMount: 'always',
     refetchOnWindowFocus: false,
   })
 
