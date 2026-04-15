@@ -197,8 +197,42 @@ def _latest_interview_metrics(
 
     row = db.query(
         func.sum(case(((status_column.in_(["scheduled", "ongoing"]) & (latest_sq.c.row_number == 1)), 1), else_=0)).label("interviews_scheduled"),
-        func.sum(case((((status_column == "completed") & (func.coalesce(normalized_interview_score, 0) >= INTERVIEW_RESULT_THRESHOLD) & (latest_sq.c.row_number == 1)), 1), else_=0)).label("selected"),
-        func.sum(case((((status_column == "completed") & (func.coalesce(normalized_interview_score, 0) < INTERVIEW_RESULT_THRESHOLD) & (latest_sq.c.row_number == 1)), 1), else_=0)).label("rejected"),
+        func.sum(
+            case(
+                (
+                    (
+                        (latest_sq.c.row_number == 1)
+                        & (
+                            (candidate_sq.c.stage == CandidateStage.SELECTED)
+                            | (
+                                (status_column == "completed")
+                                & (func.coalesce(normalized_interview_score, 0) >= INTERVIEW_RESULT_THRESHOLD)
+                            )
+                        )
+                    ),
+                    1,
+                ),
+                else_=0,
+            )
+        ).label("selected"),
+        func.sum(
+            case(
+                (
+                    (
+                        (latest_sq.c.row_number == 1)
+                        & (
+                            (candidate_sq.c.stage == CandidateStage.REJECTED)
+                            | (
+                                (status_column == "completed")
+                                & (func.coalesce(normalized_interview_score, 0) < INTERVIEW_RESULT_THRESHOLD)
+                            )
+                        )
+                    ),
+                    1,
+                ),
+                else_=0,
+            )
+        ).label("rejected"),
         func.avg(case(((latest_sq.c.row_number == 1) & normalized_interview_score.isnot(None), normalized_interview_score), else_=None)).label("avg_interview_score"),
         func.sum(case((((status_column == "completed") & (latest_sq.c.row_number == 1)), 1), else_=0)).label("completed_interviews"),
         func.sum(

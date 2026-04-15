@@ -45,8 +45,9 @@ def _apply_job_list_scope(query, current_user, db: Session):
             candidate_exists
         )
 
-    if current_user.role not in [UserRole.ADMIN, UserRole.SUPER_ADMIN] and current_user.agency_id:
-        return query.filter(JobDescription.agency_id == current_user.agency_id)
+    if current_user.role not in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
+        subquery = db.query(Candidate.job_id).filter(Candidate.assigned_to_user_id == current_user.id).subquery()
+        return query.filter(JobDescription.id.in_(subquery))
 
     return query
 
@@ -123,9 +124,12 @@ def get_jobs(
         candidate_query = db.query(func.count(Candidate.id)).filter(
             Candidate.job_id == job.id
         )
-        if current_user.role not in [UserRole.ADMIN, UserRole.SUPER_ADMIN] and current_user.agency_id:
-            candidate_query = candidate_query.filter(Candidate.agency_id == current_user.agency_id)
+        if current_user.role not in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
+            candidate_query = candidate_query.filter(Candidate.assigned_to_user_id == current_user.id)
         candidate_count = candidate_query.scalar()
+
+        if current_user.role not in [UserRole.ADMIN, UserRole.SUPER_ADMIN] and candidate_count == 0:
+            continue
         
         job_dict = {
             "id": job.id,
@@ -166,8 +170,8 @@ def get_job(
     candidate_query = db.query(func.count(Candidate.id)).filter(
         Candidate.job_id == job.id
     )
-    if current_user.role not in [UserRole.ADMIN, UserRole.SUPER_ADMIN] and current_user.agency_id:
-        candidate_query = candidate_query.filter(Candidate.agency_id == current_user.agency_id)
+    if current_user.role not in [UserRole.ADMIN, UserRole.SUPER_ADMIN]:
+        candidate_query = candidate_query.filter(Candidate.assigned_to_user_id == current_user.id)
     candidate_count = candidate_query.scalar()
     
     job_dict = {

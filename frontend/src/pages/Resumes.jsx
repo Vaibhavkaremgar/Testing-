@@ -106,6 +106,43 @@ function formatCandidateDisplayName(name) {
 }
 
 function formatSummaryAsParagraph(summary) {
+  const toConciseSummary = (value) => {
+    const cleanedValue = String(value || '')
+      .replace(/^candidate summary[:.\s-]*/i, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+
+    if (!cleanedValue) return ''
+
+    const sectionMatches = Array.from(
+      cleanedValue.matchAll(/(Experience Match|Skill Match|Domain Match|Strengths|Gaps \(if any\)|Overall Fit):\s*([^:]+?)(?=(Experience Match|Skill Match|Domain Match|Strengths|Gaps \(if any\)|Overall Fit):|$)/gi)
+    )
+
+    if (!sectionMatches.length) {
+      return cleanedValue
+    }
+
+    const sections = Object.fromEntries(
+      sectionMatches.map((match) => [
+        match[1].toLowerCase(),
+        String(match[2] || '').trim().replace(/[.]+$/, ''),
+      ])
+    )
+
+    return [
+      sections['experience match'],
+      sections['skill match'],
+      sections['strengths'],
+      sections['overall fit'],
+    ]
+      .filter(Boolean)
+      .slice(0, 4)
+      .map((sentence) => `${sentence}.`)
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+  }
+
   if (Array.isArray(summary)) {
     return summary
       .map((item) => String(item || '').trim())
@@ -123,7 +160,7 @@ function formatSummaryAsParagraph(summary) {
     .replace(/\s+/g, ' ')
     .trim()
 
-  return normalized ? `${normalized}.`.replace(/\.\./g, '.') : ''
+  return normalized ? toConciseSummary(`${normalized}.`.replace(/\.\./g, '.')) : ''
 }
 
 function normalizeCandidateSkills(skills) {
@@ -1546,7 +1583,9 @@ export default function Resumes() {
                     {selectedCandidate.summary && (
                       <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg border border-blue-200 dark:border-blue-800">
                         <p className="text-sm font-medium mb-2 text-blue-900 dark:text-blue-100">📋 Candidate Summary</p>
-                        <p className="text-sm text-blue-800 dark:text-blue-200 leading-relaxed">{formatSummaryAsParagraph(selectedCandidate.summary)}</p>
+                        <p className="line-clamp-5 text-sm text-blue-800 dark:text-blue-200 leading-relaxed">
+                          {formatSummaryAsParagraph(selectedCandidate.summary)}
+                        </p>
                       </div>
                     )}
 
@@ -1736,7 +1775,7 @@ export default function Resumes() {
                     <span>Generating summary...</span>
                   </div>
                 ) : (
-                  <p className="text-sm leading-relaxed">{formatSummaryAsParagraph(resumeSummary)}</p>
+                  <p className="line-clamp-5 text-sm leading-relaxed">{formatSummaryAsParagraph(resumeSummary)}</p>
                 )}
               </div>
             </div>

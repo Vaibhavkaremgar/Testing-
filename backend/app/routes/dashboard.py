@@ -140,7 +140,17 @@ def _fetch_candidates(
 def _fetch_jobs(current_user: SimpleNamespace, client: Optional[str], page: Optional[int], limit: Optional[int], offset: Optional[int]):
     db = SessionLocal()
     try:
-        query = _apply_job_list_scope(db.query(JobDescription), current_user, db)
+        query = db.query(JobDescription)
+        if current_user.role == UserRole.SUPER_ADMIN:
+            pass
+        elif current_user.role == UserRole.ADMIN:
+            query = _apply_job_list_scope(query, current_user, db)
+        else:
+            assigned_job_ids = db.query(Candidate.job_id).filter(
+                Candidate.assigned_to_user_id == current_user.id,
+                Candidate.job_id.isnot(None)
+            ).distinct()
+            query = query.filter(JobDescription.id.in_(assigned_job_ids))
         if client:
             query = query.filter(func.lower(func.trim(JobDescription.company_name)) == client.strip().lower())
         query = query.order_by(JobDescription.created_at.desc())
@@ -237,7 +247,17 @@ def _fetch_users(current_user: SimpleNamespace, page: Optional[int], limit: Opti
 def _fetch_scores(current_user: SimpleNamespace, client: Optional[str], page: Optional[int], limit: Optional[int], offset: Optional[int]):
     db = SessionLocal()
     try:
-        query = _apply_job_list_scope(db.query(JobDescription), current_user, db)
+        query = db.query(JobDescription)
+        if current_user.role == UserRole.SUPER_ADMIN:
+            pass
+        elif current_user.role == UserRole.ADMIN:
+            query = _apply_job_list_scope(query, current_user, db)
+        else:
+            assigned_job_ids = db.query(Candidate.job_id).filter(
+                Candidate.assigned_to_user_id == current_user.id,
+                Candidate.job_id.isnot(None)
+            ).distinct()
+            query = query.filter(JobDescription.id.in_(assigned_job_ids))
         if client:
             query = query.filter(func.lower(func.trim(JobDescription.company_name)) == client.strip().lower())
         query = query.order_by(JobDescription.created_at.desc())
