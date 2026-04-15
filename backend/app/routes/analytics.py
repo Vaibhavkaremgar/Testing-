@@ -162,6 +162,7 @@ def _latest_interview_metrics(
 ) -> dict:
     candidate_sq = candidate_query.with_entities(
         Candidate.id.label("candidate_id"),
+        Candidate.stage.label("stage"),
         Candidate.resume_score.label("resume_score"),
     ).subquery()
     interview_date_field = func.coalesce(Interview.scheduled_at, Interview.created_at)
