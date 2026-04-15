@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -21,16 +21,71 @@ const STAGES = [
   { id: 'INTERVIEWED', label: 'Interview', color: 'bg-purple-500' },
   //{ id: 'INTERVIEW_FAILED', label: 'Interview Failed', color: 'bg-rose-500' },
   { id: 'NO_SHOW', label: 'No Show', color: 'bg-orange-500' },
+  { id: 'COMPLETED', label: 'Completed', color: 'bg-indigo-500' },
   { id: 'SELECTED', label: 'Selected', color: 'bg-emerald-500' },
   { id: 'REJECTED', label: 'Rejected', color: 'bg-red-600' },
 ]
 
-function CandidateCard({ candidate, onCardClick, isDragging }) {
+function getEffectiveInterviewStatus(interview) {
+  const normalizedStatus = String(interview?.status || '').toLowerCase()
+  if (
+    normalizedStatus === 'completed' ||
+    interview?.has_recording ||
+    interview?.transcript ||
+    interview?.ai_summary ||
+    interview?.interview_score !== null && interview?.interview_score !== undefined && interview?.interview_score !== ''
+  ) {
+    return 'completed'
+  }
+
+  return normalizedStatus || 'pending'
+}
+
+function buildPipelineStages(baseStages = {}, interviews = []) {
+  const nextStages = Object.fromEntries(STAGES.map((stage) => [stage.id, [...(baseStages[stage.id] || [])]))
+  )
+  const candidateStageMap = new Map()
+
+  Object.entries(baseStages || {}).forEach(([stageId, candidates]) => {
+    ;(candidates || []).forEach((candidate) => {
+      candidateStageMap.set(String(candidate.id), stageId)
+    })
+  })
+
+  const latestInterviewsByCandidate = new Map()
+  ;(interviews || []).forEach((interview) => {
+    if (!interview?.candidate_id) return
+    const candidateKey = String(interview.candidate_id)
+    const previousInterview = latestInterviewsByCandidate.get(candidateKey)
+    const previousDate = previousInterview?.scheduled_at || previousInterview?.created_at || ''
+    const currentDate = interview?.scheduled_at || interview?.created_at || ''
+    if (!previousInterview || new Date(currentDate) > new Date(previousDate)) {
+      latestInterviewsByCandidate.set(candidateKey, interview)
+    }
+  })
+
+  latestInterviewsByCandidate.forEach((interview, candidateId) => {
+    const currentStage = candidateStageMap.get(candidateId)
+    if (!currentStage || currentStage === 'SELECTED' || currentStage === 'REJECTED') return
+    if (getEffectiveInterviewStatus(interview) !== 'completed') return
+
+    const candidate = nextStages[currentStage]?.find((item) => String(item.id) === candidateId)
+    if (!candidate) return
+
+    nextStages[currentStage] = nextStages[currentStage].filter((item) => String(item.id) !== candidateId)
+    nextStages.COMPLETED = [...(nextStages.COMPLETED || []), { ...candidate, display_stage: 'COMPLETED' }]
+  })
+
+  return nextStages
+}
+
+function CandidateCard({ candidate, onCardClick, draggable = true, isDragging }) {
 
   return (
     <Card 
       className={cn(
-        "transition-shadow cursor-grab active:cursor-grabbing",
+        "transition-shadow",
+        draggable && "cursor-grab active:cursor-grabbing",
         isDragging && "opacity-50"
       )} 
       onClick={() => onCardClick && onCardClick(candidate)}
@@ -75,6 +130,8 @@ function CandidateCard({ candidate, onCardClick, isDragging }) {
 }
 
 function StageColumn({ stage, candidates, onCardClick, isOver }) {
+  const isDerivedStage = stage.id === 'COMPLETED'
+
   return (
     <div className="flex flex-col w-72 flex-shrink-0">
       <div className="flex items-center gap-2 mb-3">
@@ -98,8 +155,9 @@ function StageColumn({ stage, candidates, onCardClick, isOver }) {
             renderItem={(candidate) => (
               <div
                 key={candidate.id}
-                draggable
+                draggable={!isDerivedStage}
                 onDragStart={(e) => {
+                  if (isDerivedStage) return
                   e.dataTransfer.effectAllowed = 'move'
                   e.dataTransfer.setData('candidateId', candidate.id)
                   e.dataTransfer.setData('fromStage', stage.id)
@@ -108,6 +166,7 @@ function StageColumn({ stage, candidates, onCardClick, isOver }) {
                 <CandidateCard
                   candidate={candidate}
                   onCardClick={onCardClick}
+                  draggable={!isDerivedStage}
                 />
               </div>
             )}
@@ -144,11 +203,27 @@ export default function Pipeline({ superAdminAgencyId = null }) {
     },
   })
 
+  const interviewsQuery = useQuery({
+    queryKey: ['pipeline-interviews', selectedClient, selectedJobId, superAdminAgencyId],
+    queryFn: async () => {
+      const params = {}
+      if (selectedClient) params.client = selectedClient
+      if (selectedJobId) params.job_id = selectedJobId
+      if (superAdminAgencyId) params.agency_id = superAdminAgencyId
+      return api.getInterviews(params, { includeDefaultLimit: false })
+    },
+  })
+
   useEffect(() => {
     if (pipelineQuery.data) {
       setStages(pipelineQuery.data)
     }
   }, [pipelineQuery.data])
+
+  const displayStages = useMemo(
+    () => buildPipelineStages(stages, interviewsQuery.data || []),
+    [interviewsQuery.data, stages]
+  )
 
   const handleCardClick = async (candidate) => {
     // No special click handling needed
@@ -157,6 +232,8 @@ export default function Pipeline({ superAdminAgencyId = null }) {
   const handleDrop = async (e, toStage) => {
     e.preventDefault()
     setDragOverStage(null)
+
+    if (toStage === 'COMPLETED') return
     
     const candidateId = e.dataTransfer.getData('candidateId')
     const fromStage = e.dataTransfer.getData('fromStage')
@@ -167,7 +244,7 @@ export default function Pipeline({ superAdminAgencyId = null }) {
       await api.updateCandidateStage(candidateId, toStage)
       
       // Store move for undo
-      const candidate = stages[fromStage]?.find(c => c.id === candidateId)
+      const candidate = displayStages[fromStage]?.find(c => c.id === candidateId)
       setLastMove({
         candidateId: candidateId,
         candidateName: candidate?.name,
@@ -287,7 +364,7 @@ export default function Pipeline({ superAdminAgencyId = null }) {
             >
               <StageColumn
                 stage={stage}
-                candidates={stages[stage.id] || []}
+                candidates={displayStages[stage.id] || []}
                 onCardClick={handleCardClick}
                 isOver={dragOverStage === stage.id}
               />

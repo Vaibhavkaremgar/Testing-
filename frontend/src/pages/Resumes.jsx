@@ -44,6 +44,7 @@ const ResumeStatusBadge = React.memo(function ResumeStatusBadge({ candidate }) {
 })
 
 function getResumeDisplayStatus(candidate) {
+  const normalizedStatus = String(candidate?.status || '').toLowerCase()
   const stage = candidate?.display_stage || candidate?.stage
   const resumeScore = candidate?.resume_score
   const threshold = candidate?.score_threshold || 60
@@ -76,7 +77,7 @@ function getResumeDisplayStatus(candidate) {
     return { key: 'IN_REVIEW', label: 'In Review', badgeClass: 'bg-amber-500' }
   }
 
-  if (stage === 'INTERVIEW_RESCHEDULED') {
+  if (stage === 'INTERVIEW_RESCHEDULED' || candidate?.is_rescheduled === true || normalizedStatus === 'rescheduled') {
     return { key: 'INTERVIEW_RESCHEDULED', label: 'Interview Rescheduled', badgeClass: 'bg-yellow-500' }
   }
 
@@ -123,6 +124,51 @@ function formatSummaryAsParagraph(summary) {
     .trim()
 
   return normalized ? `${normalized}.`.replace(/\.\./g, '.') : ''
+}
+
+function normalizeCandidateSkills(skills) {
+  if (Array.isArray(skills)) {
+    return skills.filter(Boolean)
+  }
+
+  if (typeof skills === 'string') {
+    return skills
+      .split(/[,\n]/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+  }
+
+  return []
+}
+
+function normalizeCandidateScore(candidate) {
+  const scoreValue = candidate?.resume_score ?? candidate?.score ?? candidate?.match_score
+  if (scoreValue === null || scoreValue === undefined || scoreValue === '') {
+    return null
+  }
+
+  const parsedScore = Number(scoreValue)
+  return Number.isFinite(parsedScore) ? parsedScore : null
+}
+
+function normalizeResumeCandidate(candidate, jobsById = {}) {
+  const resolvedJobId = candidate?.job_id ?? candidate?.job?.id ?? null
+  const jobDetails = resolvedJobId ? jobsById[resolvedJobId] || jobsById[String(resolvedJobId)] : null
+  const normalizedSkills = normalizeCandidateSkills(
+    candidate?.skills ?? candidate?.skill_set ?? candidate?.job?.skills
+  )
+  const normalizedScore = normalizeCandidateScore(candidate)
+  const normalizedStatus = String(candidate?.status || '').toLowerCase()
+  const isRescheduled = candidate?.is_rescheduled === true || normalizedStatus === 'rescheduled'
+
+  return {
+    ...candidate,
+    job_id: resolvedJobId,
+    job_title: candidate?.job_title || candidate?.job?.title || jobDetails?.title || '',
+    resume_score: normalizedScore,
+    skills: normalizedSkills,
+    display_stage: isRescheduled ? 'INTERVIEW_RESCHEDULED' : (candidate?.display_stage || candidate?.stage),
+  }
 }
 
 export default function Resumes() {
@@ -206,7 +252,7 @@ export default function Resumes() {
     [dashboardData],
   )
   const candidates = useMemo(() => {
-    let filteredData = dashboardData?.candidates || []
+    let filteredData = (dashboardData?.candidates || []).map((candidate) => normalizeResumeCandidate(candidate, jobsById))
 
     if (selectedGlobalJobId) {
       filteredData = filteredData.filter((candidate) => candidate.job_id?.toString() === selectedGlobalJobId)
@@ -242,7 +288,7 @@ export default function Resumes() {
     }
 
     return filteredData
-  }, [dashboardData, jobFilter, scoreFilter, search, selectedGlobalJobId, statusFilter])
+  }, [dashboardData?.candidates, jobFilter, jobsById, scoreFilter, search, selectedGlobalJobId, statusFilter])
   useEffect(() => {
     if (selectedGlobalJobId) {
       setSelectedJobForFilter(selectedGlobalJobId)
@@ -256,6 +302,7 @@ export default function Resumes() {
 
   const fetchCandidates = useCallback(async () => {
     await queryClient.invalidateQueries({ queryKey: ['dashboard-data', 'resumes'] })
+    await queryClient.refetchQueries({ queryKey: ['dashboard-data', 'resumes'], type: 'active' })
   }, [queryClient])
 
   // Refresh list whenever an upload reaches 'completed'
@@ -658,7 +705,7 @@ export default function Resumes() {
   }
 
   const handleViewCandidate = async (candidate) => {
-    setSelectedCandidate(candidate)
+    setSelectedCandidate(normalizeResumeCandidate(candidate, jobsById))
     setAnalysisLoading(true)
     setAiAnalysis(null)
     
