@@ -2833,7 +2833,35 @@ def update_candidate_stage(
     db.refresh(db_candidate)
     if not stage_update.suppress_notification:
         enqueue_stage_notification(background_tasks, db, db_candidate, db_candidate.stage.value, user_id=current_user.id)
-    return db_candidate
+    candidate_dict = {
+        "id": db_candidate.id,
+        "name": db_candidate.name,
+        "email": sanitize_candidate_email(db_candidate.email),
+        "phone": db_candidate.phone,
+        "current_company": db_candidate.current_company,
+        "current_role": db_candidate.current_role,
+        "experience_years": db_candidate.experience_years,
+        "location": sanitize_candidate_location(db_candidate.location),
+        "linkedin_url": db_candidate.linkedin_url,
+        "resume_file_path": db_candidate.resume_file_path,
+        "parsing_status": db_candidate.parsing_status,
+        "resume_score": db_candidate.resume_score,
+        "score_threshold": db_candidate.score_threshold,
+        "skills": db_candidate.skills,
+        "education": db_candidate.education,
+        "work_experience": db_candidate.work_experience,
+        "stage": db_candidate.stage,
+        "stage_updated_at": db_candidate.stage_updated_at,
+        "stage_entered_at": db_candidate.stage_entered_at,
+        "applied_at": db_candidate.applied_at,
+        "job_id": db_candidate.job_id,
+        "job_title": db_candidate.job.title if db_candidate.job else None,
+        "summary": db_candidate.summary,
+        "internal_notes": db_candidate.internal_notes,
+        "predefined_questions": db_candidate.predefined_questions,
+        "created_at": db_candidate.created_at,
+    }
+    return build_safe_candidate_response(candidate_dict)
 
 
 
