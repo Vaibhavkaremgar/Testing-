@@ -79,7 +79,16 @@ function buildPipelineStages(baseStages = {}, interviews = []) {
   return nextStages
 }
 
-function CandidateCard({ candidate, onCardClick, draggable = true, isDragging }) {
+function CandidateCard({
+  candidate,
+  onApprove,
+  onCardClick,
+  onReject,
+  actionLoading = null,
+  draggable = true,
+  isDragging
+}) {
+  const isCompletedCandidate = candidate?.display_stage === 'COMPLETED'
 
   return (
     <Card 
@@ -121,6 +130,33 @@ function CandidateCard({ candidate, onCardClick, draggable = true, isDragging })
                 </div>
               )}
             </div>
+            {isCompletedCandidate && (
+              <div className="mt-3 flex gap-2">
+                <Button
+                  size="sm"
+                  className="h-8 flex-1 bg-green-600 hover:bg-green-700"
+                  disabled={actionLoading !== null}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onApprove?.(candidate)
+                  }}
+                >
+                  {actionLoading === `approve-${candidate.id}` ? 'Approving...' : 'Approve'}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  className="h-8 flex-1"
+                  disabled={actionLoading !== null}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    onReject?.(candidate)
+                  }}
+                >
+                  {actionLoading === `reject-${candidate.id}` ? 'Rejecting...' : 'Reject'}
+                </Button>
+              </div>
+            )}
 
           </div>
         </div>
@@ -129,7 +165,7 @@ function CandidateCard({ candidate, onCardClick, draggable = true, isDragging })
   )
 }
 
-function StageColumn({ stage, candidates, onCardClick, isOver }) {
+function StageColumn({ stage, candidates, onApprove, onCardClick, onReject, actionLoading, isOver }) {
   const isDerivedStage = stage.id === 'COMPLETED'
 
   return (
@@ -165,7 +201,10 @@ function StageColumn({ stage, candidates, onCardClick, isOver }) {
               >
                 <CandidateCard
                   candidate={candidate}
+                  onApprove={onApprove}
                   onCardClick={onCardClick}
+                  onReject={onReject}
+                  actionLoading={actionLoading}
                   draggable={!isDerivedStage}
                 />
               </div>
@@ -189,6 +228,7 @@ export default function Pipeline({ superAdminAgencyId = null }) {
   const [stages, setStages] = useState({})
   const [dragOverStage, setDragOverStage] = useState(null)
   const [lastMove, setLastMove] = useState(null)
+  const [actionLoading, setActionLoading] = useState(null)
   const { toast } = useToast()
   const queryClient = useQueryClient()
 
@@ -227,6 +267,41 @@ export default function Pipeline({ superAdminAgencyId = null }) {
 
   const handleCardClick = async (candidate) => {
     // No special click handling needed
+  }
+
+  const handleCompletedDecision = async (candidate, nextStage) => {
+    const loadingKey = `${nextStage === 'SELECTED' ? 'approve' : 'reject'}-${candidate.id}`
+    setActionLoading(loadingKey)
+    try {
+      await api.updateCandidateStage(candidate.id, nextStage)
+      setStages((prev) => {
+        const sanitizedStages = Object.fromEntries(
+          Object.entries(prev).map(([stageId, items]) => [
+            stageId,
+            (items || []).filter((item) => String(item.id) !== String(candidate.id)),
+          ])
+        )
+        const nextStages = {
+          ...sanitizedStages,
+          [nextStage]: [...(sanitizedStages[nextStage] || []), { ...candidate, stage: nextStage, display_stage: nextStage }],
+        }
+        queryClient.setQueryData(['pipeline-stages', selectedClient, selectedJobId, superAdminAgencyId], nextStages)
+        return nextStages
+      })
+      toast({
+        title: 'Success',
+        description: `Candidate moved to ${nextStage === 'SELECTED' ? 'Selected' : 'Rejected'}.`,
+      })
+    } catch (error) {
+      console.error(`Failed to move candidate to ${nextStage}:`, error)
+      toast({
+        title: 'Error',
+        description: 'Failed to update candidate stage',
+        variant: 'destructive',
+      })
+    } finally {
+      setActionLoading(null)
+    }
   }
 
   const handleDrop = async (e, toStage) => {
@@ -365,7 +440,10 @@ export default function Pipeline({ superAdminAgencyId = null }) {
               <StageColumn
                 stage={stage}
                 candidates={displayStages[stage.id] || []}
+                onApprove={(candidate) => handleCompletedDecision(candidate, 'SELECTED')}
                 onCardClick={handleCardClick}
+                onReject={(candidate) => handleCompletedDecision(candidate, 'REJECTED')}
+                actionLoading={actionLoading}
                 isOver={dragOverStage === stage.id}
               />
             </div>

@@ -708,31 +708,28 @@ export default function Resumes() {
     setSelectedCandidate(normalizeResumeCandidate(candidate, jobsById))
     setAnalysisLoading(true)
     setAiAnalysis(null)
-    
-    // Fetch job details
-    if (candidate.job_id) {
-      try {
-        const job = await api.getJob(candidate.job_id)
-        setCandidateJob(job)
-      } catch (error) {
-        console.error('Failed to fetch job details:', error)
-        setCandidateJob(null)
-      }
-    } else {
-      setCandidateJob(null)
-    }
-    
-    // Fetch AI analysis
+
     try {
-      const analysis = await api.getAIAnalysis(candidate.id)
+      const [jobResult, analysis] = await Promise.all([
+        candidate.job_id
+          ? api.getJob(candidate.job_id).catch((error) => {
+            console.error('Failed to fetch job details:', error)
+            return null
+          })
+          : Promise.resolve(null),
+        api.getAIAnalysis(candidate.id).catch((error) => {
+          console.error('Failed to fetch AI analysis:', error)
+          return null
+        }),
+      ])
+
+      setCandidateJob(jobResult)
+
       // Override match_score with resume_score for consistency
       if (analysis && candidate.resume_score !== undefined) {
         analysis.match_score = candidate.resume_score
       }
       setAiAnalysis(analysis)
-    } catch (error) {
-      console.error('Failed to fetch AI analysis:', error)
-      setAiAnalysis(null)
     } finally {
       setAnalysisLoading(false)
     }
