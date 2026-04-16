@@ -107,7 +107,7 @@
   width: 100%;
   max-width: 100%;
   background: black;
-  overflow: hidden;
+  overflow: visible;
   border-radius: 12px;
   position: relative;
 }
@@ -129,6 +129,7 @@
   max-height: none !important;
   position: relative;
   background: #000 !important;
+  overflow: visible !important;
 }
 
 .video-js .vjs-control-bar {
@@ -144,6 +145,18 @@
   width: auto !important;
   border-radius: 0.75rem !important;
   padding: 0.25rem 0.5rem !important;
+  overflow: visible !important;
+}
+
+.video-js .vjs-playback-rate,
+.video-js .vjs-menu-button,
+.video-js .vjs-menu,
+.video-js .vjs-menu-content {
+  overflow: visible !important;
+}
+
+.video-js .vjs-playback-rate .vjs-menu {
+  z-index: 30 !important;
 }
 
 .dashboard-stat-card {

@@ -197,11 +197,82 @@ const VideoPlayer = forwardRef(function VideoPlayer(
     onTimeUpdate,
   ])
 
+  useEffect(() => {
+    const player = playerRef.current
+    const playerElement = player?.el?.()
+
+    if (!player || !playerElement) {
+      return undefined
+    }
+
+    const playbackRateControl = playerElement.querySelector('.vjs-playback-rate')
+    const playbackRateMenu = playbackRateControl?.querySelector('.vjs-menu')
+
+    if (!playbackRateControl || !playbackRateMenu) {
+      return undefined
+    }
+
+    const keepPlaybackMenuOpen = () => {
+      player.userActive(true)
+      playbackRateControl.classList.add('vjs-menu-button-active', 'vjs-lock-showing')
+    }
+
+    const closePlaybackMenu = (nextTarget) => {
+      if (nextTarget instanceof Node && playbackRateControl.contains(nextTarget)) {
+        keepPlaybackMenuOpen()
+        return
+      }
+
+      playbackRateControl.classList.remove('vjs-menu-button-active', 'vjs-lock-showing')
+    }
+
+    const handlePointerEnter = () => {
+      keepPlaybackMenuOpen()
+    }
+
+    const handlePointerLeave = (event) => {
+      closePlaybackMenu(event.relatedTarget)
+    }
+
+    const handleMenuPointerDown = (event) => {
+      event.stopPropagation()
+      keepPlaybackMenuOpen()
+    }
+
+    const handleMenuClick = (event) => {
+      event.stopPropagation()
+      if (event.target.closest('.vjs-menu-item')) {
+        window.setTimeout(() => closePlaybackMenu(), 0)
+        return
+      }
+
+      keepPlaybackMenuOpen()
+    }
+
+    const handleDocumentPointerDown = (event) => {
+      closePlaybackMenu(event.target)
+    }
+
+    playbackRateControl.addEventListener('pointerenter', handlePointerEnter)
+    playbackRateControl.addEventListener('pointerleave', handlePointerLeave)
+    playbackRateMenu.addEventListener('pointerdown', handleMenuPointerDown)
+    playbackRateMenu.addEventListener('click', handleMenuClick)
+    document.addEventListener('pointerdown', handleDocumentPointerDown)
+
+    return () => {
+      playbackRateControl.removeEventListener('pointerenter', handlePointerEnter)
+      playbackRateControl.removeEventListener('pointerleave', handlePointerLeave)
+      playbackRateMenu.removeEventListener('pointerdown', handleMenuPointerDown)
+      playbackRateMenu.removeEventListener('click', handleMenuClick)
+      document.removeEventListener('pointerdown', handleDocumentPointerDown)
+    }
+  }, [])
+
   return (
     <div
       data-vjs-player
       className={cn(
-        'h-full w-full overflow-hidden rounded-lg [&_.video-js]:h-full [&_.video-js]:w-full [&_.video-js]:overflow-hidden [&_.video-js]:rounded-lg [&_.vjs-big-play-button]:bg-transparent [&_.vjs-big-play-button]:border-transparent [&_.vjs-big-play-button:hover]:bg-transparent [&_.vjs-big-play-button:hover]:border-transparent [&_.vjs-big-play-button:focus]:bg-transparent [&_.vjs-big-play-button:focus]:border-transparent',
+        'h-full w-full overflow-visible rounded-lg [&_.video-js]:h-full [&_.video-js]:w-full [&_.video-js]:overflow-visible [&_.video-js]:rounded-lg [&_.vjs-big-play-button]:bg-transparent [&_.vjs-big-play-button]:border-transparent [&_.vjs-big-play-button:hover]:bg-transparent [&_.vjs-big-play-button:hover]:border-transparent [&_.vjs-big-play-button:focus]:bg-transparent [&_.vjs-big-play-button:focus]:border-transparent',
         className
       )}
     >
