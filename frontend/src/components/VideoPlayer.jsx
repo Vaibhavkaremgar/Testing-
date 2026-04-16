@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useMemo, useRef } from 'react'
+import { forwardRef, useEffect, useMemo, useRef, useState } from 'react'
 import videojs from 'video.js'
 import 'video.js/dist/video-js.css'
 import { cn } from '@/lib/utils'
@@ -71,6 +71,9 @@ const VideoPlayer = forwardRef(function VideoPlayer(
   const videoElementRef = useRef(null)
   const playerRef = useRef(null)
   const optionsRef = useRef(options)
+  const speedMenuControlRef = useRef(null)
+  const speedMenuRef = useRef(null)
+  const [isSpeedMenuOpen, setIsSpeedMenuOpen] = useState(false)
   const normalizedSources = useMemo(
     () => normalizeSources({ src, type, sources }),
     [src, type, sources]
@@ -212,61 +215,64 @@ const VideoPlayer = forwardRef(function VideoPlayer(
       return undefined
     }
 
-    const keepPlaybackMenuOpen = () => {
-      player.userActive(true)
-      playbackRateControl.classList.add('vjs-menu-button-active', 'vjs-lock-showing')
-    }
+    speedMenuControlRef.current = playbackRateControl
+    speedMenuRef.current = playbackRateMenu
 
-    const closePlaybackMenu = (nextTarget) => {
-      if (nextTarget instanceof Node && playbackRateControl.contains(nextTarget)) {
-        keepPlaybackMenuOpen()
-        return
-      }
-
-      playbackRateControl.classList.remove('vjs-menu-button-active', 'vjs-lock-showing')
-    }
-
-    const handlePointerEnter = () => {
-      keepPlaybackMenuOpen()
-    }
-
-    const handlePointerLeave = (event) => {
-      closePlaybackMenu(event.relatedTarget)
-    }
-
-    const handleMenuPointerDown = (event) => {
+    const handleToggleMenu = (event) => {
+      event.preventDefault()
       event.stopPropagation()
-      keepPlaybackMenuOpen()
+      player.userActive(true)
+      setIsSpeedMenuOpen((prev) => !prev)
+    }
+
+    const handleMenuMouseDown = (event) => {
+      event.stopPropagation()
     }
 
     const handleMenuClick = (event) => {
       event.stopPropagation()
+      player.userActive(true)
+
       if (event.target.closest('.vjs-menu-item')) {
-        window.setTimeout(() => closePlaybackMenu(), 0)
+        window.setTimeout(() => setIsSpeedMenuOpen(false), 0)
         return
       }
-
-      keepPlaybackMenuOpen()
     }
 
-    const handleDocumentPointerDown = (event) => {
-      closePlaybackMenu(event.target)
+    const handleWindowClick = (event) => {
+      if (playbackRateControl.contains(event.target)) {
+        return
+      }
+      setIsSpeedMenuOpen(false)
     }
 
-    playbackRateControl.addEventListener('pointerenter', handlePointerEnter)
-    playbackRateControl.addEventListener('pointerleave', handlePointerLeave)
-    playbackRateMenu.addEventListener('pointerdown', handleMenuPointerDown)
+    playbackRateControl.addEventListener('click', handleToggleMenu)
+    playbackRateMenu.addEventListener('mousedown', handleMenuMouseDown)
     playbackRateMenu.addEventListener('click', handleMenuClick)
-    document.addEventListener('pointerdown', handleDocumentPointerDown)
+    window.addEventListener('click', handleWindowClick)
 
     return () => {
-      playbackRateControl.removeEventListener('pointerenter', handlePointerEnter)
-      playbackRateControl.removeEventListener('pointerleave', handlePointerLeave)
-      playbackRateMenu.removeEventListener('pointerdown', handleMenuPointerDown)
+      playbackRateControl.removeEventListener('click', handleToggleMenu)
+      playbackRateMenu.removeEventListener('mousedown', handleMenuMouseDown)
       playbackRateMenu.removeEventListener('click', handleMenuClick)
-      document.removeEventListener('pointerdown', handleDocumentPointerDown)
+      window.removeEventListener('click', handleWindowClick)
+      speedMenuControlRef.current = null
+      speedMenuRef.current = null
     }
   }, [])
+
+  useEffect(() => {
+    const player = playerRef.current
+    const playbackRateControl = speedMenuControlRef.current
+
+    if (!player || !playbackRateControl) {
+      return
+    }
+
+    player.userActive(true)
+    playbackRateControl.classList.toggle('vjs-menu-button-active', isSpeedMenuOpen)
+    playbackRateControl.classList.toggle('vjs-lock-showing', isSpeedMenuOpen)
+  }, [isSpeedMenuOpen])
 
   return (
     <div
