@@ -12,6 +12,79 @@ const PAYMENT_METHODS = [
   { id: 'razorpay', name: 'Razorpay', icon: CreditCard, color: 'text-blue-600' },
 ];
 
+const PLAN_OPTIONS = {
+  monthly: [
+    {
+      id: 'starter',
+      name: 'Starter',
+      price: 66,
+      priceLabel: '$66',
+      interviewCredits: 10,
+      jobPostings: 5,
+      userSeats: 4,
+      resumeScoring: 500,
+      resumeScoringUnlimited: false,
+    },
+    {
+      id: 'growth',
+      name: 'Growth',
+      price: 45,
+      priceLabel: '$45',
+      interviewCredits: 30,
+      jobPostings: 20,
+      userSeats: 11,
+      resumeScoring: null,
+      resumeScoringUnlimited: true,
+    },
+    {
+      id: 'custom',
+      name: 'Custom',
+      price: null,
+      priceLabel: 'Custom',
+      interviewCredits: null,
+      jobPostings: null,
+      userSeats: null,
+      resumeScoring: null,
+      resumeScoringUnlimited: true,
+    },
+  ],
+  yearly: [
+    {
+      id: 'starter',
+      name: 'Starter',
+      price: 720,
+      priceLabel: '$720',
+      interviewCredits: 150,
+      jobPostings: 5,
+      userSeats: 4,
+      resumeScoring: 500,
+      resumeScoringUnlimited: false,
+    },
+    {
+      id: 'growth',
+      name: 'Growth',
+      price: 499,
+      priceLabel: '$499',
+      interviewCredits: 360,
+      jobPostings: 20,
+      userSeats: 11,
+      resumeScoring: null,
+      resumeScoringUnlimited: true,
+    },
+    {
+      id: 'custom',
+      name: 'Custom',
+      price: null,
+      priceLabel: 'Custom',
+      interviewCredits: null,
+      jobPostings: null,
+      userSeats: null,
+      resumeScoring: null,
+      resumeScoringUnlimited: true,
+    },
+  ],
+};
+
 export default function WalletPage({ superAdminAgencyId = null }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const { user } = useAuth();
@@ -26,6 +99,11 @@ export default function WalletPage({ superAdminAgencyId = null }) {
   const [discount, setDiscount] = useState(null);
   const [agencyWalletData, setAgencyWalletData] = useState(null);
   const [historyFilter, setHistoryFilter] = useState('all');
+  const [billingCycle, setBillingCycle] = useState('monthly');
+  const [selectedPlan, setSelectedPlan] = useState('');
+
+  const currentPlanOptions = PLAN_OPTIONS[billingCycle];
+  const selectedPlanConfig = currentPlanOptions.find((plan) => plan.id === selectedPlan) || null;
 
   const getStats = () => {
     const totalCredits = transactions
@@ -192,11 +270,50 @@ Status: ${txn.status || 'completed'}
       return;
     }
 
-    const credits = parseInt(creditAmount);
-    const price = parseInt(creditAmount);
-
     setLoading(true);
     try {
+      if (selectedPlanConfig && selectedPlanConfig.id !== 'custom' && isAdmin) {
+        const usageSnapshot = await getPlanUsageSnapshot();
+        const validationErrors = validatePresetPlanSelection(selectedPlanConfig, usageSnapshot);
+
+        if (validationErrors.length > 0) {
+          alert(`This ${billingCycle} plan cannot be selected right now:\n\n${validationErrors.join('\n')}`);
+          return;
+        }
+
+        const includedCredits = selectedPlanConfig.interviewCredits;
+        const userCount = Math.max(usageSnapshot.activeUserCount || 1, 1);
+        const orderResponse = await api.post('/wallet/create-order', {
+          credits: includedCredits,
+          payment_method: selectedPayment
+        });
+
+        await api.post('/wallet/payment-success', {
+          order_id: orderResponse.order_id,
+          transaction_id: `TXN_${Date.now()}`,
+          credits: includedCredits,
+          payment_method: selectedPayment,
+          amount_paid: selectedPlanConfig.price
+        });
+
+        await api.post('/subscriptions/select-plan', {
+          user_id: user.id,
+          plan_name: selectedPlanConfig.id,
+          billing_type: billingCycle,
+          user_count: userCount
+        });
+
+        alert(`Successfully activated the ${selectedPlanConfig.name} ${billingCycle} plan with ${includedCredits} interview credits!`);
+        setSelectedPayment(null);
+        setSelectedPlan('');
+        setCreditAmount('');
+        fetchBalance();
+        fetchTransactions();
+        return;
+      }
+
+      const credits = parseInt(creditAmount);
+      const price = parseInt(creditAmount);
       const orderResponse = await api.post('/wallet/create-order', {
         credits: credits,
         payment_method: selectedPayment
@@ -212,6 +329,7 @@ Status: ${txn.status || 'completed'}
 
       alert(`Successfully purchased ${credits} credits!`);
       setSelectedPayment(null);
+      setSelectedPlan('');
       setCreditAmount('');
       fetchBalance();
       fetchTransactions();
@@ -220,6 +338,60 @@ Status: ${txn.status || 'completed'}
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleBillingCycleChange = (value) => {
+    setBillingCycle(value);
+    setSelectedPlan('');
+    setCreditAmount('');
+  };
+
+  const handlePlanChange = (value) => {
+    setSelectedPlan(value);
+    const plan = currentPlanOptions.find((option) => option.id === value);
+    setCreditAmount(plan?.id === 'custom' ? '' : String(plan?.price || ''));
+  };
+
+  const getPlanUsageSnapshot = async () => {
+    const [subscription, activeUsers, jobsCount] = await Promise.all([
+      isAdmin ? api.get('/subscriptions/current').catch(() => null) : Promise.resolve(null),
+      user?.agency_id ? api.getUsersByAgency(user.agency_id).catch(() => []) : Promise.resolve([]),
+      api.getJobsCount({ is_active: true }).catch(() => ({ count: 0 })),
+    ]);
+
+    return {
+      activeUserCount: Array.isArray(activeUsers) && activeUsers.length > 0
+        ? activeUsers.length
+        : Math.max(subscription?.current_users || 0, user ? 1 : 0),
+      activeJobCount: subscription?.used_job_posts ?? jobsCount?.count ?? 0,
+      interviewCreditsUsed: subscription?.interview_credits_used || 0,
+      resumeScoringUsed: subscription?.resume_scoring_used || 0,
+    };
+  };
+
+  const validatePresetPlanSelection = (planConfig, usageSnapshot) => {
+    const errors = [];
+
+    if ((usageSnapshot.interviewCreditsUsed || 0) > planConfig.interviewCredits) {
+      errors.push(`Interview credits used (${usageSnapshot.interviewCreditsUsed}) exceed the ${planConfig.name} ${billingCycle} limit of ${planConfig.interviewCredits}.`);
+    }
+
+    if ((usageSnapshot.activeJobCount || 0) > planConfig.jobPostings) {
+      errors.push(`Active job postings (${usageSnapshot.activeJobCount}) exceed the ${planConfig.name} ${billingCycle} limit of ${planConfig.jobPostings}.`);
+    }
+
+    if ((usageSnapshot.activeUserCount || 0) > planConfig.userSeats) {
+      errors.push(`Active user seats (${usageSnapshot.activeUserCount}) exceed the ${planConfig.name} ${billingCycle} limit of ${planConfig.userSeats}.`);
+    }
+
+    if (
+      !planConfig.resumeScoringUnlimited &&
+      (usageSnapshot.resumeScoringUsed || 0) > (planConfig.resumeScoring || 0)
+    ) {
+      errors.push(`Resume scans used (${usageSnapshot.resumeScoringUsed}) exceed the ${planConfig.name} ${billingCycle} limit of ${planConfig.resumeScoring}.`);
+    }
+
+    return errors;
   };
 
   return (
@@ -335,17 +507,58 @@ Status: ${txn.status || 'completed'}
         </CardHeader>
         <CardContent className="space-y-6">
           <div>
-            <Label htmlFor="creditAmount">Enter Amount</Label>
-            <Input
+            <Label htmlFor="billingCycle">Billing Cycle</Label>
+            <select
+              id="billingCycle"
+              value={billingCycle}
+              onChange={(e) => handleBillingCycleChange(e.target.value)}
+              className="mt-2 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            >
+              <option value="monthly">Monthly</option>
+              <option value="yearly">Yearly</option>
+            </select>
+          </div>
+
+          <div>
+            <Label htmlFor="creditAmount">Choose Plan</Label>
+            <select
               id="creditAmount"
-              type="number"
-              placeholder="Enter amount"
-              value={creditAmount}
-              onChange={(e) => setCreditAmount(e.target.value)}
-              min="1"
-              className="mt-2"
-            />
-            {creditAmount && (
+              value={selectedPlan}
+              onChange={(e) => handlePlanChange(e.target.value)}
+              className="mt-2 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+            >
+              <option value="">Select a plan</option>
+              {currentPlanOptions.map((plan) => (
+                <option key={plan.id} value={plan.id}>
+                  {plan.name} - {plan.priceLabel}
+                </option>
+              ))}
+            </select>
+
+            {selectedPlan === 'custom' && (
+              <Input
+                id="customCreditAmount"
+                type="number"
+                placeholder="Enter custom amount"
+                value={creditAmount}
+                onChange={(e) => setCreditAmount(e.target.value)}
+                min="1"
+                className="mt-3"
+              />
+            )}
+
+            {selectedPlanConfig && selectedPlanConfig.id !== 'custom' && (
+              <div className="mt-3 rounded-lg border bg-slate-50 p-4 space-y-1 text-sm text-slate-700">
+                <p className="font-medium text-slate-900">
+                  {selectedPlanConfig.name} includes {selectedPlanConfig.interviewCredits} interview credits for {selectedPlanConfig.priceLabel}/{billingCycle === 'monthly' ? 'month' : 'year'}
+                </p>
+                <p>Resume scans: {selectedPlanConfig.resumeScoringUnlimited ? 'Unlimited' : selectedPlanConfig.resumeScoring}{selectedPlanConfig.resumeScoringUnlimited ? '' : billingCycle === 'monthly' ? '/month' : '/month'}</p>
+                <p>Active job postings: {selectedPlanConfig.jobPostings}{billingCycle === 'monthly' ? '' : '/month'}</p>
+                <p>User seats: {selectedPlanConfig.userSeats}</p>
+              </div>
+            )}
+
+            {creditAmount && (!selectedPlanConfig || selectedPlanConfig.id === 'custom') && (
               <p className="text-sm text-gray-500 mt-2">
                 You will get {creditAmount} credits ($1 per credit)
               </p>
