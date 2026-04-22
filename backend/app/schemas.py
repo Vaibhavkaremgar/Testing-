@@ -1,8 +1,9 @@
-from pydantic import BaseModel, EmailStr
-from typing import Optional, List, Any
+from pydantic import BaseModel, EmailStr, Field
+from typing import Optional, List, Any, Literal
 from datetime import datetime
 from uuid import UUID
 from app.models import UserRole, CandidateStage, ParsingStatus, ReviewStatus
+from app.subscription_schemas import ManagedUserCreate, SelectPlanRequest, SubscriptionResponse
 
 # Agency Schemas
 class AgencyCreate(BaseModel):
@@ -429,3 +430,4 @@ class EmailCommunicationResponse(BaseModel):
     
     class Config:
         from_attributes = True
+

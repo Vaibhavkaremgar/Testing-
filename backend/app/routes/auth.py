@@ -5,15 +5,18 @@ from datetime import timedelta
 from typing import List, Optional
 from uuid import UUID
 from app.database import get_db
-from app.models import User, Agency
-from app.schemas import Token, UserCreate, UserResponse, UserLogin, PasswordUpdate, UserUpdate, AdminUserUpdate
+from app.models import User, Agency, UserRole
+from app.schemas import Token, UserCreate, UserResponse, UserLogin, PasswordUpdate, UserUpdate, AdminUserUpdate, ManagedUserCreate
 from app.auth import (
     get_password_hash,
     create_access_token,
     authenticate_user,
-    get_current_active_user
+    get_current_active_user,
+    get_current_admin_user,
 )
 from app.config import settings
+from app.plan_dependency import enforce_plan
+from app.plan_service import increment_plan_usage
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -63,6 +66,50 @@ def register(user: UserCreate, db: Session = Depends(get_db)):
     db.commit()
 
     return db_user
+
+
+@router.post("/users", response_model=UserResponse)
+def create_managed_user(
+    user: ManagedUserCreate,
+    subscription=Depends(enforce_plan("user_add")),
+    current_user: User = Depends(get_current_admin_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        if current_user.role != UserRole.ADMIN or not current_user.agency_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only agency admins can create managed users",
+            )
+
+        db_user = db.query(User).filter(User.email == user.email).first()
+        if db_user:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email already registered",
+            )
+
+        new_user = User(
+            email=user.email,
+            hashed_password=get_password_hash(user.password),
+            full_name=user.full_name,
+            role=UserRole(user.role),
+            agency_id=current_user.agency_id,
+            wallet_balance=0,
+            is_active=True,
+        )
+        db.add(new_user)
+        db.flush()
+        increment_plan_usage(db, current_user, "user_add", subscription=subscription)
+        db.commit()
+        db.refresh(new_user)
+        return new_user
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise
 
 @router.post("/login", response_model=Token)
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):

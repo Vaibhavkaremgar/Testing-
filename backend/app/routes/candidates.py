@@ -18,6 +18,8 @@ from threading import Lock
 from time import monotonic, perf_counter
 from app.database import SessionLocal, get_db
 from app.models import Candidate, CandidateStage, Interview, ParsingStatus, User, JobDescription
+from app.plan_dependency import enforce_plan
+from app.plan_service import increment_plan_usage
 from app.notification_service import queue_notification_for_stage, send_email_task
 from app.schemas import (
     CandidateCreate, CandidateUpdate, CandidateResponse, CandidateStageUpdate
@@ -2541,33 +2543,43 @@ def get_candidate(
 def create_candidate(
     candidate: CandidateCreate,
     background_tasks: BackgroundTasks,
+    subscription=Depends(enforce_plan("resume_score")),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    duplicate_candidate = _find_duplicate_candidate_for_job(
-        db,
-        name=candidate.name,
-        phone=candidate.phone,
-        job_id=candidate.job_id,
-    )
-    if duplicate_candidate:
-        raise HTTPException(status_code=409, detail="Application already exists")
+    try:
+        duplicate_candidate = _find_duplicate_candidate_for_job(
+            db,
+            name=candidate.name,
+            phone=candidate.phone,
+            job_id=candidate.job_id,
+        )
+        if duplicate_candidate:
+            raise HTTPException(status_code=409, detail="Application already exists")
 
-    db_candidate = Candidate(
-        **candidate.model_dump(),
-        agency_id=current_user.agency_id,
-        created_by=current_user.id,
-        assigned_to_user_id=current_user.id,
-        parsing_status=ParsingStatus.PENDING
-    )
-    db.add(db_candidate)
-    db.commit()
-    db.refresh(db_candidate)
-    
-    # Simulate resume parsing
-    simulate_resume_parsing(db_candidate, db, background_tasks=background_tasks, user_id=current_user.id)
-    
-    return db_candidate
+        db_candidate = Candidate(
+            **candidate.model_dump(),
+            agency_id=current_user.agency_id,
+            created_by=current_user.id,
+            assigned_to_user_id=current_user.id,
+            parsing_status=ParsingStatus.PENDING
+        )
+        db.add(db_candidate)
+        db.flush()
+        
+        # Simulate resume parsing
+        simulate_resume_parsing(db_candidate, db, background_tasks=background_tasks, user_id=current_user.id)
+        increment_plan_usage(db, current_user, "resume_score", subscription=subscription)
+        db.commit()
+        db.refresh(db_candidate)
+        
+        return db_candidate
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise
 
 @router.post("/upload")
 async def upload_resume(
@@ -2575,11 +2587,13 @@ async def upload_resume(
     job_id: Optional[UUID] = Query(None),
     threshold: Optional[float] = Query(60),
     background_tasks: BackgroundTasks = None,
+    subscription=Depends(enforce_plan("resume_score")),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
     print(f"Upload received - job_id: {job_id}, file: {file.filename}, threshold: {threshold}")
     upload_started_at = perf_counter()
+    file_path = None
     
     try:
         # Validate file type - PDF and Word documents
@@ -2650,6 +2664,8 @@ async def upload_resume(
             current_user.id,
             file_upload_ms,
         )
+        increment_plan_usage(db, current_user, "resume_score", subscription=subscription)
+        db.commit()
 
         return {
             "message": "Resume upload accepted and queued for analysis.",
@@ -2659,8 +2675,20 @@ async def upload_resume(
         }
         
     except HTTPException:
+        if file_path and os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except OSError:
+                pass
+        db.rollback()
         raise
     except Exception as e:
+        if file_path and os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except OSError:
+                pass
+        db.rollback()
         print(f"Upload error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 

@@ -19,6 +19,8 @@ from urllib3.exceptions import ProtocolError
 from app.database import get_db
 from app.config import settings
 from app.models import Interview, Candidate, CandidateStage, User
+from app.plan_dependency import enforce_plan
+from app.plan_service import increment_plan_usage
 from app.notification_service import queue_notification_for_stage, send_email_task
 from app.schemas import InterviewCreate, InterviewUpdate, InterviewResponse, InterviewResultsUpdate
 from app.auth import get_current_active_user
@@ -1735,25 +1737,35 @@ def create_interview_public(
 def create_interview(
     interview: InterviewCreate,
     background_tasks: BackgroundTasks,
+    subscription=Depends(enforce_plan("interview")),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    # Verify candidate exists
-    candidate = db.query(Candidate).filter(Candidate.id == interview.candidate_id).first()
-    if not candidate:
-        raise HTTPException(status_code=404, detail="Candidate not found")
+    try:
+        # Verify candidate exists
+        candidate = db.query(Candidate).filter(Candidate.id == interview.candidate_id).first()
+        if not candidate:
+            raise HTTPException(status_code=404, detail="Candidate not found")
 
-    _ensure_interview_scheduling_credits(db, candidate)
-    
-    db_interview = Interview(**interview.model_dump())
-    _apply_interview_score_normalization(db_interview)
-    db.add(db_interview)
-    
-    # Keep candidate stage aligned with interview status.
-    _sync_candidate_stage_from_interview(candidate, db_interview)
-    
-    db.commit()
-    db.refresh(db_interview)
+        _ensure_interview_scheduling_credits(db, candidate)
+        
+        db_interview = Interview(**interview.model_dump())
+        _apply_interview_score_normalization(db_interview)
+        db.add(db_interview)
+        
+        # Keep candidate stage aligned with interview status.
+        _sync_candidate_stage_from_interview(candidate, db_interview)
+        
+        db.flush()
+        increment_plan_usage(db, current_user, "interview", subscription=subscription)
+        db.commit()
+        db.refresh(db_interview)
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise
     try:
         result = queue_notification_for_stage(
             db,

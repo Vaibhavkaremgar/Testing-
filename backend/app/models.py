@@ -436,3 +436,35 @@ class WalletTransaction(Base):
     description = Column(String(500))
     balance_after = Column(Integer, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class Subscription(Base):
+    __tablename__ = "subscriptions"
+    __table_args__ = (
+        Index("idx_subscriptions_user_id_created_at", "user_id", "created_at"),
+        Index("idx_subscriptions_expires_at", "expires_at"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    plan_name = Column(String(50), nullable=False)
+    billing_type = Column(String(20), nullable=False)
+    price_per_user = Column(Float, nullable=True)
+    total_price = Column(Float, nullable=True)
+    interview_credits_total = Column(Integer, nullable=True)
+    interview_credits_used = Column(Integer, default=0, nullable=False)
+    max_job_posts = Column(Integer, nullable=True)
+    used_job_posts = Column(Integer, default=0, nullable=False)
+    max_users = Column(Integer, nullable=True)
+    current_users = Column(Integer, default=0, nullable=False)
+    resume_scoring_limit = Column(Integer, nullable=True)
+    resume_scoring_used = Column(Integer, default=0, nullable=False)
+    is_unlimited_resume_scoring = Column(Boolean, default=False, nullable=False)
+    is_unlimited_jobs = Column(Boolean, default=False, nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    cycle_anchor_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    last_monthly_reset_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    user = relationship("User", foreign_keys=[user_id])

@@ -3,7 +3,7 @@ Auto-migration script - runs on startup
 """
 from sqlalchemy import inspect, text
 from app.database import engine
-from app.models import AnalyticsWidget, UserDashboardPreference, Agency, WalletTransaction, AgencyDiscount, NotificationWorkflowToken
+from app.models import AnalyticsWidget, UserDashboardPreference, Agency, WalletTransaction, AgencyDiscount, NotificationWorkflowToken, Subscription
 
 
 def run_migrations():
@@ -146,6 +146,42 @@ def run_migrations():
                 conn.commit()
                 print("Migration completed: notification_workflow_tokens created")
 
+            if "subscriptions" not in get_tables():
+                print("Running migration: creating subscriptions table...")
+                Subscription.__table__.create(bind=engine, checkfirst=True)
+                conn.commit()
+                print("Migration completed: subscriptions created")
+            else:
+                subscription_columns = get_columns("subscriptions")
+                subscription_additions = {
+                    "user_id": "ALTER TABLE subscriptions ADD COLUMN user_id UUID REFERENCES users(id)",
+                    "plan_name": "ALTER TABLE subscriptions ADD COLUMN plan_name VARCHAR(50)",
+                    "billing_type": "ALTER TABLE subscriptions ADD COLUMN billing_type VARCHAR(20)",
+                    "price_per_user": "ALTER TABLE subscriptions ADD COLUMN price_per_user DOUBLE PRECISION",
+                    "total_price": "ALTER TABLE subscriptions ADD COLUMN total_price DOUBLE PRECISION",
+                    "interview_credits_total": "ALTER TABLE subscriptions ADD COLUMN interview_credits_total INTEGER",
+                    "interview_credits_used": "ALTER TABLE subscriptions ADD COLUMN interview_credits_used INTEGER DEFAULT 0 NOT NULL",
+                    "max_job_posts": "ALTER TABLE subscriptions ADD COLUMN max_job_posts INTEGER",
+                    "used_job_posts": "ALTER TABLE subscriptions ADD COLUMN used_job_posts INTEGER DEFAULT 0 NOT NULL",
+                    "max_users": "ALTER TABLE subscriptions ADD COLUMN max_users INTEGER",
+                    "current_users": "ALTER TABLE subscriptions ADD COLUMN current_users INTEGER DEFAULT 0 NOT NULL",
+                    "resume_scoring_limit": "ALTER TABLE subscriptions ADD COLUMN resume_scoring_limit INTEGER",
+                    "resume_scoring_used": "ALTER TABLE subscriptions ADD COLUMN resume_scoring_used INTEGER DEFAULT 0 NOT NULL",
+                    "is_unlimited_resume_scoring": "ALTER TABLE subscriptions ADD COLUMN is_unlimited_resume_scoring BOOLEAN DEFAULT FALSE NOT NULL",
+                    "is_unlimited_jobs": "ALTER TABLE subscriptions ADD COLUMN is_unlimited_jobs BOOLEAN DEFAULT FALSE NOT NULL",
+                    "expires_at": "ALTER TABLE subscriptions ADD COLUMN expires_at TIMESTAMP WITH TIME ZONE",
+                    "cycle_anchor_at": "ALTER TABLE subscriptions ADD COLUMN cycle_anchor_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()",
+                    "last_monthly_reset_at": "ALTER TABLE subscriptions ADD COLUMN last_monthly_reset_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()",
+                    "created_at": "ALTER TABLE subscriptions ADD COLUMN created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()",
+                    "updated_at": "ALTER TABLE subscriptions ADD COLUMN updated_at TIMESTAMP WITH TIME ZONE",
+                }
+                for column_name, statement in subscription_additions.items():
+                    if column_name not in subscription_columns:
+                        print(f"Running migration: adding subscriptions.{column_name}...")
+                        conn.execute(text(statement))
+                        conn.commit()
+                        print(f"Migration completed: subscriptions.{column_name} added")
+
             # Performance indexes for dashboard filtering and sorting paths.
             performance_indexes = {
                 "idx_candidates_agency_id": "CREATE INDEX IF NOT EXISTS idx_candidates_agency_id ON candidates (agency_id)",
@@ -164,9 +200,11 @@ def run_migrations():
                 "idx_job_descriptions_agency_id": "CREATE INDEX IF NOT EXISTS idx_job_descriptions_agency_id ON job_descriptions (agency_id)",
                 "idx_job_descriptions_is_active": "CREATE INDEX IF NOT EXISTS idx_job_descriptions_is_active ON job_descriptions (is_active)",
                 "idx_job_descriptions_agency_id_is_active": "CREATE INDEX IF NOT EXISTS idx_job_descriptions_agency_id_is_active ON job_descriptions (agency_id, is_active)",
+                "idx_subscriptions_user_id_created_at": "CREATE INDEX IF NOT EXISTS idx_subscriptions_user_id_created_at ON subscriptions (user_id, created_at)",
+                "idx_subscriptions_expires_at": "CREATE INDEX IF NOT EXISTS idx_subscriptions_expires_at ON subscriptions (expires_at)",
             }
             existing_indexes = set()
-            for table_name in ("candidates", "interviews", "job_descriptions"):
+            for table_name in ("candidates", "interviews", "job_descriptions", "subscriptions"):
                 if table_name in get_tables():
                     existing_indexes.update(get_indexes(table_name))
 

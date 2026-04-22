@@ -8,6 +8,8 @@ import os
 import re
 from app.database import get_db
 from app.models import JobDescription, Candidate, User
+from app.plan_dependency import enforce_plan
+from app.plan_service import increment_plan_usage
 from app.schemas import (
     JobDescriptionCreate, JobDescriptionUpdate, JobDescriptionResponse
 )
@@ -200,6 +202,7 @@ def get_job(
 @router.post("", response_model=JobDescriptionResponse)
 def create_job(
     job: JobDescriptionCreate,
+    subscription=Depends(enforce_plan("job_post")),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_admin_user)
 ):
@@ -218,7 +221,7 @@ def create_job(
                         "INSERT INTO clients (company_name, total_positions, positions_filled, positions_open, is_active) "
                         "VALUES (:name, 1, 0, 1, true)"
                     ), {"name": job.company_name})
-                    db.commit()
+                    db.flush()
                 except Exception as client_err:
                     db.rollback()
                     print(f"Client auto-create skipped: {client_err}")
@@ -233,6 +236,8 @@ def create_job(
         db_job = JobDescription(**job_data)
         db_job.agency_id = current_user.agency_id
         db.add(db_job)
+        db.flush()
+        increment_plan_usage(db, current_user, "job_post", subscription=subscription)
         db.commit()
         db.refresh(db_job)
         
@@ -258,7 +263,11 @@ def create_job(
             "candidate_count": 0
         }
         return JobDescriptionResponse(**job_dict)
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as e:
+        db.rollback()
         print(f"Error creating job: {str(e)}")
         import traceback
         traceback.print_exc()
