@@ -654,7 +654,7 @@ Status: ${txn.status || 'completed'}
                 <p className="font-medium text-slate-900">
                   {selectedPlanConfig.name} includes {selectedPlanConfig.interviewCredits} interview credits for {selectedPlanConfig.priceLabel}/{billingCycle === 'monthly' ? 'month' : 'year'}
                 </p>
-                <p>Resume scans: {selectedPlanConfig.resumeScoringUnlimited ? 'Unlimited' : selectedPlanConfig.resumeScoring}{selectedPlanConfig.resumeScoringUnlimited ? '' : billingCycle === 'monthly' ? '/month' : '/month'}</p>
+                <p>Resume scans: {selectedPlanConfig.resumeScoringUnlimited ? 'Unlimited' : selectedPlanConfig.resumeScoring}</p>
                 <p>Active job postings: {selectedPlanConfig.jobPostings}{billingCycle === 'monthly' ? '' : '/month'}</p>
                 <p>User seats: {selectedPlanConfig.userSeats}</p>
               </div>
