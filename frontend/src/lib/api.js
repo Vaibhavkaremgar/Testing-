@@ -109,7 +109,15 @@ class ApiClient {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({ detail: 'An error occurred' }))
-      throw new Error(error.detail || 'An error occurred')
+      const detail = error?.detail
+      const message =
+        typeof detail === 'string'
+          ? detail
+          : detail?.message || error?.message || 'An error occurred'
+      const requestError = new Error(message)
+      requestError.status = response.status
+      requestError.detail = detail
+      throw requestError
     }
 
     const contentType = response.headers.get('content-type')

@@ -101,6 +101,7 @@ export default function WalletPage({ superAdminAgencyId = null }) {
   const [historyFilter, setHistoryFilter] = useState('all');
   const [billingCycle, setBillingCycle] = useState('monthly');
   const [selectedPlan, setSelectedPlan] = useState('');
+  const [planStatus, setPlanStatus] = useState(null);
 
   const currentPlanOptions = PLAN_OPTIONS[billingCycle];
   const selectedPlanConfig = currentPlanOptions.find((plan) => plan.id === selectedPlan) || null;
@@ -141,6 +142,7 @@ export default function WalletPage({ superAdminAgencyId = null }) {
     fetchTransactions();
     if (isAdmin) {
       fetchDiscount();
+      fetchPlanStatus();
     }
   }, [user, superAdminAgencyId]);
 
@@ -209,6 +211,50 @@ export default function WalletPage({ superAdminAgencyId = null }) {
     } catch (error) {
       console.error('Failed to fetch transactions:', error);
       setTransactions([]);
+    }
+  };
+
+  const fetchPlanStatus = async () => {
+    if (!isAdmin) {
+      setPlanStatus(null);
+      return;
+    }
+
+    try {
+      const usageSnapshot = await getPlanUsageSnapshot();
+      const subscription = usageSnapshot.subscription;
+
+      if (!subscription) {
+        setPlanStatus(null);
+        return;
+      }
+
+      const interviewTotal = subscription.interview_credits_total || 0;
+      const interviewUsed = usageSnapshot.interviewCreditsUsed || 0;
+      const resumeTotal = subscription.resume_scoring_limit;
+      const resumeUsed = usageSnapshot.resumeScoringUsed || 0;
+      const jobsTotal = subscription.is_unlimited_jobs ? null : subscription.max_job_posts;
+      const jobsUsed = usageSnapshot.activeJobCount || 0;
+      const seatsTotal = subscription.max_users;
+      const seatsUsed = usageSnapshot.activeUserCount || 0;
+
+      setPlanStatus({
+        planName: subscription.plan_name,
+        billingType: subscription.billing_type,
+        interviewsRemaining: Math.max(interviewTotal - interviewUsed, 0),
+        interviewsTotal: interviewTotal,
+        resumeRemaining: subscription.is_unlimited_resume_scoring ? null : Math.max((resumeTotal || 0) - resumeUsed, 0),
+        resumeTotal,
+        resumeUnlimited: subscription.is_unlimited_resume_scoring,
+        jobsRemaining: subscription.is_unlimited_jobs ? null : Math.max((jobsTotal || 0) - jobsUsed, 0),
+        jobsTotal,
+        jobsUnlimited: subscription.is_unlimited_jobs,
+        seatsRemaining: seatsTotal == null ? null : Math.max(seatsTotal - seatsUsed, 0),
+        seatsTotal,
+      });
+    } catch (error) {
+      console.error('Failed to fetch plan status:', error);
+      setPlanStatus(null);
     }
   };
 
@@ -309,6 +355,7 @@ Status: ${txn.status || 'completed'}
         setCreditAmount('');
         fetchBalance();
         fetchTransactions();
+        fetchPlanStatus();
         return;
       }
 
@@ -333,6 +380,7 @@ Status: ${txn.status || 'completed'}
       setCreditAmount('');
       fetchBalance();
       fetchTransactions();
+      fetchPlanStatus();
     } catch (error) {
       alert('Payment failed: ' + error.message);
     } finally {
@@ -360,6 +408,7 @@ Status: ${txn.status || 'completed'}
     ]);
 
     return {
+      subscription,
       activeUserCount: Array.isArray(activeUsers) && activeUsers.length > 0
         ? activeUsers.length
         : Math.max(subscription?.current_users || 0, user ? 1 : 0),
@@ -463,6 +512,58 @@ Status: ${txn.status || 'completed'}
         </CardContent>
       </Card>
 
+      {!isSuperAdmin && isAdmin && planStatus && (
+        <Card>
+          <CardHeader>
+            <CardTitle>
+              Plan Usage Status
+              <span className="ml-2 text-sm font-normal text-muted-foreground capitalize">
+                {planStatus.planName} ({planStatus.billingType})
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-lg border p-4">
+                <p className="text-sm text-muted-foreground">Interviews Remaining</p>
+                <p className="mt-2 text-2xl font-bold">{planStatus.interviewsRemaining}</p>
+                <p className="mt-1 text-xs text-muted-foreground">of {planStatus.interviewsTotal}</p>
+              </div>
+
+              <div className="rounded-lg border p-4">
+                <p className="text-sm text-muted-foreground">Resume Scans Remaining</p>
+                <p className="mt-2 text-2xl font-bold">
+                  {planStatus.resumeUnlimited ? 'Unlimited' : planStatus.resumeRemaining}
+                </p>
+                {!planStatus.resumeUnlimited && (
+                  <p className="mt-1 text-xs text-muted-foreground">of {planStatus.resumeTotal}</p>
+                )}
+              </div>
+
+              <div className="rounded-lg border p-4">
+                <p className="text-sm text-muted-foreground">Jobs Remaining</p>
+                <p className="mt-2 text-2xl font-bold">
+                  {planStatus.jobsUnlimited ? 'Unlimited' : planStatus.jobsRemaining}
+                </p>
+                {!planStatus.jobsUnlimited && (
+                  <p className="mt-1 text-xs text-muted-foreground">of {planStatus.jobsTotal}</p>
+                )}
+              </div>
+
+              <div className="rounded-lg border p-4">
+                <p className="text-sm text-muted-foreground">Seats Remaining</p>
+                <p className="mt-2 text-2xl font-bold">
+                  {planStatus.seatsRemaining == null ? 'Custom' : planStatus.seatsRemaining}
+                </p>
+                {planStatus.seatsRemaining != null && (
+                  <p className="mt-1 text-xs text-muted-foreground">of {planStatus.seatsTotal}</p>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <Card>
@@ -514,6 +615,7 @@ Status: ${txn.status || 'completed'}
               onChange={(e) => handleBillingCycleChange(e.target.value)}
               className="mt-2 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
             >
+              <option value="Empty"></option>
               <option value="monthly">Monthly</option>
               <option value="yearly">Yearly</option>
             </select>
