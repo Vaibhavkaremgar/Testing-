@@ -119,6 +119,14 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _as_utc(dt: Optional[datetime]) -> Optional[datetime]:
+    if dt is None:
+        return None
+    if dt.tzinfo is None or dt.tzinfo.utcoffset(dt) is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 def _raise_limit_reached(feature: str) -> None:
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
@@ -201,8 +209,8 @@ def _get_latest_active_subscription(db: Session, owner_user_id: UUID) -> Optiona
 
 
 def apply_usage_resets(subscription: Subscription, now: Optional[datetime] = None) -> Subscription:
-    now = now or utcnow()
-    last_reset = subscription.last_monthly_reset_at or subscription.created_at or now
+    now = _as_utc(now) or utcnow()
+    last_reset = _as_utc(subscription.last_monthly_reset_at) or _as_utc(subscription.created_at) or now
 
     while last_reset + MONTHLY_RESET_INTERVAL <= now:
         last_reset = last_reset + MONTHLY_RESET_INTERVAL
@@ -233,7 +241,7 @@ def get_active_subscription(db: Session, user_id: User | UUID) -> Subscription:
     apply_usage_resets(subscription)
     _sync_current_users(db, subscription, scope)
 
-    if subscription.expires_at <= utcnow():
+    if _as_utc(subscription.expires_at) <= utcnow():
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Subscription expired")
 
     return subscription
@@ -282,7 +290,7 @@ def select_plan(
 
     if existing:
         apply_usage_resets(existing, now=now)
-        if existing.expires_at > now and is_upgrade(existing.plan_name, normalized_plan):
+        if _as_utc(existing.expires_at) > now and is_upgrade(existing.plan_name, normalized_plan):
             carry_forward_interviews = max(
                 (existing.interview_credits_total or 0) - (existing.interview_credits_used or 0),
                 0,
@@ -322,7 +330,7 @@ def check_plan_limit(subscription: Optional[Subscription], feature: str) -> Subs
     if subscription is None:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No active subscription")
 
-    if subscription.expires_at <= utcnow():
+    if _as_utc(subscription.expires_at) <= utcnow():
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Subscription expired")
 
     if normalized_feature == "interview":
