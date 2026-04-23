@@ -343,12 +343,12 @@ Status: ${txn.status || 'completed'}
     try {
       if (selectedPlanConfig && selectedPlanConfig.id !== 'custom' && isAdmin) {
         const usageSnapshot = await getPlanUsageSnapshot();
-        const validationErrors = validatePresetPlanSelection(selectedPlanConfig, usageSnapshot);
-
-        if (validationErrors.length > 0) {
-          alert(`This ${billingCycle} plan cannot be selected right now:\n\n${validationErrors.join('\n')}`);
-          return;
-        }
+        // const validationErrors = validatePresetPlanSelection(selectedPlanConfig, usageSnapshot);
+        //
+        // if (validationErrors.length > 0) {
+        //   alert(`This ${billingCycle} plan cannot be selected right now:\n\n${validationErrors.join('\n')}`);
+        //   return;
+        // }
 
         const includedCredits = selectedPlanConfig.interviewCredits;
         const userCount = Math.max(usageSnapshot.activeUserCount || 1, 1);
