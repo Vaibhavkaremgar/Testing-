@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import UsageSummaryGrid from '@/components/usage/UsageSummaryGrid';
 import { Wallet, ArrowUpCircle, ArrowDownCircle, CreditCard, TrendingUp, Minus, Download } from 'lucide-react';
 import api from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
@@ -107,75 +108,6 @@ export default function WalletPage({ superAdminAgencyId = null }) {
 
   const currentPlanOptions = PLAN_OPTIONS[billingCycle];
   const selectedPlanConfig = currentPlanOptions.find((plan) => plan.id === selectedPlan) || null;
-  const usageCards = usageSummary
-    ? [
-        {
-          key: 'interviews',
-          label: 'Interview Credits',
-          total: usageSummary.interview_credits?.total ?? 0,
-          used: usageSummary.interview_credits?.used ?? 0,
-          remaining: usageSummary.interview_credits?.remaining ?? 0,
-        },
-        {
-          key: 'resume',
-          label: 'Resume Scans',
-          total: usageSummary.resume_scans?.total ?? 0,
-          used: usageSummary.resume_scans?.used ?? 0,
-          remaining: usageSummary.resume_scans?.remaining ?? 0,
-        },
-        {
-          key: 'jobs',
-          label: 'Active Job Postings',
-          total: usageSummary.active_jobs?.total ?? 0,
-          used: usageSummary.active_jobs?.used ?? 0,
-          remaining: usageSummary.active_jobs?.remaining ?? 0,
-        },
-        {
-          key: 'seats',
-          label: 'User Seats',
-          total: usageSummary.user_seats?.total ?? 0,
-          used: usageSummary.user_seats?.used ?? 0,
-          remaining: usageSummary.user_seats?.remaining ?? 0,
-        },
-      ]
-    : planStatus ? [
-        {
-          key: 'interviews',
-          label: 'Interview Credits',
-          total: planStatus.interviewsTotal,
-          used: Math.max((planStatus.interviewsTotal || 0) - (planStatus.interviewsRemaining || 0), 0),
-          remaining: planStatus.interviewsRemaining,
-        },
-        {
-          key: 'resume',
-          label: 'Resume Scans',
-          total: planStatus.resumeUnlimited ? 'Unlimited' : planStatus.resumeTotal,
-          used: planStatus.resumeUnlimited
-            ? 'Unlimited'
-            : Math.max((planStatus.resumeTotal || 0) - (planStatus.resumeRemaining || 0), 0),
-          remaining: planStatus.resumeUnlimited ? 'Unlimited' : planStatus.resumeRemaining,
-        },
-        {
-          key: 'jobs',
-          label: 'Active Job Postings',
-          total: planStatus.jobsUnlimited ? 'Unlimited' : planStatus.jobsTotal,
-          used: planStatus.jobsUnlimited
-            ? 'Unlimited'
-            : Math.max((planStatus.jobsTotal || 0) - (planStatus.jobsRemaining || 0), 0),
-          remaining: planStatus.jobsUnlimited ? 'Unlimited' : planStatus.jobsRemaining,
-        },
-        {
-          key: 'seats',
-          label: 'User Seats',
-          total: planStatus.seatsRemaining == null ? 'Custom' : planStatus.seatsTotal,
-          used: planStatus.seatsRemaining == null
-            ? 'Custom'
-            : Math.max((planStatus.seatsTotal || 0) - (planStatus.seatsRemaining || 0), 0),
-          remaining: planStatus.seatsRemaining == null ? 'Custom' : planStatus.seatsRemaining,
-        },
-      ]
-    : [];
-  const planMetricCards = usageCards;
 
   const getStats = () => {
     const totalCredits = transactions
@@ -605,38 +537,20 @@ Status: ${txn.status || 'completed'}
         </CardContent>
       </Card>
 
-      {canViewPlanUsage && planStatus && (
+      {canViewPlanUsage && usageSummary && (
         <Card>
           <CardHeader>
             <CardTitle>
               Plan Usage Status
-              <span className="ml-2 text-sm font-normal text-muted-foreground capitalize">
-                {planStatus.planName} ({planStatus.billingType})
-              </span>
+              {planStatus && (
+                <span className="ml-2 text-sm font-normal text-muted-foreground capitalize">
+                  {planStatus.planName} ({planStatus.billingType})
+                </span>
+              )}
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-              {usageCards.map((card) => (
-                <div key={card.key} className="rounded-lg border p-4">
-                  <p className="text-sm text-muted-foreground">{card.label}</p>
-                  <div className="mt-3 grid grid-cols-3 gap-3">
-                    <div>
-                      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Total</p>
-                      <p className="mt-1 text-xl font-bold">{card.total}</p>
-                    </div>
-                    <div>
-                      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Used</p>
-                      <p className="mt-1 text-xl font-bold text-amber-600">{card.used}</p>
-                    </div>
-                    <div>
-                      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Remaining</p>
-                      <p className="mt-1 text-xl font-bold text-blue-600">{card.remaining}</p>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <UsageSummaryGrid summary={usageSummary || {}} />
           </CardContent>
         </Card>
       )}
@@ -676,25 +590,6 @@ Status: ${txn.status || 'completed'}
           </CardContent>
         </Card>
       </div>
-
-      {canViewPlanUsage && planMetricCards.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
-          {planMetricCards.map((card) => (
-            <Card key={card.key}>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">{card.label}</CardTitle>
-                <TrendingUp className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-blue-600">{card.remaining}</div>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Used: {card.used} of {card.total}
-                </p>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
 
       {/* Buy Credits */}
       {!isSuperAdmin && (
