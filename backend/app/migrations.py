@@ -3,7 +3,7 @@ Auto-migration script - runs on startup
 """
 from sqlalchemy import inspect, text
 from app.database import engine
-from app.models import AnalyticsWidget, UserDashboardPreference, Agency, WalletTransaction, AgencyDiscount, NotificationWorkflowToken, Subscription
+from app.models import AnalyticsWidget, UserDashboardPreference, Agency, WalletTransaction, AgencyDiscount, NotificationWorkflowToken, Plan, PlanLimit, Subscription, UsageTracking
 
 
 def run_migrations():
@@ -178,6 +178,8 @@ def run_migrations():
                 subscription_columns = get_columns("subscriptions")
                 subscription_additions = {
                     "user_id": "ALTER TABLE subscriptions ADD COLUMN user_id UUID REFERENCES users(id)",
+                    "plan_id": "ALTER TABLE subscriptions ADD COLUMN plan_id UUID REFERENCES plans(id)",
+                    "status": "ALTER TABLE subscriptions ADD COLUMN status VARCHAR(50) DEFAULT 'active'",
                     "plan_name": "ALTER TABLE subscriptions ADD COLUMN plan_name VARCHAR(50)",
                     "billing_type": "ALTER TABLE subscriptions ADD COLUMN billing_type VARCHAR(20)",
                     "price_per_user": "ALTER TABLE subscriptions ADD COLUMN price_per_user DOUBLE PRECISION",
@@ -249,6 +251,24 @@ def run_migrations():
                     conn.execute(text("ALTER TABLE subscriptions ALTER COLUMN legacy_user_id DROP NOT NULL"))
                     conn.commit()
 
+            if "plans" not in get_tables():
+                print("Running migration: creating plans table...")
+                Plan.__table__.create(bind=engine, checkfirst=True)
+                conn.commit()
+                print("Migration completed: plans created")
+
+            if "plan_limits" not in get_tables():
+                print("Running migration: creating plan_limits table...")
+                PlanLimit.__table__.create(bind=engine, checkfirst=True)
+                conn.commit()
+                print("Migration completed: plan_limits created")
+
+            if "usage_tracking" not in get_tables():
+                print("Running migration: creating usage_tracking table...")
+                UsageTracking.__table__.create(bind=engine, checkfirst=True)
+                conn.commit()
+                print("Migration completed: usage_tracking created")
+
             # Performance indexes for dashboard filtering and sorting paths.
             performance_indexes = {
                 "idx_candidates_agency_id": "CREATE INDEX IF NOT EXISTS idx_candidates_agency_id ON candidates (agency_id)",
@@ -271,7 +291,7 @@ def run_migrations():
                 "idx_subscriptions_expires_at": "CREATE INDEX IF NOT EXISTS idx_subscriptions_expires_at ON subscriptions (expires_at)",
             }
             existing_indexes = set()
-            for table_name in ("candidates", "interviews", "job_descriptions", "subscriptions"):
+            for table_name in ("candidates", "interviews", "job_descriptions", "subscriptions", "plans", "plan_limits", "usage_tracking"):
                 if table_name in get_tables():
                     existing_indexes.update(get_indexes(table_name))
 

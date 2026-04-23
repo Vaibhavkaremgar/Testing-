@@ -109,30 +109,36 @@ export default function WalletPage({ superAdminAgencyId = null }) {
     {
       key: 'interviews',
       label: 'Interview Credits',
-      remaining: planStatus.interviewsRemaining,
       total: planStatus.interviewsTotal,
-      helper: 'Available for interviews',
+      used: Math.max((planStatus.interviewsTotal || 0) - (planStatus.interviewsRemaining || 0), 0),
+      remaining: planStatus.interviewsRemaining,
     },
     {
       key: 'resume',
       label: 'Resume Scans',
+      total: planStatus.resumeUnlimited ? 'Unlimited' : planStatus.resumeTotal,
+      used: planStatus.resumeUnlimited
+        ? 'Unlimited'
+        : Math.max((planStatus.resumeTotal || 0) - (planStatus.resumeRemaining || 0), 0),
       remaining: planStatus.resumeUnlimited ? 'Unlimited' : planStatus.resumeRemaining,
-      total: planStatus.resumeUnlimited ? null : planStatus.resumeTotal,
-      helper: planStatus.resumeUnlimited ? 'No monthly cap' : 'Scans left this cycle',
     },
     {
       key: 'jobs',
       label: 'Active Job Postings',
+      total: planStatus.jobsUnlimited ? 'Unlimited' : planStatus.jobsTotal,
+      used: planStatus.jobsUnlimited
+        ? 'Unlimited'
+        : Math.max((planStatus.jobsTotal || 0) - (planStatus.jobsRemaining || 0), 0),
       remaining: planStatus.jobsUnlimited ? 'Unlimited' : planStatus.jobsRemaining,
-      total: planStatus.jobsUnlimited ? null : planStatus.jobsTotal,
-      helper: planStatus.jobsUnlimited ? 'No active posting cap' : 'Open postings left',
     },
     {
       key: 'seats',
       label: 'User Seats',
+      total: planStatus.seatsRemaining == null ? 'Custom' : planStatus.seatsTotal,
+      used: planStatus.seatsRemaining == null
+        ? 'Custom'
+        : Math.max((planStatus.seatsTotal || 0) - (planStatus.seatsRemaining || 0), 0),
       remaining: planStatus.seatsRemaining == null ? 'Custom' : planStatus.seatsRemaining,
-      total: planStatus.seatsRemaining == null ? null : planStatus.seatsTotal,
-      helper: planStatus.seatsRemaining == null ? 'Managed by custom plan' : 'Seats left for active users',
     },
   ] : [];
 
@@ -557,14 +563,20 @@ Status: ${txn.status || 'completed'}
               {usageCards.map((card) => (
                 <div key={card.key} className="rounded-lg border p-4">
                   <p className="text-sm text-muted-foreground">{card.label}</p>
-                  <p className="mt-2 text-2xl font-bold">{card.remaining}</p>
-                  {card.total != null ? (
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {card.remaining} remaining of {card.total}
-                    </p>
-                  ) : (
-                    <p className="mt-1 text-xs text-muted-foreground">{card.helper}</p>
-                  )}
+                  <div className="mt-3 grid grid-cols-3 gap-3">
+                    <div>
+                      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Total</p>
+                      <p className="mt-1 text-xl font-bold">{card.total}</p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Used</p>
+                      <p className="mt-1 text-xl font-bold text-amber-600">{card.used}</p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Remaining</p>
+                      <p className="mt-1 text-xl font-bold text-blue-600">{card.remaining}</p>
+                    </div>
+                  </div>
                 </div>
               ))}
             </div>

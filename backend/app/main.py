@@ -27,6 +27,7 @@ from app.routes import (
     payment,
     pricing,
     subscriptions,
+    usage,
     wallet,
     webhooks,
 )
@@ -118,6 +119,7 @@ app.include_router(payment.router, prefix="/api")
 app.include_router(agencies.router, prefix="/api")
 app.include_router(pricing.router, prefix="/api")
 app.include_router(subscriptions.router, prefix="/api")
+app.include_router(usage.router, prefix="/api")
 
 
 @app.on_event("startup")

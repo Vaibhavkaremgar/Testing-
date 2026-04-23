@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, Float, DateTime, ForeignKey, Enum, Boolean, JSON, Index, text
+from sqlalchemy import Column, Integer, String, Text, Float, DateTime, ForeignKey, Enum, Boolean, JSON, Index, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.types import TypeDecorator
@@ -447,6 +447,8 @@ class Subscription(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    plan_id = Column(UUID(as_uuid=True), ForeignKey("plans.id"), nullable=True, index=True)
+    status = Column(String(50), nullable=True, default="active", index=True)
     plan_name = Column(String(50), nullable=False)
     billing_type = Column(String(20), nullable=False)
     price_per_user = Column(Float, nullable=True)
@@ -464,6 +466,55 @@ class Subscription(Base):
     expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
     cycle_anchor_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     last_monthly_reset_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    user = relationship("User", foreign_keys=[user_id])
+    plan = relationship("Plan", foreign_keys=[plan_id])
+
+
+class Plan(Base):
+    __tablename__ = "plans"
+    __table_args__ = (
+        Index("idx_plans_name_duration", "name", "duration"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    name = Column(String(100), nullable=False, index=True)
+    price = Column(Float, nullable=True)
+    duration = Column(String(20), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
+class PlanLimit(Base):
+    __tablename__ = "plan_limits"
+    __table_args__ = (
+        UniqueConstraint("plan_id", "feature_name", name="uq_plan_limits_plan_feature"),
+        Index("idx_plan_limits_plan_id", "plan_id"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    plan_id = Column(UUID(as_uuid=True), ForeignKey("plans.id"), nullable=False)
+    feature_name = Column(String(100), nullable=False, index=True)
+    total_limit = Column(Integer, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    plan = relationship("Plan", foreign_keys=[plan_id])
+
+
+class UsageTracking(Base):
+    __tablename__ = "usage_tracking"
+    __table_args__ = (
+        UniqueConstraint("user_id", "feature_name", name="uq_usage_tracking_user_feature"),
+        Index("idx_usage_tracking_user_id", "user_id"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    feature_name = Column(String(100), nullable=False, index=True)
+    used_count = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

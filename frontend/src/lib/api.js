@@ -477,6 +477,10 @@ class ApiClient {
     return this.request(`/jobs/count${query ? `?${query}` : ''}`)
   }
 
+  async getUsageSummary() {
+    return this.request('/usage/summary', { skipCache: true })
+  }
+
   async getJob(id) {
     return this.request(`/jobs/${id}`)
   }
