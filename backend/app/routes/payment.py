@@ -45,24 +45,28 @@ async def payment_success(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
+    db_user = db.query(User).filter(User.id == current_user.id).first()
+    if not db_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
     # Update wallet balance
-    current_user.wallet_balance += request.credits
+    db_user.wallet_balance += request.credits
     
     # Create transaction record
     transaction = WalletTransaction(
-        user_id=current_user.id,
+        user_id=db_user.id,
         amount=request.credits,
         transaction_type=TransactionType.CREDIT,
         description=f"Purchased {request.credits} credits via {request.payment_method}",
-        balance_after=current_user.wallet_balance,
+        balance_after=db_user.wallet_balance,
     )
     
     db.add(transaction)
     db.commit()
-    db.refresh(current_user)
+    db.refresh(db_user)
     
     return {
         "success": True,
-        "new_balance": current_user.wallet_balance,
+        "new_balance": db_user.wallet_balance,
         "transaction_id": transaction.id
     }
