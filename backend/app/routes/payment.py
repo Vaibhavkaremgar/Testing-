@@ -55,11 +55,6 @@ async def payment_success(
         transaction_type=TransactionType.CREDIT,
         description=f"Purchased {request.credits} credits via {request.payment_method}",
         balance_after=current_user.wallet_balance,
-        credits=request.credits,
-        payment_method=request.payment_method,
-        transaction_id=request.transaction_id,
-        price_paid=request.amount_paid,
-        status="completed"
     )
     
     db.add(transaction)
