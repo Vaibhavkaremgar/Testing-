@@ -90,6 +90,7 @@ export default function WalletPage({ superAdminAgencyId = null }) {
   const { user } = useAuth();
   const isSuperAdmin = user?.role === 'super_admin';
   const isAdmin = user?.role === 'admin';
+  const canViewPlanUsage = !isSuperAdmin;
   const [balance, setBalance] = useState(0);
   const [transactions, setTransactions] = useState([]);
   const [selectedPayment, setSelectedPayment] = useState(null);
@@ -102,45 +103,78 @@ export default function WalletPage({ superAdminAgencyId = null }) {
   const [billingCycle, setBillingCycle] = useState('monthly');
   const [selectedPlan, setSelectedPlan] = useState('');
   const [planStatus, setPlanStatus] = useState(null);
+  const [usageSummary, setUsageSummary] = useState(null);
 
   const currentPlanOptions = PLAN_OPTIONS[billingCycle];
   const selectedPlanConfig = currentPlanOptions.find((plan) => plan.id === selectedPlan) || null;
-  const usageCards = planStatus ? [
-    {
-      key: 'interviews',
-      label: 'Interview Credits',
-      total: planStatus.interviewsTotal,
-      used: Math.max((planStatus.interviewsTotal || 0) - (planStatus.interviewsRemaining || 0), 0),
-      remaining: planStatus.interviewsRemaining,
-    },
-    {
-      key: 'resume',
-      label: 'Resume Scans',
-      total: planStatus.resumeUnlimited ? 'Unlimited' : planStatus.resumeTotal,
-      used: planStatus.resumeUnlimited
-        ? 'Unlimited'
-        : Math.max((planStatus.resumeTotal || 0) - (planStatus.resumeRemaining || 0), 0),
-      remaining: planStatus.resumeUnlimited ? 'Unlimited' : planStatus.resumeRemaining,
-    },
-    {
-      key: 'jobs',
-      label: 'Active Job Postings',
-      total: planStatus.jobsUnlimited ? 'Unlimited' : planStatus.jobsTotal,
-      used: planStatus.jobsUnlimited
-        ? 'Unlimited'
-        : Math.max((planStatus.jobsTotal || 0) - (planStatus.jobsRemaining || 0), 0),
-      remaining: planStatus.jobsUnlimited ? 'Unlimited' : planStatus.jobsRemaining,
-    },
-    {
-      key: 'seats',
-      label: 'User Seats',
-      total: planStatus.seatsRemaining == null ? 'Custom' : planStatus.seatsTotal,
-      used: planStatus.seatsRemaining == null
-        ? 'Custom'
-        : Math.max((planStatus.seatsTotal || 0) - (planStatus.seatsRemaining || 0), 0),
-      remaining: planStatus.seatsRemaining == null ? 'Custom' : planStatus.seatsRemaining,
-    },
-  ] : [];
+  const usageCards = usageSummary
+    ? [
+        {
+          key: 'interviews',
+          label: 'Interview Credits',
+          total: usageSummary.interview_credits?.total ?? 0,
+          used: usageSummary.interview_credits?.used ?? 0,
+          remaining: usageSummary.interview_credits?.remaining ?? 0,
+        },
+        {
+          key: 'resume',
+          label: 'Resume Scans',
+          total: usageSummary.resume_scans?.total ?? 0,
+          used: usageSummary.resume_scans?.used ?? 0,
+          remaining: usageSummary.resume_scans?.remaining ?? 0,
+        },
+        {
+          key: 'jobs',
+          label: 'Active Job Postings',
+          total: usageSummary.active_jobs?.total ?? 0,
+          used: usageSummary.active_jobs?.used ?? 0,
+          remaining: usageSummary.active_jobs?.remaining ?? 0,
+        },
+        {
+          key: 'seats',
+          label: 'User Seats',
+          total: usageSummary.user_seats?.total ?? 0,
+          used: usageSummary.user_seats?.used ?? 0,
+          remaining: usageSummary.user_seats?.remaining ?? 0,
+        },
+      ]
+    : planStatus ? [
+        {
+          key: 'interviews',
+          label: 'Interview Credits',
+          total: planStatus.interviewsTotal,
+          used: Math.max((planStatus.interviewsTotal || 0) - (planStatus.interviewsRemaining || 0), 0),
+          remaining: planStatus.interviewsRemaining,
+        },
+        {
+          key: 'resume',
+          label: 'Resume Scans',
+          total: planStatus.resumeUnlimited ? 'Unlimited' : planStatus.resumeTotal,
+          used: planStatus.resumeUnlimited
+            ? 'Unlimited'
+            : Math.max((planStatus.resumeTotal || 0) - (planStatus.resumeRemaining || 0), 0),
+          remaining: planStatus.resumeUnlimited ? 'Unlimited' : planStatus.resumeRemaining,
+        },
+        {
+          key: 'jobs',
+          label: 'Active Job Postings',
+          total: planStatus.jobsUnlimited ? 'Unlimited' : planStatus.jobsTotal,
+          used: planStatus.jobsUnlimited
+            ? 'Unlimited'
+            : Math.max((planStatus.jobsTotal || 0) - (planStatus.jobsRemaining || 0), 0),
+          remaining: planStatus.jobsUnlimited ? 'Unlimited' : planStatus.jobsRemaining,
+        },
+        {
+          key: 'seats',
+          label: 'User Seats',
+          total: planStatus.seatsRemaining == null ? 'Custom' : planStatus.seatsTotal,
+          used: planStatus.seatsRemaining == null
+            ? 'Custom'
+            : Math.max((planStatus.seatsTotal || 0) - (planStatus.seatsRemaining || 0), 0),
+          remaining: planStatus.seatsRemaining == null ? 'Custom' : planStatus.seatsRemaining,
+        },
+      ]
+    : [];
   const planMetricCards = usageCards;
 
   const getStats = () => {
@@ -177,8 +211,9 @@ export default function WalletPage({ superAdminAgencyId = null }) {
 
     fetchBalance();
     fetchTransactions();
-    if (isAdmin) {
+    if (canViewPlanUsage) {
       fetchDiscount();
+      fetchUsageSummary();
       fetchPlanStatus();
     }
   }, [user, superAdminAgencyId]);
@@ -252,7 +287,7 @@ export default function WalletPage({ superAdminAgencyId = null }) {
   };
 
   const fetchPlanStatus = async () => {
-    if (!isAdmin) {
+    if (!canViewPlanUsage) {
       setPlanStatus(null);
       return;
     }
@@ -292,6 +327,25 @@ export default function WalletPage({ superAdminAgencyId = null }) {
     } catch (error) {
       console.error('Failed to fetch plan status:', error);
       setPlanStatus(null);
+    }
+  };
+
+  const fetchUsageSummary = async () => {
+    if (!canViewPlanUsage) {
+      setUsageSummary(null);
+      return;
+    }
+
+    try {
+      const summary = await api.getUsageSummary();
+      if (summary && typeof summary === 'object' && Object.keys(summary).length > 0) {
+        setUsageSummary(summary);
+        return;
+      }
+      setUsageSummary(null);
+    } catch (error) {
+      console.error('Failed to fetch usage summary:', error);
+      setUsageSummary(null);
     }
   };
 
@@ -392,6 +446,7 @@ Status: ${txn.status || 'completed'}
         setCreditAmount('');
         fetchBalance();
         fetchTransactions();
+        fetchUsageSummary();
         fetchPlanStatus();
         return;
       }
@@ -417,6 +472,7 @@ Status: ${txn.status || 'completed'}
       setCreditAmount('');
       fetchBalance();
       fetchTransactions();
+      fetchUsageSummary();
       fetchPlanStatus();
     } catch (error) {
       alert('Payment failed: ' + error.message);
@@ -439,7 +495,7 @@ Status: ${txn.status || 'completed'}
 
   const getPlanUsageSnapshot = async () => {
     const [subscription, activeUsers, jobsCount] = await Promise.all([
-      isAdmin ? api.get('/subscriptions/current').catch(() => null) : Promise.resolve(null),
+      canViewPlanUsage ? api.get('/subscriptions/current').catch(() => null) : Promise.resolve(null),
       user?.agency_id ? api.getUsersByAgency(user.agency_id).catch(() => []) : Promise.resolve([]),
       api.getJobsCount({ is_active: true }).catch(() => ({ count: 0 })),
     ]);
@@ -549,7 +605,7 @@ Status: ${txn.status || 'completed'}
         </CardContent>
       </Card>
 
-      {!isSuperAdmin && isAdmin && planStatus && (
+      {canViewPlanUsage && planStatus && (
         <Card>
           <CardHeader>
             <CardTitle>
@@ -621,7 +677,7 @@ Status: ${txn.status || 'completed'}
         </Card>
       </div>
 
-      {!isSuperAdmin && isAdmin && planStatus && (
+      {canViewPlanUsage && planMetricCards.length > 0 && (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
           {planMetricCards.map((card) => (
             <Card key={card.key}>
