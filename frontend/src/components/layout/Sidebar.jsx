@@ -131,7 +131,7 @@ export function Sidebar() {
 
     try {
       setIsSendingHelpMessage(true)
-      await api.post('/email/support', {
+      const response = await api.post('/email/support', {
         full_name: fullNameValue,
         email_address: emailAddressValue,
         mobile_number: mobileNumberValue,
@@ -140,9 +140,13 @@ export function Sidebar() {
         message,
       })
 
+      if (!response?.success) {
+        throw new Error(response?.message || 'Support email was not sent.')
+      }
+
       toast({
-        title: 'Message sent',
-        description: `Your message was sent to ${SUPPORT_EMAIL}.`,
+        title: 'Email sent successfully',
+        description: `Your support email was sent to ${SUPPORT_EMAIL}.`,
       })
       setIsHelpOpen(false)
       resetHelpForm()
