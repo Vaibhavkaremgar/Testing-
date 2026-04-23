@@ -182,10 +182,10 @@ export function Sidebar() {
       </div>
 
       <Dialog open={isHelpOpen} onOpenChange={setIsHelpOpen}>
-        <DialogContent className="max-w-4xl border-slate-200 bg-white p-0 shadow-xl">
+        <DialogContent className="max-h-[90vh] max-w-3xl overflow-hidden border-slate-200 bg-white p-0 shadow-xl">
           <DialogHeader>
-            <div className="border-b border-slate-200 px-8 py-6">
-              <DialogTitle className="text-4xl font-bold text-slate-900">
+            <div className="border-b border-slate-200 px-6 py-5">
+              <DialogTitle className="text-3xl font-bold text-slate-900">
                 Send us a message
               </DialogTitle>
               <DialogDescription className="mt-2 text-base text-slate-500">
@@ -197,18 +197,18 @@ export function Sidebar() {
             </div>
           </DialogHeader>
 
-          <div className="space-y-6 px-8 py-8">
-            <div className="grid gap-6 md:grid-cols-2">
+          <div className="max-h-[calc(90vh-112px)] space-y-5 overflow-y-auto px-6 py-6">
+            <div className="grid gap-5 md:grid-cols-2">
               <div className="space-y-2">
                 <label htmlFor="support-full-name" className="text-sm font-medium text-slate-700">
                   Full Name
                 </label>
                 <Input
                   id="support-full-name"
-                  placeholder="John Doe"
+                  placeholder="Enter your Full name"
                   value={fullName}
                   onChange={(event) => setFullName(event.target.value)}
-                  className="h-16 rounded-2xl border-slate-200 px-5 text-lg"
+                  className="h-14 rounded-2xl border-slate-200 px-4 text-base"
                 />
               </div>
 
@@ -219,10 +219,10 @@ export function Sidebar() {
                 <Input
                   id="support-email-address"
                   type="email"
-                  placeholder="john@company.com"
+                  placeholder="Enter your Email ID"
                   value={emailAddress}
                   onChange={(event) => setEmailAddress(event.target.value)}
-                  className="h-16 rounded-2xl border-slate-200 px-5 text-lg"
+                  className="h-14 rounded-2xl border-slate-200 px-4 text-base"
                 />
               </div>
             </div>
@@ -233,10 +233,10 @@ export function Sidebar() {
               </label>
               <Input
                 id="support-mobile-number"
-                placeholder="+91 9876543210"
+                placeholder="Enter your Mobile Number"
                 value={mobileNumber}
                 onChange={(event) => setMobileNumber(event.target.value)}
-                className="h-16 rounded-2xl border-slate-200 px-5 text-lg"
+                className="h-14 rounded-2xl border-slate-200 px-4 text-base"
               />
             </div>
 
@@ -249,7 +249,7 @@ export function Sidebar() {
                 placeholder="Company Name"
                 value={companyName}
                 onChange={(event) => setCompanyName(event.target.value)}
-                className="h-16 rounded-2xl border-slate-200 px-5 text-lg"
+                className="h-14 rounded-2xl border-slate-200 px-4 text-base"
               />
             </div>
 
@@ -262,7 +262,7 @@ export function Sidebar() {
                 placeholder="Enter your subject"
                 value={emailSubject}
                 onChange={(event) => setEmailSubject(event.target.value)}
-                className="h-16 rounded-2xl border-slate-200 px-5 text-lg"
+                className="h-14 rounded-2xl border-slate-200 px-4 text-base"
               />
             </div>
 
@@ -275,11 +275,11 @@ export function Sidebar() {
                 placeholder="How can we help you?"
                 value={emailMessage}
                 onChange={(event) => setEmailMessage(event.target.value)}
-                className="min-h-[180px] rounded-2xl border-slate-200 px-5 py-4 text-lg"
+                className="min-h-[140px] rounded-2xl border-slate-200 px-4 py-3 text-base"
               />
             </div>
 
-            <div className="pt-2">
+            <div className="pb-1 pt-1">
               <Button
                 type="button"
                 onClick={handleSendEmail}
@@ -291,7 +291,7 @@ export function Sidebar() {
                   !emailSubject.trim() ||
                   !emailMessage.trim()
                 }
-                className="h-16 w-full rounded-full text-xl font-semibold"
+                className="h-14 w-full rounded-full text-lg font-semibold"
               >
                 <Send className="mr-3 h-5 w-5" />
                 Send Message
