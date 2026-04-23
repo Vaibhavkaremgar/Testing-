@@ -16,6 +16,12 @@ def run_migrations():
             def get_columns(table):
                 return [col["name"] for col in inspect(engine).get_columns(table)]
 
+            def get_column(table, column):
+                for col in inspect(engine).get_columns(table):
+                    if col["name"] == column:
+                        return col
+                return None
+
             def get_indexes(table):
                 return {idx["name"] for idx in inspect(engine).get_indexes(table)}
 
@@ -36,9 +42,21 @@ def run_migrations():
             # Migration: users.agency_id
             if "agency_id" not in get_columns("users"):
                 print("Running migration: adding users.agency_id...")
-                conn.execute(text("ALTER TABLE users ADD COLUMN agency_id INTEGER REFERENCES agencies(id)"))
+                conn.execute(text("ALTER TABLE users ADD COLUMN agency_id UUID REFERENCES agencies(id)"))
                 conn.commit()
                 print("Migration completed: users.agency_id added")
+            else:
+                agency_id_column = get_column("users", "agency_id")
+                agency_id_type = str(agency_id_column["type"]).lower() if agency_id_column else ""
+                if "uuid" not in agency_id_type:
+                    print("Running migration: normalizing users.agency_id to UUID...")
+                    if "legacy_agency_id" not in get_columns("users"):
+                        conn.execute(text("ALTER TABLE users RENAME COLUMN agency_id TO legacy_agency_id"))
+                        conn.commit()
+                    if "agency_id" not in get_columns("users"):
+                        conn.execute(text("ALTER TABLE users ADD COLUMN agency_id UUID REFERENCES agencies(id)"))
+                        conn.commit()
+                    print("Migration completed: users.agency_id normalized to UUID")
 
             # Migration: users.wallet_balance
             if "wallet_balance" not in get_columns("users"):
@@ -181,6 +199,45 @@ def run_migrations():
                         conn.execute(text(statement))
                         conn.commit()
                         print(f"Migration completed: subscriptions.{column_name} added")
+
+                subscription_user_id_column = get_column("subscriptions", "user_id")
+                subscription_user_id_type = (
+                    str(subscription_user_id_column["type"]).lower()
+                    if subscription_user_id_column else ""
+                )
+                if subscription_user_id_column and "uuid" not in subscription_user_id_type:
+                    print("Running migration: normalizing subscriptions.user_id to UUID...")
+                    if "idx_subscriptions_user_id_created_at" in get_indexes("subscriptions"):
+                        conn.execute(text("DROP INDEX IF EXISTS idx_subscriptions_user_id_created_at"))
+                        conn.commit()
+
+                    if "legacy_user_id" not in get_columns("subscriptions"):
+                        conn.execute(text("ALTER TABLE subscriptions RENAME COLUMN user_id TO legacy_user_id"))
+                        conn.commit()
+
+                    if "user_id" not in get_columns("subscriptions"):
+                        conn.execute(text("ALTER TABLE subscriptions ADD COLUMN user_id UUID REFERENCES users(id)"))
+                        conn.commit()
+
+                    legacy_user_id_column = get_column("subscriptions", "legacy_user_id")
+                    legacy_user_id_type = (
+                        str(legacy_user_id_column["type"]).lower()
+                        if legacy_user_id_column else ""
+                    )
+                    if any(text_type in legacy_user_id_type for text_type in ("char", "text", "varchar")):
+                        conn.execute(
+                            text(
+                                """
+                                UPDATE subscriptions
+                                SET user_id = NULLIF(legacy_user_id::text, '')::uuid
+                                WHERE user_id IS NULL
+                                  AND legacy_user_id IS NOT NULL
+                                """
+                            )
+                        )
+                        conn.commit()
+
+                    print("Migration completed: subscriptions.user_id normalized to UUID")
 
             # Performance indexes for dashboard filtering and sorting paths.
             performance_indexes = {
