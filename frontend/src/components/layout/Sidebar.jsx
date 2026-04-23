@@ -29,35 +29,12 @@ import {
   Wallet,
   ShieldCheck,
   Tag,
-  Phone,
   Send
 } from 'lucide-react'
 
 const CLIENT_FILTER_STORAGE_KEY = 'selectedClientFilter'
 const SUPPORT_EMAIL = 'info@pontis.one'
 const SUPPORT_PHONE_PLACEHOLDER = 'Mobile number will be shared soon'
-const HELP_FAQS = [
-  {
-    question: 'How do I start from the dashboard?',
-    answer: 'Use the dashboard as your quick overview. From there, you can jump into jobs, resumes, candidates, interviews, communications, and other day-to-day actions.'
-  },
-  {
-    question: 'Why am I not seeing some menu options?',
-    answer: 'The sidebar changes based on your role. Admins and super admins can see more management sections, while non-admin users see the areas assigned to their workflow.'
-  },
-  {
-    question: 'How can I track candidates faster?',
-    answer: 'Open the candidates or pipeline section from the sidebar to review stages, move applicants through the process, and keep your hiring flow organized.'
-  },
-  {
-    question: 'Where can I manage communications and interviews?',
-    answer: 'You can use the Communications section for messages and the Interviews section to manage interview activity and follow-up actions.'
-  },
-  {
-    question: 'Who should I contact if something is unclear?',
-    answer: 'Use the support details in this help window to contact the Pontis team with your subject and message.'
-  }
-]
 
 export function Sidebar() {
   const { theme } = useTheme()
@@ -65,6 +42,10 @@ export function Sidebar() {
   const location = useLocation()
   const isDark = theme === 'dark'
   const [isHelpOpen, setIsHelpOpen] = useState(false)
+  const [fullName, setFullName] = useState('')
+  const [emailAddress, setEmailAddress] = useState('')
+  const [mobileNumber, setMobileNumber] = useState('')
+  const [companyName, setCompanyName] = useState('')
   const [emailSubject, setEmailSubject] = useState('')
   const [emailMessage, setEmailMessage] = useState('')
   
@@ -122,14 +103,28 @@ export function Sidebar() {
   const buildNavTarget = (href) => activeClient ? `${href}?client=${encodeURIComponent(activeClient)}` : href
 
   const handleSendEmail = () => {
+    const fullNameValue = fullName.trim()
+    const emailAddressValue = emailAddress.trim()
+    const mobileNumberValue = mobileNumber.trim()
+    const companyNameValue = companyName.trim()
     const subject = emailSubject.trim()
     const message = emailMessage.trim()
 
-    if (!subject || !message) {
+    if (!fullNameValue || !emailAddressValue || !mobileNumberValue || !companyNameValue || !subject || !message) {
       return
     }
 
-    const mailtoLink = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(message)}`
+    const body = [
+      `Full Name: ${fullNameValue}`,
+      `Email Address: ${emailAddressValue}`,
+      `Mobile Number: ${mobileNumberValue}`,
+      `Company: ${companyNameValue}`,
+      '',
+      'Message:',
+      message,
+    ].join('\n')
+
+    const mailtoLink = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
     window.location.href = mailtoLink
   }
   
@@ -187,87 +182,119 @@ export function Sidebar() {
       </div>
 
       <Dialog open={isHelpOpen} onOpenChange={setIsHelpOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-4xl border-slate-200 bg-white p-0 shadow-xl">
           <DialogHeader>
-            <DialogTitle>Help & Support</DialogTitle>
-            <DialogDescription>
-              Find quick dashboard answers and contact the Pontis support team.
-            </DialogDescription>
+            <div className="border-b border-slate-200 px-8 py-6">
+              <DialogTitle className="text-4xl font-bold text-slate-900">
+                Send us a message
+              </DialogTitle>
+              <DialogDescription className="mt-2 text-base text-slate-500">
+                Your email draft will be addressed to {SUPPORT_EMAIL}.
+              </DialogDescription>
+              <p className="mt-2 text-sm text-slate-500">
+                Mobile number: {SUPPORT_PHONE_PLACEHOLDER}
+              </p>
+            </div>
           </DialogHeader>
 
-          <div className="space-y-6">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="rounded-lg border bg-muted/40 p-4">
-                <div className="flex items-center gap-2 text-sm font-semibold">
-                  <Mail className="h-4 w-4" />
-                  Support email
-                </div>
-                <p className="mt-2 text-sm text-muted-foreground">{SUPPORT_EMAIL}</p>
-              </div>
-
-              <div className="rounded-lg border bg-muted/40 p-4">
-                <div className="flex items-center gap-2 text-sm font-semibold">
-                  <Phone className="h-4 w-4" />
-                  Contact number
-                </div>
-                <p className="mt-2 text-sm text-muted-foreground">{SUPPORT_PHONE_PLACEHOLDER}</p>
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <h3 className="text-sm font-semibold">Frequently asked questions</h3>
-              <div className="space-y-3">
-                {HELP_FAQS.map((item) => (
-                  <div key={item.question} className="rounded-lg border p-4">
-                    <p className="text-sm font-medium">{item.question}</p>
-                    <p className="mt-2 text-sm text-muted-foreground">{item.answer}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="space-y-4 rounded-lg border p-4">
-              <div>
-                <h3 className="text-sm font-semibold">Send email</h3>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Your email app will open with a draft addressed to {SUPPORT_EMAIL}.
-                </p>
-              </div>
-
+          <div className="space-y-6 px-8 py-8">
+            <div className="grid gap-6 md:grid-cols-2">
               <div className="space-y-2">
-                <label htmlFor="support-email" className="text-sm font-medium">To</label>
-                <Input id="support-email" value={SUPPORT_EMAIL} readOnly />
-              </div>
-
-              <div className="space-y-2">
-                <label htmlFor="support-subject" className="text-sm font-medium">Subject</label>
+                <label htmlFor="support-full-name" className="text-sm font-medium text-slate-700">
+                  Full Name
+                </label>
                 <Input
-                  id="support-subject"
-                  placeholder="Enter your subject"
-                  value={emailSubject}
-                  onChange={(event) => setEmailSubject(event.target.value)}
+                  id="support-full-name"
+                  placeholder="John Doe"
+                  value={fullName}
+                  onChange={(event) => setFullName(event.target.value)}
+                  className="h-16 rounded-2xl border-slate-200 px-5 text-lg"
                 />
               </div>
 
               <div className="space-y-2">
-                <label htmlFor="support-message" className="text-sm font-medium">Message</label>
-                <Textarea
-                  id="support-message"
-                  placeholder="Write your message here"
-                  value={emailMessage}
-                  onChange={(event) => setEmailMessage(event.target.value)}
-                  className="min-h-[140px]"
+                <label htmlFor="support-email-address" className="text-sm font-medium text-slate-700">
+                  Email Address
+                </label>
+                <Input
+                  id="support-email-address"
+                  type="email"
+                  placeholder="john@company.com"
+                  value={emailAddress}
+                  onChange={(event) => setEmailAddress(event.target.value)}
+                  className="h-16 rounded-2xl border-slate-200 px-5 text-lg"
                 />
               </div>
+            </div>
 
+            <div className="space-y-2">
+              <label htmlFor="support-mobile-number" className="text-sm font-medium text-slate-700">
+                Mobile Number
+              </label>
+              <Input
+                id="support-mobile-number"
+                placeholder="+91 9876543210"
+                value={mobileNumber}
+                onChange={(event) => setMobileNumber(event.target.value)}
+                className="h-16 rounded-2xl border-slate-200 px-5 text-lg"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label htmlFor="support-company-name" className="text-sm font-medium text-slate-700">
+                Company
+              </label>
+              <Input
+                id="support-company-name"
+                placeholder="Company Name"
+                value={companyName}
+                onChange={(event) => setCompanyName(event.target.value)}
+                className="h-16 rounded-2xl border-slate-200 px-5 text-lg"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label htmlFor="support-subject" className="text-sm font-medium text-slate-700">
+                Subject
+              </label>
+              <Input
+                id="support-subject"
+                placeholder="Enter your subject"
+                value={emailSubject}
+                onChange={(event) => setEmailSubject(event.target.value)}
+                className="h-16 rounded-2xl border-slate-200 px-5 text-lg"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label htmlFor="support-message" className="text-sm font-medium text-slate-700">
+                Message
+              </label>
+              <Textarea
+                id="support-message"
+                placeholder="How can we help you?"
+                value={emailMessage}
+                onChange={(event) => setEmailMessage(event.target.value)}
+                className="min-h-[180px] rounded-2xl border-slate-200 px-5 py-4 text-lg"
+              />
+            </div>
+
+            <div className="pt-2">
               <Button
                 type="button"
                 onClick={handleSendEmail}
-                disabled={!emailSubject.trim() || !emailMessage.trim()}
-                className="w-full"
+                disabled={
+                  !fullName.trim() ||
+                  !emailAddress.trim() ||
+                  !mobileNumber.trim() ||
+                  !companyName.trim() ||
+                  !emailSubject.trim() ||
+                  !emailMessage.trim()
+                }
+                className="h-16 w-full rounded-full text-xl font-semibold"
               >
-                <Send className="mr-2 h-4 w-4" />
-                Send
+                <Send className="mr-3 h-5 w-5" />
+                Send Message
               </Button>
             </div>
           </div>
