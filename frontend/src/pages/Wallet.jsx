@@ -105,6 +105,36 @@ export default function WalletPage({ superAdminAgencyId = null }) {
 
   const currentPlanOptions = PLAN_OPTIONS[billingCycle];
   const selectedPlanConfig = currentPlanOptions.find((plan) => plan.id === selectedPlan) || null;
+  const usageCards = planStatus ? [
+    {
+      key: 'interviews',
+      label: 'Interview Credits',
+      remaining: planStatus.interviewsRemaining,
+      total: planStatus.interviewsTotal,
+      helper: 'Available for interviews',
+    },
+    {
+      key: 'resume',
+      label: 'Resume Scans',
+      remaining: planStatus.resumeUnlimited ? 'Unlimited' : planStatus.resumeRemaining,
+      total: planStatus.resumeUnlimited ? null : planStatus.resumeTotal,
+      helper: planStatus.resumeUnlimited ? 'No monthly cap' : 'Scans left this cycle',
+    },
+    {
+      key: 'jobs',
+      label: 'Active Job Postings',
+      remaining: planStatus.jobsUnlimited ? 'Unlimited' : planStatus.jobsRemaining,
+      total: planStatus.jobsUnlimited ? null : planStatus.jobsTotal,
+      helper: planStatus.jobsUnlimited ? 'No active posting cap' : 'Open postings left',
+    },
+    {
+      key: 'seats',
+      label: 'User Seats',
+      remaining: planStatus.seatsRemaining == null ? 'Custom' : planStatus.seatsRemaining,
+      total: planStatus.seatsRemaining == null ? null : planStatus.seatsTotal,
+      helper: planStatus.seatsRemaining == null ? 'Managed by custom plan' : 'Seats left for active users',
+    },
+  ] : [];
 
   const getStats = () => {
     const totalCredits = transactions
@@ -524,41 +554,19 @@ Status: ${txn.status || 'completed'}
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <div className="rounded-lg border p-4">
-                <p className="text-sm text-muted-foreground">Interviews Remaining</p>
-                <p className="mt-2 text-2xl font-bold">{planStatus.interviewsRemaining}</p>
-                <p className="mt-1 text-xs text-muted-foreground">of {planStatus.interviewsTotal}</p>
-              </div>
-
-              <div className="rounded-lg border p-4">
-                <p className="text-sm text-muted-foreground">Resume Scans Remaining</p>
-                <p className="mt-2 text-2xl font-bold">
-                  {planStatus.resumeUnlimited ? 'Unlimited' : planStatus.resumeRemaining}
-                </p>
-                {!planStatus.resumeUnlimited && (
-                  <p className="mt-1 text-xs text-muted-foreground">of {planStatus.resumeTotal}</p>
-                )}
-              </div>
-
-              <div className="rounded-lg border p-4">
-                <p className="text-sm text-muted-foreground">Jobs Remaining</p>
-                <p className="mt-2 text-2xl font-bold">
-                  {planStatus.jobsUnlimited ? 'Unlimited' : planStatus.jobsRemaining}
-                </p>
-                {!planStatus.jobsUnlimited && (
-                  <p className="mt-1 text-xs text-muted-foreground">of {planStatus.jobsTotal}</p>
-                )}
-              </div>
-
-              <div className="rounded-lg border p-4">
-                <p className="text-sm text-muted-foreground">Seats Remaining</p>
-                <p className="mt-2 text-2xl font-bold">
-                  {planStatus.seatsRemaining == null ? 'Custom' : planStatus.seatsRemaining}
-                </p>
-                {planStatus.seatsRemaining != null && (
-                  <p className="mt-1 text-xs text-muted-foreground">of {planStatus.seatsTotal}</p>
-                )}
-              </div>
+              {usageCards.map((card) => (
+                <div key={card.key} className="rounded-lg border p-4">
+                  <p className="text-sm text-muted-foreground">{card.label}</p>
+                  <p className="mt-2 text-2xl font-bold">{card.remaining}</p>
+                  {card.total != null ? (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {card.remaining} remaining of {card.total}
+                    </p>
+                  ) : (
+                    <p className="mt-1 text-xs text-muted-foreground">{card.helper}</p>
+                  )}
+                </div>
+              ))}
             </div>
           </CardContent>
         </Card>
@@ -654,9 +662,12 @@ Status: ${txn.status || 'completed'}
                 <p className="font-medium text-slate-900">
                   {selectedPlanConfig.name} includes {selectedPlanConfig.interviewCredits} interview credits for {selectedPlanConfig.priceLabel}/{billingCycle === 'monthly' ? 'month' : 'year'}
                 </p>
-                <p>Resume scans: {selectedPlanConfig.resumeScoringUnlimited ? 'Unlimited' : selectedPlanConfig.resumeScoring}{selectedPlanConfig.resumeScoringUnlimited ? '' : billingCycle === 'monthly' ? '/month' : '/month'}</p>
-                <p>Active job postings: {selectedPlanConfig.jobPostings}{billingCycle === 'monthly' ? '' : '/month'}</p>
+                <p>Resume scans: {selectedPlanConfig.resumeScoringUnlimited ? 'Unlimited' : selectedPlanConfig.resumeScoring}{selectedPlanConfig.resumeScoringUnlimited ? '' : '/month'}</p>
+                <p>Active job postings: {selectedPlanConfig.jobPostings}</p>
                 <p>User seats: {selectedPlanConfig.userSeats}</p>
+                <p className="pt-1 text-xs text-slate-500">
+                  These plan limits are tracked separately and reduce automatically as your team uses them.
+                </p>
               </div>
             )}
 
