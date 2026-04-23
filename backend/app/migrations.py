@@ -53,10 +53,15 @@ def run_migrations():
                     if "legacy_agency_id" not in get_columns("users"):
                         conn.execute(text("ALTER TABLE users RENAME COLUMN agency_id TO legacy_agency_id"))
                         conn.commit()
+                    conn.execute(text("ALTER TABLE users ALTER COLUMN legacy_agency_id DROP NOT NULL"))
+                    conn.commit()
                     if "agency_id" not in get_columns("users"):
                         conn.execute(text("ALTER TABLE users ADD COLUMN agency_id UUID REFERENCES agencies(id)"))
                         conn.commit()
                     print("Migration completed: users.agency_id normalized to UUID")
+                elif "legacy_agency_id" in get_columns("users"):
+                    conn.execute(text("ALTER TABLE users ALTER COLUMN legacy_agency_id DROP NOT NULL"))
+                    conn.commit()
 
             # Migration: users.wallet_balance
             if "wallet_balance" not in get_columns("users"):
@@ -214,6 +219,8 @@ def run_migrations():
                     if "legacy_user_id" not in get_columns("subscriptions"):
                         conn.execute(text("ALTER TABLE subscriptions RENAME COLUMN user_id TO legacy_user_id"))
                         conn.commit()
+                    conn.execute(text("ALTER TABLE subscriptions ALTER COLUMN legacy_user_id DROP NOT NULL"))
+                    conn.commit()
 
                     if "user_id" not in get_columns("subscriptions"):
                         conn.execute(text("ALTER TABLE subscriptions ADD COLUMN user_id UUID REFERENCES users(id)"))
@@ -238,6 +245,9 @@ def run_migrations():
                         conn.commit()
 
                     print("Migration completed: subscriptions.user_id normalized to UUID")
+                elif "legacy_user_id" in get_columns("subscriptions"):
+                    conn.execute(text("ALTER TABLE subscriptions ALTER COLUMN legacy_user_id DROP NOT NULL"))
+                    conn.commit()
 
             # Performance indexes for dashboard filtering and sorting paths.
             performance_indexes = {
