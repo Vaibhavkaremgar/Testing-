@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils'
 import { useTheme } from '@/context/ThemeContext'
 import { useAuth } from '@/context/AuthContext'
 import { useToast } from '@/hooks/use-toast'
+import api from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -50,6 +51,7 @@ export function Sidebar() {
   const [companyName, setCompanyName] = useState('')
   const [emailSubject, setEmailSubject] = useState('')
   const [emailMessage, setEmailMessage] = useState('')
+  const [isSendingHelpMessage, setIsSendingHelpMessage] = useState(false)
   
   // Role-based navigation
   const getNavigation = () => {
@@ -113,7 +115,7 @@ export function Sidebar() {
     setEmailMessage('')
   }
 
-  const handleSendEmail = (event) => {
+  const handleSendEmail = async (event) => {
     event.preventDefault()
 
     const fullNameValue = fullName.trim()
@@ -127,37 +129,30 @@ export function Sidebar() {
       return
     }
 
-    const body = [
-      `Full Name: ${fullNameValue}`,
-      `Email Address: ${emailAddressValue}`,
-      `Mobile Number: ${mobileNumberValue}`,
-      `Company: ${companyNameValue}`,
-      '',
-      'Message:',
-      message,
-    ].join('\n')
-
-    const mailtoLink = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
     try {
-      const mailLink = document.createElement('a')
-      mailLink.href = mailtoLink
-      mailLink.style.display = 'none'
-      document.body.appendChild(mailLink)
-      mailLink.click()
-      document.body.removeChild(mailLink)
+      setIsSendingHelpMessage(true)
+      await api.post('/email/support', {
+        full_name: fullNameValue,
+        email_address: emailAddressValue,
+        mobile_number: mobileNumberValue,
+        company_name: companyNameValue,
+        subject,
+        message,
+      })
 
       toast({
-        title: 'Email draft opened',
-        description: `Your message is ready to send to ${SUPPORT_EMAIL}.`,
+        title: 'Message sent',
+        description: `Your message was sent to ${SUPPORT_EMAIL}.`,
       })
       setIsHelpOpen(false)
       resetHelpForm()
-    } catch {
-      window.location.assign(mailtoLink)
+    } catch (error) {
       toast({
-        title: 'Opening email app',
-        description: `If nothing opens, please email ${SUPPORT_EMAIL} manually.`,
+        title: 'Failed to send message',
+        description: error.message || `Please try again or contact ${SUPPORT_EMAIL}.`,
       })
+    } finally {
+      setIsSendingHelpMessage(false)
     }
   }
   
@@ -222,7 +217,7 @@ export function Sidebar() {
                 Send us a message
               </DialogTitle>
               <DialogDescription className="mt-2 text-base text-slate-500">
-                Your email draft will be addressed to {SUPPORT_EMAIL}.
+                Your message will be sent directly to {SUPPORT_EMAIL}.
               </DialogDescription>
               <p className="mt-2 text-sm text-slate-500">
                 Mobile number: {SUPPORT_PHONE_PLACEHOLDER}
@@ -319,6 +314,7 @@ export function Sidebar() {
               <Button
                 type="submit"
                 disabled={
+                  isSendingHelpMessage ||
                   !fullName.trim() ||
                   !emailAddress.trim() ||
                   !mobileNumber.trim() ||
@@ -329,7 +325,7 @@ export function Sidebar() {
                 className="h-14 w-full rounded-full text-lg font-semibold"
               >
                 <Send className="mr-3 h-5 w-5" />
-                Send Message
+                {isSendingHelpMessage ? 'Sending...' : 'Send Message'}
               </Button>
             </div>
           </form>
