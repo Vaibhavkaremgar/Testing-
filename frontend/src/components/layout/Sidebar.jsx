@@ -3,6 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { useTheme } from '@/context/ThemeContext'
 import { useAuth } from '@/context/AuthContext'
+import { useToast } from '@/hooks/use-toast'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -39,6 +40,7 @@ const SUPPORT_PHONE_PLACEHOLDER = 'Mobile number will be shared soon'
 export function Sidebar() {
   const { theme } = useTheme()
   const { user } = useAuth()
+  const { toast } = useToast()
   const location = useLocation()
   const isDark = theme === 'dark'
   const [isHelpOpen, setIsHelpOpen] = useState(false)
@@ -102,7 +104,18 @@ export function Sidebar() {
   const activeClient = new URLSearchParams(location.search).get('client') || localStorage.getItem(CLIENT_FILTER_STORAGE_KEY) || ''
   const buildNavTarget = (href) => activeClient ? `${href}?client=${encodeURIComponent(activeClient)}` : href
 
-  const handleSendEmail = () => {
+  const resetHelpForm = () => {
+    setFullName('')
+    setEmailAddress('')
+    setMobileNumber('')
+    setCompanyName('')
+    setEmailSubject('')
+    setEmailMessage('')
+  }
+
+  const handleSendEmail = (event) => {
+    event.preventDefault()
+
     const fullNameValue = fullName.trim()
     const emailAddressValue = emailAddress.trim()
     const mobileNumberValue = mobileNumber.trim()
@@ -125,7 +138,27 @@ export function Sidebar() {
     ].join('\n')
 
     const mailtoLink = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
-    window.location.href = mailtoLink
+    try {
+      const mailLink = document.createElement('a')
+      mailLink.href = mailtoLink
+      mailLink.style.display = 'none'
+      document.body.appendChild(mailLink)
+      mailLink.click()
+      document.body.removeChild(mailLink)
+
+      toast({
+        title: 'Email draft opened',
+        description: `Your message is ready to send to ${SUPPORT_EMAIL}.`,
+      })
+      setIsHelpOpen(false)
+      resetHelpForm()
+    } catch {
+      window.location.assign(mailtoLink)
+      toast({
+        title: 'Opening email app',
+        description: `If nothing opens, please email ${SUPPORT_EMAIL} manually.`,
+      })
+    }
   }
   
   return (
@@ -197,7 +230,10 @@ export function Sidebar() {
             </div>
           </DialogHeader>
 
-          <div className="max-h-[calc(90vh-112px)] space-y-5 overflow-y-auto px-6 py-6">
+          <form
+            onSubmit={handleSendEmail}
+            className="max-h-[calc(90vh-112px)] space-y-5 overflow-y-auto px-6 py-6"
+          >
             <div className="grid gap-5 md:grid-cols-2">
               <div className="space-y-2">
                 <label htmlFor="support-full-name" className="text-sm font-medium text-slate-700">
@@ -281,8 +317,7 @@ export function Sidebar() {
 
             <div className="pb-1 pt-1">
               <Button
-                type="button"
-                onClick={handleSendEmail}
+                type="submit"
                 disabled={
                   !fullName.trim() ||
                   !emailAddress.trim() ||
@@ -297,7 +332,7 @@ export function Sidebar() {
                 Send Message
               </Button>
             </div>
-          </div>
+          </form>
         </DialogContent>
       </Dialog>
     </>
