@@ -141,6 +141,7 @@ export default function WalletPage({ superAdminAgencyId = null }) {
       remaining: planStatus.seatsRemaining == null ? 'Custom' : planStatus.seatsRemaining,
     },
   ] : [];
+  const planMetricCards = usageCards;
 
   const getStats = () => {
     const totalCredits = transactions
@@ -619,6 +620,25 @@ Status: ${txn.status || 'completed'}
           </CardContent>
         </Card>
       </div>
+
+      {!isSuperAdmin && isAdmin && planStatus && (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+          {planMetricCards.map((card) => (
+            <Card key={card.key}>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">{card.label}</CardTitle>
+                <TrendingUp className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-blue-600">{card.remaining}</div>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Used: {card.used} of {card.total}
+                </p>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
 
       {/* Buy Credits */}
       {!isSuperAdmin && (
