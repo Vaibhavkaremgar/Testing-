@@ -514,8 +514,7 @@ def resolve_pipeline_display_stage(candidate: Candidate, latest_interview: Optio
         return candidate.stage
 
     if candidate.stage in interview_owned_stages:
-        # Keep stale candidate-stage values from inflating interview-driven columns.
-        return CandidateStage.SHORTLISTED
+        return candidate.stage
 
     return candidate.stage
 

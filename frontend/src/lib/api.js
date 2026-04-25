@@ -912,6 +912,17 @@ class ApiClient {
       }),
     })
   }
+
+  async triggerNotification(candidateId, status, payload = {}) {
+    return this.request('/notifications/trigger', {
+      method: 'POST',
+      body: JSON.stringify({
+        candidate_id: candidateId,
+        status,
+        payload,
+      }),
+    })
+  }
   // Agencies (Super Admin)
   async getAgencies() {
     return this.request('/agencies')

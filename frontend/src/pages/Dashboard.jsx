@@ -63,7 +63,7 @@ function resolveDashboardDisplayStage(candidate, latestInterview) {
   }
 
   if (INTERVIEW_OWNED_STAGES.has(candidate?.stage)) {
-    return 'SHORTLISTED'
+    return candidate.stage
   }
 
   return candidate?.stage
