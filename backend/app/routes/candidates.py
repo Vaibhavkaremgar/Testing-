@@ -253,27 +253,27 @@ def _normalize_candidate_duplicate_name(value: Optional[str]) -> str:
     return re.sub(r"\s+", " ", str(value or "").strip()).lower()
 
 
-def _normalize_candidate_duplicate_phone(value: Optional[str]) -> str:
-    return re.sub(r"\D", "", str(value or ""))
+def _normalize_candidate_duplicate_email(value: Optional[str]) -> str:
+    return str(value or "").strip().lower()
 
 
 def _find_duplicate_candidate_for_job(
     db: Session,
     *,
     name: Optional[str],
-    phone: Optional[str],
+    email: Optional[str],
     job_id: Optional[UUID],
 ):
     normalized_name = _normalize_candidate_duplicate_name(name)
-    normalized_phone = _normalize_candidate_duplicate_phone(phone)
-    if not normalized_name or not normalized_phone or not job_id:
+    normalized_email = _normalize_candidate_duplicate_email(email)
+    if not normalized_name or not normalized_email or not job_id:
         return None
 
     candidates = db.query(Candidate).filter(Candidate.job_id == job_id).all()
     for candidate in candidates:
         if (
             _normalize_candidate_duplicate_name(candidate.name) == normalized_name
-            and _normalize_candidate_duplicate_phone(candidate.phone) == normalized_phone
+            and _normalize_candidate_duplicate_email(candidate.email) == normalized_email
         ):
             return candidate
     return None
@@ -1214,7 +1214,7 @@ def process_single_resume_upload(
         duplicate_candidate = _find_duplicate_candidate_for_job(
             db,
             name=resume_data.get("name"),
-            phone=resume_data.get("phone"),
+            email=resume_data.get("email"),
             job_id=job_id,
         )
         if duplicate_candidate:
@@ -1438,7 +1438,7 @@ def process_bulk_upload_batch(
                     duplicate_candidate = _find_duplicate_candidate_for_job(
                         db,
                         name=resume_data.get("name"),
-                        phone=resume_data.get("phone"),
+                        email=resume_data.get("email"),
                         job_id=job_id,
                     )
                     if duplicate_candidate:
@@ -1570,7 +1570,7 @@ def process_zip_upload_batch(
                     duplicate_candidate = _find_duplicate_candidate_for_job(
                         db,
                         name=resume_data.get("name"),
-                        phone=resume_data.get("phone"),
+                        email=resume_data.get("email"),
                         job_id=job_id,
                     )
                     if duplicate_candidate:
@@ -2551,7 +2551,7 @@ def create_candidate(
         duplicate_candidate = _find_duplicate_candidate_for_job(
             db,
             name=candidate.name,
-            phone=candidate.phone,
+            email=candidate.email,
             job_id=candidate.job_id,
         )
         if duplicate_candidate:

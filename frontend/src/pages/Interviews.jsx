@@ -391,7 +391,11 @@ export default function Interviews({ superAdminAgencyId = null }) {
     const uniqueCandidates = new Map()
 
     ;(candidates || []).forEach((candidate) => {
-      const candidateKey = candidate.candidate_id || candidate.email || candidate.id
+      const normalizedName = String(candidate.name || '').trim().toLowerCase()
+      const normalizedEmail = String(candidate.email || '').trim().toLowerCase()
+      const candidateKey = candidate.job_id && normalizedEmail && normalizedName
+        ? `${candidate.job_id}:${normalizedEmail}:${normalizedName}`
+        : candidate.id
       if (!candidateKey || uniqueCandidates.has(String(candidateKey))) return
       uniqueCandidates.set(String(candidateKey), candidate)
     })
