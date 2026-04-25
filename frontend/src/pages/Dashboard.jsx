@@ -31,6 +31,14 @@ function resolveDashboardDisplayStage(candidate, latestInterview) {
 
   if (latestInterview) {
     const status = (latestInterview.status || '').trim().toLowerCase()
+    if (status === 'selected') {
+      return 'SELECTED'
+    }
+
+    if (status === 'rejected') {
+      return 'REJECTED'
+    }
+
     if (status === 'completed') {
       const interviewScore = latestInterview.interview_score ?? 0
       return interviewScore >= INTERVIEW_REJECTION_SCORE_THRESHOLD ? 'SELECTED' : 'REJECTED'
@@ -222,7 +230,8 @@ export default function Dashboard() {
         return []
       })
     },
-    staleTime: 60 * 1000,
+    staleTime: 0,
+    refetchOnMount: 'always',
     refetchOnWindowFocus: false,
   })
 

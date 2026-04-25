@@ -580,7 +580,10 @@ export default function Interviews({ superAdminAgencyId = null }) {
     }
     setDecisionLoading('approve')
     try {
-      const updatedCandidate = await api.updateCandidateStage(selectedInterview.candidate_id, 'SELECTED');
+      const [updatedCandidate] = await Promise.all([
+        api.updateCandidateStage(selectedInterview.candidate_id, 'SELECTED'),
+        api.updateInterview(selectedInterview.id, { status: 'selected' }),
+      ])
       setCandidates((prev) => prev.map((candidate) => (
         String(candidate.id) === String(selectedInterview.candidate_id)
           ? { ...candidate, ...updatedCandidate, stage: 'SELECTED' }
@@ -635,7 +638,10 @@ export default function Interviews({ superAdminAgencyId = null }) {
     }
     setDecisionLoading('reject')
     try {
-      const updatedCandidate = await api.updateCandidateStage(selectedInterview.candidate_id, 'REJECTED', { suppress_notification: true });
+      const [updatedCandidate] = await Promise.all([
+        api.updateCandidateStage(selectedInterview.candidate_id, 'REJECTED', { suppress_notification: true }),
+        api.updateInterview(selectedInterview.id, { status: 'rejected' }),
+      ])
       setCandidates((prev) => prev.map((candidate) => (
         String(candidate.id) === String(selectedInterview.candidate_id)
           ? { ...candidate, ...updatedCandidate, stage: 'REJECTED' }
