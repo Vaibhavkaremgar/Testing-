@@ -70,7 +70,6 @@ function resolveDashboardDisplayStage(candidate, latestInterview) {
 }
 
 function buildDashboardCandidateBuckets(candidatesData = [], interviewRows = []) {
-  const candidateMap = new Map((candidatesData || []).map((candidate) => [candidate.id, candidate]))
   const latestInterviewsByCandidate = new Map()
 
   for (const interview of interviewRows || []) {
@@ -93,36 +92,30 @@ function buildDashboardCandidateBuckets(candidatesData = [], interviewRows = [])
     .filter((candidate) => candidate.display_stage === 'SHORTLISTED')
     .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
 
-  const mapInterviewCandidates = (predicate, getDisplayStage) => Array.from(latestInterviewsByCandidate.values())
+  const mapPipelineDisplayCandidates = (predicate) => pipelineDisplayCandidates
     .filter(predicate)
-    .map((interview) => {
-      const candidate = candidateMap.get(interview.candidate_id)
-      if (!candidate) return null
-
+    .map((candidate) => {
+      const interview = latestInterviewsByCandidate.get(candidate.id)
       return {
         ...candidate,
-        display_score: interview?.interview_score,
-        display_stage: getDisplayStage(interview),
+        display_score: interview?.interview_score ?? candidate.resume_score,
         rejected_at: interview?.scheduled_at || interview?.created_at || candidate.created_at,
       }
     })
     .filter(Boolean)
     .sort((a, b) => new Date(b.rejected_at) - new Date(a.rejected_at))
 
-  const activeInterviewCandidates = mapInterviewCandidates((interview) => {
-    const status = (interview?.status || '').toLowerCase()
-    return status === 'scheduled' || status === 'ongoing'
-  }, (interview) => ((interview?.status || '').toLowerCase() === 'scheduled' ? 'INTERVIEW_SCHEDULED' : 'INTERVIEW'))
+  const activeInterviewCandidates = mapPipelineDisplayCandidates(
+    (candidate) => candidate.display_stage === 'INTERVIEW_SCHEDULED' || candidate.display_stage === 'INTERVIEWED'
+  )
 
-  const selectedCandidates = mapInterviewCandidates((interview) => {
-    const status = (interview?.status || '').trim().toLowerCase()
-    return status === 'selected'
-  }, () => 'SELECTED')
+  const selectedCandidates = mapPipelineDisplayCandidates(
+    (candidate) => candidate.display_stage === 'SELECTED'
+  )
 
-  const rejectedCandidates = mapInterviewCandidates((interview) => {
-    const status = (interview?.status || '').trim().toLowerCase()
-    return status === 'rejected'
-  }, () => 'REJECTED')
+  const rejectedCandidates = mapPipelineDisplayCandidates(
+    (candidate) => candidate.display_stage === 'REJECTED'
+  )
 
   return {
     totalCandidates: pipelineDisplayCandidates,
@@ -245,17 +238,6 @@ export default function Dashboard() {
   const interviewRows = interviewRowsQuery.data || []
   const loading = statsQuery.isLoading && !statsQuery.data
 
-  const totalSelected = useMemo(
-    () => interviewRows.filter((item) => String(item?.status || '').trim().toLowerCase() === 'selected').length,
-    [interviewRows]
-  )
-
-  const totalRejected = useMemo(
-    () => interviewRows.filter((item) => String(item?.status || '').trim().toLowerCase() === 'rejected').length,
-    [interviewRows]
-  )
-
-
   // Force close modal on mount and prevent any stuck state
   useEffect(() => {
     setSelectedCard(null)
@@ -345,8 +327,8 @@ export default function Dashboard() {
     { title: 'Total Candidates', value: stats.total_candidates || 0, icon: Users, color: 'text-blue-600', bg: 'bg-blue-100 dark:bg-blue-900/30', filter: {} },
     { title: 'Shortlisted', value: stats.shortlisted || 0, icon: UserCheck, color: 'text-purple-600', bg: 'bg-purple-100 dark:bg-purple-900/30', filter: { type: 'pipeline_shortlisted' } },
     { title: 'Interviews', value: stats.interviews_scheduled || 0, icon: Calendar, color: 'text-orange-600', bg: 'bg-orange-100 dark:bg-orange-900/30', filter: { type: 'interview_active' } },
-    { title: 'Selected', value: totalSelected, icon: Award, color: 'text-green-600', bg: 'bg-green-100 dark:bg-green-900/30', filter: { type: 'interview_selected' } },
-    { title: 'Rejected', value: totalRejected, icon: UserX, color: 'text-red-600', bg: 'bg-red-100 dark:bg-red-900/30', filter: { type: 'interview_rejected' } },
+    { title: 'Selected', value: stats.selected || 0, icon: Award, color: 'text-green-600', bg: 'bg-green-100 dark:bg-green-900/30', filter: { type: 'interview_selected' } },
+    { title: 'Rejected', value: stats.rejected || 0, icon: UserX, color: 'text-red-600', bg: 'bg-red-100 dark:bg-red-900/30', filter: { type: 'interview_rejected' } },
   ] : [
     { title: 'Total Candidates', value: 0, icon: Users, color: 'text-blue-600', bg: 'bg-blue-100 dark:bg-blue-900/30', filter: {} },
     { title: 'Shortlisted', value: 0, icon: UserCheck, color: 'text-purple-600', bg: 'bg-purple-100 dark:bg-purple-900/30', filter: { type: 'pipeline_shortlisted' } },

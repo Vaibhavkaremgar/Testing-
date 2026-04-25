@@ -19,7 +19,7 @@ from app.schemas import (
     TimeToHireData, SkillHeatmapData, ScoreDistribution
 )
 from app.auth import get_current_active_user
-from app.routes.candidates import normalize_legacy_candidate_stages
+from app.routes.candidates import normalize_legacy_candidate_stages, resolve_pipeline_display_stage
 from collections import Counter
 import random
 from datetime import datetime, timedelta, timezone
@@ -355,6 +355,53 @@ def _get_latest_filtered_interviews_by_candidate(
         latest_interviews_by_candidate.setdefault(interview.candidate_id, interview)
 
     return latest_interviews_by_candidate
+
+
+def _aggregate_pipeline_display_stage_metrics(
+    db: Session,
+    candidate_query,
+    *,
+    month: Optional[str] = None,
+    date: Optional[str] = None,
+    from_date: Optional[str] = None,
+    to_date: Optional[str] = None,
+) -> dict:
+    candidates = candidate_query.all()
+    latest_interviews_by_candidate = _get_latest_filtered_interviews_by_candidate(
+        db,
+        [candidate.id for candidate in candidates],
+        month=month,
+        date=date,
+        from_date=from_date,
+        to_date=to_date,
+    )
+    today = datetime.now().date()
+    metrics = {
+        "shortlisted": 0,
+        "resume_rejected": 0,
+        "interviews_scheduled": 0,
+        "selected": 0,
+        "rejected": 0,
+    }
+
+    for candidate in candidates:
+        display_stage = resolve_pipeline_display_stage(
+            candidate,
+            latest_interviews_by_candidate.get(candidate.id),
+            today,
+        )
+        if display_stage == CandidateStage.SHORTLISTED:
+            metrics["shortlisted"] += 1
+        elif display_stage == CandidateStage.RESUME_REJECTED:
+            metrics["resume_rejected"] += 1
+        elif display_stage in {CandidateStage.INTERVIEW_SCHEDULED, CandidateStage.INTERVIEWED}:
+            metrics["interviews_scheduled"] += 1
+        elif display_stage == CandidateStage.SELECTED:
+            metrics["selected"] += 1
+        elif display_stage == CandidateStage.REJECTED:
+            metrics["rejected"] += 1
+
+    return metrics
 
 
 def _get_table_columns(db: Session, table_name: str) -> set[str]:
@@ -886,6 +933,14 @@ def get_dashboard_stats(
         )
         candidate_sq = _candidate_metrics_subquery(query)
         candidate_metrics = _aggregate_candidate_stage_metrics(db, candidate_sq, exclude_applied=False)
+        pipeline_display_metrics = _aggregate_pipeline_display_stage_metrics(
+            db,
+            query,
+            month=month,
+            date=date,
+            from_date=from_date,
+            to_date=to_date,
+        )
         active_candidate_query = query.filter(Candidate.stage != CandidateStage.APPLIED)
         interview_metrics = _latest_interview_metrics(
             db,
@@ -901,11 +956,11 @@ def get_dashboard_stats(
         serialization_start = perf_counter()
         payload = {
             "total_candidates": candidate_metrics["total_candidates"],
-            "shortlisted": candidate_metrics["shortlisted"],
-            "resume_rejected": candidate_metrics["resume_rejected"],
-            "rejected": candidate_metrics["rejected"] or interview_metrics["rejected"],
-            "interviews_scheduled": interview_metrics["interviews_scheduled"],
-            "selected": candidate_metrics["selected"] or interview_metrics["selected"],
+            "shortlisted": pipeline_display_metrics["shortlisted"],
+            "resume_rejected": pipeline_display_metrics["resume_rejected"],
+            "rejected": pipeline_display_metrics["rejected"],
+            "interviews_scheduled": pipeline_display_metrics["interviews_scheduled"],
+            "selected": pipeline_display_metrics["selected"],
             "avg_resume_score": round(
                 candidate_metrics["resume_score_sum"] / candidate_metrics["resume_score_count"],
                 1,
