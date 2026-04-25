@@ -70,6 +70,10 @@ function parseTranscriptSegments(transcript) {
 
 function getEffectiveInterviewStatus(interview) {
   const normalizedStatus = (interview?.status || '').toLowerCase()
+  if (normalizedStatus === 'selected' || normalizedStatus === 'rejected') {
+    return normalizedStatus
+  }
+
   if (
     normalizedStatus === 'completed' ||
     interview?.has_recording ||
@@ -89,6 +93,7 @@ function formatJobFilterLabel(job) {
 
 function getInterviewResultMeta(interview, candidateStage) {
   const normalizedCandidateStage = String(candidateStage || '').toUpperCase()
+  const normalizedInterviewStatus = String(interview?.status || '').trim().toLowerCase()
   if (normalizedCandidateStage === 'SELECTED') {
     return {
       label: 'Selected',
@@ -97,6 +102,20 @@ function getInterviewResultMeta(interview, candidateStage) {
   }
 
   if (normalizedCandidateStage === 'REJECTED') {
+    return {
+      label: 'Rejected',
+      badgeClass: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
+    }
+  }
+
+  if (normalizedInterviewStatus === 'selected') {
+    return {
+      label: 'Selected',
+      badgeClass: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
+    }
+  }
+
+  if (normalizedInterviewStatus === 'rejected') {
     return {
       label: 'Rejected',
       badgeClass: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
@@ -335,7 +354,13 @@ export default function Interviews({ superAdminAgencyId = null }) {
     jobFilteredInterviews.filter((interview) => {
       const effectiveStatus = getEffectiveInterviewStatus(interview)
       const candidateStage = String(candidateStageMap.get(String(interview.candidate_id)) || '').toLowerCase()
-      return effectiveStatus === 'completed' || candidateStage === 'selected' || candidateStage === 'rejected'
+      return (
+        effectiveStatus === 'completed'
+        || effectiveStatus === 'selected'
+        || effectiveStatus === 'rejected'
+        || candidateStage === 'selected'
+        || candidateStage === 'rejected'
+      )
     })
   ), [candidateStageMap, jobFilteredInterviews])
   const transcriptSegments = useMemo(
