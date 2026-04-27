@@ -19,7 +19,11 @@ from app.schemas import (
     TimeToHireData, SkillHeatmapData, ScoreDistribution
 )
 from app.auth import get_current_active_user
-from app.routes.candidates import normalize_legacy_candidate_stages, resolve_pipeline_display_stage
+from app.routes.candidates import (
+    normalize_legacy_candidate_stages,
+    resolve_pipeline_display_stage,
+    resolve_reporting_pipeline_stage,
+)
 from collections import Counter
 import random
 from datetime import datetime, timedelta, timezone
@@ -229,11 +233,8 @@ def _latest_interview_metrics(
                     (
                         (latest_sq.c.row_number == 1)
                         & (
-                            (candidate_sq.c.stage == CandidateStage.REJECTED)
-                            | (
-                                (status_column == "completed")
-                                & (func.coalesce(normalized_interview_score, 0) < INTERVIEW_RESULT_THRESHOLD)
-                            )
+                            (status_column == "completed")
+                            & (func.coalesce(normalized_interview_score, 0) < INTERVIEW_RESULT_THRESHOLD)
                         )
                     ),
                     1,
@@ -385,7 +386,7 @@ def _aggregate_pipeline_display_stage_metrics(
     }
 
     for candidate in candidates:
-        display_stage = resolve_pipeline_display_stage(
+        display_stage = resolve_reporting_pipeline_stage(
             candidate,
             latest_interviews_by_candidate.get(candidate.id),
             today,
@@ -969,7 +970,7 @@ def get_dashboard_stats(
             "total_candidates": candidate_metrics["total_candidates"],
             "shortlisted": pipeline_display_metrics["shortlisted"],
             "resume_rejected": pipeline_display_metrics["resume_rejected"],
-            "rejected": pipeline_display_metrics["rejected"],
+            "rejected": interview_metrics["rejected"],
             "interviews_scheduled": pipeline_display_metrics["interviews_scheduled"],
             "selected": pipeline_display_metrics["selected"],
             "avg_resume_score": round(

@@ -519,6 +519,34 @@ def resolve_pipeline_display_stage(candidate: Candidate, latest_interview: Optio
     return candidate.stage
 
 
+def is_interview_rejected(latest_interview: Optional[Interview]) -> bool:
+    if not latest_interview:
+        return False
+
+    interview_status = (latest_interview.status or "").strip().lower()
+    if interview_status != "completed":
+        return False
+
+    interview_score = latest_interview.interview_score if latest_interview.interview_score is not None else 0
+    if interview_score > 10:
+        interview_score = interview_score / 10
+
+    return interview_score < 6
+
+
+def resolve_reporting_pipeline_stage(candidate: Candidate, latest_interview: Optional[Interview], today) -> CandidateStage:
+    if candidate.stage == CandidateStage.RESUME_REJECTED:
+        return CandidateStage.RESUME_REJECTED
+
+    if is_interview_rejected(latest_interview):
+        return CandidateStage.REJECTED
+
+    if candidate.stage == CandidateStage.REJECTED:
+        return CandidateStage.RESUME_REJECTED
+
+    return resolve_pipeline_display_stage(candidate, latest_interview, today)
+
+
 def enqueue_stage_notification(
     background_tasks: BackgroundTasks,
     db: Session,
@@ -3209,7 +3237,7 @@ def get_pipeline_stages(
 
     today = datetime.now().date()
     for candidate in candidates:
-        display_stage = resolve_pipeline_display_stage(
+        display_stage = resolve_reporting_pipeline_stage(
             candidate,
             latest_interviews_by_candidate.get(candidate.id),
             today,
