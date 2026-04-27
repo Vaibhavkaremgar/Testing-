@@ -10,11 +10,13 @@ from app.ats_warmup import get_ats_warmup_state, run_ats_warmup
 from app.config import settings
 from app.database import Base, SessionLocal, engine
 from app.notification_service import ensure_default_email_templates
+from app.services.billing_service import ensure_plan_catalog
 from app.routes import (
     agencies,
     analytics,
     async_interviews,
     auth,
+    billing,
     candidates,
     clients,
     communications,
@@ -114,6 +116,7 @@ app.include_router(webhooks.router, prefix="/api")
 app.include_router(email.router, prefix="/api")
 app.include_router(communications.router)
 app.include_router(async_interviews.router)
+app.include_router(billing.router, prefix="/api")
 app.include_router(wallet.router, prefix="/api")
 app.include_router(payment.router, prefix="/api")
 app.include_router(agencies.router, prefix="/api")
@@ -129,6 +132,7 @@ async def startup_event():
 
     db = SessionLocal()
     try:
+        ensure_plan_catalog(db)
         ensure_default_email_templates(db)
     finally:
         db.close()

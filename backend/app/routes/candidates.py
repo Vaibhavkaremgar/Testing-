@@ -548,6 +548,65 @@ def resolve_reporting_pipeline_stage(candidate: Candidate, latest_interview: Opt
     return display_stage
 
 
+def _get_interview_slot_pipeline_stages(db: Session, candidate_ids: List[UUID], today) -> Dict[UUID, CandidateStage]:
+    if not candidate_ids:
+        return {}
+
+    columns = db.execute(text(
+        """
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'interview_slots'
+        """
+    )).fetchall()
+    column_names = {row[0] for row in columns}
+    if not column_names or "slot_date" not in column_names:
+        return {}
+
+    candidate_column = next(
+        (
+            column_name
+            for column_name in ("candidate_id", "candidateId", "candidate")
+            if column_name in column_names
+        ),
+        None,
+    )
+    if not candidate_column:
+        return {}
+
+    rows = db.execute(
+        text(f"""
+            SELECT {candidate_column}::text AS candidate_id, slot_date::date AS slot_date
+            FROM interview_slots
+            WHERE {candidate_column} IS NOT NULL
+              AND slot_date IS NOT NULL
+              AND {candidate_column}::text = ANY(:candidate_ids)
+        """),
+        {"candidate_ids": [str(candidate_id) for candidate_id in candidate_ids]},
+    ).mappings().all()
+
+    slot_stage_by_candidate: Dict[UUID, CandidateStage] = {}
+    for row in rows:
+        candidate_id_raw = row.get("candidate_id")
+        slot_date = row.get("slot_date")
+        if not candidate_id_raw or slot_date is None:
+            continue
+
+        try:
+            candidate_id = UUID(str(candidate_id_raw))
+        except (ValueError, TypeError):
+            continue
+
+        if slot_date == today:
+            slot_stage_by_candidate[candidate_id] = CandidateStage.INTERVIEWED
+            continue
+
+        if slot_date > today and slot_stage_by_candidate.get(candidate_id) != CandidateStage.INTERVIEWED:
+            slot_stage_by_candidate[candidate_id] = CandidateStage.INTERVIEW_SCHEDULED
+
+    return slot_stage_by_candidate
+
+
 def enqueue_stage_notification(
     background_tasks: BackgroundTasks,
     db: Session,
@@ -3237,12 +3296,16 @@ def get_pipeline_stages(
             latest_interviews_by_candidate.setdefault(interview.candidate_id, interview)
 
     today = datetime.now().date()
+    slot_stage_by_candidate = _get_interview_slot_pipeline_stages(db, candidate_ids, today)
     for candidate in candidates:
         display_stage = resolve_reporting_pipeline_stage(
             candidate,
             latest_interviews_by_candidate.get(candidate.id),
             today,
         )
+        slot_stage = slot_stage_by_candidate.get(candidate.id)
+        if slot_stage in {CandidateStage.INTERVIEW_SCHEDULED, CandidateStage.INTERVIEWED}:
+            display_stage = slot_stage
         stages[display_stage.value].append(
             {
                 "id": candidate.id,

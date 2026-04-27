@@ -115,6 +115,9 @@ class Agency(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
+    subscriptions = relationship("Subscription", back_populates="agency")
+    wallet = relationship("Wallet", back_populates="agency", uselist=False)
+
 
 class User(Base):
     __tablename__ = "users"
@@ -441,11 +444,13 @@ class WalletTransaction(Base):
 class Subscription(Base):
     __tablename__ = "subscriptions"
     __table_args__ = (
+        Index("idx_subscriptions_agency_id_status", "agency_id", "status"),
         Index("idx_subscriptions_user_id_created_at", "user_id", "created_at"),
         Index("idx_subscriptions_expires_at", "expires_at"),
     )
 
     id = Column(Integer, primary_key=True, index=True)
+    agency_id = Column(UUID(as_uuid=True), ForeignKey("agencies.id"), nullable=True, index=True)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
     plan_id = Column(UUID(as_uuid=True), ForeignKey("plans.id"), nullable=True, index=True)
     status = Column(String(50), nullable=True, default="active", index=True)
@@ -469,8 +474,11 @@ class Subscription(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
+    agency = relationship("Agency", back_populates="subscriptions", foreign_keys=[agency_id])
     user = relationship("User", foreign_keys=[user_id])
     plan = relationship("Plan", foreign_keys=[plan_id])
+    wallet = relationship("Wallet", back_populates="subscription", uselist=False)
+    usage_logs = relationship("UsageLog", back_populates="subscription")
 
 
 class Plan(Base):
@@ -485,6 +493,9 @@ class Plan(Base):
     duration = Column(String(20), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    limits = relationship("PlanLimit", back_populates="plan")
+    subscriptions = relationship("Subscription", back_populates="plan")
 
 
 class PlanLimit(Base):
@@ -502,6 +513,73 @@ class PlanLimit(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     plan = relationship("Plan", foreign_keys=[plan_id])
+
+
+class Wallet(Base):
+    __tablename__ = "wallets"
+    __table_args__ = (
+        UniqueConstraint("agency_id", name="uq_wallets_agency_id"),
+        UniqueConstraint("subscription_id", name="uq_wallets_subscription_id"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    agency_id = Column(UUID(as_uuid=True), ForeignKey("agencies.id"), nullable=False, index=True)
+    subscription_id = Column(Integer, ForeignKey("subscriptions.id"), nullable=False, index=True)
+
+    interview_total = Column(Integer, nullable=True)
+    interview_used = Column(Integer, default=0, nullable=False)
+    interview_remaining = Column(Integer, nullable=True)
+    is_interview_unlimited = Column(Boolean, default=False, nullable=False)
+
+    resume_total = Column(Integer, nullable=True)
+    resume_used = Column(Integer, default=0, nullable=False)
+    resume_remaining = Column(Integer, nullable=True)
+    is_resume_unlimited = Column(Boolean, default=False, nullable=False)
+
+    job_post_total = Column(Integer, nullable=True)
+    job_post_used = Column(Integer, default=0, nullable=False)
+    job_post_remaining = Column(Integer, nullable=True)
+    is_job_post_unlimited = Column(Boolean, default=False, nullable=False)
+
+    user_seat_total = Column(Integer, nullable=True)
+    user_seat_used = Column(Integer, default=0, nullable=False)
+    user_seat_remaining = Column(Integer, nullable=True)
+    is_user_seat_unlimited = Column(Boolean, default=False, nullable=False)
+
+    last_reset_date = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    agency = relationship("Agency", back_populates="wallet", foreign_keys=[agency_id])
+    subscription = relationship("Subscription", back_populates="wallet", foreign_keys=[subscription_id])
+    usage_logs = relationship("UsageLog", back_populates="wallet")
+
+
+class UsageLog(Base):
+    __tablename__ = "usage_logs"
+    __table_args__ = (
+        Index("idx_usage_logs_agency_id_created_at", "agency_id", "created_at"),
+        Index("idx_usage_logs_feature_name_created_at", "feature_name", "created_at"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    agency_id = Column(UUID(as_uuid=True), ForeignKey("agencies.id"), nullable=False, index=True)
+    subscription_id = Column(Integer, ForeignKey("subscriptions.id"), nullable=False, index=True)
+    wallet_id = Column(Integer, ForeignKey("wallets.id"), nullable=False, index=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=True, index=True)
+    feature_name = Column(String(100), nullable=False, index=True)
+    action = Column(String(50), nullable=False, default="consume")
+    amount = Column(Integer, nullable=False, default=1)
+    before_used = Column(Integer, nullable=True)
+    after_used = Column(Integer, nullable=True)
+    before_remaining = Column(Integer, nullable=True)
+    after_remaining = Column(Integer, nullable=True)
+    details = Column(JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    subscription = relationship("Subscription", back_populates="usage_logs", foreign_keys=[subscription_id])
+    wallet = relationship("Wallet", back_populates="usage_logs", foreign_keys=[wallet_id])
+    user = relationship("User", foreign_keys=[user_id])
 
 
 class UsageTracking(Base):

@@ -124,6 +124,8 @@ def submit_async_answers(
     interview.async_answers = [ans.model_dump() for ans in answers]
     interview.async_completed_at = datetime.utcnow()
     interview.status = "completed"
+    from app.routes.interviews import _sync_interview_session_status
+    _sync_interview_session_status(db, interview, "completed")
     
     db.commit()
     

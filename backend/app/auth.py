@@ -62,7 +62,6 @@ async def get_current_user(
 
     if row is None:
         raise credentials_exception
-
     user = User(
         id=row[0], email=row[1], full_name=row[2],
         is_active=row[4], agency_id=row[5], hashed_password=row[6],

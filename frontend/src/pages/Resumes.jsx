@@ -776,13 +776,32 @@ export default function Resumes() {
   const handleViewCandidate = async (candidate) => {
     setSelectedCandidate(normalizeResumeCandidate(candidate, jobsById))
     setAnalysisLoading(true)
-    setSummaryLoading(true)
     setAiAnalysis(null)
     setResumeSummary(null)
     setResumeSummaryCandidateId(null)
 
+    const candidateDetailsPromise = api.getCandidate(candidate.id).catch((error) => {
+      console.error('Failed to fetch candidate details:', error)
+      return null
+    })
+    const summaryPromise = api.getResumeSummary(candidate.id).catch((error) => {
+      console.error('Failed to fetch resume summary:', error)
+      return { summary: 'Unable to generate summary at this time.' }
+    })
+
+    setSummaryLoading(true)
+    summaryPromise
+      .then((summaryResult) => {
+        setResumeSummary(summaryResult?.summary || 'Unable to generate summary at this time.')
+        setResumeSummaryCandidateId(candidate.id)
+      })
+      .finally(() => {
+        setSummaryLoading(false)
+      })
+
     try {
-      const [jobResult, analysis, summaryResult] = await Promise.all([
+      const [candidateDetails, jobResult, analysis] = await Promise.all([
+        candidateDetailsPromise,
         candidate.job_id
           ? api.getJob(candidate.job_id).catch((error) => {
             console.error('Failed to fetch job details:', error)
@@ -793,24 +812,21 @@ export default function Resumes() {
           console.error('Failed to fetch AI analysis:', error)
           return null
         }),
-        api.getResumeSummary(candidate.id).catch((error) => {
-          console.error('Failed to fetch resume summary:', error)
-          return { summary: 'Unable to generate summary at this time.' }
-        }),
       ])
 
+      if (candidateDetails) {
+        setSelectedCandidate(normalizeResumeCandidate(candidateDetails, jobsById))
+      }
       setCandidateJob(jobResult)
-      setResumeSummary(summaryResult?.summary || 'Unable to generate summary at this time.')
-      setResumeSummaryCandidateId(candidate.id)
 
       // Override match_score with resume_score for consistency
-      if (analysis && candidate.resume_score !== undefined) {
-        analysis.match_score = candidate.resume_score
+      const matchScore = candidateDetails?.resume_score ?? candidate.resume_score
+      if (analysis && matchScore !== undefined) {
+        analysis.match_score = matchScore
       }
       setAiAnalysis(analysis)
     } finally {
       setAnalysisLoading(false)
-      setSummaryLoading(false)
     }
   }
 

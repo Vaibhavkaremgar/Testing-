@@ -1,1 +1,1 @@
-from app.routes import auth, candidates, jobs, interviews, analytics, email_templates, subscriptions, usage
+from app.routes import analytics, auth, billing, candidates, email_templates, interviews, jobs, subscriptions, usage

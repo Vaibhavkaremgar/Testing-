@@ -103,11 +103,17 @@ export default function WalletPage({ superAdminAgencyId = null }) {
   const [historyFilter, setHistoryFilter] = useState('all');
   const [billingCycle, setBillingCycle] = useState('monthly');
   const [selectedPlan, setSelectedPlan] = useState('');
+  const [selectedPlanUsers, setSelectedPlanUsers] = useState('1');
   const [planStatus, setPlanStatus] = useState(null);
   const [usageSummary, setUsageSummary] = useState(null);
 
   const currentPlanOptions = PLAN_OPTIONS[billingCycle];
   const selectedPlanConfig = currentPlanOptions.find((plan) => plan.id === selectedPlan) || null;
+  const selectedPlanUserLimit = selectedPlanConfig?.userSeats ? Math.max(selectedPlanConfig.userSeats - 1, 1) : 1;
+  const selectedPlanUserCount = Math.max(parseInt(selectedPlanUsers, 10) || 1, 1);
+  const selectedPlanTotalPrice = selectedPlanConfig?.price != null
+    ? selectedPlanConfig.price * selectedPlanUserCount
+    : null;
 
   const getStats = () => {
     const totalCredits = transactions
@@ -351,7 +357,7 @@ Status: ${txn.status || 'completed'}
         // }
 
         const includedCredits = selectedPlanConfig.interviewCredits;
-        const userCount = Math.max(usageSnapshot.activeUserCount || 1, 1);
+        const userCount = selectedPlanUserCount;
         const orderResponse = await api.post('/wallet/create-order', {
           credits: includedCredits,
           payment_method: selectedPayment
@@ -362,7 +368,7 @@ Status: ${txn.status || 'completed'}
           transaction_id: `TXN_${Date.now()}`,
           credits: includedCredits,
           payment_method: selectedPayment,
-          amount_paid: selectedPlanConfig.price
+          amount_paid: selectedPlanTotalPrice
         });
 
         await api.post('/subscriptions/select-plan', {
@@ -375,6 +381,7 @@ Status: ${txn.status || 'completed'}
         alert(`Successfully activated the ${selectedPlanConfig.name} ${billingCycle} plan with ${includedCredits} interview credits!`);
         setSelectedPayment(null);
         setSelectedPlan('');
+        setSelectedPlanUsers('1');
         setCreditAmount('');
         fetchBalance();
         fetchTransactions();
@@ -401,6 +408,7 @@ Status: ${txn.status || 'completed'}
       alert(`Successfully purchased ${credits} credits!`);
       setSelectedPayment(null);
       setSelectedPlan('');
+      setSelectedPlanUsers('1');
       setCreditAmount('');
       fetchBalance();
       fetchTransactions();
@@ -416,13 +424,23 @@ Status: ${txn.status || 'completed'}
   const handleBillingCycleChange = (value) => {
     setBillingCycle(value);
     setSelectedPlan('');
+    setSelectedPlanUsers('1');
     setCreditAmount('');
   };
 
   const handlePlanChange = (value) => {
     setSelectedPlan(value);
+    setSelectedPlanUsers('1');
     const plan = currentPlanOptions.find((option) => option.id === value);
     setCreditAmount(plan?.id === 'custom' ? '' : String(plan?.price || ''));
+  };
+
+  const handlePlanUsersChange = (value) => {
+    const nextUsers = Math.min(Math.max(parseInt(value, 10) || 1, 1), selectedPlanUserLimit);
+    setSelectedPlanUsers(String(nextUsers));
+    if (selectedPlanConfig?.id !== 'custom') {
+      setCreditAmount(String((selectedPlanConfig?.price || 0) * nextUsers));
+    }
   };
 
   const getPlanUsageSnapshot = async () => {
@@ -645,9 +663,27 @@ Status: ${txn.status || 'completed'}
                 <p className="font-medium text-slate-900">
                   {selectedPlanConfig.name} includes {selectedPlanConfig.interviewCredits} interview credits for {selectedPlanConfig.priceLabel}/{billingCycle === 'monthly' ? 'month' : 'year'}
                 </p>
+                <div className="pt-2">
+                  <Label htmlFor="planUsers">How many users do you want?</Label>
+                  <select
+                    id="planUsers"
+                    value={selectedPlanUsers}
+                    onChange={(e) => handlePlanUsersChange(e.target.value)}
+                    className="mt-2 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  >
+                    {Array.from({ length: selectedPlanUserLimit }, (_, index) => index + 1).map((count) => (
+                      <option key={count} value={count}>
+                        {count} {count === 1 ? 'user' : 'users'}
+                      </option>
+                    ))}
+                  </select>
+                </div>
                 <p>Resume scans: {selectedPlanConfig.resumeScoringUnlimited ? 'Unlimited' : selectedPlanConfig.resumeScoring}{selectedPlanConfig.resumeScoringUnlimited ? '' : '/month'}</p>
                 <p>Active job postings: {selectedPlanConfig.jobPostings}</p>
-                <p>User seats: {selectedPlanConfig.userSeats}</p>
+                <p>User seats: {selectedPlanUserLimit}</p>
+                <p className="pt-1 font-semibold text-slate-900">
+                  Total price: ${selectedPlanTotalPrice}
+                </p>
                 <p className="pt-1 text-xs text-slate-500">
                   These plan limits are tracked separately and reduce automatically as your team uses them.
                 </p>

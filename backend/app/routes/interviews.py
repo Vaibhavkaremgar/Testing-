@@ -1126,6 +1126,69 @@ def _get_table_columns(cursor, table_name: str) -> set[str]:
     return columns
 
 
+def _get_table_columns_for_session(db: Session, table_name: str) -> set[str]:
+    with _table_columns_cache_lock:
+        cached_columns = _table_columns_cache.get(table_name)
+    if cached_columns is not None:
+        return cached_columns
+
+    rows = db.execute(text(
+        """
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = :table_name
+        """
+    ), {"table_name": table_name}).fetchall()
+    columns = {row[0] for row in rows}
+    with _table_columns_cache_lock:
+        _table_columns_cache[table_name] = columns
+    return columns
+
+
+def _sync_interview_session_status(db: Session, interview: Interview, status_value: str) -> int:
+    normalized_status = str(status_value or "").strip()
+    if not normalized_status:
+        return 0
+
+    columns = _get_table_columns_for_session(db, "interview_sessions")
+    if "status" not in columns:
+        return 0
+
+    lookup_columns = [
+        column_name
+        for column_name in ("interview_id", "async_token", "session_token", "session_id", "token", "id")
+        if column_name in columns
+    ]
+    lookup_keys = [
+        key for key in dict.fromkeys([
+            str(interview.id) if interview.id else "",
+            str(interview.async_token) if interview.async_token else "",
+        ])
+        if key
+    ]
+    if not lookup_columns or not lookup_keys:
+        return 0
+
+    where_clauses = []
+    params = {"status_value": normalized_status}
+    for index, (column_name, lookup_key) in enumerate(
+        (item for item in ((column_name, lookup_key) for column_name in lookup_columns for lookup_key in lookup_keys))
+    ):
+        param_name = f"lookup_key_{index}"
+        params[param_name] = lookup_key
+        where_clauses.append(f"{column_name}::text = :{param_name}")
+
+    if not where_clauses:
+        return 0
+
+    result = db.execute(text(f"""
+        UPDATE interview_sessions
+        SET status = :status_value
+        WHERE {" OR ".join(where_clauses)}
+    """), params)
+    return result.rowcount or 0
+
+
 def _fetch_interview_recording(cursor, session_keys: List[str]):
     columns = _get_table_columns(cursor, "interview_sessions")
     if "recording_path" not in columns and "recording_data" not in columns:
@@ -1798,6 +1861,9 @@ def update_interview(
     for field, value in update_data.items():
         setattr(db_interview, field, value)
     _apply_interview_score_normalization(db_interview)
+
+    if (db_interview.status or "").strip().lower() == "completed":
+        _sync_interview_session_status(db, db_interview, "completed")
     
     candidate = db.query(Candidate).filter(Candidate.id == db_interview.candidate_id).first()
     if candidate:
@@ -1828,6 +1894,7 @@ def complete_interview(
     db_interview.culture_fit_score = round(random.uniform(6.5, 9.5), 1)
     _apply_interview_score_normalization(db_interview)
     db_interview.video_url = "https://example.com/interview-recording.mp4"
+    _sync_interview_session_status(db, db_interview, "completed")
     
     candidate = db.query(Candidate).filter(Candidate.id == db_interview.candidate_id).first()
     if candidate:
@@ -1854,6 +1921,7 @@ def receive_interview_results(
 
     db_interview.status = "completed"
     _apply_interview_score_normalization(db_interview)
+    _sync_interview_session_status(db, db_interview, "completed")
 
     candidate = db.query(Candidate).filter(Candidate.id == db_interview.candidate_id).first()
     if candidate:
