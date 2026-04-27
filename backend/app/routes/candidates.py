@@ -3331,13 +3331,18 @@ def get_pipeline_stages(
     today = datetime.now().date()
     slot_stage_by_candidate = _get_interview_slot_pipeline_stages(db, candidate_ids, today)
     for candidate in candidates:
+        latest_interview = latest_interviews_by_candidate.get(candidate.id)
         display_stage = resolve_reporting_pipeline_stage(
             candidate,
-            latest_interviews_by_candidate.get(candidate.id),
+            latest_interview,
             today,
         )
         slot_stage = slot_stage_by_candidate.get(candidate.id)
         display_stage = resolve_slot_backed_pipeline_stage(candidate, display_stage, slot_stage)
+        if display_stage == CandidateStage.REJECTED and latest_interview:
+            interview_status = (latest_interview.status or "").strip().lower()
+            if interview_status == "completed":
+                display_stage = CandidateStage.INTERVIEWED
         stages[display_stage.value].append(
             {
                 "id": candidate.id,
