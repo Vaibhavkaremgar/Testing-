@@ -548,6 +548,31 @@ def resolve_reporting_pipeline_stage(candidate: Candidate, latest_interview: Opt
     return display_stage
 
 
+def resolve_slot_backed_pipeline_stage(
+    candidate: Candidate,
+    display_stage: CandidateStage,
+    slot_stage: Optional[CandidateStage],
+) -> CandidateStage:
+    if slot_stage in {CandidateStage.INTERVIEW_SCHEDULED, CandidateStage.INTERVIEWED}:
+        return slot_stage
+
+    if display_stage in {CandidateStage.INTERVIEW_SCHEDULED, CandidateStage.INTERVIEWED}:
+        candidate_stage = candidate.stage
+        if candidate_stage in {
+            CandidateStage.REVIEW,
+            CandidateStage.SHORTLISTED,
+            CandidateStage.RESUME_REJECTED,
+            CandidateStage.INTERVIEW_RESCHEDULED,
+            CandidateStage.NO_SHOW,
+            CandidateStage.SELECTED,
+            CandidateStage.REJECTED,
+        }:
+            return candidate_stage
+        return CandidateStage.SHORTLISTED
+
+    return display_stage
+
+
 def _get_interview_slot_pipeline_stages(db: Session, candidate_ids: List[UUID], today) -> Dict[UUID, CandidateStage]:
     if not candidate_ids:
         return {}
@@ -3312,8 +3337,7 @@ def get_pipeline_stages(
             today,
         )
         slot_stage = slot_stage_by_candidate.get(candidate.id)
-        if slot_stage in {CandidateStage.INTERVIEW_SCHEDULED, CandidateStage.INTERVIEWED}:
-            display_stage = slot_stage
+        display_stage = resolve_slot_backed_pipeline_stage(candidate, display_stage, slot_stage)
         stages[display_stage.value].append(
             {
                 "id": candidate.id,

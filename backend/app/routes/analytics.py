@@ -24,6 +24,7 @@ from app.routes.candidates import (
     normalize_legacy_candidate_stages,
     resolve_pipeline_display_stage,
     resolve_reporting_pipeline_stage,
+    resolve_slot_backed_pipeline_stage,
 )
 from collections import Counter
 import random
@@ -455,8 +456,7 @@ def _aggregate_pipeline_display_stage_metrics(
             today,
         )
         slot_stage = slot_stage_by_candidate.get(candidate.id)
-        if slot_stage in {CandidateStage.INTERVIEW_SCHEDULED, CandidateStage.INTERVIEWED}:
-            display_stage = slot_stage
+        display_stage = resolve_slot_backed_pipeline_stage(candidate, display_stage, slot_stage)
         if display_stage == CandidateStage.SHORTLISTED:
             metrics["shortlisted"] += 1
         elif display_stage == CandidateStage.RESUME_REJECTED:
