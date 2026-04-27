@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import secrets
 from datetime import datetime, timedelta
 from types import SimpleNamespace
@@ -360,7 +361,7 @@ def build_notification_payload(
         "candidate_id": candidate.candidate_id or str(candidate.id),
         "job_id": job.job_id if job and job.job_id else (str(job.id) if job else ""),
         "job_title": job.title if job else "",
-        "job_role": candidate.current_role or (job.title if job else ""),
+        "job_role": job.title if job else "",
         "company_name": (job.company_name if job and job.company_name else (agency.name if agency else "Our Company")),
         "job_description": job.description if job else "",
         "skills": ", ".join(candidate.skills or (job.skills if job else []) or []),
@@ -382,6 +383,11 @@ def build_notification_payload(
     if extra_payload:
         payload.update(compact_notification_payload(extra_payload))
 
+    if job:
+        payload["job_title"] = job.title or ""
+        payload["job_role"] = job.title or ""
+        payload["company_name"] = job.company_name or payload.get("company_name", "")
+
     return compact_notification_payload(payload)
 
 
@@ -393,6 +399,29 @@ def render_template_content(content: str, payload: dict) -> str:
             replacement = json.dumps(replacement)
         rendered = rendered.replace(f"{{{{{placeholder}}}}}", str(replacement if replacement is not None else ""))
     return rendered
+
+
+def _make_interview_selected_cta_read_only(body: str) -> str:
+    if not body:
+        return body
+
+    def replace_anchor(match: re.Match) -> str:
+        attrs = match.group(1) or ""
+        inner_html = match.group(2) or ""
+        inner_text = re.sub(r"<[^>]+>", "", inner_html).strip().lower()
+        if "accept offer" not in inner_text:
+            return match.group(0)
+
+        style_match = re.search(r'style=(["\'])(.*?)\1', attrs, flags=re.IGNORECASE | re.DOTALL)
+        style_attr = f' style="{style_match.group(2)}"' if style_match else ""
+        return f"<span{style_attr}>{inner_html}</span>"
+
+    return re.sub(
+        r"<a\b([^>]*)>(.*?)</a>",
+        replace_anchor,
+        body,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
 
 
 def get_template_for_agency_and_status(db: Session, agency_id, status: str) -> tuple[EmailTemplate, bool]:
@@ -531,6 +560,8 @@ def build_rendered_notification(
     template, used_default = get_template_for_agency_and_status(db, candidate.agency_id, status)
     subject = render_template_content(template.subject, payload)
     body = render_template_content(template.body, payload)
+    if status == "interview_selected":
+        body = _make_interview_selected_cta_read_only(body)
 
     return {
         "template": template,

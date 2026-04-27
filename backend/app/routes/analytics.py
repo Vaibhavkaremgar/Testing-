@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy.orm import Session
-from sqlalchemy import func, case, extract, text
+from sqlalchemy.orm import Session, aliased
+from sqlalchemy import func, case, extract, text, or_
 from typing import List, Optional
 from app.database import get_db
 from app.config import settings
@@ -572,9 +572,20 @@ def _apply_candidate_visibility(query, current_user: User):
         return query
 
     if role_name == UserRole.ADMIN.value:
+        creator = aliased(User)
+        assignee = aliased(User)
         if current_user.agency_id:
-            return query.join(JobDescription, Candidate.job_id == JobDescription.id).filter(
-                JobDescription.agency_id == current_user.agency_id
+            return query.outerjoin(JobDescription, Candidate.job_id == JobDescription.id).outerjoin(
+                creator, Candidate.created_by == creator.id
+            ).outerjoin(
+                assignee, Candidate.assigned_to_user_id == assignee.id
+            ).filter(
+                or_(
+                    Candidate.agency_id == current_user.agency_id,
+                    JobDescription.agency_id == current_user.agency_id,
+                    creator.agency_id == current_user.agency_id,
+                    assignee.agency_id == current_user.agency_id,
+                )
             )
         return query
 
@@ -1000,14 +1011,22 @@ def get_pipeline_stats(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    stats = []
+    normalize_legacy_candidate_stages(db)
     base_query = _apply_candidate_visibility(db.query(Candidate), current_user)
-    for stage in CandidateStage:
-        count = base_query.filter(
-            Candidate.stage == stage
-        ).count() or 0
-        stats.append(PipelineStats(stage=stage.value, count=count))
-    return stats
+    pipeline_display_metrics = _aggregate_pipeline_display_stage_metrics(db, base_query)
+
+    derived_counts = {
+        CandidateStage.SHORTLISTED.value: pipeline_display_metrics["shortlisted"],
+        CandidateStage.RESUME_REJECTED.value: pipeline_display_metrics["resume_rejected"],
+        CandidateStage.INTERVIEW_SCHEDULED.value: pipeline_display_metrics["interviews_scheduled"],
+        CandidateStage.SELECTED.value: pipeline_display_metrics["selected"],
+        CandidateStage.REJECTED.value: pipeline_display_metrics["rejected"],
+    }
+
+    return [
+        PipelineStats(stage=stage.value, count=derived_counts.get(stage.value, 0))
+        for stage in CandidateStage
+    ]
 
 @router.get("/hiring-funnel", response_model=List[HiringFunnelData])
 def get_hiring_funnel(
