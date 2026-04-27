@@ -609,6 +609,12 @@ def resolve_pipeline_rejected_stage(
     return CandidateStage.SHORTLISTED
 
 
+def resolve_shortlisted_stage(candidate: Candidate, display_stage: CandidateStage) -> CandidateStage:
+    if candidate.stage == CandidateStage.SHORTLISTED:
+        return CandidateStage.SHORTLISTED
+    return display_stage
+
+
 def _get_interview_slot_pipeline_stages(db: Session, candidate_ids: List[UUID], today) -> Dict[UUID, CandidateStage]:
     if not candidate_ids:
         return {}
@@ -3376,6 +3382,7 @@ def get_pipeline_stages(
         slot_stage = slot_stage_by_candidate.get(candidate.id)
         display_stage = resolve_slot_backed_pipeline_stage(candidate, display_stage, slot_stage)
         display_stage = resolve_pipeline_rejected_stage(candidate, display_stage, latest_interview)
+        display_stage = resolve_shortlisted_stage(candidate, display_stage)
         stages[display_stage.value].append(
             {
                 "id": candidate.id,
