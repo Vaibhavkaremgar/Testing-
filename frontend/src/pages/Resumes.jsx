@@ -249,6 +249,7 @@ export default function Resumes() {
   const [syncing, setSyncing] = useState(false)
   const [viewingResume, setViewingResume] = useState(null)
   const [resumeSummary, setResumeSummary] = useState(null)
+  const [resumeSummaryCandidateId, setResumeSummaryCandidateId] = useState(null)
   const [summaryLoading, setSummaryLoading] = useState(false)
   const [aiAnalysis, setAiAnalysis] = useState(null)
   const [analysisLoading, setAnalysisLoading] = useState(false)
@@ -775,10 +776,13 @@ export default function Resumes() {
   const handleViewCandidate = async (candidate) => {
     setSelectedCandidate(normalizeResumeCandidate(candidate, jobsById))
     setAnalysisLoading(true)
+    setSummaryLoading(true)
     setAiAnalysis(null)
+    setResumeSummary(null)
+    setResumeSummaryCandidateId(null)
 
     try {
-      const [jobResult, analysis] = await Promise.all([
+      const [jobResult, analysis, summaryResult] = await Promise.all([
         candidate.job_id
           ? api.getJob(candidate.job_id).catch((error) => {
             console.error('Failed to fetch job details:', error)
@@ -789,9 +793,15 @@ export default function Resumes() {
           console.error('Failed to fetch AI analysis:', error)
           return null
         }),
+        api.getResumeSummary(candidate.id).catch((error) => {
+          console.error('Failed to fetch resume summary:', error)
+          return { summary: 'Unable to generate summary at this time.' }
+        }),
       ])
 
       setCandidateJob(jobResult)
+      setResumeSummary(summaryResult?.summary || 'Unable to generate summary at this time.')
+      setResumeSummaryCandidateId(candidate.id)
 
       // Override match_score with resume_score for consistency
       if (analysis && candidate.resume_score !== undefined) {
@@ -800,6 +810,7 @@ export default function Resumes() {
       setAiAnalysis(analysis)
     } finally {
       setAnalysisLoading(false)
+      setSummaryLoading(false)
     }
   }
 
@@ -807,6 +818,9 @@ export default function Resumes() {
     setSelectedCandidate(null)
     setCandidateJob(null)
     setAiAnalysis(null)
+    setResumeSummary(null)
+    setResumeSummaryCandidateId(null)
+    setSummaryLoading(false)
   }
 
   const handleViewResume = async (candidate) => {
@@ -829,13 +843,18 @@ export default function Resumes() {
 
   const handleResumeSummary = async (candidate) => {
     setViewingResume(candidate)
+    if (resumeSummaryCandidateId === candidate.id && resumeSummary) {
+      return
+    }
     setSummaryLoading(true)
     try {
       const summary = await api.getResumeSummary(candidate.id)
       setResumeSummary(summary.summary)
+      setResumeSummaryCandidateId(candidate.id)
     } catch (error) {
       console.error('Failed to fetch resume summary:', error)
       setResumeSummary('Unable to generate summary at this time.')
+      setResumeSummaryCandidateId(candidate.id)
     } finally {
       setSummaryLoading(false)
     }
@@ -843,7 +862,6 @@ export default function Resumes() {
 
   const closeResumeModal = () => {
     setViewingResume(null)
-    setResumeSummary(null)
   }
 
   const handleSyncToSheets = async () => {

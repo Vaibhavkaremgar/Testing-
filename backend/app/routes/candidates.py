@@ -541,10 +541,11 @@ def resolve_reporting_pipeline_stage(candidate: Candidate, latest_interview: Opt
     if is_interview_rejected(latest_interview):
         return CandidateStage.REJECTED
 
-    if candidate.stage == CandidateStage.REJECTED:
-        return CandidateStage.RESUME_REJECTED
+    display_stage = resolve_pipeline_display_stage(candidate, latest_interview, today)
+    if display_stage == CandidateStage.RESUME_REJECTED:
+        return candidate.stage
 
-    return resolve_pipeline_display_stage(candidate, latest_interview, today)
+    return display_stage
 
 
 def enqueue_stage_notification(
