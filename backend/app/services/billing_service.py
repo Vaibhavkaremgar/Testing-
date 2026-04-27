@@ -242,6 +242,8 @@ def _get_or_create_plan(
 
 def ensure_plan_catalog(db: Session) -> None:
     for plan_name, durations in PLAN_CATALOG.items():
+        if plan_name == "custom":
+            continue
         for billing_type, config in durations.items():
             definition = _build_plan_definition(plan_name, billing_type, None)
             _get_or_create_plan(
