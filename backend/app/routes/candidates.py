@@ -612,6 +612,8 @@ def resolve_pipeline_rejected_stage(
 def resolve_shortlisted_stage(candidate: Candidate, display_stage: CandidateStage) -> CandidateStage:
     if candidate.stage == CandidateStage.SHORTLISTED:
         return CandidateStage.SHORTLISTED
+    if display_stage == CandidateStage.SHORTLISTED:
+        return candidate.stage
     return display_stage
 
 
