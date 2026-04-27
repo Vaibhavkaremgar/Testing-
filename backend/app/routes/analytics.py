@@ -24,7 +24,6 @@ from app.routes.candidates import (
     normalize_legacy_candidate_stages,
     resolve_pipeline_display_stage,
     resolve_reporting_pipeline_stage,
-    resolve_shortlisted_stage,
     resolve_slot_backed_pipeline_stage,
 )
 from collections import Counter
@@ -458,7 +457,6 @@ def _aggregate_pipeline_display_stage_metrics(
         )
         slot_stage = slot_stage_by_candidate.get(candidate.id)
         display_stage = resolve_slot_backed_pipeline_stage(candidate, display_stage, slot_stage)
-        display_stage = resolve_shortlisted_stage(candidate, display_stage)
         if display_stage == CandidateStage.SHORTLISTED:
             metrics["shortlisted"] += 1
         elif display_stage == CandidateStage.RESUME_REJECTED:
@@ -1036,7 +1034,7 @@ def get_dashboard_stats(
         serialization_start = perf_counter()
         payload = {
             "total_candidates": candidate_metrics["total_candidates"],
-            "shortlisted": pipeline_display_metrics["shortlisted"],
+            "shortlisted": candidate_metrics["shortlisted"],
             "resume_rejected": pipeline_display_metrics["resume_rejected"],
             "rejected": interview_metrics["rejected"],
             "interviews_scheduled": pipeline_display_metrics["interviews_scheduled"],

@@ -609,14 +609,6 @@ def resolve_pipeline_rejected_stage(
     return CandidateStage.SHORTLISTED
 
 
-def resolve_shortlisted_stage(candidate: Candidate, display_stage: CandidateStage) -> CandidateStage:
-    if candidate.stage == CandidateStage.SHORTLISTED:
-        return CandidateStage.SHORTLISTED
-    if display_stage == CandidateStage.SHORTLISTED:
-        return candidate.stage
-    return display_stage
-
-
 def _get_interview_slot_pipeline_stages(db: Session, candidate_ids: List[UUID], today) -> Dict[UUID, CandidateStage]:
     if not candidate_ids:
         return {}
@@ -3375,6 +3367,24 @@ def get_pipeline_stages(
     today = datetime.now().date()
     slot_stage_by_candidate = _get_interview_slot_pipeline_stages(db, candidate_ids, today)
     for candidate in candidates:
+        if candidate.stage == CandidateStage.SHORTLISTED:
+            display_stage = CandidateStage.SHORTLISTED
+            stages[display_stage.value].append(
+                {
+                    "id": candidate.id,
+                    "name": candidate.name,
+                    "current_role": candidate.current_role,
+                    "current_company": candidate.current_company,
+                    "resume_score": candidate.resume_score,
+                    "job_title": candidate.job.title if candidate.job else None,
+                    "company_name": candidate.job.company_name if candidate.job else None,
+                    "stage": display_stage.value if display_stage else None,
+                    "stage_entered_at": candidate.stage_entered_at.isoformat() if candidate.stage_entered_at else None,
+                    "applied_at": candidate.applied_at.isoformat() if candidate.applied_at else None
+                }
+            )
+            continue
+
         latest_interview = latest_interviews_by_candidate.get(candidate.id)
         display_stage = resolve_reporting_pipeline_stage(
             candidate,
@@ -3384,7 +3394,6 @@ def get_pipeline_stages(
         slot_stage = slot_stage_by_candidate.get(candidate.id)
         display_stage = resolve_slot_backed_pipeline_stage(candidate, display_stage, slot_stage)
         display_stage = resolve_pipeline_rejected_stage(candidate, display_stage, latest_interview)
-        display_stage = resolve_shortlisted_stage(candidate, display_stage)
         stages[display_stage.value].append(
             {
                 "id": candidate.id,
