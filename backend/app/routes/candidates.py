@@ -13,7 +13,7 @@ import random
 import tempfile
 import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
+from datetime import date, datetime
 from threading import Lock
 from time import monotonic, perf_counter
 from app.database import SessionLocal, get_db
@@ -591,6 +591,14 @@ def _get_interview_slot_pipeline_stages(db: Session, candidate_ids: List[UUID], 
         slot_date = row.get("slot_date")
         if not candidate_id_raw or slot_date is None:
             continue
+
+        if isinstance(slot_date, datetime):
+            slot_date = slot_date.date()
+        elif isinstance(slot_date, str):
+            try:
+                slot_date = date.fromisoformat(slot_date)
+            except ValueError:
+                continue
 
         try:
             candidate_id = UUID(str(candidate_id_raw))

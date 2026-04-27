@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session, aliased
 from sqlalchemy import func, case, extract, text, or_
-from typing import List, Optional
+from typing import Dict, List, Optional
+from uuid import UUID
 from app.database import get_db
 from app.config import settings
 from app.models import (
@@ -26,7 +27,7 @@ from app.routes.candidates import (
 )
 from collections import Counter
 import random
-from datetime import datetime, timedelta, timezone
+from datetime import date as date_cls, datetime, timedelta, timezone
 from pydantic import BaseModel
 from copy import deepcopy
 from threading import Lock
@@ -358,6 +359,66 @@ def _get_latest_filtered_interviews_by_candidate(
     return latest_interviews_by_candidate
 
 
+def _get_interview_slot_pipeline_stages(db: Session, candidate_ids: List[UUID], today) -> Dict[UUID, CandidateStage]:
+    if not candidate_ids:
+        return {}
+
+    column_names = _get_table_columns(db, "interview_slots")
+    if not column_names or "slot_date" not in column_names:
+        return {}
+
+    candidate_column = next(
+        (
+            column_name
+            for column_name in ("candidate_id", "candidateId", "candidate")
+            if column_name in column_names
+        ),
+        None,
+    )
+    if not candidate_column:
+        return {}
+
+    rows = db.execute(
+        text(f"""
+            SELECT {candidate_column}::text AS candidate_id, slot_date::date AS slot_date
+            FROM interview_slots
+            WHERE {candidate_column} IS NOT NULL
+              AND slot_date IS NOT NULL
+              AND {candidate_column}::text = ANY(:candidate_ids)
+        """),
+        {"candidate_ids": [str(candidate_id) for candidate_id in candidate_ids]},
+    ).mappings().all()
+
+    slot_stage_by_candidate: Dict[UUID, CandidateStage] = {}
+    for row in rows:
+        candidate_id_raw = row.get("candidate_id")
+        slot_date = row.get("slot_date")
+        if not candidate_id_raw or slot_date is None:
+            continue
+
+        if isinstance(slot_date, datetime):
+            slot_date = slot_date.date()
+        elif isinstance(slot_date, str):
+            try:
+                slot_date = date_cls.fromisoformat(slot_date)
+            except ValueError:
+                continue
+
+        try:
+            candidate_id = UUID(str(candidate_id_raw))
+        except (ValueError, TypeError):
+            continue
+
+        if slot_date == today:
+            slot_stage_by_candidate[candidate_id] = CandidateStage.INTERVIEWED
+            continue
+
+        if slot_date > today and slot_stage_by_candidate.get(candidate_id) != CandidateStage.INTERVIEWED:
+            slot_stage_by_candidate[candidate_id] = CandidateStage.INTERVIEW_SCHEDULED
+
+    return slot_stage_by_candidate
+
+
 def _aggregate_pipeline_display_stage_metrics(
     db: Session,
     candidate_query,
@@ -368,15 +429,17 @@ def _aggregate_pipeline_display_stage_metrics(
     to_date: Optional[str] = None,
 ) -> dict:
     candidates = candidate_query.all()
+    candidate_ids = [candidate.id for candidate in candidates]
     latest_interviews_by_candidate = _get_latest_filtered_interviews_by_candidate(
         db,
-        [candidate.id for candidate in candidates],
+        candidate_ids,
         month=month,
         date=date,
         from_date=from_date,
         to_date=to_date,
     )
     today = datetime.now().date()
+    slot_stage_by_candidate = _get_interview_slot_pipeline_stages(db, candidate_ids, today)
     metrics = {
         "shortlisted": 0,
         "resume_rejected": 0,
@@ -391,6 +454,9 @@ def _aggregate_pipeline_display_stage_metrics(
             latest_interviews_by_candidate.get(candidate.id),
             today,
         )
+        slot_stage = slot_stage_by_candidate.get(candidate.id)
+        if slot_stage in {CandidateStage.INTERVIEW_SCHEDULED, CandidateStage.INTERVIEWED}:
+            display_stage = slot_stage
         if display_stage == CandidateStage.SHORTLISTED:
             metrics["shortlisted"] += 1
         elif display_stage == CandidateStage.RESUME_REJECTED:
