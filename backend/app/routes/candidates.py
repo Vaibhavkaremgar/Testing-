@@ -573,6 +573,42 @@ def resolve_slot_backed_pipeline_stage(
     return display_stage
 
 
+def resolve_pipeline_rejected_stage(
+    candidate: Candidate,
+    display_stage: CandidateStage,
+    latest_interview: Optional[Interview],
+) -> CandidateStage:
+    if display_stage != CandidateStage.REJECTED:
+        return display_stage
+
+    if latest_interview:
+        interview_status = (latest_interview.status or "").strip().lower()
+        if interview_status == "rejected":
+            return CandidateStage.REJECTED
+        if interview_status in {"completed", "ongoing"}:
+            return CandidateStage.INTERVIEWED
+        if interview_status in {"scheduled", "rescheduled"}:
+            interview_date = latest_interview.scheduled_at.date() if latest_interview.scheduled_at else None
+            if interview_date == datetime.now().date():
+                return CandidateStage.INTERVIEWED
+            return CandidateStage.INTERVIEW_SCHEDULED
+
+    effective_threshold = candidate.score_threshold or 60
+    if candidate.resume_score is not None and candidate.resume_score <= (effective_threshold - 10):
+        return CandidateStage.RESUME_REJECTED
+
+    if candidate.stage in {
+        CandidateStage.REVIEW,
+        CandidateStage.SHORTLISTED,
+        CandidateStage.INTERVIEW_RESCHEDULED,
+        CandidateStage.NO_SHOW,
+        CandidateStage.SELECTED,
+    }:
+        return candidate.stage
+
+    return CandidateStage.SHORTLISTED
+
+
 def _get_interview_slot_pipeline_stages(db: Session, candidate_ids: List[UUID], today) -> Dict[UUID, CandidateStage]:
     if not candidate_ids:
         return {}
@@ -3339,10 +3375,7 @@ def get_pipeline_stages(
         )
         slot_stage = slot_stage_by_candidate.get(candidate.id)
         display_stage = resolve_slot_backed_pipeline_stage(candidate, display_stage, slot_stage)
-        if display_stage == CandidateStage.REJECTED and latest_interview:
-            interview_status = (latest_interview.status or "").strip().lower()
-            if interview_status == "completed":
-                display_stage = CandidateStage.INTERVIEWED
+        display_stage = resolve_pipeline_rejected_stage(candidate, display_stage, latest_interview)
         stages[display_stage.value].append(
             {
                 "id": candidate.id,
