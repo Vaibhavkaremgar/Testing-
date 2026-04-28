@@ -517,6 +517,7 @@ def subscribe_organization(db: Session, actor_user: User, payload: SubscribeRequ
     wallet.last_reset_date = now
     _sync_user_seats(wallet, subscription, scope)
     db.add(wallet)
+    db.flush()
 
     _log_usage(
         db,

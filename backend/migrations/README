@@ -1,0 +1,20 @@
+Alembic is configured for this backend and reads the database URL from `app.config.settings`.
+
+Safe baseline flow for an existing database with live schema/data:
+
+1. Review the current revision history:
+   `alembic history`
+
+2. Mark the current database as already aligned without changing schema:
+   `alembic stamp head`
+
+3. For future schema changes, generate a new migration from model changes:
+   `alembic revision --autogenerate -m "describe change"`
+
+4. Apply future migrations normally:
+   `alembic upgrade head`
+
+Important:
+- Do not run `alembic upgrade head` on an already-populated database until it has been stamped.
+- `stamp` writes Alembic version history only; it does not create, alter, or drop tables.
+- The application's current startup initialization logic remains unchanged.
