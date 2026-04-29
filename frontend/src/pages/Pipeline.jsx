@@ -88,8 +88,6 @@ function CandidateCard({
   draggable = true,
   isDragging
 }) {
-  const isCompletedCandidate = candidate?.display_stage === 'COMPLETED'
-
   return (
     <Card 
       className={cn(
@@ -130,34 +128,6 @@ function CandidateCard({
                 </div>
               )}
             </div>
-            {isCompletedCandidate && (
-              <div className="mt-3 flex gap-2">
-                <Button
-                  size="sm"
-                  className="h-8 flex-1 bg-green-600 hover:bg-green-700"
-                  disabled={actionLoading !== null}
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    onApprove?.(candidate)
-                  }}
-                >
-                  {actionLoading === `approve-${candidate.id}` ? 'Approving...' : 'Approve'}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="destructive"
-                  className="h-8 flex-1"
-                  disabled={actionLoading !== null}
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    onReject?.(candidate)
-                  }}
-                >
-                  {actionLoading === `reject-${candidate.id}` ? 'Rejecting...' : 'Reject'}
-                </Button>
-              </div>
-            )}
-
           </div>
         </div>
       </CardContent>

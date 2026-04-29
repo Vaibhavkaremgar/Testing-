@@ -614,11 +614,15 @@ def _get_interview_slot_pipeline_stages(db: Session, candidate_ids: List[UUID], 
     if not column_names or "slot_date" not in column_names:
         return {}
 
+    normalized_column_lookup = {
+        column_name.lower().replace("_", ""): column_name
+        for column_name in column_names
+    }
     candidate_column = next(
         (
-            column_name
-            for column_name in ("candidate_id", "candidateId", "candidate")
-            if column_name in column_names
+            normalized_column_lookup.get(candidate_key)
+            for candidate_key in ("candidateid", "candidate")
+            if normalized_column_lookup.get(candidate_key)
         ),
         None,
     )
@@ -631,11 +635,10 @@ def _get_interview_slot_pipeline_stages(db: Session, candidate_ids: List[UUID], 
             FROM interview_slots
             WHERE {candidate_column} IS NOT NULL
               AND slot_date IS NOT NULL
-              AND {candidate_column}::text = ANY(:candidate_ids)
         """),
-        {"candidate_ids": [str(candidate_id) for candidate_id in candidate_ids]},
     ).mappings().all()
 
+    candidate_id_set = {candidate_id for candidate_id in candidate_ids}
     slot_stage_by_candidate: Dict[UUID, CandidateStage] = {}
     for row in rows:
         candidate_id_raw = row.get("candidate_id")
@@ -654,6 +657,8 @@ def _get_interview_slot_pipeline_stages(db: Session, candidate_ids: List[UUID], 
         try:
             candidate_id = UUID(str(candidate_id_raw))
         except (ValueError, TypeError):
+            continue
+        if candidate_id not in candidate_id_set:
             continue
 
         if slot_date == today:
