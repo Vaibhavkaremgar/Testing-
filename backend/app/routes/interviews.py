@@ -198,8 +198,9 @@ def _derive_candidate_stage_from_interview(interview: Interview) -> Optional[Can
     today = datetime.now().date()
 
     if interview_status == "completed":
-        interview_score = _normalize_score_to_ten(interview.interview_score) or 0
-        return CandidateStage.SELECTED if interview_score >= 6 else CandidateStage.REJECTED
+        # Keep completed interviews in the post-interview review state until a user
+        # explicitly approves or rejects the candidate.
+        return CandidateStage.INTERVIEWED
 
     status_to_stage = {
         "ongoing": CandidateStage.INTERVIEWED,

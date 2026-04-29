@@ -760,7 +760,6 @@ export default function Interviews({ superAdminAgencyId = null }) {
               <div className="flex flex-col gap-2 p-2">
                 {filteredInterviews.slice(0, visibleCount).map((interview) => {
                   const resultMeta = getInterviewResultMeta(interview, candidateStageMap.get(String(interview.candidate_id)))
-                  const interviewScore = getNumericInterviewScore(interview)
                   const interviewJobContext = interviewJobContextMap.get(String(interview.id)) || {}
                   const candidateJobLine = [interviewJobContext.jobTitle, interviewJobContext.companyName]
                     .filter(Boolean)
@@ -792,17 +791,11 @@ export default function Interviews({ superAdminAgencyId = null }) {
                     </div>
                     <div className="mt-3 flex items-center justify-between">
                       <span className="text-xs text-muted-foreground">
-                        {getEffectiveInterviewStatus(interview) === 'completed' ? 'Interview Score' : 'Status'}
+                        Status
                       </span>
-                      {getEffectiveInterviewStatus(interview) === 'completed' ? (
-                        <span className={cn('text-sm font-semibold', getScoreColor(interviewScore ?? 0))}>
-                          {formatInterviewScore(interviewScore)}
-                        </span>
-                      ) : (
-                        <span className="text-xs font-medium capitalize text-muted-foreground">
-                          {getEffectiveInterviewStatus(interview)}
-                        </span>
-                      )}
+                      <span className="text-xs font-medium capitalize text-muted-foreground">
+                        {getEffectiveInterviewStatus(interview)}
+                      </span>
                     </div>
                   </button>
                   )

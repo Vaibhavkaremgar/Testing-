@@ -88,6 +88,7 @@ class Settings(BaseSettings):
     @property
     def allowed_origins_list(self) -> List[str]:
         origins = []
+        
         for origin in self.default_allowed_origins:
             cleaned = origin.strip().rstrip("/")
             if cleaned and cleaned not in origins:

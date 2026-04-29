@@ -495,10 +495,7 @@ def resolve_pipeline_display_stage(candidate: Candidate, latest_interview: Optio
         interview_status = (latest_interview.status or "").strip().lower()
 
         if interview_status == "completed":
-            interview_score = latest_interview.interview_score if latest_interview.interview_score is not None else 0
-            if interview_score >= 6:
-                return CandidateStage.SELECTED
-            return CandidateStage.REJECTED
+            return CandidateStage.INTERVIEWED
 
         if interview_status == "ongoing":
             return CandidateStage.INTERVIEWED
@@ -524,14 +521,7 @@ def is_interview_rejected(latest_interview: Optional[Interview]) -> bool:
         return False
 
     interview_status = (latest_interview.status or "").strip().lower()
-    if interview_status != "completed":
-        return False
-
-    interview_score = latest_interview.interview_score if latest_interview.interview_score is not None else 0
-    if interview_score > 10:
-        interview_score = interview_score / 10
-
-    return interview_score < 6
+    return interview_status == "rejected"
 
 
 def resolve_reporting_pipeline_stage(candidate: Candidate, latest_interview: Optional[Interview], today) -> CandidateStage:
@@ -3367,24 +3357,6 @@ def get_pipeline_stages(
     today = datetime.now().date()
     slot_stage_by_candidate = _get_interview_slot_pipeline_stages(db, candidate_ids, today)
     for candidate in candidates:
-        if candidate.stage == CandidateStage.SHORTLISTED:
-            display_stage = CandidateStage.SHORTLISTED
-            stages[display_stage.value].append(
-                {
-                    "id": candidate.id,
-                    "name": candidate.name,
-                    "current_role": candidate.current_role,
-                    "current_company": candidate.current_company,
-                    "resume_score": candidate.resume_score,
-                    "job_title": candidate.job.title if candidate.job else None,
-                    "company_name": candidate.job.company_name if candidate.job else None,
-                    "stage": display_stage.value if display_stage else None,
-                    "stage_entered_at": candidate.stage_entered_at.isoformat() if candidate.stage_entered_at else None,
-                    "applied_at": candidate.applied_at.isoformat() if candidate.applied_at else None
-                }
-            )
-            continue
-
         latest_interview = latest_interviews_by_candidate.get(candidate.id)
         display_stage = resolve_reporting_pipeline_stage(
             candidate,
