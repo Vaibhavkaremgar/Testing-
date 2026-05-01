@@ -2,7 +2,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status, 
 from fastapi.responses import FileResponse
 from pydantic import ValidationError
 from sqlalchemy.orm import Session, joinedload, load_only
-from sqlalchemy import func, or_, text
+from sqlalchemy import String, func, or_, text
 from typing import Dict, List, Optional
 from uuid import UUID
 import hashlib
@@ -308,8 +308,35 @@ def _apply_client_filter(query, client: Optional[str]):
     if not normalized_client:
         return query
 
-    return query.join(JobDescription, Candidate.job_id == JobDescription.id).filter(
-        func.lower(func.trim(JobDescription.company_name)) == normalized_client
+    return query.filter(
+        Candidate.job.has(
+            func.lower(func.trim(JobDescription.company_name)) == normalized_client
+        )
+    )
+
+
+def _apply_candidate_search_filter(query, search: Optional[str]):
+    normalized_search = str(search or "").strip()
+    if not normalized_search:
+        return query
+
+    pattern = f"%{normalized_search}%"
+    return query.filter(
+        or_(
+            Candidate.name.ilike(pattern),
+            Candidate.email.ilike(pattern),
+            Candidate.current_role.ilike(pattern),
+            Candidate.current_company.ilike(pattern),
+            Candidate.skills.cast(String).ilike(pattern),
+            Candidate.job.has(
+                or_(
+                    JobDescription.title.ilike(pattern),
+                    JobDescription.company_name.ilike(pattern),
+                    JobDescription.location.ilike(pattern),
+                    JobDescription.department.ilike(pattern),
+                )
+            ),
+        )
     )
 
 
@@ -2680,8 +2707,7 @@ def get_candidates_count(
         query = _apply_candidate_list_scope(query, current_user)
     if client:
         query = query.join(JobDescription).filter(JobDescription.company_name == client)
-    if search:
-        query = query.filter(or_(Candidate.name.ilike(f"%{search}%"), Candidate.email.ilike(f"%{search}%")))
+    query = _apply_candidate_search_filter(query, search)
     if stage:
         query = query.filter(Candidate.stage == stage)
     if job_id:
@@ -2724,13 +2750,7 @@ def get_candidates(
         query = _apply_candidate_list_scope(query, current_user)
     
     query = _apply_client_filter(query, client)
-    if search:
-        query = query.filter(
-            or_(
-                Candidate.name.ilike(f"%{search}%"),
-                Candidate.email.ilike(f"%{search}%")
-            )
-        )
+    query = _apply_candidate_search_filter(query, search)
     if stage:
         query = query.filter(Candidate.stage == stage)
     if job_id:
@@ -3737,6 +3757,16 @@ def send_email(
             provider_message_id=provider_message_id
         )
         db.add(email_comm)
+
+        if email_type == "Slot Selection Email":
+            candidate.stage = CandidateStage.SHORTLISTED
+            candidate.stage_updated_at = datetime.utcnow()
+            candidate.stage_entered_at = datetime.utcnow()
+        elif email_type == "Rejection Email":
+            candidate.stage = CandidateStage.REJECTED
+            candidate.stage_updated_at = datetime.utcnow()
+            candidate.stage_entered_at = datetime.utcnow()
+
         db.commit()
         
         print(f" Email sent to {candidate.email} - Message-ID: {provider_message_id}")

@@ -115,32 +115,133 @@ export function Header() {
       const [candidates, jobs, interviews] = await Promise.all([
         api.getCandidates({ search: debouncedSearchQuery, limit: 5, offset: 0 }),
         api.getJobs({ search: debouncedSearchQuery, limit: 5, offset: 0 }),
-        api.getInterviews({ limit: 20, offset: 0 }),
+        api.getInterviews({ search: debouncedSearchQuery, limit: 5, offset: 0 }),
       ])
 
       return {
         candidates,
         jobs,
-        interviews: interviews
-          .filter((interview) => interview.candidate_name?.toLowerCase().includes(debouncedSearchQuery.toLowerCase()))
-          .slice(0, 5),
+        interviews,
       }
     },
   })
 
   const clients = filterOptionsQuery.data?.clients || []
-  const searchResults = globalSearchQuery.data || { candidates: [], jobs: [], interviews: [] }
   const searching = globalSearchQuery.isFetching
+  const normalizedSearchQuery = debouncedSearchQuery.trim().toLowerCase()
+  const rawSearchResults = globalSearchQuery.data || { candidates: [], jobs: [], interviews: [] }
+  const searchResults = useMemo(() => {
+    if (!normalizedSearchQuery) {
+      return { candidates: [], jobs: [], interviews: [] }
+    }
+
+    const includesQuery = (...values) => values.some((value) =>
+      String(value || '').toLowerCase().includes(normalizedSearchQuery)
+    )
+
+    return {
+      candidates: (rawSearchResults.candidates || []).filter((candidate) =>
+        includesQuery(
+          candidate?.name,
+          candidate?.email,
+          candidate?.current_role,
+          candidate?.current_company,
+          candidate?.job_title,
+          candidate?.company_name,
+        )
+      ),
+      jobs: (rawSearchResults.jobs || []).filter((job) =>
+        includesQuery(
+          job?.title,
+          job?.company_name,
+          job?.location,
+          job?.department,
+          job?.job_id,
+        )
+      ),
+      interviews: (rawSearchResults.interviews || []).filter((interview) =>
+        includesQuery(
+          interview?.candidate_name,
+          interview?.interview_type,
+          interview?.status,
+        )
+      ),
+    }
+  }, [normalizedSearchQuery, rawSearchResults])
   const clientSearchResults = useMemo(() => {
-    const normalizedQuery = debouncedSearchQuery.trim().toLowerCase()
-    if (!normalizedQuery) return []
+    if (!normalizedSearchQuery) return []
 
     return [...new Set(
       (searchResults.jobs || [])
         .map((job) => job?.company_name)
-        .filter((companyName) => String(companyName || '').toLowerCase().includes(normalizedQuery))
+        .filter((companyName) => String(companyName || '').toLowerCase().includes(normalizedSearchQuery))
     )].slice(0, 5)
-  }, [debouncedSearchQuery, searchResults.jobs])
+  }, [normalizedSearchQuery, searchResults.jobs])
+  const visibleSearchSections = useMemo(() => {
+    if (!normalizedSearchQuery) {
+      return { candidates: false, jobs: false, interviews: false, clients: false }
+    }
+
+    const getGroupScore = (items, projector) => {
+      let bestScore = 0
+
+      items.forEach((item) => {
+        const haystack = projector(item)
+          .map((value) => String(value || '').toLowerCase().trim())
+          .filter(Boolean)
+          .join(' ')
+
+        if (!haystack) return
+        if (haystack === normalizedSearchQuery) {
+          bestScore = Math.max(bestScore, 100)
+          return
+        }
+        if (haystack.startsWith(normalizedSearchQuery)) {
+          bestScore = Math.max(bestScore, 90)
+          return
+        }
+        if (haystack.includes(normalizedSearchQuery)) {
+          bestScore = Math.max(bestScore, 70)
+        }
+      })
+
+      return bestScore
+    }
+
+    const candidateScore = getGroupScore(searchResults.candidates || [], (candidate) => [
+      candidate?.name,
+      candidate?.email,
+      candidate?.current_role,
+      candidate?.current_company,
+      candidate?.job_title,
+      candidate?.company_name,
+    ])
+    const jobScore = getGroupScore(searchResults.jobs || [], (job) => [
+      job?.title,
+      job?.company_name,
+      job?.location,
+      job?.department,
+      job?.job_id,
+    ])
+    const interviewScore = getGroupScore(searchResults.interviews || [], (interview) => [
+      interview?.candidate_name,
+      interview?.interview_type,
+      interview?.status,
+    ])
+    const clientScore = getGroupScore(clientSearchResults || [], (clientName) => [clientName])
+    const topScore = Math.max(candidateScore, jobScore, interviewScore, clientScore)
+
+    if (topScore <= 0) {
+      return { candidates: false, jobs: false, interviews: false, clients: false }
+    }
+
+    return {
+      candidates: candidateScore === topScore && searchResults.candidates.length > 0,
+      jobs: jobScore === topScore && searchResults.jobs.length > 0,
+      interviews: interviewScore === topScore && searchResults.interviews.length > 0,
+      clients: clientScore === topScore && clientSearchResults.length > 0,
+    }
+  }, [clientSearchResults, normalizedSearchQuery, searchResults])
 
   useEffect(() => {
     const urlClient = searchParams.get('client') || ''
@@ -262,10 +363,10 @@ export function Header() {
 
   const unreadCount = notifications.filter((n) => n.unread).length
   const hasSearchResults = (
-    searchResults.candidates.length > 0
-    || searchResults.jobs.length > 0
-    || searchResults.interviews.length > 0
-    || clientSearchResults.length > 0
+    visibleSearchSections.candidates
+    || visibleSearchSections.jobs
+    || visibleSearchSections.interviews
+    || visibleSearchSections.clients
   )
 
   const handleLogout = () => {
@@ -354,7 +455,7 @@ export function Header() {
               <div className="p-4 text-center text-muted-foreground">Searching...</div>
             ) : (
               <div className="p-2">
-                {searchResults.candidates.length > 0 && (
+                {visibleSearchSections.candidates && (
                   <div className="mb-2">
                     <p className="text-xs font-semibold text-muted-foreground px-2 py-1">CANDIDATES</p>
                     {searchResults.candidates.map((candidate) => (
@@ -370,7 +471,7 @@ export function Header() {
                   </div>
                 )}
 
-                {clientSearchResults.length > 0 && (
+                {visibleSearchSections.clients && (
                   <div className="mb-2">
                     <p className="text-xs font-semibold text-muted-foreground px-2 py-1">CLIENTS</p>
                     {clientSearchResults.map((clientName) => (
@@ -386,7 +487,7 @@ export function Header() {
                   </div>
                 )}
 
-                {searchResults.jobs.length > 0 && (
+                {visibleSearchSections.jobs && (
                   <div className="mb-2">
                     <p className="text-xs font-semibold text-muted-foreground px-2 py-1">JOBS</p>
                     {searchResults.jobs.map((job) => (
@@ -402,7 +503,7 @@ export function Header() {
                   </div>
                 )}
 
-                {searchResults.interviews.length > 0 && (
+                {visibleSearchSections.interviews && (
                   <div>
                     <p className="text-xs font-semibold text-muted-foreground px-2 py-1">INTERVIEWS</p>
                     {searchResults.interviews.map((interview) => (

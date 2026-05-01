@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from typing import List, Optional
 from uuid import UUID
 import os
@@ -53,6 +53,25 @@ def _apply_job_list_scope(query, current_user, db: Session):
 
     return query
 
+
+def _apply_job_search_filter(query, search: Optional[str]):
+    normalized_search = str(search or "").strip()
+    if not normalized_search:
+        return query
+
+    pattern = f"%{normalized_search}%"
+    return query.filter(
+        or_(
+            JobDescription.title.ilike(pattern),
+            JobDescription.company_name.ilike(pattern),
+            JobDescription.location.ilike(pattern),
+            JobDescription.department.ilike(pattern),
+            JobDescription.job_id.ilike(pattern),
+            JobDescription.description.ilike(pattern),
+            JobDescription.requirements.ilike(pattern),
+        )
+    )
+
 @router.get("/debug/count")
 def debug_job_count(db: Session = Depends(get_db)):
     """Debug endpoint to check job count without auth"""
@@ -67,6 +86,7 @@ def debug_job_count(db: Session = Depends(get_db)):
 
 @router.get("/count")
 def get_jobs_count(
+    search: Optional[str] = None,
     is_active: Optional[bool] = None,
     client: Optional[str] = None,
     agency_id: Optional[UUID] = None,
@@ -83,6 +103,7 @@ def get_jobs_count(
         query = query.filter(JobDescription.is_active == is_active)
     if client:
         query = query.filter(JobDescription.company_name == client)
+    query = _apply_job_search_filter(query, search)
     return {"count": query.count()}
 
 @router.get("", response_model=List[JobDescriptionResponse])
@@ -90,6 +111,7 @@ def get_jobs(
     page: Optional[int] = None,
     limit: Optional[int] = None,
     offset: Optional[int] = None,
+    search: Optional[str] = None,
     is_active: Optional[bool] = None,
     client: Optional[str] = None,
     agency_id: Optional[UUID] = None,
@@ -109,6 +131,8 @@ def get_jobs(
 
     if client:
         query = query.filter(JobDescription.company_name == client)
+
+    query = _apply_job_search_filter(query, search)
 
     effective_limit, effective_offset = _resolve_pagination(page, limit, offset)
     query = query.order_by(JobDescription.created_at.desc())

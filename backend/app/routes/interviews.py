@@ -18,7 +18,7 @@ from requests.exceptions import ChunkedEncodingError, ConnectionError
 from urllib3.exceptions import ProtocolError
 from app.database import get_db
 from app.config import settings
-from app.models import Interview, Candidate, CandidateStage, User
+from app.models import Interview, Candidate, CandidateStage, JobDescription, User
 from app.plan_dependency import enforce_plan
 from app.plan_service import increment_plan_usage
 from app.notification_service import queue_notification_for_stage, send_email_task
@@ -75,6 +75,36 @@ SAMPLE_TRANSCRIPTS = """
 
 [20:10] Candidate: Yes, I'd love to learn more about the team structure and the technologies you're currently using.
 """
+
+
+def _apply_interview_search_filter(query, search: Optional[str]):
+    normalized_search = str(search or "").strip()
+    if not normalized_search:
+        return query
+
+    pattern = f"%{normalized_search}%"
+    return query.filter(
+        or_(
+            Interview.interview_type.ilike(pattern),
+            Interview.status.ilike(pattern),
+            Interview.candidate.has(
+                or_(
+                    Candidate.name.ilike(pattern),
+                    Candidate.email.ilike(pattern),
+                    Candidate.current_role.ilike(pattern),
+                    Candidate.current_company.ilike(pattern),
+                    Candidate.job.has(
+                        or_(
+                            JobDescription.title.ilike(pattern),
+                            JobDescription.company_name.ilike(pattern),
+                            JobDescription.location.ilike(pattern),
+                            JobDescription.department.ilike(pattern),
+                        )
+                    ),
+                )
+            ),
+        )
+    )
 
 INTERVIEW_SCORE_WEIGHTS = {
     "technical": 0.5,
@@ -1551,6 +1581,7 @@ def _fetch_recording_availability(interviews: List[Interview]) -> dict[str, dict
 @router.get("/count")
 def get_interviews_count(
     candidate_id: Optional[UUID] = None,
+    search: Optional[str] = None,
     status: Optional[str] = None,
     agency_id: Optional[UUID] = None,
     db: Session = Depends(get_db),
@@ -1567,6 +1598,7 @@ def get_interviews_count(
         query = query.join(Candidate).join(JobDescription, Candidate.job_id == JobDescription.id).filter(JobDescription.agency_id == agency_id)
     else:
         query = _apply_interview_scope(query, current_user)
+    query = _apply_interview_search_filter(query, search)
     return {"count": query.count()}
 
 @router.get("", response_model=List[InterviewResponse])
@@ -1575,6 +1607,7 @@ def get_interviews(
     limit: Optional[int] = None,
     offset: Optional[int] = None,
     candidate_id: Optional[UUID] = None,
+    search: Optional[str] = None,
     status: Optional[str] = None,
     from_date: Optional[str] = None,
     to_date: Optional[str] = None,
@@ -1597,6 +1630,7 @@ def get_interviews(
         query = query.join(Candidate).join(JobDescription, Candidate.job_id == JobDescription.id).filter(JobDescription.agency_id == agency_id)
     else:
         query = _apply_interview_scope(query, current_user)
+    query = _apply_interview_search_filter(query, search)
     query = _apply_interview_date_filters(
         query,
         from_date=from_date,
