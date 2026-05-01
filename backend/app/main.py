@@ -59,14 +59,16 @@ class CacheControlMiddleware(BaseHTTPMiddleware):
 
     @staticmethod
     def _strip_body_headers(headers: dict) -> dict:
-        stripped = dict(headers)
-        for header_name in (
-            "Content-Length",
-            "Content-Encoding",
-            "Transfer-Encoding",
-        ):
-            stripped.pop(header_name, None)
-        return stripped
+        blocked_headers = {
+            "content-length",
+            "content-encoding",
+            "transfer-encoding",
+        }
+        return {
+            key: value
+            for key, value in dict(headers).items()
+            if key.lower() not in blocked_headers
+        }
 
     @classmethod
     def _should_apply_api_cache(cls, request: Request, response) -> bool:
