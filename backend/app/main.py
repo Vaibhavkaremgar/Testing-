@@ -57,6 +57,17 @@ class CacheControlMiddleware(BaseHTTPMiddleware):
                 seen.add(value.lower())
         return ", ".join(parts)
 
+    @staticmethod
+    def _strip_body_headers(headers: dict) -> dict:
+        stripped = dict(headers)
+        for header_name in (
+            "Content-Length",
+            "Content-Encoding",
+            "Transfer-Encoding",
+        ):
+            stripped.pop(header_name, None)
+        return stripped
+
     @classmethod
     def _should_apply_api_cache(cls, request: Request, response) -> bool:
         if request.method not in {"GET", "HEAD"}:
@@ -97,7 +108,7 @@ class CacheControlMiddleware(BaseHTTPMiddleware):
             )
 
             if request.headers.get("if-none-match") == etag:
-                cache_headers.pop("Content-Length", None)
+                cache_headers = self._strip_body_headers(cache_headers)
                 return Response(
                     status_code=304,
                     headers=cache_headers,
