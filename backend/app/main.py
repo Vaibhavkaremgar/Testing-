@@ -1,10 +1,12 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
+import hashlib
 import logging
 import os
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
 
 from app.ats_warmup import get_ats_warmup_state, run_ats_warmup
 from app.config import settings
@@ -38,13 +40,78 @@ logger = logging.getLogger(__name__)
 
 
 class CacheControlMiddleware(BaseHTTPMiddleware):
+    API_CACHE_EXCLUDE_PREFIXES = (
+        "/api/docs",
+        "/api/redoc",
+        "/api/openapi.json",
+        "/api/warmup",
+    )
+
+    @staticmethod
+    def _append_vary(existing_value: str, *values: str) -> str:
+        parts = [part.strip() for part in (existing_value or "").split(",") if part.strip()]
+        seen = {part.lower() for part in parts}
+        for value in values:
+            if value.lower() not in seen:
+                parts.append(value)
+                seen.add(value.lower())
+        return ", ".join(parts)
+
+    @classmethod
+    def _should_apply_api_cache(cls, request: Request, response) -> bool:
+        if request.method not in {"GET", "HEAD"}:
+            return False
+        if response.status_code != 200:
+            return False
+        path = request.url.path
+        if not path.startswith("/api/"):
+            return False
+        if any(path.startswith(prefix) for prefix in cls.API_CACHE_EXCLUDE_PREFIXES):
+            return False
+        if "range" in request.headers:
+            return False
+        content_type = (response.headers.get("content-type") or "").lower()
+        return "application/json" in content_type
+
     async def dispatch(self, request, call_next):
         response = await call_next(request)
         path = request.url.path
 
         if path.startswith("/uploads/"):
             response.headers.setdefault("Cache-Control", "public, max-age=86400")
-        elif path == "/" or path.startswith("/api/"):
+        elif path == "/":
+            response.headers.setdefault("Cache-Control", "no-cache, no-store, must-revalidate")
+        elif self._should_apply_api_cache(request, response):
+            body = b""
+            async for chunk in response.body_iterator:
+                body += chunk
+
+            etag = f'W/"{hashlib.sha256(body).hexdigest()}"'
+            cache_headers = dict(response.headers)
+            cache_headers["Cache-Control"] = "private, no-cache, max-age=0, must-revalidate"
+            cache_headers["ETag"] = etag
+            cache_headers["Vary"] = self._append_vary(
+                cache_headers.get("Vary", ""),
+                "Authorization",
+                "Accept-Encoding",
+            )
+
+            if request.headers.get("if-none-match") == etag:
+                cache_headers.pop("Content-Length", None)
+                return Response(
+                    status_code=304,
+                    headers=cache_headers,
+                    background=response.background,
+                )
+
+            return Response(
+                content=body,
+                status_code=response.status_code,
+                headers=cache_headers,
+                media_type=response.media_type,
+                background=response.background,
+            )
+        elif path.startswith("/api/"):
             response.headers.setdefault("Cache-Control", "no-cache, no-store, must-revalidate")
 
         return response
