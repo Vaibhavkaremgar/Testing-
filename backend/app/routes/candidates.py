@@ -3437,6 +3437,7 @@ def get_pipeline_stages(
 ):
     """Get candidates grouped by stage for Kanban board"""
     from app.models import JobDescription, UserRole
+    completed_stage_key = "COMPLETED"
     normalize_legacy_candidate_stages(db)
     query = db.query(Candidate)
     if agency_id and current_user.role == UserRole.SUPER_ADMIN:
@@ -3449,6 +3450,7 @@ def get_pipeline_stages(
 
     candidates = query.all()
     stages = {stage.value: [] for stage in CandidateStage}
+    stages.setdefault(completed_stage_key, [])
     candidate_ids = [candidate.id for candidate in candidates]
     today = datetime.now().date()
     interview_today_candidate_ids, interview_scheduled_candidate_ids = _get_interview_slot_candidate_ids_by_timing(
@@ -3463,34 +3465,47 @@ def get_pipeline_stages(
 
     for candidate in candidates:
         display_stage = None
+        display_stage_key = None
 
         # Keep a candidate in a single board column while sourcing each section
         # from the requested tables.
         if candidate.id in selected_candidate_ids:
             display_stage = CandidateStage.SELECTED
+            display_stage_key = display_stage.value
         elif candidate.id in rejected_candidate_ids:
             display_stage = CandidateStage.REJECTED
+            display_stage_key = display_stage.value
         elif candidate.id in completed_candidate_ids:
-            display_stage = CandidateStage.COMPLETED
+            display_stage_key = completed_stage_key
         elif candidate.id in interview_today_candidate_ids:
             display_stage = CandidateStage.INTERVIEWED
+            display_stage_key = display_stage.value
         elif candidate.id in interview_scheduled_candidate_ids:
             display_stage = CandidateStage.INTERVIEW_SCHEDULED
+            display_stage_key = display_stage.value
+        elif candidate.stage == CandidateStage.APPLIED:
+            display_stage = CandidateStage.APPLIED
+            display_stage_key = display_stage.value
         elif candidate.stage == CandidateStage.REVIEW:
             display_stage = CandidateStage.REVIEW
+            display_stage_key = display_stage.value
         elif candidate.stage == CandidateStage.SHORTLISTED:
             display_stage = CandidateStage.SHORTLISTED
+            display_stage_key = display_stage.value
         elif candidate.stage == CandidateStage.RESUME_REJECTED:
             display_stage = CandidateStage.RESUME_REJECTED
+            display_stage_key = display_stage.value
         elif candidate.stage == CandidateStage.INTERVIEW_RESCHEDULED:
             display_stage = CandidateStage.INTERVIEW_RESCHEDULED
+            display_stage_key = display_stage.value
         elif candidate.stage == CandidateStage.NO_SHOW:
             display_stage = CandidateStage.NO_SHOW
+            display_stage_key = display_stage.value
 
-        if not display_stage:
+        if not display_stage_key:
             continue
 
-        stages[display_stage.value].append(
+        stages[display_stage_key].append(
             {
                 "id": candidate.id,
                 "name": candidate.name,
@@ -3499,7 +3514,7 @@ def get_pipeline_stages(
                 "resume_score": candidate.resume_score,
                 "job_title": candidate.job.title if candidate.job else None,
                 "company_name": candidate.job.company_name if candidate.job else None,
-                "stage": display_stage.value if display_stage else None,
+                "stage": display_stage_key,
                 "stage_entered_at": candidate.stage_entered_at.isoformat() if candidate.stage_entered_at else None,
                 "applied_at": candidate.applied_at.isoformat() if candidate.applied_at else None
             }

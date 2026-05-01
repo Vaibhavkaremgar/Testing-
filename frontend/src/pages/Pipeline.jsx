@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button'
 import { useToast } from '@/hooks/use-toast'
 
 const STAGES = [
-  //{ id: 'APPLIED', label: 'Applied', color: 'bg-slate-500' },
+  { id: 'APPLIED', label: 'Applied', color: 'bg-slate-500' },
   { id: 'REVIEW', label: 'In Review', color: 'bg-amber-500' },
   { id: 'SHORTLISTED', label: 'Shortlisted', color: 'bg-green-500' },
   { id: 'RESUME_REJECTED', label: 'Resume Rejected', color: 'bg-red-400' },
