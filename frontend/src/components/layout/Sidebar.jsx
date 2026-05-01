@@ -36,7 +36,7 @@ import {
 
 const CLIENT_FILTER_STORAGE_KEY = 'selectedClientFilter'
 const SUPPORT_EMAIL = 'info@pontis.one'
-const SUPPORT_PHONE_PLACEHOLDER = 'Mobile number will be shared soon'
+//const SUPPORT_PHONE_PLACEHOLDER = 'Mobile number will be shared soon'
 
 export function Sidebar() {
   const { theme } = useTheme()
@@ -223,9 +223,9 @@ export function Sidebar() {
               <DialogDescription className="mt-2 text-base text-slate-500">
                 Your message will be sent directly to {SUPPORT_EMAIL}.
               </DialogDescription>
-              <p className="mt-2 text-sm text-slate-500">
+              {/* <p className="mt-2 text-sm text-slate-500">l
                 Mobile number: {SUPPORT_PHONE_PLACEHOLDER}
-              </p>
+              </p>*/}
             </div>
           </DialogHeader>
 

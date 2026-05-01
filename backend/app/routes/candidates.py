@@ -671,6 +671,109 @@ def _get_interview_slot_pipeline_stages(db: Session, candidate_ids: List[UUID], 
     return slot_stage_by_candidate
 
 
+def _get_interview_slot_candidate_ids_by_timing(
+    db: Session,
+    candidate_ids: List[UUID],
+    today,
+) -> tuple[set[UUID], set[UUID]]:
+    if not candidate_ids:
+        return set(), set()
+
+    columns = db.execute(text(
+        """
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'interview_slots'
+        """
+    )).fetchall()
+    column_names = {row[0] for row in columns}
+    if not column_names or "slot_date" not in column_names:
+        return set(), set()
+
+    normalized_column_lookup = {
+        column_name.lower().replace("_", ""): column_name
+        for column_name in column_names
+    }
+    candidate_column = next(
+        (
+            normalized_column_lookup.get(candidate_key)
+            for candidate_key in ("candidate_id", "candidateid", "candidate")
+            if normalized_column_lookup.get(candidate_key)
+        ),
+        None,
+    )
+    if not candidate_column:
+        return set(), set()
+
+    rows = db.execute(
+        text(f"""
+            SELECT {candidate_column}::text AS candidate_id, slot_date::date AS slot_date
+            FROM interview_slots
+            WHERE {candidate_column} IS NOT NULL
+              AND slot_date IS NOT NULL
+              AND {candidate_column}::text = ANY(:candidate_ids)
+        """),
+        {"candidate_ids": [str(candidate_id) for candidate_id in candidate_ids]},
+    ).mappings().all()
+
+    today_candidate_ids: set[UUID] = set()
+    future_candidate_ids: set[UUID] = set()
+    for row in rows:
+        candidate_id_raw = row.get("candidate_id")
+        slot_date = row.get("slot_date")
+        if not candidate_id_raw or slot_date is None:
+            continue
+
+        if isinstance(slot_date, datetime):
+            slot_date = slot_date.date()
+        elif isinstance(slot_date, str):
+            try:
+                slot_date = date.fromisoformat(slot_date)
+            except ValueError:
+                continue
+
+        try:
+            candidate_id = UUID(str(candidate_id_raw))
+        except (ValueError, TypeError):
+            continue
+
+        if slot_date == today:
+            today_candidate_ids.add(candidate_id)
+        elif slot_date > today:
+            future_candidate_ids.add(candidate_id)
+
+    return today_candidate_ids, future_candidate_ids
+
+
+def _get_interview_candidate_ids_by_status(
+    db: Session,
+    candidate_ids: List[UUID],
+) -> tuple[set[UUID], set[UUID], set[UUID]]:
+    if not candidate_ids:
+        return set(), set(), set()
+
+    interview_rows = (
+        db.query(Interview.candidate_id, Interview.status)
+        .filter(Interview.candidate_id.in_(candidate_ids))
+        .all()
+    )
+
+    completed_candidate_ids: set[UUID] = set()
+    selected_candidate_ids: set[UUID] = set()
+    rejected_candidate_ids: set[UUID] = set()
+
+    for candidate_id, status_value in interview_rows:
+        normalized_status = (status_value or "").strip().lower()
+        if normalized_status == "completed":
+            completed_candidate_ids.add(candidate_id)
+        elif normalized_status == "selected":
+            selected_candidate_ids.add(candidate_id)
+        elif normalized_status == "rejected":
+            rejected_candidate_ids.add(candidate_id)
+
+    return completed_candidate_ids, selected_candidate_ids, rejected_candidate_ids
+
+
 def enqueue_stage_notification(
     background_tasks: BackgroundTasks,
     db: Session,
@@ -3347,30 +3450,46 @@ def get_pipeline_stages(
     candidates = query.all()
     stages = {stage.value: [] for stage in CandidateStage}
     candidate_ids = [candidate.id for candidate in candidates]
-    latest_interviews_by_candidate: Dict[UUID, Interview] = {}
-
-    if candidate_ids:
-        interviews = (
-            db.query(Interview)
-            .filter(Interview.candidate_id.in_(candidate_ids))
-            .order_by(Interview.candidate_id.asc(), Interview.scheduled_at.desc(), Interview.created_at.desc())
-            .all()
-        )
-        for interview in interviews:
-            latest_interviews_by_candidate.setdefault(interview.candidate_id, interview)
-
     today = datetime.now().date()
-    slot_stage_by_candidate = _get_interview_slot_pipeline_stages(db, candidate_ids, today)
+    interview_today_candidate_ids, interview_scheduled_candidate_ids = _get_interview_slot_candidate_ids_by_timing(
+        db,
+        candidate_ids,
+        today,
+    )
+    completed_candidate_ids, selected_candidate_ids, rejected_candidate_ids = _get_interview_candidate_ids_by_status(
+        db,
+        candidate_ids,
+    )
+
     for candidate in candidates:
-        latest_interview = latest_interviews_by_candidate.get(candidate.id)
-        display_stage = resolve_reporting_pipeline_stage(
-            candidate,
-            latest_interview,
-            today,
-        )
-        slot_stage = slot_stage_by_candidate.get(candidate.id)
-        display_stage = resolve_slot_backed_pipeline_stage(candidate, display_stage, slot_stage)
-        display_stage = resolve_pipeline_rejected_stage(candidate, display_stage, latest_interview)
+        display_stage = None
+
+        # Keep a candidate in a single board column while sourcing each section
+        # from the requested tables.
+        if candidate.id in selected_candidate_ids:
+            display_stage = CandidateStage.SELECTED
+        elif candidate.id in rejected_candidate_ids:
+            display_stage = CandidateStage.REJECTED
+        elif candidate.id in completed_candidate_ids:
+            display_stage = CandidateStage.COMPLETED
+        elif candidate.id in interview_today_candidate_ids:
+            display_stage = CandidateStage.INTERVIEWED
+        elif candidate.id in interview_scheduled_candidate_ids:
+            display_stage = CandidateStage.INTERVIEW_SCHEDULED
+        elif candidate.stage == CandidateStage.REVIEW:
+            display_stage = CandidateStage.REVIEW
+        elif candidate.stage == CandidateStage.SHORTLISTED:
+            display_stage = CandidateStage.SHORTLISTED
+        elif candidate.stage == CandidateStage.RESUME_REJECTED:
+            display_stage = CandidateStage.RESUME_REJECTED
+        elif candidate.stage == CandidateStage.INTERVIEW_RESCHEDULED:
+            display_stage = CandidateStage.INTERVIEW_RESCHEDULED
+        elif candidate.stage == CandidateStage.NO_SHOW:
+            display_stage = CandidateStage.NO_SHOW
+
+        if not display_stage:
+            continue
+
         stages[display_stage.value].append(
             {
                 "id": candidate.id,

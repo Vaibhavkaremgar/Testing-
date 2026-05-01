@@ -499,7 +499,7 @@ export default function Dashboard() {
                     </div>
                     <div className="flex items-center gap-3">
                       <div className="text-right">
-                        <p className="text-sm font-medium">{job.candidates || 0} {job.candidates === 1 ? 'candidate' : 'candidates'}</p>
+                        <p className="text-sm font-medium">{job.candidates || 0} {Number(job.candidates || 0) === 1 ? 'candidate' : 'candidates'}</p>
                         <p className="text-xs text-muted-foreground">{job.vacancies || 1} {(job.vacancies || 1) === 1 ? 'position' : 'positions'}</p>
                       </div>
                     </div>

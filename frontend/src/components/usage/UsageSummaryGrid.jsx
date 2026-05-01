@@ -2,7 +2,7 @@ import UsageCard from './UsageCard'
 
 const FEATURE_TITLES = {
   interview_credits: 'Interview Credits',
-  resume_scans: 'Resume Scans',
+  resume_scans: 'Resume Parse',
   active_jobs: 'Active Jobs',
   user_seats: 'User Seats',
 }
@@ -20,9 +20,10 @@ export default function UsageSummaryGrid({ summary = {} }) {
         <UsageCard
           key={featureName}
           title={FEATURE_TITLES[featureName] || featureName}
-          total={metric.total ?? 0}
+          total={metric.unlimited ? null : (metric.total ?? 0)}
           used={metric.used ?? 0}
-          remaining={metric.remaining ?? 0}
+          remaining={metric.unlimited ? null : (metric.remaining ?? 0)}
+          unlimited={Boolean(metric.unlimited)}
         />
       ))}
     </div>

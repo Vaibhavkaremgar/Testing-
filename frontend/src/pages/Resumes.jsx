@@ -209,9 +209,10 @@ function normalizeResumeCandidate(candidate, jobsById = {}) {
 }
 
 export default function Resumes() {
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const selectedClient = searchParams.get('client')
   const selectedGlobalJobId = searchParams.get('job_id') || ''
+  const selectedCandidateId = searchParams.get('candidate_id') || ''
   const { user: currentUser } = useAuth()
   const queryClient = useQueryClient()
   const canDeleteResumes = currentUser?.role === 'admin'
@@ -337,6 +338,17 @@ export default function Resumes() {
     setSelectedJobForFilter('')
     setJobFilter([])
   }, [selectedGlobalJobId])
+
+  useEffect(() => {
+    if (!selectedCandidateId || candidates.length === 0 || selectedCandidate?.id === selectedCandidateId) {
+      return
+    }
+
+    const matchedCandidate = candidates.find((candidate) => String(candidate.id) === selectedCandidateId)
+    if (matchedCandidate) {
+      handleViewCandidate(matchedCandidate)
+    }
+  }, [candidates, selectedCandidate?.id, selectedCandidateId])
 
   const fetchCandidates = useCallback(async () => {
     await queryClient.invalidateQueries({ queryKey: ['dashboard-data', 'resumes'] })
@@ -754,7 +766,7 @@ export default function Resumes() {
       
       // Update candidate stage
       const stageMap = {
-        invitation: 'INTERVIEW_SCHEDULED',
+        invitation: 'SHORTLISTED',
         reschedule: 'INTERVIEW_RESCHEDULED',
         rejection: 'REJECTED'
       }
@@ -837,6 +849,11 @@ export default function Resumes() {
     setResumeSummary(null)
     setResumeSummaryCandidateId(null)
     setSummaryLoading(false)
+    if (selectedCandidateId) {
+      const nextParams = new URLSearchParams(searchParams)
+      nextParams.delete('candidate_id')
+      setSearchParams(nextParams, { replace: true })
+    }
   }
 
   const handleViewResume = async (candidate) => {

@@ -8,7 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Progress } from '@/components/ui/progress'
 import InterviewRecordingPlayer from '@/components/interviews/InterviewRecordingPlayer'
 import { api } from '@/lib/api'
-import { cn, formatDateTime, getScoreColor } from '@/lib/utils'
+import { cn, getScoreColor } from '@/lib/utils'
 import { useToast } from '@/hooks/use-toast'
 import { useAuth } from '@/context/AuthContext'
 import {
@@ -28,6 +28,45 @@ function getNumericInterviewScore(interview) {
 function formatInterviewScore(score) {
   if (score === null || score === undefined) return '-'
   return `${Number(score).toFixed(1)}/10`
+}
+
+function formatInterviewScheduledAt(dateValue) {
+  if (!dateValue) return '-'
+
+  if (typeof dateValue === 'string') {
+    const isoMatch = dateValue.match(
+      /^(?<year>\d{4})-(?<month>\d{2})-(?<day>\d{2})[T\s](?<hour>\d{2}):(?<minute>\d{2})/
+    )
+
+    if (isoMatch?.groups) {
+      const {
+        year,
+        month,
+        day,
+        hour,
+        minute,
+      } = isoMatch.groups
+
+      const monthIndex = Number(month) - 1
+      const monthLabel = new Date(Number(year), monthIndex, Number(day)).toLocaleString('en-US', {
+        month: 'short',
+      })
+
+      const hourNumber = Number(hour)
+      const normalizedHour = hourNumber % 12 || 12
+      const meridiem = hourNumber >= 12 ? 'PM' : 'AM'
+
+      return `${monthLabel} ${Number(day)}, ${year}, ${String(normalizedHour).padStart(2, '0')}:${minute} ${meridiem}`
+    }
+  }
+
+  return new Date(dateValue).toLocaleString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
 function getInterviewProgressValue(score) {
@@ -144,6 +183,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
   const queryClient = useQueryClient()
   const selectedClient = searchParams.get('client')
   const selectedJobIdFromQuery = searchParams.get('job_id') || 'all'
+  const selectedInterviewIdFromQuery = searchParams.get('interview_id') || ''
   const [interviews, setInterviews] = useState([])
   const [selectedInterview, setSelectedInterview] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -350,19 +390,12 @@ export default function Interviews({ superAdminAgencyId = null }) {
     ))
   }, [candidateJobMap, interviews, selectedJobFilter])
 
-  const filteredInterviews = useMemo(() => (
-    jobFilteredInterviews.filter((interview) => {
-      const effectiveStatus = getEffectiveInterviewStatus(interview)
-      const candidateStage = String(candidateStageMap.get(String(interview.candidate_id)) || '').toLowerCase()
-      return (
-        effectiveStatus === 'completed'
-        || effectiveStatus === 'selected'
-        || effectiveStatus === 'rejected'
-        || candidateStage === 'selected'
-        || candidateStage === 'rejected'
-      )
-    })
-  ), [candidateStageMap, jobFilteredInterviews])
+  const filteredInterviews = useMemo(
+    // Keep the full interview dataset visible in the Interviews tab and
+    // let the existing per-row status badge reflect each record's state.
+    () => jobFilteredInterviews,
+    [jobFilteredInterviews]
+  )
   const transcriptSegments = useMemo(
     () => parseTranscriptSegments(selectedInterview?.transcript),
     [selectedInterview?.transcript]
@@ -379,6 +412,17 @@ export default function Interviews({ superAdminAgencyId = null }) {
       setSelectedInterview(filteredInterviews[0])
     }
   }, [filteredInterviews, selectedInterview])
+
+  useEffect(() => {
+    if (!selectedInterviewIdFromQuery || interviews.length === 0) {
+      return
+    }
+
+    const matchedInterview = interviews.find((interview) => String(interview.id) === selectedInterviewIdFromQuery)
+    if (matchedInterview) {
+      setSelectedInterview(matchedInterview)
+    }
+  }, [interviews, selectedInterviewIdFromQuery])
 
   useEffect(() => {
     setVisibleCount(20)
@@ -782,7 +826,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
                           <p className="text-xs text-muted-foreground mt-1 truncate">{candidateJobLine}</p>
                         ) : null}
                         <p className="text-xs text-muted-foreground mt-1">
-                          {formatDateTime(interview.scheduled_at)}
+                          {formatInterviewScheduledAt(interview.scheduled_at)}
                         </p>
                       </div>
                       <Badge className={resultMeta.badgeClass}>
@@ -822,7 +866,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
               <div>
                 <CardTitle>{selectedInterview.candidate_name}</CardTitle>
                 <p className="text-sm text-muted-foreground capitalize">
-                  {selectedInterview.interview_type} Interview • {formatDateTime(selectedInterview.scheduled_at)}
+                  {selectedInterview.interview_type} Interview • {formatInterviewScheduledAt(selectedInterview.scheduled_at)}
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -907,7 +951,7 @@ export default function Interviews({ superAdminAgencyId = null }) {
                       </div>
                       <div className="rounded-lg bg-background p-4">
                         <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Scheduled</p>
-                        <p className="mt-2 text-sm font-medium">{formatDateTime(selectedInterview.scheduled_at)}</p>
+                        <p className="mt-2 text-sm font-medium">{formatInterviewScheduledAt(selectedInterview.scheduled_at)}</p>
                       </div>
                       <div className="rounded-lg bg-background p-4">
                         <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Result</p>

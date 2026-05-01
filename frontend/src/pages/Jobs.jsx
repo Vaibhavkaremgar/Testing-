@@ -16,6 +16,7 @@ import { Plus, MapPin, Clock, Users, Edit, Trash2, Upload, Loader2 } from 'lucid
 export default function Jobs({ superAdminAgencyId = null }) {
   const [searchParams] = useSearchParams()
   const selectedClient = searchParams.get('client')
+  const selectedJobId = searchParams.get('search_job_id') || ''
   const { user: currentUser } = useAuth()
   const { toast } = useToast()
   const isSuperAdminView = superAdminAgencyId !== null
@@ -76,7 +77,10 @@ export default function Jobs({ superAdminAgencyId = null }) {
       if (selectedClient) params.client = selectedClient
       if (superAdminAgencyId) params.agency_id = superAdminAgencyId
       const data = await api.getJobs(params, { includeDefaultLimit: false })
-      setJobs(data)
+      const filteredJobs = selectedJobId
+        ? (data || []).filter((job) => String(job.id) === String(selectedJobId))
+        : data
+      setJobs(filteredJobs)
     } catch (error) {
       console.error('Failed to fetch jobs:', error)
     } finally {
@@ -96,7 +100,7 @@ export default function Jobs({ superAdminAgencyId = null }) {
   useEffect(() => {
     fetchJobs()
     fetchClientNames()
-  }, [selectedClient, superAdminAgencyId])
+  }, [selectedClient, selectedJobId, superAdminAgencyId])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -658,7 +662,7 @@ export default function Jobs({ superAdminAgencyId = null }) {
               
               <div className="flex items-center gap-1 text-sm">
                 <Users className="h-4 w-4 text-muted-foreground" />
-                <span>{job.candidate_count || 0} candidates</span>
+                <span>{job.candidate_count || 0} {Number(job.candidate_count || 0) === 1 ? 'candidate' : 'candidates'}</span>
                 {job.vacancies && (
                   <span className="text-muted-foreground">• {job.vacancies} {job.vacancies === 1 ? 'position' : 'positions'}</span>
                 )}

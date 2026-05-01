@@ -1,6 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
-export default function UsageCard({ title, total, used, remaining }) {
+export default function UsageCard({ title, total, used, remaining, unlimited = false }) {
   return (
     <Card>
       <CardHeader className="pb-3">
@@ -10,7 +10,7 @@ export default function UsageCard({ title, total, used, remaining }) {
         <div className="grid grid-cols-3 gap-3 text-sm">
           <div>
             <p className="text-xs uppercase tracking-wide text-muted-foreground">Total</p>
-            <p className="mt-1 text-2xl font-semibold">{total}</p>
+            <p className="mt-1 text-2xl font-semibold">{unlimited ? 'Unlimited' : total}</p>
           </div>
           <div>
             <p className="text-xs uppercase tracking-wide text-muted-foreground">Used</p>
@@ -18,7 +18,7 @@ export default function UsageCard({ title, total, used, remaining }) {
           </div>
           <div>
             <p className="text-xs uppercase tracking-wide text-muted-foreground">Remaining</p>
-            <p className="mt-1 text-2xl font-semibold text-blue-600">{remaining}</p>
+            <p className="mt-1 text-2xl font-semibold text-blue-600">{unlimited ? 'Unlimited' : remaining}</p>
           </div>
         </div>
       </CardContent>

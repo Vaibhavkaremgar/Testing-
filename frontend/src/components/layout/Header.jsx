@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
+﻿import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '@/context/AuthContext'
 import { useTheme } from '@/context/ThemeContext'
 import { Button } from '@/components/ui/button'
@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Search, Bell, Sun, Moon, LogOut, User, Settings, X, ChevronDown } from 'lucide-react'
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '@/lib/api'
 import { useDebouncedValue } from '@/hooks/useDebouncedValue'
 
@@ -31,6 +31,7 @@ export function Header() {
   const [showNotifications, setShowNotifications] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [showSearchResults, setShowSearchResults] = useState(false)
+  const searchContainerRef = useRef(null)
   const [shouldLoadFilterOptions, setShouldLoadFilterOptions] = useState(() => Boolean(
     searchParams.get('client') ||
     searchParams.get('job_id') ||
@@ -130,6 +131,16 @@ export function Header() {
   const clients = filterOptionsQuery.data?.clients || []
   const searchResults = globalSearchQuery.data || { candidates: [], jobs: [], interviews: [] }
   const searching = globalSearchQuery.isFetching
+  const clientSearchResults = useMemo(() => {
+    const normalizedQuery = debouncedSearchQuery.trim().toLowerCase()
+    if (!normalizedQuery) return []
+
+    return [...new Set(
+      (searchResults.jobs || [])
+        .map((job) => job?.company_name)
+        .filter((companyName) => String(companyName || '').toLowerCase().includes(normalizedQuery))
+    )].slice(0, 5)
+  }, [debouncedSearchQuery, searchResults.jobs])
 
   useEffect(() => {
     const urlClient = searchParams.get('client') || ''
@@ -192,6 +203,21 @@ export function Header() {
     }
   }, [debouncedSearchQuery, globalSearchQuery.data])
 
+  useEffect(() => {
+    if (!showSearchResults) {
+      return undefined
+    }
+
+    const handlePointerDown = (event) => {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(event.target)) {
+        setShowSearchResults(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+    return () => document.removeEventListener('mousedown', handlePointerDown)
+  }, [showSearchResults])
+
   const buildGlobalAwarePath = (pathname) => {
     const activeClient = searchParams.get('client') || localStorage.getItem(CLIENT_FILTER_STORAGE_KEY) || ''
     const activeJobId = searchParams.get('job_id') || localStorage.getItem(JOB_FILTER_STORAGE_KEY) || ''
@@ -202,10 +228,8 @@ export function Header() {
     return query ? `${pathname}?${query}` : pathname
   }
 
-  // Handle client selection
   const handleClientChange = (client) => {
     setSelectedClient(client)
-    setSelectedJobId('')
     const nextParams = new URLSearchParams(searchParams)
     if (client) {
       localStorage.setItem(CLIENT_FILTER_STORAGE_KEY, client)
@@ -219,7 +243,30 @@ export function Header() {
     setSearchParams(nextParams, { replace: location.pathname !== '/login' })
   }
 
-  const unreadCount = notifications.filter(n => n.unread).length
+  const clearSearchUi = () => {
+    setSearchQuery('')
+    setShowSearchResults(false)
+  }
+
+  const navigateToSearchResult = (pathname, params = {}) => {
+    const nextParams = new URLSearchParams()
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') {
+        nextParams.set(key, value)
+      }
+    })
+
+    navigate(`${pathname}${nextParams.toString() ? `?${nextParams.toString()}` : ''}`)
+    clearSearchUi()
+  }
+
+  const unreadCount = notifications.filter((n) => n.unread).length
+  const hasSearchResults = (
+    searchResults.candidates.length > 0
+    || searchResults.jobs.length > 0
+    || searchResults.interviews.length > 0
+    || clientSearchResults.length > 0
+  )
 
   const handleLogout = () => {
     logout()
@@ -229,8 +276,8 @@ export function Header() {
   }
 
   const markAsRead = (notificationId) => {
-    setNotifications(prev => 
-      prev.map(n => n.id === notificationId ? { ...n, unread: false } : n)
+    setNotifications((prev) =>
+      prev.map((n) => n.id === notificationId ? { ...n, unread: false } : n)
     )
     const readNotifications = JSON.parse(localStorage.getItem('readNotifications') || '[]')
     if (!readNotifications.includes(notificationId)) {
@@ -239,21 +286,20 @@ export function Header() {
   }
 
   const markAllAsRead = () => {
-    setNotifications(prev => prev.map(n => ({ ...n, unread: false })))
-    const allIds = notifications.map(n => n.id)
+    setNotifications((prev) => prev.map((n) => ({ ...n, unread: false })))
+    const allIds = notifications.map((n) => n.id)
     localStorage.setItem('readNotifications', JSON.stringify(allIds))
   }
 
   const handleNotificationClick = (notification) => {
     markAsRead(notification.id)
-    
-    // Navigate based on notification type
+
     if (notification.type === 'candidate') {
       navigate(buildGlobalAwarePath('/resumes'))
     } else if (notification.type === 'interview') {
       navigate(buildGlobalAwarePath('/interviews'))
     }
-    
+
     setShowNotifications(false)
   }
 
@@ -273,19 +319,18 @@ export function Header() {
   }
 
   return (
-    <header 
-      className="flex h-16 items-center justify-between border-b px-6" 
-      style={{ 
-        backgroundColor: isDark ? 'rgb(15, 23, 42)' : 'rgb(255, 255, 255)', 
-        boxShadow: isDark ? '0 1px 3px 0 rgb(0 0 0 / 0.3)' : '0 1px 3px 0 rgb(0 0 0 / 0.1)' 
+    <header
+      className="flex h-16 items-center justify-between border-b px-6"
+      style={{
+        backgroundColor: isDark ? 'rgb(15, 23, 42)' : 'rgb(255, 255, 255)',
+        boxShadow: isDark ? '0 1px 3px 0 rgb(0 0 0 / 0.3)' : '0 1px 3px 0 rgb(0 0 0 / 0.1)',
       }}
     >
-      {/* Search */}
-      <div className="flex items-center gap-4 flex-1 max-w-md relative">
+      <div ref={searchContainerRef} className="flex items-center gap-4 flex-1 max-w-md relative">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            placeholder="Search candidates, jobs, interviews..."
+            placeholder="Search candidates, jobs, clients, interviews..."
             className="pl-10"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -296,36 +341,27 @@ export function Header() {
               variant="ghost"
               size="sm"
               className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 p-0"
-              onClick={() => {
-                setSearchQuery('')
-                setShowSearchResults(false)
-              }}
+              onClick={clearSearchUi}
             >
               <X className="h-3 w-3" />
             </Button>
           )}
         </div>
 
-        {/* Search Results Dropdown */}
         {showSearchResults && (
           <div className="absolute top-full left-0 right-0 mt-2 bg-card border rounded-lg shadow-lg max-h-96 overflow-y-auto z-50">
             {searching ? (
               <div className="p-4 text-center text-muted-foreground">Searching...</div>
             ) : (
               <div className="p-2">
-                {/* Candidates */}
                 {searchResults.candidates.length > 0 && (
                   <div className="mb-2">
                     <p className="text-xs font-semibold text-muted-foreground px-2 py-1">CANDIDATES</p>
-                    {searchResults.candidates.map(candidate => (
+                    {searchResults.candidates.map((candidate) => (
                       <div
                         key={candidate.id}
                         className="px-3 py-2 hover:bg-accent rounded cursor-pointer"
-                        onClick={() => {
-                          navigate(buildGlobalAwarePath('/resumes'))
-                          setShowSearchResults(false)
-                          setSearchQuery('')
-                        }}
+                        onClick={() => navigateToSearchResult('/resumes', { candidate_id: candidate.id })}
                       >
                         <p className="text-sm font-medium">{candidate.name}</p>
                         <p className="text-xs text-muted-foreground">{candidate.email} • {candidate.job_title || 'No job'}</p>
@@ -334,19 +370,30 @@ export function Header() {
                   </div>
                 )}
 
-                {/* Jobs */}
+                {clientSearchResults.length > 0 && (
+                  <div className="mb-2">
+                    <p className="text-xs font-semibold text-muted-foreground px-2 py-1">CLIENTS</p>
+                    {clientSearchResults.map((clientName) => (
+                      <div
+                        key={clientName}
+                        className="px-3 py-2 hover:bg-accent rounded cursor-pointer"
+                        onClick={() => navigateToSearchResult('/jobs', { client: clientName })}
+                      >
+                        <p className="text-sm font-medium">{clientName}</p>
+                        <p className="text-xs text-muted-foreground">Show matching client jobs</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 {searchResults.jobs.length > 0 && (
                   <div className="mb-2">
                     <p className="text-xs font-semibold text-muted-foreground px-2 py-1">JOBS</p>
-                    {searchResults.jobs.map(job => (
+                    {searchResults.jobs.map((job) => (
                       <div
                         key={job.id}
                         className="px-3 py-2 hover:bg-accent rounded cursor-pointer"
-                        onClick={() => {
-                          navigate(buildGlobalAwarePath('/jobs'))
-                          setShowSearchResults(false)
-                          setSearchQuery('')
-                        }}
+                        onClick={() => navigateToSearchResult('/jobs', { search_job_id: job.id })}
                       >
                         <p className="text-sm font-medium">{job.title}</p>
                         <p className="text-xs text-muted-foreground">{job.company_name || 'Company'} • {job.location || 'Location'}</p>
@@ -355,19 +402,14 @@ export function Header() {
                   </div>
                 )}
 
-                {/* Interviews */}
                 {searchResults.interviews.length > 0 && (
                   <div>
                     <p className="text-xs font-semibold text-muted-foreground px-2 py-1">INTERVIEWS</p>
-                    {searchResults.interviews.map(interview => (
+                    {searchResults.interviews.map((interview) => (
                       <div
                         key={interview.id}
                         className="px-3 py-2 hover:bg-accent rounded cursor-pointer"
-                        onClick={() => {
-                          navigate(buildGlobalAwarePath('/interviews'))
-                          setShowSearchResults(false)
-                          setSearchQuery('')
-                        }}
+                        onClick={() => navigateToSearchResult('/interviews', { interview_id: interview.id })}
                       >
                         <p className="text-sm font-medium">{interview.candidate_name}</p>
                         <p className="text-xs text-muted-foreground">{interview.interview_type} • {interview.status}</p>
@@ -376,10 +418,7 @@ export function Header() {
                   </div>
                 )}
 
-                {/* No results */}
-                {searchResults.candidates.length === 0 && 
-                 searchResults.jobs.length === 0 && 
-                 searchResults.interviews.length === 0 && (
+                {!hasSearchResults && (
                   <div className="p-4 text-center text-muted-foreground">
                     No results found for "{searchQuery}"
                   </div>
@@ -390,28 +429,25 @@ export function Header() {
         )}
       </div>
 
-      {/* Right side */}
       <div className="flex items-center gap-3">
-        {/* Client Filter */}
-          <div className="relative">
-            <select
-              className="h-9 rounded-md border border-input bg-background pl-3 pr-10 text-sm appearance-none"
-              value={selectedClient}
-              onChange={(e) => handleClientChange(e.target.value)}
-              onFocus={handleOpenFilterOptions}
-              onPointerDown={handleOpenFilterOptions}
-            >
-              <option value="">All Clients</option>
-              {clients.map((client) => (
-                <option key={client} value={client}>
-                  {client}
-                </option>
-              ))}
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          </div>
+        <div className="relative">
+          <select
+            className="h-9 rounded-md border border-input bg-background pl-3 pr-10 text-sm appearance-none"
+            value={selectedClient}
+            onChange={(e) => handleClientChange(e.target.value)}
+            onFocus={handleOpenFilterOptions}
+            onPointerDown={handleOpenFilterOptions}
+          >
+            <option value="">All Clients</option>
+            {clients.map((client) => (
+              <option key={client} value={client}>
+                {client}
+              </option>
+            ))}
+          </select>
+          <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        </div>
 
-        {/* Theme toggle */}
         <Button
           variant="ghost"
           size="icon"
@@ -424,7 +460,6 @@ export function Header() {
           )}
         </Button>
 
-        {/* Notifications */}
         <DropdownMenu open={showNotifications} onOpenChange={setShowNotifications}>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" size="icon" className="relative">
@@ -449,8 +484,8 @@ export function Header() {
             <div className="max-h-80 overflow-y-auto">
               {notifications.length > 0 ? (
                 notifications.map((notification) => (
-                  <DropdownMenuItem 
-                    key={notification.id} 
+                  <DropdownMenuItem
+                    key={notification.id}
                     className="flex flex-col items-start p-3 cursor-pointer hover:bg-accent"
                     onClick={() => handleNotificationClick(notification)}
                   >
@@ -462,13 +497,13 @@ export function Header() {
                         {notification.unread && (
                           <span className="h-2 w-2 rounded-full bg-blue-500" />
                         )}
-                        <Button 
-                          variant="ghost" 
-                          size="sm" 
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           className="h-4 w-4 p-0 hover:bg-destructive hover:text-white"
                           onClick={(e) => {
                             e.stopPropagation()
-                            setNotifications(prev => prev.filter(n => n.id !== notification.id))
+                            setNotifications((prev) => prev.filter((n) => n.id !== notification.id))
                           }}
                         >
                           <X className="h-3 w-3" />
@@ -487,7 +522,6 @@ export function Header() {
           </DropdownMenuContent>
         </DropdownMenu>
 
-        {/* User menu */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="ghost" className="relative h-10 w-10 rounded-full">
@@ -527,3 +561,4 @@ export function Header() {
     </header>
   )
 }
+

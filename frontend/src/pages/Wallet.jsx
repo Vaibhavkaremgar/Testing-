@@ -9,6 +9,25 @@ import { Wallet, ArrowUpCircle, ArrowDownCircle, CreditCard, TrendingUp, Minus, 
 import api from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 
+const USD_TO_INR_RATE = 94.8;
+
+const PRICE_REGIONS = {
+  usa: {
+    label: 'USA',
+    currency: 'USD',
+    locale: 'en-US',
+    multiplier: 1,
+    creditRateLabel: '$1.00 per credit',
+  },
+  india: {
+    label: 'India',
+    currency: 'INR',
+    locale: 'en-IN',
+    multiplier: USD_TO_INR_RATE,
+    creditRateLabel: `₹${USD_TO_INR_RATE.toFixed(2)} per credit`,
+  },
+};
+
 const PAYMENT_METHODS = [
   { id: 'razorpay', name: 'Razorpay', icon: CreditCard, color: 'text-blue-600' },
 ];
@@ -104,13 +123,25 @@ export default function WalletPage({ superAdminAgencyId = null }) {
   const [billingCycle, setBillingCycle] = useState('monthly');
   const [selectedPlan, setSelectedPlan] = useState('');
   const [selectedPlanUsers, setSelectedPlanUsers] = useState('1');
+  const [selectedPlanCustomUsers, setSelectedPlanCustomUsers] = useState('');
   const [planStatus, setPlanStatus] = useState(null);
   const [usageSummary, setUsageSummary] = useState(null);
+  const [priceRegion, setPriceRegion] = useState('india');
 
   const currentPlanOptions = PLAN_OPTIONS[billingCycle];
   const selectedPlanConfig = currentPlanOptions.find((plan) => plan.id === selectedPlan) || null;
-  const selectedPlanUserLimit = selectedPlanConfig?.userSeats ? Math.max(selectedPlanConfig.userSeats - 1, 1) : 1;
-  const selectedPlanUserCount = Math.max(parseInt(selectedPlanUsers, 10) || 1, 1);
+  const selectedPlanIncludedUsers = selectedPlanConfig?.userSeats ? Math.max(selectedPlanConfig.userSeats - 1, 1) : 1;
+  const selectedPlanCustomMinimumUsers = selectedPlanIncludedUsers + 3;
+  const selectedPlanUserOptions = selectedPlanConfig?.id && selectedPlanConfig.id !== 'custom'
+    ? [
+        selectedPlanIncludedUsers,
+        selectedPlanIncludedUsers + 1,
+        selectedPlanIncludedUsers + 2,
+      ]
+    : [];
+  const selectedPlanUserCount = selectedPlanUsers === 'custom'
+    ? Math.max(parseInt(selectedPlanCustomUsers, 10) || 0, selectedPlanCustomMinimumUsers)
+    : Math.max(parseInt(selectedPlanUsers, 10) || selectedPlanIncludedUsers, selectedPlanIncludedUsers);
   const selectedPlanTotalPrice = selectedPlanConfig?.price != null
     ? selectedPlanConfig.price * selectedPlanUserCount
     : null;
@@ -134,6 +165,25 @@ export default function WalletPage({ superAdminAgencyId = null }) {
     if (historyFilter === 'debit') return txn.transaction_type === 'debit';
     return true;
   });
+
+  const formatPrice = (amount) => {
+    if (amount == null || Number.isNaN(Number(amount))) return null;
+    const region = PRICE_REGIONS[priceRegion] || PRICE_REGIONS.usa;
+    const convertedAmount = Number(amount) * region.multiplier;
+    const maximumFractionDigits = Number.isInteger(convertedAmount) ? 0 : 2;
+
+    return new Intl.NumberFormat(region.locale, {
+      style: 'currency',
+      currency: region.currency,
+      minimumFractionDigits: 0,
+      maximumFractionDigits,
+    }).format(convertedAmount);
+  };
+
+  const getPriceLabel = (plan) => {
+    if (!plan || plan.price == null) return 'Custom';
+    return formatPrice(plan.price);
+  };
 
   useEffect(() => {
     if (isSuperAdmin) {
@@ -189,14 +239,19 @@ export default function WalletPage({ superAdminAgencyId = null }) {
 
   const getDiscountedAmount = (amount) => {
     if (!discount || !amount || isNaN(amount)) return null;
-    const original = parseFloat(amount);
+    const region = PRICE_REGIONS[priceRegion] || PRICE_REGIONS.usa;
+    const original = parseFloat(amount) * region.multiplier;
     if (discount.discount_type === 'percentage') {
       const discountAmt = (original * discount.discount_value) / 100;
       return { original, discountAmt, final: original - discountAmt, label: `${discount.discount_value}% off` };
     } else {
-      const discountAmt = Math.min(discount.discount_value, original);
-      const sym = discount.currency === 'INR' ? '₹' : '$';
-      return { original, discountAmt, final: original - discountAmt, label: `${sym}${discount.discount_value} off` };
+      const fixedDiscount = discount.currency === region.currency
+        ? discount.discount_value
+        : discount.currency === 'INR'
+          ? discount.discount_value / USD_TO_INR_RATE
+          : discount.discount_value * USD_TO_INR_RATE;
+      const discountAmt = Math.min(fixedDiscount, original);
+      return { original, discountAmt, final: original - discountAmt, label: `${formatPrice(fixedDiscount)} off` };
     }
   };
 
@@ -320,7 +375,7 @@ Transaction ID: ${txn.id}
 Date: ${new Date(txn.created_at).toLocaleDateString()}
 Description: ${txn.description}
 Credits: ${txn.amount}
-Amount Paid: $${txn.price_paid || 0}
+Amount Paid: ${txn.price_paid ? formatPrice(txn.price_paid) : '-'}
 Payment Method: ${txn.payment_method || 'N/A'}
 Status: ${txn.status || 'completed'}
 ========================================
@@ -382,6 +437,7 @@ Status: ${txn.status || 'completed'}
         setSelectedPayment(null);
         setSelectedPlan('');
         setSelectedPlanUsers('1');
+        setSelectedPlanCustomUsers('');
         setCreditAmount('');
         fetchBalance();
         fetchTransactions();
@@ -409,6 +465,7 @@ Status: ${txn.status || 'completed'}
       setSelectedPayment(null);
       setSelectedPlan('');
       setSelectedPlanUsers('1');
+      setSelectedPlanCustomUsers('');
       setCreditAmount('');
       fetchBalance();
       fetchTransactions();
@@ -425,20 +482,40 @@ Status: ${txn.status || 'completed'}
     setBillingCycle(value);
     setSelectedPlan('');
     setSelectedPlanUsers('1');
+    setSelectedPlanCustomUsers('');
     setCreditAmount('');
   };
 
   const handlePlanChange = (value) => {
     setSelectedPlan(value);
-    setSelectedPlanUsers('1');
     const plan = currentPlanOptions.find((option) => option.id === value);
-    setCreditAmount(plan?.id === 'custom' ? '' : String(plan?.price || ''));
+    const includedUsers = plan?.userSeats ? Math.max(plan.userSeats - 1, 1) : 1;
+    setSelectedPlanUsers(plan?.id === 'custom' ? '1' : String(includedUsers));
+    setSelectedPlanCustomUsers('');
+    setCreditAmount(plan?.id === 'custom' ? '' : String((plan?.price || 0) * includedUsers));
   };
 
   const handlePlanUsersChange = (value) => {
-    const nextUsers = Math.min(Math.max(parseInt(value, 10) || 1, 1), selectedPlanUserLimit);
-    setSelectedPlanUsers(String(nextUsers));
+    setSelectedPlanUsers(value);
+
+    if (value === 'custom') {
+      setSelectedPlanCustomUsers(String(selectedPlanCustomMinimumUsers));
+      if (selectedPlanConfig?.id !== 'custom') {
+        setCreditAmount(String((selectedPlanConfig?.price || 0) * selectedPlanCustomMinimumUsers));
+      }
+      return;
+    }
+
+    const nextUsers = Math.max(parseInt(value, 10) || selectedPlanIncludedUsers, selectedPlanIncludedUsers);
     if (selectedPlanConfig?.id !== 'custom') {
+      setCreditAmount(String((selectedPlanConfig?.price || 0) * nextUsers));
+    }
+  };
+
+  const handleCustomPlanUsersChange = (value) => {
+    setSelectedPlanCustomUsers(value);
+    if (selectedPlanConfig?.id !== 'custom') {
+      const nextUsers = Math.max(parseInt(value, 10) || 0, selectedPlanCustomMinimumUsers);
       setCreditAmount(String((selectedPlanConfig?.price || 0) * nextUsers));
     }
   };
@@ -616,6 +693,23 @@ Status: ${txn.status || 'completed'}
           <CardTitle>Buy Credits</CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
+          <div className="rounded-2xl bg-primary px-4 py-3 text-primary-foreground">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-center">
+              <span className="text-sm font-semibold md:text-base">Showing prices for:</span>
+              <select
+                value={priceRegion}
+                onChange={(e) => setPriceRegion(e.target.value)}
+                className="h-12 min-w-[148px] rounded-xl border border-white/20 bg-white/10 px-4 text-base font-medium text-white outline-none transition focus:border-white/40"
+              >
+                {Object.entries(PRICE_REGIONS).map(([value, option]) => (
+                  <option key={value} value={value} className="text-slate-900">
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
           <div>
             <Label htmlFor="billingCycle">Billing Cycle</Label>
             <select
@@ -641,7 +735,7 @@ Status: ${txn.status || 'completed'}
               <option value="">Select a plan</option>
               {currentPlanOptions.map((plan) => (
                 <option key={plan.id} value={plan.id}>
-                  {plan.name} - {plan.priceLabel}
+                  {plan.name} - {getPriceLabel(plan)}
                 </option>
               ))}
             </select>
@@ -661,7 +755,7 @@ Status: ${txn.status || 'completed'}
             {selectedPlanConfig && selectedPlanConfig.id !== 'custom' && (
               <div className="mt-3 rounded-lg border bg-slate-50 p-4 space-y-1 text-sm text-slate-700">
                 <p className="font-medium text-slate-900">
-                  {selectedPlanConfig.name} includes {selectedPlanConfig.interviewCredits} interview credits for {selectedPlanConfig.priceLabel}/{billingCycle === 'monthly' ? 'month' : 'year'}
+                  {selectedPlanConfig.name} includes {selectedPlanConfig.interviewCredits} interview credits for {getPriceLabel(selectedPlanConfig)}/{billingCycle === 'monthly' ? 'month' : 'year'}
                 </p>
                 <div className="pt-2">
                   <Label htmlFor="planUsers">How many users do you want?</Label>
@@ -671,18 +765,30 @@ Status: ${txn.status || 'completed'}
                     onChange={(e) => handlePlanUsersChange(e.target.value)}
                     className="mt-2 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                   >
-                    {Array.from({ length: selectedPlanUserLimit }, (_, index) => index + 1).map((count) => (
+                    {selectedPlanUserOptions.map((count) => (
                       <option key={count} value={count}>
                         {count} {count === 1 ? 'user' : 'users'}
                       </option>
                     ))}
+                    <option value="custom">Custom</option>
                   </select>
+                  {selectedPlanUsers === 'custom' && (
+                    <Input
+                      id="customPlanUsers"
+                      type="number"
+                      min={selectedPlanCustomMinimumUsers}
+                      placeholder={`Enter ${selectedPlanCustomMinimumUsers} or more`}
+                      value={selectedPlanCustomUsers}
+                      onChange={(e) => handleCustomPlanUsersChange(e.target.value)}
+                      className="mt-3"
+                    />
+                  )}
                 </div>
                 <p>Resume scans: {selectedPlanConfig.resumeScoringUnlimited ? 'Unlimited' : selectedPlanConfig.resumeScoring}{selectedPlanConfig.resumeScoringUnlimited ? '' : '/month'}</p>
                 <p>Active job postings: {selectedPlanConfig.jobPostings}</p>
-                <p>User seats: {selectedPlanUserLimit}</p>
+                <p>Included seats: {selectedPlanIncludedUsers} users + 1 admin</p>
                 <p className="pt-1 font-semibold text-slate-900">
-                  Total price: ${selectedPlanTotalPrice}
+                  Total price: {formatPrice(selectedPlanTotalPrice)}
                 </p>
                 <p className="pt-1 text-xs text-slate-500">
                   These plan limits are tracked separately and reduce automatically as your team uses them.
@@ -692,7 +798,7 @@ Status: ${txn.status || 'completed'}
 
             {creditAmount && (!selectedPlanConfig || selectedPlanConfig.id === 'custom') && (
               <p className="text-sm text-gray-500 mt-2">
-                You will get {creditAmount} credits ($1 per credit)
+                You will get {creditAmount} credits ({PRICE_REGIONS[priceRegion].creditRateLabel})
               </p>
             )}
 
@@ -700,7 +806,6 @@ Status: ${txn.status || 'completed'}
             {(() => {
               const calc = getDiscountedAmount(creditAmount);
               if (!calc) return null;
-              const sym = discount?.currency === 'INR' ? '₹' : '$';
               return (
                 <div className="mt-3 border rounded-lg p-4 bg-green-50 dark:bg-green-900/20 space-y-2">
                   <p className="text-xs font-semibold text-green-700 dark:text-green-400 mb-1">
@@ -708,15 +813,15 @@ Status: ${txn.status || 'completed'}
                   </p>
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Original Amount</span>
-                    <span>{sym}{calc.original.toFixed(2)}</span>
+                    <span>{formatPrice(calc.original)}</span>
                   </div>
                   <div className="flex justify-between text-sm text-green-600 dark:text-green-400">
                     <span>Discount ({calc.label})</span>
-                    <span>- {sym}{calc.discountAmt.toFixed(2)}</span>
+                    <span>- {formatPrice(calc.discountAmt)}</span>
                   </div>
                   <div className="flex justify-between text-sm font-bold border-t pt-2">
                     <span>Amount to Pay</span>
-                    <span>{sym}{calc.final.toFixed(2)}</span>
+                    <span>{formatPrice(calc.final)}</span>
                   </div>
                 </div>
               );
@@ -817,7 +922,7 @@ Status: ${txn.status || 'completed'}
                         </span>
                       </td>
                       <td className="py-3 px-4 text-sm">
-                        {txn.price_paid ? `$${txn.price_paid}` : '-'}
+                        {txn.price_paid ? formatPrice(txn.price_paid) : '-'}
                       </td>
                       <td className="py-3 px-4">
                         <span className={`text-xs px-2 py-1 rounded ${

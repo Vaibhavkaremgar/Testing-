@@ -280,6 +280,10 @@ def _deduct_interview_completion_credit(db: Session, interview: Interview, candi
         description=transaction_description,
         balance_after=admin.wallet_balance
     ))
+    try:
+        increment_plan_usage(db, admin, "interview")
+    except Exception as exc:
+        print(f"Failed to sync completed interview usage for {interview.id}: {exc}")
     return admin.wallet_balance
 
 
@@ -398,6 +402,10 @@ def _charge_completed_interviews_in_batch(
             description=transaction_description,
             balance_after=admin.wallet_balance
         ))
+        try:
+            increment_plan_usage(db, admin, "interview")
+        except Exception as exc:
+            print(f"Failed to sync completed interview usage for {interview.id}: {exc}")
         existing_transactions.add(transaction_key)
         credits_checked = True
 
@@ -1821,7 +1829,6 @@ def create_interview(
         _sync_candidate_stage_from_interview(candidate, db_interview)
         
         db.flush()
-        increment_plan_usage(db, current_user, "interview", subscription=subscription)
         db.commit()
         db.refresh(db_interview)
     except HTTPException:

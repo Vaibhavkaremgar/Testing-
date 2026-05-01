@@ -420,6 +420,61 @@ def _get_interview_slot_pipeline_stages(db: Session, candidate_ids: List[UUID], 
     return slot_stage_by_candidate
 
 
+def _count_upcoming_interview_slots(db: Session, candidate_ids: List[UUID], today) -> int:
+    if not candidate_ids:
+        return 0
+
+    column_names = _get_table_columns(db, "interview_slots")
+    if not column_names or "slot_date" not in column_names:
+        return 0
+
+    candidate_column = next(
+        (
+            column_name
+            for column_name in ("candidate_id", "candidateId", "candidate")
+            if column_name in column_names
+        ),
+        None,
+    )
+    if not candidate_column:
+        return 0
+
+    count = db.execute(
+        text(f"""
+            SELECT COUNT(*) AS slot_count
+            FROM interview_slots
+            WHERE {candidate_column} IS NOT NULL
+              AND slot_date IS NOT NULL
+              AND slot_date::date >= :today
+              AND {candidate_column}::text = ANY(:candidate_ids)
+        """),
+        {
+            "today": today,
+            "candidate_ids": [str(candidate_id) for candidate_id in candidate_ids],
+        },
+    ).scalar()
+
+    return int(count or 0)
+
+
+def _count_interviews_by_status(db: Session, candidate_ids: List[UUID], status: str) -> int:
+    if not candidate_ids:
+        return 0
+
+    normalized_status = (status or "").strip().lower()
+    if not normalized_status:
+        return 0
+
+    count = (
+        db.query(func.count(Interview.id))
+        .filter(Interview.candidate_id.in_(candidate_ids))
+        .filter(func.lower(func.trim(Interview.status)) == normalized_status)
+        .scalar()
+    )
+
+    return int(count or 0)
+
+
 def _aggregate_pipeline_display_stage_metrics(
     db: Session,
     candidate_query,
@@ -1011,14 +1066,12 @@ def get_dashboard_stats(
         )
         candidate_sq = _candidate_metrics_subquery(query)
         candidate_metrics = _aggregate_candidate_stage_metrics(db, candidate_sq, exclude_applied=False)
-        pipeline_display_metrics = _aggregate_pipeline_display_stage_metrics(
-            db,
-            query,
-            month=month,
-            date=date,
-            from_date=from_date,
-            to_date=to_date,
-        )
+        candidate_ids = [candidate_id for (candidate_id,) in query.with_entities(Candidate.id).all()]
+        today = datetime.now().date()
+        shortlisted_count = query.filter(Candidate.stage == CandidateStage.SHORTLISTED).count()
+        interviews_scheduled_count = _count_upcoming_interview_slots(db, candidate_ids, today)
+        selected_count = _count_interviews_by_status(db, candidate_ids, "selected")
+        rejected_count = _count_interviews_by_status(db, candidate_ids, "rejected")
         active_candidate_query = query.filter(Candidate.stage != CandidateStage.APPLIED)
         interview_metrics = _latest_interview_metrics(
             db,
@@ -1034,11 +1087,11 @@ def get_dashboard_stats(
         serialization_start = perf_counter()
         payload = {
             "total_candidates": candidate_metrics["total_candidates"],
-            "shortlisted": candidate_metrics["shortlisted"],
-            "resume_rejected": pipeline_display_metrics["resume_rejected"],
-            "rejected": interview_metrics["rejected"],
-            "interviews_scheduled": pipeline_display_metrics["interviews_scheduled"],
-            "selected": pipeline_display_metrics["selected"],
+            "shortlisted": shortlisted_count,
+            "resume_rejected": 0,
+            "rejected": rejected_count,
+            "interviews_scheduled": interviews_scheduled_count,
+            "selected": selected_count,
             "avg_resume_score": round(
                 candidate_metrics["resume_score_sum"] / candidate_metrics["resume_score_count"],
                 1,
