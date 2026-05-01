@@ -106,6 +106,20 @@ def _apply_interview_search_filter(query, search: Optional[str]):
         )
     )
 
+
+def _apply_interview_client_filter(query, client: Optional[str]):
+    normalized_client = str(client or "").strip().lower()
+    if not normalized_client:
+        return query
+
+    return query.filter(
+        Interview.candidate.has(
+            Candidate.job.has(
+                func.lower(func.trim(JobDescription.company_name)) == normalized_client
+            )
+        )
+    )
+
 INTERVIEW_SCORE_WEIGHTS = {
     "technical": 0.5,
     "communication": 0.3,
@@ -1582,6 +1596,7 @@ def _fetch_recording_availability(interviews: List[Interview]) -> dict[str, dict
 def get_interviews_count(
     candidate_id: Optional[UUID] = None,
     search: Optional[str] = None,
+    client: Optional[str] = None,
     status: Optional[str] = None,
     agency_id: Optional[UUID] = None,
     db: Session = Depends(get_db),
@@ -1598,6 +1613,7 @@ def get_interviews_count(
         query = query.join(Candidate).join(JobDescription, Candidate.job_id == JobDescription.id).filter(JobDescription.agency_id == agency_id)
     else:
         query = _apply_interview_scope(query, current_user)
+    query = _apply_interview_client_filter(query, client)
     query = _apply_interview_search_filter(query, search)
     return {"count": query.count()}
 
@@ -1608,6 +1624,7 @@ def get_interviews(
     offset: Optional[int] = None,
     candidate_id: Optional[UUID] = None,
     search: Optional[str] = None,
+    client: Optional[str] = None,
     status: Optional[str] = None,
     from_date: Optional[str] = None,
     to_date: Optional[str] = None,
@@ -1630,6 +1647,7 @@ def get_interviews(
         query = query.join(Candidate).join(JobDescription, Candidate.job_id == JobDescription.id).filter(JobDescription.agency_id == agency_id)
     else:
         query = _apply_interview_scope(query, current_user)
+    query = _apply_interview_client_filter(query, client)
     query = _apply_interview_search_filter(query, search)
     query = _apply_interview_date_filters(
         query,
