@@ -1495,7 +1495,7 @@ def get_interviews_count(
 @router.get("", response_model=List[InterviewResponse])
 def get_interviews(
     page: int = 1,
-    limit: int = 20,
+    limit: Optional[int] = None,
     offset: Optional[int] = None,
     candidate_id: Optional[UUID] = None,
     status: Optional[str] = None,
@@ -1526,9 +1526,10 @@ def get_interviews(
         to_date=to_date,
     )
     
-    effective_offset = offset if offset is not None else max(0, (page - 1) * limit)
+    effective_limit = limit if limit is not None else 20
+    effective_offset = offset if offset is not None else max(0, (page - 1) * effective_limit)
     query_start = perf_counter()
-    interviews = (
+    interviews_query = (
         query.options(
             load_only(
                 Interview.id,
@@ -1553,9 +1554,10 @@ def get_interviews(
         )
         .order_by(Interview.scheduled_at.desc())
         .offset(effective_offset)
-        .limit(limit)
-        .all()
     )
+    if limit is not None:
+        interviews_query = interviews_query.limit(limit)
+    interviews = interviews_query.all()
     query_time = perf_counter() - query_start
     print(f"[DB PERF] interviews query={query_time:.4f}s")
     enrichment_start = perf_counter()
@@ -1580,7 +1582,7 @@ def get_interviews(
         enrichment=f"{enrichment_time:.4f}s",
         serialization=f"{perf_counter() - serialization_start:.4f}s",
         row_count=len(result),
-        limit=limit,
+        limit=limit if limit is not None else "all",
         offset=effective_offset,
     )
     return result
