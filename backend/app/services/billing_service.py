@@ -10,7 +10,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.billing_schemas import CustomPlanConfig, SubscribeRequest, WalletResponse
-from app.models import Agency, Plan, PlanLimit, Subscription, UsageLog, User, UserRole, Wallet
+from app.models import Agency, Plan, PlanLimit, Subscription, TransactionType, UsageLog, User, UserRole, Wallet, WalletTransaction
 
 
 FEATURE_INTERVIEW = "interview"
@@ -353,6 +353,54 @@ def _sync_user_seats(wallet: Wallet, subscription: Subscription, scope: BillingS
     return wallet
 
 
+def _get_interview_cycle_start(subscription: Subscription, wallet: Wallet) -> datetime:
+    if subscription.billing_type == "monthly":
+        return (
+            _as_utc(subscription.last_monthly_reset_at)
+            or _as_utc(wallet.last_reset_date)
+            or _as_utc(subscription.cycle_anchor_at)
+            or _as_utc(subscription.created_at)
+            or utcnow()
+        )
+
+    return (
+        _as_utc(subscription.cycle_anchor_at)
+        or _as_utc(subscription.created_at)
+        or utcnow()
+    )
+
+
+def _reconcile_interview_usage_from_transactions(
+    db: Session,
+    wallet: Wallet,
+    subscription: Subscription,
+    scope: BillingScope,
+) -> Wallet:
+    cycle_start = _get_interview_cycle_start(subscription, wallet)
+    billed_interview_total = (
+        db.query(func.coalesce(func.sum(WalletTransaction.amount), 0))
+        .filter(
+            WalletTransaction.user_id == scope.owner_user.id,
+            WalletTransaction.agency_id == scope.agency.id,
+            WalletTransaction.transaction_type == TransactionType.DEBIT,
+            WalletTransaction.description.like("Interview completed - Interview ID %"),
+            WalletTransaction.created_at >= cycle_start,
+        )
+        .scalar()
+    ) or 0
+
+    billed_interview_total = int(billed_interview_total)
+    if wallet.interview_used != billed_interview_total or subscription.interview_credits_used != billed_interview_total:
+        wallet.interview_used = billed_interview_total
+        subscription.interview_credits_used = billed_interview_total
+        wallet.interview_remaining = _safe_remaining(wallet.interview_total, wallet.interview_used, wallet.is_interview_unlimited)
+        db.add(wallet)
+        db.add(subscription)
+        db.flush()
+
+    return wallet
+
+
 def reset_monthly_credits(db: Session, wallet: Wallet, subscription: Subscription, scope: BillingScope) -> Wallet:
     now = utcnow()
     last_reset = _as_utc(wallet.last_reset_date) or _as_utc(subscription.last_monthly_reset_at) or _as_utc(subscription.created_at) or now
@@ -392,6 +440,7 @@ def reset_monthly_credits(db: Session, wallet: Wallet, subscription: Subscriptio
     wallet.resume_remaining = _safe_remaining(wallet.resume_total, wallet.resume_used, wallet.is_resume_unlimited)
     wallet.job_post_remaining = _safe_remaining(wallet.job_post_total, wallet.job_post_used, wallet.is_job_post_unlimited)
     _sync_user_seats(wallet, subscription, scope)
+    _reconcile_interview_usage_from_transactions(db, wallet, subscription, scope)
     db.add(wallet)
     db.add(subscription)
     db.flush()
