@@ -55,6 +55,7 @@ ALLOWED_RESUME_CONTENT_TYPES = {
 LEGACY_STAGE_NORMALIZATION_INTERVAL_SECONDS = 300
 _legacy_stage_normalization_lock = Lock()
 _legacy_stage_last_checked_at = 0.0
+_candidate_scope_last_checked_at = 0.0
 UPLOAD_REQUEST_DEDUPLICATION_WINDOW_SECONDS = 180
 _recent_upload_requests: dict[tuple[str, str, str, str], tuple[float, str]] = {}
 _recent_upload_requests_lock = Lock()
@@ -104,6 +105,82 @@ def normalize_legacy_candidate_stages(db: Session) -> None:
     total_updated += result.rowcount
     if total_updated:
         print(f"Normalized legacy candidate stages: rows_updated={total_updated}")
+        db.commit()
+    normalize_candidate_scope_metadata(db)
+
+
+def normalize_candidate_scope_metadata(db: Session) -> None:
+    """Backfill missing candidate scope metadata from existing workflow/job ownership records."""
+    global _candidate_scope_last_checked_at
+    now = monotonic()
+    if (now - _candidate_scope_last_checked_at) < LEGACY_STAGE_NORMALIZATION_INTERVAL_SECONDS:
+        return
+
+    with _legacy_stage_normalization_lock:
+        now = monotonic()
+        if (now - _candidate_scope_last_checked_at) < LEGACY_STAGE_NORMALIZATION_INTERVAL_SECONDS:
+            return
+        _candidate_scope_last_checked_at = now
+
+    result = db.execute(text(
+        """
+        WITH latest_workflow AS (
+            SELECT DISTINCT ON (candidate_id)
+                candidate_id,
+                job_id,
+                agency_id,
+                user_id
+            FROM notification_workflow_tokens
+            WHERE candidate_id IS NOT NULL
+            ORDER BY candidate_id, created_at DESC
+        ),
+        latest_booking AS (
+            SELECT DISTINCT ON (candidate_id)
+                candidate_id,
+                job_id,
+                agency_id,
+                user_id
+            FROM booking_links
+            WHERE candidate_id IS NOT NULL
+            ORDER BY candidate_id, created_at DESC
+        ),
+        candidate_fallbacks AS (
+            SELECT
+                c.id AS candidate_id,
+                COALESCE(c.assigned_to_user_id, lw.user_id, lb.user_id, c.created_by) AS resolved_assigned_to_user_id,
+                COALESCE(c.job_id, lw.job_id, lb.job_id) AS resolved_job_id,
+                COALESCE(
+                    c.agency_id,
+                    job.agency_id,
+                    lw.agency_id,
+                    lb.agency_id,
+                    assignee.agency_id,
+                    creator.agency_id
+                ) AS resolved_agency_id
+            FROM candidates c
+            LEFT JOIN latest_workflow lw ON lw.candidate_id = c.id
+            LEFT JOIN latest_booking lb ON lb.candidate_id = c.id
+            LEFT JOIN users creator ON creator.id = c.created_by
+            LEFT JOIN users assignee ON assignee.id = COALESCE(c.assigned_to_user_id, lw.user_id, lb.user_id, c.created_by)
+            LEFT JOIN job_descriptions job ON job.id = COALESCE(c.job_id, lw.job_id, lb.job_id)
+            WHERE c.assigned_to_user_id IS NULL OR c.agency_id IS NULL OR c.job_id IS NULL
+        )
+        UPDATE candidates c
+        SET
+            assigned_to_user_id = COALESCE(c.assigned_to_user_id, f.resolved_assigned_to_user_id),
+            job_id = COALESCE(c.job_id, f.resolved_job_id),
+            agency_id = COALESCE(c.agency_id, f.resolved_agency_id)
+        FROM candidate_fallbacks f
+        WHERE c.id = f.candidate_id
+          AND (
+              (c.assigned_to_user_id IS NULL AND f.resolved_assigned_to_user_id IS NOT NULL)
+              OR (c.job_id IS NULL AND f.resolved_job_id IS NOT NULL)
+              OR (c.agency_id IS NULL AND f.resolved_agency_id IS NOT NULL)
+          )
+        """
+    ))
+    if result.rowcount:
+        print(f"Normalized candidate scope metadata: rows_updated={result.rowcount}")
         db.commit()
 
 

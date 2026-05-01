@@ -693,13 +693,13 @@ Status: ${txn.status || 'completed'}
           <CardTitle>Buy Credits</CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
-          <div className="rounded-2xl bg-primary px-4 py-3 text-primary-foreground">
+          <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-center">
-              <span className="text-sm font-semibold md:text-base">Showing prices for:</span>
+              <span className="text-sm font-semibold text-slate-700 md:text-base">Showing prices for:</span>
               <select
                 value={priceRegion}
                 onChange={(e) => setPriceRegion(e.target.value)}
-                className="h-12 min-w-[148px] rounded-xl border border-white/20 bg-white/10 px-4 text-base font-medium text-white outline-none transition focus:border-white/40"
+                className="h-12 min-w-[148px] rounded-xl border border-slate-200 bg-white px-4 text-base font-medium text-slate-900 outline-none transition focus:border-slate-300"
               >
                 {Object.entries(PRICE_REGIONS).map(([value, option]) => (
                   <option key={value} value={value} className="text-slate-900">
