@@ -337,6 +337,17 @@ export default function Interviews({ superAdminAgencyId = null }) {
     [jobs]
   )
 
+  useEffect(() => {
+    if (selectedJobFilter === 'all') {
+      return
+    }
+
+    const hasMatchingActiveJob = activeJobs.some((job) => String(job.id) === String(selectedJobFilter))
+    if (!hasMatchingActiveJob) {
+      setSelectedJobFilter('all')
+    }
+  }, [activeJobs, selectedJobFilter])
+
   const candidateJobMap = useMemo(() => {
     const map = new Map()
     ;(candidates || []).forEach((candidate) => {
@@ -390,12 +401,16 @@ export default function Interviews({ superAdminAgencyId = null }) {
     ))
   }, [candidateJobMap, interviews, selectedJobFilter])
 
-  const filteredInterviews = useMemo(
-    // Keep the full interview dataset visible in the Interviews tab and
-    // let the existing per-row status badge reflect each record's state.
-    () => jobFilteredInterviews,
-    [jobFilteredInterviews]
-  )
+  const filteredInterviews = useMemo(() => (
+    jobFilteredInterviews.filter((interview) => {
+      const effectiveStatus = getEffectiveInterviewStatus(interview)
+      return (
+        effectiveStatus === 'completed'
+        || effectiveStatus === 'selected'
+        || effectiveStatus === 'rejected'
+      )
+    })
+  ), [jobFilteredInterviews])
   const transcriptSegments = useMemo(
     () => parseTranscriptSegments(selectedInterview?.transcript),
     [selectedInterview?.transcript]
