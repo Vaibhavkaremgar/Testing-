@@ -74,9 +74,6 @@ function App() {
       <Suspense fallback={<PageLoader />}>
         <Routes>
           <Route path="/login" element={isAuthenticated ? <Navigate to={getDefaultRouteForUser(user)} replace /> : <Login />} />
-          {/*<Route path="/jobs/:slug/*" element={<JobRedirect />} />
-          <Route path="/jobs/:slug" element={<JobRedirect />} />*/}
-          <Route path="/jobs/*" element={<JobRedirect />} />
 
           <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/resumes" element={<ProtectedRoute><Resumes /></ProtectedRoute>} />
@@ -85,6 +82,7 @@ function App() {
           <Route path="/interviews" element={<ProtectedRoute><Interviews /></ProtectedRoute>} />
           <Route path="/analytics" element={<ProtectedRoute adminOnly><Analytics /></ProtectedRoute>} />
           <Route path="/jobs" element={<ProtectedRoute><Jobs /></ProtectedRoute>} />
+          <Route path="/jobs/:jobReference/*" element={<JobRedirect />} />
           <Route path="/clients" element={<ProtectedRoute><Clients /></ProtectedRoute>} />
           <Route path="/communications" element={<ProtectedRoute><Communications /></ProtectedRoute>} />
           <Route path="/email-templates" element={<ProtectedRoute userOnly><EmailTemplates /></ProtectedRoute>} />
