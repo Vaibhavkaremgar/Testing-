@@ -132,6 +132,8 @@ def _build_google_base_salary(job: JobDescription) -> dict[str, Any] | None:
 
 def build_google_job_posting_schema(job: JobDescription) -> dict[str, Any]:
     company_name = _clean_text(job.company_name) or "Pontis"
+    location_value = _clean_text(job.location) or "Hyderabad"
+    country_value = _clean_text(job.country) or "India"
     description_parts = [
         _clean_text(job.description),
         _clean_text(job.responsibilities),
@@ -162,9 +164,8 @@ def build_google_job_posting_schema(job: JobDescription) -> dict[str, Any]:
             "@type": "Place",
             "address": {
                 "@type": "PostalAddress",
-                "addressLocality": _clean_text(job.city) or None,
-                "addressRegion": _clean_text(job.state) or None,
-                "addressCountry": _clean_text(job.country) or None,
+                "addressLocality": location_value,
+                "addressCountry": country_value,
             },
         },
         "baseSalary": _build_google_base_salary(job),
@@ -173,7 +174,7 @@ def build_google_job_posting_schema(job: JobDescription) -> dict[str, Any]:
 
     if bool(job.remote):
         job_schema["jobLocationType"] = "TELECOMMUTE"
-        applicant_country = _clean_text(job.country)
+        applicant_country = country_value
         if applicant_country:
             job_schema["applicantLocationRequirements"] = {
                 "@type": "Country",
@@ -193,6 +194,7 @@ def build_job_posting_schema(
     company_name = _clean_text(job.company_name) or "Confidential Company"
     location = build_location(job)
     is_remote = bool(job.remote)
+    cleaned_schema: dict[str, Any]
 
     schema: dict[str, Any] = {
         "@context": "https://schema.org",
@@ -247,18 +249,19 @@ def build_job_posting_schema(
     if not applicant_location:
         schema.pop("applicantLocationRequirements", None)
 
+    cleaned_schema = _prune_empty(schema)
     schema["hiringOrganization"] = {
         **google_schema.get("hiringOrganization", {}),
-        **schema["hiringOrganization"],
+        **cleaned_schema.get("hiringOrganization", {}),
     }
     schema["jobLocation"]["address"] = {
         **google_schema.get("jobLocation", {}).get("address", {}),
-        **schema["jobLocation"]["address"],
+        **cleaned_schema.get("jobLocation", {}).get("address", {}),
     }
 
     merged_schema = {
         **google_schema,
-        **schema,
+        **cleaned_schema,
         "hiringOrganization": schema["hiringOrganization"],
         "jobLocation": schema["jobLocation"],
     }
