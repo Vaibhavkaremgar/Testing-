@@ -1,3 +1,4 @@
+import logging
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session, aliased
 from sqlalchemy import func, case, extract, text, or_
@@ -35,6 +36,7 @@ from threading import Lock
 from time import monotonic, perf_counter
 
 router = APIRouter(prefix="/analytics", tags=["Analytics"])
+logger = logging.getLogger(__name__)
 
 INTERVIEW_RESULT_THRESHOLD = 6
 ANALYTICS_CACHE_TTL_SECONDS = 30
@@ -60,7 +62,7 @@ _table_columns_cache_lock = Lock()
 def _perf_log(endpoint: str, total_start: float, **fields) -> None:
     parts = [f"{key}={value}" for key, value in fields.items()]
     parts.append(f"total={perf_counter() - total_start:.4f}s")
-    print(f"[PERF] {endpoint} " + " ".join(parts))
+    logger.debug("[PERF] %s %s", endpoint, " ".join(parts))
 
 
 def _analytics_cache_key(endpoint: str, current_user: User, **params) -> tuple:
@@ -79,14 +81,14 @@ def _get_cached_analytics_response(cache_key: tuple):
     with _analytics_cache_lock:
         cached = _analytics_cache.get(cache_key)
         if not cached:
-            print(f"[CACHE] analytics miss endpoint={cache_key[0]}")
+            logger.debug("[CACHE] analytics miss endpoint=%s", cache_key[0])
             return None
         expires_at, payload = cached
         if expires_at <= now:
             _analytics_cache.pop(cache_key, None)
-            print(f"[CACHE] analytics expired endpoint={cache_key[0]}")
+            logger.debug("[CACHE] analytics expired endpoint=%s", cache_key[0])
             return None
-        print(f"[CACHE] analytics hit endpoint={cache_key[0]}")
+        logger.debug("[CACHE] analytics hit endpoint=%s", cache_key[0])
         return deepcopy(payload)
 
 
@@ -1082,7 +1084,7 @@ def get_dashboard_stats(
             to_date=to_date,
         )
         query_time = perf_counter() - query_start
-        print(f"[DB PERF] dashboard-stats query={query_time:.4f}s")
+        logger.debug("[DB PERF] dashboard-stats query=%.4fs", query_time)
 
         serialization_start = perf_counter()
         payload = {
@@ -1110,7 +1112,7 @@ def get_dashboard_stats(
         )
         return response
     except Exception as e:
-        print(f"❌ Dashboard stats error: {e}")
+        logger.exception("Dashboard stats error: %s", e)
         import traceback
         traceback.print_exc()
         _perf_log("dashboard-stats", total_start, cache="error", row_count=0)
@@ -1192,7 +1194,7 @@ def get_hiring_funnel(
     selected = interview_metrics["selected"]
     rejected = interview_metrics["rejected"]
     query_time = perf_counter() - query_start
-    print(f"[DB PERF] hiring-funnel query={query_time:.4f}s")
+    logger.debug("[DB PERF] hiring-funnel query=%.4fs", query_time)
     
     funnel_stages = [
         ("Total Candidates", total),
@@ -1789,7 +1791,7 @@ def get_hiring_by_department(
     ).all()
     selected_by_job = _candidate_counts_by_job(db, current_user)
     query_time = perf_counter() - query_start
-    print(f"[DB PERF] hiring-by-department query={query_time:.4f}s")
+    logger.debug("[DB PERF] hiring-by-department query=%.4fs", query_time)
 
     serialization_start = perf_counter()
     dept_data = {}
@@ -1918,7 +1920,7 @@ def get_active_jobs(
         for row in candidate_rows
     }
     query_time = perf_counter() - query_start
-    print(f"[DB PERF] active-jobs query={query_time:.4f}s")
+    logger.debug("[DB PERF] active-jobs query=%.4fs", query_time)
 
     serialization_start = perf_counter()
     result = []
@@ -2088,7 +2090,7 @@ def get_hiring_intelligence(
         insights.append("No urgent actions required today")
 
     query_time = perf_counter() - query_start
-    print(f"[DB PERF] hiring-intelligence query={query_time:.4f}s")
+    logger.debug("[DB PERF] hiring-intelligence query=%.4fs", query_time)
     serialization_start = perf_counter()
     payload = {"insights": insights[:5]}
     _set_cached_analytics_response(cache_key, payload)
@@ -2142,7 +2144,7 @@ def get_hiring_metrics(
     ).scalar() or 0
     vacancy_fill_rate = round((selected_count / total_vacancies * 100), 1) if total_vacancies > 0 else 0
     query_time = perf_counter() - query_start
-    print(f"[DB PERF] hiring-metrics query={query_time:.4f}s")
+    logger.debug("[DB PERF] hiring-metrics query=%.4fs", query_time)
 
     serialization_start = perf_counter()
     payload = {

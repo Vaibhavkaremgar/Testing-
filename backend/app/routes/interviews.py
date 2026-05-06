@@ -1,3 +1,4 @@
+import logging
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload, load_only
@@ -29,6 +30,7 @@ from app.auth import verify_token
 
 router = APIRouter(prefix="/interviews", tags=["Interviews"])
 recording_router = APIRouter(prefix="/recording", tags=["Interviews"])
+logger = logging.getLogger(__name__)
 
 VIDEO_CHUNK_SIZE = 1024 * 1024
 PROXY_STREAM_CHUNK_SIZE = 64 * 1024
@@ -146,7 +148,7 @@ def normalize_legacy_candidate_stages(db: Session) -> None:
         "WHERE stage::text = 'INTERVIEW_REVIEW'"
     ))
     if result.rowcount:
-        print(f"Normalized legacy candidate stages before interview query: rows_updated={result.rowcount}")
+        logger.info("Normalized legacy candidate stages before interview query: rows_updated=%s", result.rowcount)
         db.commit()
     normalize_candidate_scope_metadata(db)
 
@@ -222,14 +224,14 @@ def normalize_candidate_scope_metadata(db: Session) -> None:
         """
     ))
     if result.rowcount:
-        print(f"Normalized candidate scope metadata before interview query: rows_updated={result.rowcount}")
+        logger.info("Normalized candidate scope metadata before interview query: rows_updated=%s", result.rowcount)
         db.commit()
 
 
 def _perf_log(endpoint: str, total_start: float, **fields) -> None:
     parts = [f"{key}={value}" for key, value in fields.items()]
     parts.append(f"total={perf_counter() - total_start:.4f}s")
-    print(f"[PERF] {endpoint} " + " ".join(parts))
+    logger.debug("[PERF] %s %s", endpoint, " ".join(parts))
 
 
 def _normalize_score_to_ten(score: Optional[float]) -> Optional[float]:
@@ -404,7 +406,7 @@ def _deduct_interview_completion_credit(db: Session, interview: Interview, candi
     try:
         increment_plan_usage(db, admin, "interview")
     except Exception as exc:
-        print(f"Failed to sync completed interview usage for {interview.id}: {exc}")
+        logger.warning("Failed to sync completed interview usage for %s: %s", interview.id, exc)
     return admin.wallet_balance
 
 
@@ -526,7 +528,7 @@ def _charge_completed_interviews_in_batch(
         try:
             increment_plan_usage(db, admin, "interview")
         except Exception as exc:
-            print(f"Failed to sync completed interview usage for {interview.id}: {exc}")
+            logger.warning("Failed to sync completed interview usage for %s: %s", interview.id, exc)
         existing_transactions.add(transaction_key)
         credits_checked = True
 
@@ -1688,7 +1690,7 @@ def get_interviews(
         interviews_query = interviews_query.limit(limit)
     interviews = interviews_query.all()
     query_time = perf_counter() - query_start
-    print(f"[DB PERF] interviews query={query_time:.4f}s")
+    logger.debug("[DB PERF] interviews query=%.4fs", query_time)
     enrichment_start = perf_counter()
     recording_availability = _fetch_recording_availability(interviews)
 
@@ -1696,7 +1698,7 @@ def get_interviews(
     if credits_checked:
         db.commit()
     enrichment_time = perf_counter() - enrichment_start
-    print(f"[DB PERF] interviews enrichment={enrichment_time:.4f}s")
+    logger.debug("[DB PERF] interviews enrichment=%.4fs", enrichment_time)
     
     serialization_start = perf_counter()
     result = []
@@ -1932,7 +1934,7 @@ def create_interview_public(
         if result:
             background_tasks.add_task(send_email_task, result["communication_id"])
     except Exception as exc:
-        print(f"Failed to queue interview invitation: {exc}")
+        logger.warning("Failed to queue interview invitation: %s", exc)
 
     return _serialize_interview_response(db_interview)
 
@@ -1980,7 +1982,7 @@ def create_interview(
         if result:
             background_tasks.add_task(send_email_task, result["communication_id"])
     except Exception as exc:
-        print(f"Failed to queue interview invitation: {exc}")
+        logger.warning("Failed to queue interview invitation: %s", exc)
     
     return _serialize_interview_response(db_interview)
 

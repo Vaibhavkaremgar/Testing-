@@ -1,3 +1,4 @@
+import logging
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
@@ -19,6 +20,7 @@ from ats.preprocessing.text_cleaning import clean_text
 from app.services.public_jobs import compose_location
 
 router = APIRouter(prefix="/jobs", tags=["Job Descriptions"])
+logger = logging.getLogger(__name__)
 JOBS_CACHE_TTL = 120  # 2 minutes
 
 
@@ -177,9 +179,15 @@ def get_jobs(
         query = query.offset(effective_offset).limit(effective_limit)
     jobs = query.all()
     
-    print(f"DEBUG: Found {len(jobs)} jobs in database")
+    logger.debug("Found %s jobs in database", len(jobs))
     for job in jobs:
-        print(f"  - Job {job.id}: {job.title}, is_active={job.is_active}, interview_questions={job.interview_questions}")
+        logger.debug(
+            "Job %s title=%s is_active=%s interview_questions=%s",
+            job.id,
+            job.title,
+            job.is_active,
+            job.interview_questions,
+        )
     
     # Add candidate count to each job
     result = []
@@ -280,7 +288,7 @@ def create_job(
     current_user: User = Depends(get_current_admin_user)
 ):
     try:
-        print(f"Creating job with data: {job.model_dump()}")
+        logger.debug("Creating job with data: %s", job.model_dump())
         
         # Auto-create client if company_name is provided and doesn't exist
         if job.company_name:
@@ -297,7 +305,7 @@ def create_job(
                     db.flush()
                 except Exception as client_err:
                     db.rollback()
-                    print(f"Client auto-create skipped: {client_err}")
+                    logger.warning("Client auto-create skipped: %s", client_err)
         
         job_data = job.model_dump()
         
@@ -354,9 +362,7 @@ def create_job(
         raise
     except Exception as e:
         db.rollback()
-        print(f"Error creating job: {str(e)}")
-        import traceback
-        traceback.print_exc()
+        logger.exception("Error creating job: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.put("/{job_id}", response_model=JobDescriptionResponse)
