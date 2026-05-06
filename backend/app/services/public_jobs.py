@@ -63,6 +63,8 @@ def create_job_application(
     full_name: str,
     email: str,
     phone: str | None,
+    original_filename: str | None,
+    stored_filename: str | None,
     resume_url: str | None,
     cover_letter: str | None,
 ) -> JobApplication:
@@ -71,6 +73,8 @@ def create_job_application(
         full_name=full_name.strip(),
         email=email.strip().lower(),
         phone=(phone or "").strip() or None,
+        original_filename=(original_filename or "").strip() or None,
+        stored_filename=(stored_filename or "").strip() or None,
         resume_url=(resume_url or "").strip() or None,
         cover_letter=(cover_letter or "").strip() or None,
     )

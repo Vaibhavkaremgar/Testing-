@@ -516,7 +516,6 @@ class JobApplicationCreate(BaseModel):
     full_name: str = Field(..., min_length=2, max_length=255)
     email: EmailStr
     phone: Optional[str] = Field(default=None, max_length=50)
-    resume_url: Optional[str] = Field(default=None, max_length=1000)
     cover_letter: Optional[str] = None
 
 
@@ -526,8 +525,11 @@ class JobApplicationResponse(BaseModel):
     full_name: str
     email: EmailStr
     phone: Optional[str] = None
+    original_filename: Optional[str] = None
+    stored_filename: Optional[str] = None
     resume_url: Optional[str] = None
     cover_letter: Optional[str] = None
+    uploaded_at: datetime
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

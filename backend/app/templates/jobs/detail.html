@@ -246,7 +246,7 @@
 
         <section class="apply" id="apply">
             <h2>Apply For This Role</h2>
-            <form action="{{ apply_url }}" method="post">
+            <form action="{{ apply_url }}" method="post" enctype="multipart/form-data">
                 <label>
                     Full name
                     <input type="text" name="full_name" required>
@@ -260,8 +260,8 @@
                     <input type="text" name="phone">
                 </label>
                 <label>
-                    Resume URL
-                    <input type="url" name="resume_url" placeholder="https://">
+                    Resume
+                    <input type="file" name="resume" accept=".pdf,.doc,.docx" required>
                 </label>
                 <label class="span-2">
                     Cover letter

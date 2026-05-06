@@ -20,6 +20,7 @@ from app.database import Base, SessionLocal, engine
 from app.notification_service import ensure_default_email_templates
 from app.services.portals import ensure_default_job_portals
 from app.services.billing_service import ensure_plan_catalog
+from app.utils.uploads import ensure_resume_upload_dir
 from app.routes import (
     agencies,
     analytics,
@@ -209,6 +210,7 @@ app.add_middleware(CacheControlMiddleware)
 
 try:
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+    ensure_resume_upload_dir()
 except Exception as exc:
     print(f"Warning: Could not create uploads directory: {exc}")
 

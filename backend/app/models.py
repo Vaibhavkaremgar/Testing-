@@ -200,8 +200,11 @@ class JobApplication(Base):
     full_name = Column(String(255), nullable=False)
     email = Column(String(255), nullable=False, index=True)
     phone = Column(String(50))
+    original_filename = Column(String(255))
+    stored_filename = Column(String(255))
     resume_url = Column(String(1000))
     cover_letter = Column(Text)
+    uploaded_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     job = relationship("JobDescription", back_populates="applications")

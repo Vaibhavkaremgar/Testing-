@@ -345,6 +345,25 @@ def run_migrations():
                 JobApplication.__table__.create(bind=engine, checkfirst=True)
                 conn.commit()
                 print("Migration completed: job_applications created")
+            else:
+                add_column_if_missing(
+                    "job_applications",
+                    "original_filename",
+                    "ALTER TABLE job_applications ADD COLUMN original_filename VARCHAR(255)",
+                    "ALTER TABLE job_applications ADD COLUMN original_filename VARCHAR(255)",
+                )
+                add_column_if_missing(
+                    "job_applications",
+                    "stored_filename",
+                    "ALTER TABLE job_applications ADD COLUMN stored_filename VARCHAR(255)",
+                    "ALTER TABLE job_applications ADD COLUMN stored_filename VARCHAR(255)",
+                )
+                add_column_if_missing(
+                    "job_applications",
+                    "uploaded_at",
+                    "ALTER TABLE job_applications ADD COLUMN uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+                    "ALTER TABLE job_applications ADD COLUMN uploaded_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()",
+                )
 
             if "feed_access_logs" not in get_tables():
                 print("Running migration: creating feed_access_logs table...")

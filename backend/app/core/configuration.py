@@ -29,6 +29,7 @@ class Settings(BaseSettings):
 
     UPLOAD_DIR: str = os.getenv("UPLOAD_DIR", "/data")
     MAX_FILE_SIZE: int = 10 * 1024 * 1024
+    RESUME_UPLOAD_MAX_BYTES: int = int(os.getenv("RESUME_UPLOAD_MAX_BYTES", str(5 * 1024 * 1024)))
     NLP_MAX_TEXT_LENGTH: int = int(os.getenv("NLP_MAX_TEXT_LENGTH", "2000"))
 
     GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")

@@ -2,7 +2,7 @@ import logging
 from pathlib import Path
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
@@ -19,6 +19,7 @@ from app.services.public_jobs import (
     normalize_skills,
     create_job_application,
 )
+from app.utils.uploads import save_resume_upload
 
 logger = logging.getLogger(__name__)
 
@@ -42,16 +43,6 @@ def _build_feed_response(request: Request, db: Session, portal_name: str) -> Res
         logger.exception("Failed to generate %s feed", portal_name)
         JobDistributionService.mark_feed_failure(db, portal_name, str(exc))
         raise HTTPException(status_code=500, detail=f"Failed to generate {portal_name} feed")
-
-
-async def _parse_application_payload(request: Request) -> JobApplicationCreate:
-    content_type = (request.headers.get("content-type") or "").lower()
-    if "application/json" in content_type:
-        payload = await request.json()
-    else:
-        form = await request.form()
-        payload = dict(form)
-    return JobApplicationCreate.model_validate(payload)
 
 
 @router.get("/jobs-feed.xml")
@@ -93,16 +84,33 @@ def public_job_detail(request: Request, job_id: UUID, db: Session = Depends(get_
 
 
 @router.post("/jobs/{job_id}/apply", response_model=JobApplicationResponse, status_code=status.HTTP_201_CREATED)
-async def apply_to_job(job_id: UUID, request: Request, db: Session = Depends(get_db)):
+async def apply_to_job(
+    job_id: UUID,
+    request: Request,
+    full_name: str = Form(...),
+    email: str = Form(...),
+    phone: str | None = Form(None),
+    cover_letter: str | None = Form(None),
+    resume: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
     job = get_public_job_or_404(db, job_id)
-    payload = await _parse_application_payload(request)
+    payload = JobApplicationCreate(
+        full_name=full_name,
+        email=email,
+        phone=phone,
+        cover_letter=cover_letter,
+    )
+    stored_resume = await save_resume_upload(resume)
     application = create_job_application(
         db,
         job=job,
         full_name=payload.full_name,
         email=payload.email,
         phone=payload.phone,
-        resume_url=payload.resume_url,
+        original_filename=stored_resume["original_filename"],
+        stored_filename=stored_resume["stored_filename"],
+        resume_url=stored_resume["resume_url"],
         cover_letter=payload.cover_letter,
     )
 
