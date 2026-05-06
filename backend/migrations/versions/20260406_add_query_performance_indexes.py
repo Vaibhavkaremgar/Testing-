@@ -1,6 +1,6 @@
 """add query performance indexes
 
-Revision ID: 20260406_add_query_performance_indexes
+Revision ID: 20260406_perf_idx
 Revises:
 Create Date: 2026-04-06
 """
@@ -9,7 +9,7 @@ from alembic import op
 
 
 # revision identifiers, used by Alembic.
-revision = "20260406_add_query_performance_indexes"
+revision = "20260406_perf_idx"
 down_revision = None
 branch_labels = None
 depends_on = None

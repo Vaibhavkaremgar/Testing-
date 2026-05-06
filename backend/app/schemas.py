@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from typing import Optional, List, Any, Literal
 from datetime import datetime
 from uuid import UUID
@@ -430,4 +430,62 @@ class EmailCommunicationResponse(BaseModel):
     
     class Config:
         from_attributes = True
+
+
+class ATSJobBase(BaseModel):
+    job_title: str = Field(..., min_length=2, max_length=255)
+    company_name: str = Field(..., min_length=2, max_length=255)
+    job_description: str = Field(..., min_length=10)
+    location: str = Field(..., min_length=2, max_length=255)
+    employment_type: str = Field(..., min_length=2, max_length=100)
+    experience: str = Field(..., min_length=1, max_length=100)
+    salary: str = Field(..., min_length=1, max_length=100)
+    skills: List[str] = Field(default_factory=list)
+    status: str = Field(default="active", min_length=2, max_length=50)
+    reference_code: Optional[str] = Field(default=None, max_length=50)
+
+
+class ATSJobCreate(ATSJobBase):
+    pass
+
+
+class ATSJobUpdate(BaseModel):
+    job_title: Optional[str] = Field(default=None, min_length=2, max_length=255)
+    company_name: Optional[str] = Field(default=None, min_length=2, max_length=255)
+    job_description: Optional[str] = Field(default=None, min_length=10)
+    location: Optional[str] = Field(default=None, min_length=2, max_length=255)
+    employment_type: Optional[str] = Field(default=None, min_length=2, max_length=100)
+    experience: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    salary: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    skills: Optional[List[str]] = None
+    status: Optional[str] = Field(default=None, min_length=2, max_length=50)
+
+
+class ATSJobResponse(BaseModel):
+    id: UUID
+    job_title: str
+    company_name: str
+    job_description: str
+    location: str
+    employment_type: Optional[str] = None
+    experience: Optional[str] = None
+    salary: Optional[str] = None
+    skills: List[str] = Field(default_factory=list)
+    status: str
+    public_job_url: str
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ATSJobDetailResponse(ATSJobResponse):
+    pass
+
+
+class ATSJobListResponse(BaseModel):
+    items: List[ATSJobResponse]
+    page: int
+    page_size: int
+    total: int
 

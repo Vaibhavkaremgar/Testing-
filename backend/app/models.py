@@ -171,6 +171,11 @@ class JobDescription(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     candidates = relationship("Candidate", back_populates="job")
+    portal_mappings = relationship(
+        "JobPortalMapping",
+        back_populates="job",
+        cascade="all, delete-orphan",
+    )
 
 
 class Candidate(Base):
@@ -597,3 +602,47 @@ class UsageTracking(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     user = relationship("User", foreign_keys=[user_id])
+
+
+class JobPortal(Base):
+    __tablename__ = "job_portals"
+    __table_args__ = (
+        Index("idx_job_portals_enabled", "is_enabled"),
+        UniqueConstraint("portal_name", name="uq_job_portals_portal_name"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    portal_name = Column(String(100), nullable=False)
+    is_enabled = Column(Boolean, default=True, nullable=False)
+    feed_url = Column(String(500), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class JobDistributionLog(Base):
+    __tablename__ = "job_distribution_logs"
+    __table_args__ = (
+        Index("idx_job_distribution_logs_job_id", "job_id"),
+        Index("idx_job_distribution_logs_portal_status", "portal_name", "status"),
+        Index("idx_job_distribution_logs_posted_at", "posted_at"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    job_id = Column(UUID(as_uuid=True), nullable=True)
+    portal_name = Column(String(100), nullable=False)
+    status = Column(String(50), nullable=False)
+    message = Column(Text, nullable=True)
+    posted_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class JobPortalMapping(Base):
+    __tablename__ = "job_portal_mapping"
+    __table_args__ = (
+        UniqueConstraint("job_id", "portal_name", name="uq_job_portal_mapping_job_portal"),
+        Index("idx_job_portal_mapping_portal_name", "portal_name"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    job_id = Column(UUID(as_uuid=True), ForeignKey("job_descriptions.id", ondelete="CASCADE"), nullable=False)
+    portal_name = Column(String(100), nullable=False)
+
+    job = relationship("JobDescription", back_populates="portal_mappings")

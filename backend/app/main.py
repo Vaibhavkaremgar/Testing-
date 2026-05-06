@@ -10,8 +10,10 @@ from starlette.responses import Response
 
 from app.ats_warmup import get_ats_warmup_state, run_ats_warmup
 from app.config import settings
+from app.core.logging import setup_logging
 from app.database import Base, SessionLocal, engine
 from app.notification_service import ensure_default_email_templates
+from app.services.portals import ensure_default_job_portals
 from app.services.billing_service import ensure_plan_catalog
 from app.routes import (
     agencies,
@@ -35,8 +37,11 @@ from app.routes import (
     wallet,
     webhooks,
 )
+from app.routes import job_distribution, job_feeds
 from app.routes import settings as settings_routes
 logger = logging.getLogger(__name__)
+
+setup_logging()
 
 
 class CacheControlMiddleware(BaseHTTPMiddleware):
@@ -203,6 +208,8 @@ app.include_router(agencies.router, prefix="/api")
 app.include_router(pricing.router, prefix="/api")
 app.include_router(subscriptions.router, prefix="/api")
 app.include_router(usage.router, prefix="/api")
+app.include_router(job_distribution.router, prefix="/api")
+app.include_router(job_feeds.router)
 
 
 @app.on_event("startup")
@@ -214,6 +221,7 @@ async def startup_event():
     try:
         ensure_plan_catalog(db)
         ensure_default_email_templates(db)
+        ensure_default_job_portals(db)
     finally:
         db.close()
 
