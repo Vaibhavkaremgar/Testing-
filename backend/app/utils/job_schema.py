@@ -16,6 +16,23 @@ def _clean_text(value: str | None) -> str:
     return _WHITESPACE_RE.sub(" ", str(value or "")).strip()
 
 
+def _prune_empty(value: Any) -> Any:
+    if isinstance(value, dict):
+        cleaned = {
+            key: _prune_empty(item)
+            for key, item in value.items()
+        }
+        return {
+            key: item
+            for key, item in cleaned.items()
+            if item not in (None, "", [], {})
+        }
+    if isinstance(value, list):
+        cleaned_items = [_prune_empty(item) for item in value]
+        return [item for item in cleaned_items if item not in (None, "", [], {})]
+    return value
+
+
 def _job_datetime(value: datetime | None) -> str | None:
     if value is None:
         return None
@@ -93,12 +110,86 @@ def _parse_salary_range(value: str | None) -> dict[str, Any] | None:
     }
 
 
+def _build_google_base_salary(job: JobDescription) -> dict[str, Any] | None:
+    parsed_salary = _parse_salary_range(job.salary_range)
+    if parsed_salary is not None:
+        return parsed_salary
+
+    salary_value = _clean_text(job.salary_range)
+    if not salary_value:
+        return None
+
+    return {
+        "@type": "MonetaryAmount",
+        "currency": "INR",
+        "value": {
+            "@type": "QuantitativeValue",
+            "value": salary_value,
+            "unitText": "YEAR",
+        },
+    }
+
+
+def build_google_job_posting_schema(job: JobDescription) -> dict[str, Any]:
+    company_name = _clean_text(job.company_name) or "Pontis"
+    description_parts = [
+        _clean_text(job.description),
+        _clean_text(job.responsibilities),
+        _clean_text(job.requirements),
+    ]
+    description = "\n\n".join(part for part in description_parts if part)
+
+    job_schema = {
+        "@context": "https://schema.org/",
+        "@type": "JobPosting",
+        "title": _clean_text(job.title),
+        "description": description or f"Apply for { _clean_text(job.title) or 'this role' } at {company_name}.",
+        "identifier": {
+            "@type": "PropertyValue",
+            "name": "Pontis",
+            "value": str(job.id),
+        },
+        "datePosted": _job_datetime(job.created_at),
+        "validThrough": _job_datetime(job.valid_through),
+        "employmentType": _clean_text(job.employment_type) or None,
+        "hiringOrganization": {
+            "@type": "Organization",
+            "name": _clean_text(job.company_name) or "Pontis",
+            "sameAs": _clean_text(job.company_website_url) or "https://pontis.one",
+            "logo": _clean_text(job.company_logo_url) or None,
+        },
+        "jobLocation": {
+            "@type": "Place",
+            "address": {
+                "@type": "PostalAddress",
+                "addressLocality": _clean_text(job.city) or None,
+                "addressRegion": _clean_text(job.state) or None,
+                "addressCountry": _clean_text(job.country) or None,
+            },
+        },
+        "baseSalary": _build_google_base_salary(job),
+        "directApply": True,
+    }
+
+    if bool(job.remote):
+        job_schema["jobLocationType"] = "TELECOMMUTE"
+        applicant_country = _clean_text(job.country)
+        if applicant_country:
+            job_schema["applicantLocationRequirements"] = {
+                "@type": "Country",
+                "name": applicant_country,
+            }
+
+    return _prune_empty(job_schema)
+
+
 def build_job_posting_schema(
     job: JobDescription,
     *,
     job_url: str,
     applicant_location: str | None,
 ) -> dict[str, Any]:
+    google_schema = build_google_job_posting_schema(job)
     company_name = _clean_text(job.company_name) or "Confidential Company"
     location = build_location(job)
     is_remote = bool(job.remote)
@@ -157,21 +248,21 @@ def build_job_posting_schema(
         schema.pop("applicantLocationRequirements", None)
 
     schema["hiringOrganization"] = {
-        key: value
-        for key, value in schema["hiringOrganization"].items()
-        if value not in (None, "", [], {})
+        **google_schema.get("hiringOrganization", {}),
+        **schema["hiringOrganization"],
     }
     schema["jobLocation"]["address"] = {
-        key: value
-        for key, value in schema["jobLocation"]["address"].items()
-        if value not in (None, "", [], {})
+        **google_schema.get("jobLocation", {}).get("address", {}),
+        **schema["jobLocation"]["address"],
     }
 
-    return {
-        key: value
-        for key, value in schema.items()
-        if value not in (None, "", [], {})
+    merged_schema = {
+        **google_schema,
+        **schema,
+        "hiringOrganization": schema["hiringOrganization"],
+        "jobLocation": schema["jobLocation"],
     }
+    return _prune_empty(merged_schema)
 
 
 def dump_job_posting_schema(schema: dict[str, Any]) -> str:

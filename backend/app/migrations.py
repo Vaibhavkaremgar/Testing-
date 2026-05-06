@@ -339,6 +339,30 @@ def run_migrations():
                     "ALTER TABLE job_descriptions ADD COLUMN remote BOOLEAN DEFAULT 0",
                     "ALTER TABLE job_descriptions ADD COLUMN remote BOOLEAN DEFAULT FALSE",
                 )
+                add_column_if_missing(
+                    "job_descriptions",
+                    "company_website_url",
+                    "ALTER TABLE job_descriptions ADD COLUMN company_website_url VARCHAR(500)",
+                    "ALTER TABLE job_descriptions ADD COLUMN company_website_url VARCHAR(500)",
+                )
+                add_column_if_missing(
+                    "job_descriptions",
+                    "company_logo_url",
+                    "ALTER TABLE job_descriptions ADD COLUMN company_logo_url VARCHAR(1000)",
+                    "ALTER TABLE job_descriptions ADD COLUMN company_logo_url VARCHAR(1000)",
+                )
+                add_column_if_missing(
+                    "job_descriptions",
+                    "industry",
+                    "ALTER TABLE job_descriptions ADD COLUMN industry VARCHAR(255)",
+                    "ALTER TABLE job_descriptions ADD COLUMN industry VARCHAR(255)",
+                )
+                add_column_if_missing(
+                    "job_descriptions",
+                    "valid_through",
+                    "ALTER TABLE job_descriptions ADD COLUMN valid_through TIMESTAMP",
+                    "ALTER TABLE job_descriptions ADD COLUMN valid_through TIMESTAMP WITH TIME ZONE",
+                )
 
             if "job_applications" not in get_tables():
                 print("Running migration: creating job_applications table...")

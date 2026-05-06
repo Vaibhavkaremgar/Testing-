@@ -1,4 +1,5 @@
 import logging
+import json
 from pathlib import Path
 from xml.etree import ElementTree as ET
 
@@ -21,7 +22,7 @@ from app.services.public_jobs import (
     normalize_skills,
     create_job_application,
 )
-from app.utils.job_schema import build_job_posting_schema, dump_job_posting_schema
+from app.utils.job_schema import build_google_job_posting_schema, build_job_posting_schema
 from app.utils.uploads import save_resume_upload
 from app.utils.xml_utils import append_text_element, prettify_xml
 
@@ -96,6 +97,11 @@ def public_job_detail(request: Request, job_reference: str, db: Session = Depend
         job_url=canonical_url,
         applicant_location=job.country or None,
     )
+    job_schema = {
+        **schema,
+        **build_google_job_posting_schema(job),
+        "url": canonical_url,
+    }
     return templates.TemplateResponse(
         "jobs/detail.html",
         {
@@ -107,7 +113,7 @@ def public_job_detail(request: Request, job_reference: str, db: Session = Depend
             "canonical_url": canonical_url,
             "page_title": f"{job.title} at {job.company_name or 'Company'}",
             "meta_description": _meta_description(job),
-            "job_posting_schema_json": dump_job_posting_schema(schema),
+            "job_posting_schema_json": json.dumps(job_schema, ensure_ascii=True, separators=(",", ":")),
         },
     )
 
