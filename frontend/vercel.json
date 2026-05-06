@@ -28,6 +28,13 @@
       ]
     }
   ],
+  "redirects": [
+    {
+      "source": "/jobs/(.*)",
+      "destination": "https://ai-recruitment-dashboard-production.up.railway.app/jobs/$1",
+      "permanent": true
+    }
+  ],
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
   ]

@@ -1,5 +1,12 @@
 {
   "public": "dist",
+  "redirects": [
+    {
+      "source": "/jobs/**",
+      "destination": "https://ai-recruitment-dashboard-production.up.railway.app/jobs/:splat",
+      "type": 301
+    }
+  ],
   "rewrites": [
     { "source": "**", "destination": "/index.html" }
   ],
