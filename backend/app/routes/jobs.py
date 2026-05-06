@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
-from sqlalchemy import func, or_
+from sqlalchemy import String, func, or_
 from typing import List, Optional
 from uuid import UUID
 import os
@@ -16,6 +16,7 @@ from app.schemas import (
 from app.auth import get_current_active_user, get_current_admin_user
 from ats.extraction.skill_intelligence import get_skill_engine
 from ats.preprocessing.text_cleaning import clean_text
+from app.services.public_jobs import compose_location
 
 router = APIRouter(prefix="/jobs", tags=["Job Descriptions"])
 JOBS_CACHE_TTL = 120  # 2 minutes
@@ -72,6 +73,34 @@ def _apply_job_search_filter(query, search: Optional[str]):
         )
     )
 
+
+def _apply_additional_job_filters(
+    query,
+    *,
+    location: Optional[str],
+    skills: Optional[str],
+    status_filter: Optional[str],
+):
+    if location:
+        location_pattern = f"%{location.strip()}%"
+        query = query.filter(
+            or_(
+                JobDescription.location.ilike(location_pattern),
+                JobDescription.city.ilike(location_pattern),
+                JobDescription.state.ilike(location_pattern),
+                JobDescription.country.ilike(location_pattern),
+            )
+        )
+
+    if skills:
+        for skill in [item.strip() for item in skills.split(",") if item.strip()]:
+            query = query.filter(JobDescription.skills.cast(String).ilike(f"%{skill}%"))
+
+    if status_filter:
+        query = query.filter(func.lower(JobDescription.status) == status_filter.strip().lower())
+
+    return query
+
 @router.get("/debug/count")
 def debug_job_count(db: Session = Depends(get_db)):
     """Debug endpoint to check job count without auth"""
@@ -89,6 +118,9 @@ def get_jobs_count(
     search: Optional[str] = None,
     is_active: Optional[bool] = None,
     client: Optional[str] = None,
+    location: Optional[str] = None,
+    skills: Optional[str] = None,
+    status_filter: Optional[str] = None,
     agency_id: Optional[UUID] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
@@ -104,6 +136,7 @@ def get_jobs_count(
     if client:
         query = query.filter(JobDescription.company_name == client)
     query = _apply_job_search_filter(query, search)
+    query = _apply_additional_job_filters(query, location=location, skills=skills, status_filter=status_filter)
     return {"count": query.count()}
 
 @router.get("", response_model=List[JobDescriptionResponse])
@@ -114,6 +147,9 @@ def get_jobs(
     search: Optional[str] = None,
     is_active: Optional[bool] = None,
     client: Optional[str] = None,
+    location: Optional[str] = None,
+    skills: Optional[str] = None,
+    status_filter: Optional[str] = None,
     agency_id: Optional[UUID] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
@@ -133,6 +169,7 @@ def get_jobs(
         query = query.filter(JobDescription.company_name == client)
 
     query = _apply_job_search_filter(query, search)
+    query = _apply_additional_job_filters(query, location=location, skills=skills, status_filter=status_filter)
 
     effective_limit, effective_offset = _resolve_pagination(page, limit, offset)
     query = query.order_by(JobDescription.created_at.desc())
@@ -164,9 +201,15 @@ def get_jobs(
             "title": job.title,
             "department": job.department,
             "location": job.location,
+            "city": getattr(job, "city", None),
+            "state": getattr(job, "state", None),
+            "country": getattr(job, "country", None),
             "employment_type": job.employment_type,
             "experience_required": job.experience_required,
             "salary_range": job.salary_range,
+            "category": getattr(job, "category", None),
+            "remote": bool(getattr(job, "remote", False)),
+            "status": getattr(job, "status", "open"),
             "vacancies": job.vacancies,
             "min_passing_score": getattr(job, 'min_passing_score', 60),
             "description": job.description,
@@ -207,9 +250,15 @@ def get_job(
         "title": job.title,
         "department": job.department,
         "location": job.location,
+        "city": getattr(job, "city", None),
+        "state": getattr(job, "state", None),
+        "country": getattr(job, "country", None),
         "employment_type": job.employment_type,
         "experience_required": job.experience_required,
         "salary_range": job.salary_range,
+        "category": getattr(job, "category", None),
+        "remote": bool(getattr(job, "remote", False)),
+        "status": getattr(job, "status", "open"),
         "vacancies": job.vacancies,
         "min_passing_score": getattr(job, 'min_passing_score', 60),
         "description": job.description,
@@ -256,6 +305,13 @@ def create_job(
         if not job_data.get('job_id'):
             import uuid
             job_data['job_id'] = f"JOB-{uuid.uuid4().hex[:8].upper()}"
+
+        job_data["location"] = compose_location(
+            job_data.get("city"),
+            job_data.get("state"),
+            job_data.get("country"),
+            job_data.get("location"),
+        )
         
         db_job = JobDescription(**job_data)
         db_job.agency_id = current_user.agency_id
@@ -272,9 +328,15 @@ def create_job(
             "title": db_job.title,
             "department": db_job.department,
             "location": db_job.location,
+            "city": getattr(db_job, "city", None),
+            "state": getattr(db_job, "state", None),
+            "country": getattr(db_job, "country", None),
             "employment_type": db_job.employment_type,
             "experience_required": db_job.experience_required,
             "salary_range": db_job.salary_range,
+            "category": getattr(db_job, "category", None),
+            "remote": bool(getattr(db_job, "remote", False)),
+            "status": getattr(db_job, "status", "open"),
             "vacancies": db_job.vacancies,
             "min_passing_score": getattr(db_job, 'min_passing_score', 60),
             "description": db_job.description,
@@ -311,6 +373,14 @@ def update_job(
     update_data = job_update.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(db_job, field, value)
+
+    if any(field in update_data for field in {"location", "city", "state", "country"}):
+        db_job.location = compose_location(
+            getattr(db_job, "city", None),
+            getattr(db_job, "state", None),
+            getattr(db_job, "country", None),
+            getattr(db_job, "location", None),
+        )
     
     db.commit()
     db.refresh(db_job)
@@ -326,9 +396,15 @@ def update_job(
         "title": db_job.title,
         "department": db_job.department,
         "location": db_job.location,
+        "city": getattr(db_job, "city", None),
+        "state": getattr(db_job, "state", None),
+        "country": getattr(db_job, "country", None),
         "employment_type": db_job.employment_type,
         "experience_required": db_job.experience_required,
         "salary_range": db_job.salary_range,
+        "category": getattr(db_job, "category", None),
+        "remote": bool(getattr(db_job, "remote", False)),
+        "status": getattr(db_job, "status", "open"),
         "vacancies": db_job.vacancies,
         "min_passing_score": getattr(db_job, 'min_passing_score', 60),
         "description": db_job.description,

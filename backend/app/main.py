@@ -1,10 +1,15 @@
+import time
+
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 import hashlib
 import logging
 import os
+import traceback
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
@@ -135,6 +140,32 @@ class CacheControlMiddleware(BaseHTTPMiddleware):
         return response
 
 
+class RequestLoggingMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        started_at = time.perf_counter()
+        try:
+            response = await call_next(request)
+        except Exception:
+            duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
+            logger.exception(
+                "Unhandled request failure method=%s path=%s duration_ms=%s",
+                request.method,
+                request.url.path,
+                duration_ms,
+            )
+            raise
+
+        duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
+        logger.info(
+            "Request completed method=%s path=%s status=%s duration_ms=%s",
+            request.method,
+            request.url.path,
+            response.status_code,
+            duration_ms,
+        )
+        return response
+
+
 def run_migrations():
     from app.migrations import run_migrations as run_auto_migrations
 
@@ -173,6 +204,7 @@ if settings.allowed_origin_regex:
 app.add_middleware(CORSMiddleware, **cors_options)
 # Compress JSON-heavy list responses so refreshes move less data over the wire.
 app.add_middleware(GZipMiddleware, minimum_size=1024)
+app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(CacheControlMiddleware)
 
 try:
@@ -184,6 +216,32 @@ try:
     app.mount("/uploads", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads")
 except Exception as exc:
     print(f"Warning: Could not mount uploads directory: {exc}")
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    logger.warning("Validation error path=%s errors=%s", request.url.path, exc.errors())
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": "Request validation failed",
+            "errors": exc.errors(),
+        },
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logger.error(
+        "Unhandled exception path=%s error=%s traceback=%s",
+        request.url.path,
+        exc,
+        "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
+    )
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"},
+    )
 
 
 app.include_router(auth.router, prefix="/api")

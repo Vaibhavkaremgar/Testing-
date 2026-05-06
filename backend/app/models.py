@@ -155,9 +155,14 @@ class JobDescription(Base):
     company_name = Column(String(255))
     department = Column(String(255))
     location = Column(String(255))
+    city = Column(String(120))
+    state = Column(String(120))
+    country = Column(String(120))
     employment_type = Column(String(100))
     experience_required = Column(String(100))
     salary_range = Column(String(100))
+    category = Column(String(150))
+    remote = Column(Boolean, default=False, nullable=False)
     vacancies = Column(Integer, default=1)
     min_passing_score = Column(Integer, default=60)
     description = Column(Text)
@@ -171,11 +176,35 @@ class JobDescription(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     candidates = relationship("Candidate", back_populates="job")
+    applications = relationship(
+        "JobApplication",
+        back_populates="job",
+        cascade="all, delete-orphan",
+    )
     portal_mappings = relationship(
         "JobPortalMapping",
         back_populates="job",
         cascade="all, delete-orphan",
     )
+
+
+class JobApplication(Base):
+    __tablename__ = "job_applications"
+    __table_args__ = (
+        Index("idx_job_applications_job_id_created_at", "job_id", "created_at"),
+        Index("idx_job_applications_email", "email"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    job_id = Column(UUID(as_uuid=True), ForeignKey("job_descriptions.id", ondelete="CASCADE"), nullable=False)
+    full_name = Column(String(255), nullable=False)
+    email = Column(String(255), nullable=False, index=True)
+    phone = Column(String(50))
+    resume_url = Column(String(1000))
+    cover_letter = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    job = relationship("JobDescription", back_populates="applications")
 
 
 class Candidate(Base):
@@ -646,3 +675,16 @@ class JobPortalMapping(Base):
     portal_name = Column(String(100), nullable=False)
 
     job = relationship("JobDescription", back_populates="portal_mappings")
+
+
+class FeedAccessLog(Base):
+    __tablename__ = "feed_access_logs"
+    __table_args__ = (
+        Index("idx_feed_access_logs_portal_accessed_at", "portal_name", "accessed_at"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    portal_name = Column(String(100), nullable=False)
+    ip_address = Column(String(255))
+    user_agent = Column(String(1000))
+    accessed_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

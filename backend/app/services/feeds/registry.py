@@ -1,6 +1,6 @@
 from app.services.feeds.base import BaseFeedGenerator
 from app.services.feeds.portal_generators import (
-    CareerJetFeedGenerator,
+    JoraFeedGenerator,
     JoobleFeedGenerator,
     TalentFeedGenerator,
 )
@@ -11,8 +11,8 @@ class FeedGeneratorRegistry:
         self._generators = {
             "default": BaseFeedGenerator(),
             "jooble": JoobleFeedGenerator(),
-            "careerjet": CareerJetFeedGenerator(),
             "talent": TalentFeedGenerator(),
+            "jora": JoraFeedGenerator(),
         }
 
     def get(self, portal_name: str) -> BaseFeedGenerator:

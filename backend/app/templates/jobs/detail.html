@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ page_title }}</title>
+    <meta name="description" content="{{ meta_description }}">
+    <meta property="og:title" content="{{ page_title }}">
+    <meta property="og:description" content="{{ meta_description }}">
+    <meta property="og:type" content="website">
+    <style>
+        :root {
+            color-scheme: light;
+            --bg: #f6f4ee;
+            --panel: #fffdf8;
+            --ink: #1f2933;
+            --muted: #52606d;
+            --accent: #0f766e;
+            --accent-dark: #115e59;
+            --border: #d9e2ec;
+            --chip: #e6fffa;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: Georgia, "Times New Roman", serif;
+            background:
+                radial-gradient(circle at top left, rgba(15, 118, 110, 0.12), transparent 32%),
+                linear-gradient(180deg, #f9f7f1 0%, var(--bg) 100%);
+            color: var(--ink);
+        }
+        .page {
+            max-width: 1080px;
+            margin: 0 auto;
+            padding: 32px 20px 48px;
+        }
+        .hero, .content, .apply {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 24px;
+            box-shadow: 0 24px 60px rgba(15, 23, 42, 0.08);
+        }
+        .hero {
+            padding: 32px;
+            margin-bottom: 24px;
+        }
+        .eyebrow {
+            color: var(--accent-dark);
+            font-size: 0.85rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            margin-bottom: 10px;
+        }
+        h1 {
+            font-size: clamp(2rem, 4vw, 3.6rem);
+            margin: 0 0 16px;
+            line-height: 1.05;
+        }
+        .subtitle {
+            color: var(--muted);
+            font-size: 1.05rem;
+            margin: 0 0 24px;
+            line-height: 1.6;
+        }
+        .meta {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 14px;
+            margin-bottom: 28px;
+        }
+        .meta-card {
+            border: 1px solid var(--border);
+            border-radius: 18px;
+            padding: 14px 16px;
+            background: #fff;
+        }
+        .meta-card strong {
+            display: block;
+            font-size: 0.8rem;
+            color: var(--muted);
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+        }
+        .primary-action {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 14px 24px;
+            border-radius: 999px;
+            background: var(--accent);
+            color: #fff;
+            text-decoration: none;
+            font-weight: 700;
+        }
+        .content {
+            display: grid;
+            grid-template-columns: 1.5fr 1fr;
+            gap: 0;
+            overflow: hidden;
+            margin-bottom: 24px;
+        }
+        .content-section {
+            padding: 28px 30px;
+        }
+        .content-section + .content-section {
+            border-left: 1px solid var(--border);
+            background: #fcfbf7;
+        }
+        h2 {
+            font-size: 1.4rem;
+            margin: 0 0 14px;
+        }
+        .prose {
+            white-space: pre-line;
+            line-height: 1.75;
+            color: #253443;
+        }
+        .skills {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 12px;
+        }
+        .skill {
+            padding: 8px 12px;
+            border-radius: 999px;
+            background: var(--chip);
+            color: var(--accent-dark);
+            font-size: 0.95rem;
+            border: 1px solid rgba(15, 118, 110, 0.15);
+        }
+        .apply {
+            padding: 28px 30px;
+        }
+        form {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 14px;
+        }
+        label {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            font-weight: 600;
+            color: #334e68;
+        }
+        input, textarea, button {
+            font: inherit;
+        }
+        input, textarea {
+            width: 100%;
+            padding: 12px 14px;
+            border-radius: 14px;
+            border: 1px solid var(--border);
+            background: #fff;
+        }
+        textarea {
+            min-height: 130px;
+            resize: vertical;
+        }
+        .span-2 {
+            grid-column: 1 / -1;
+        }
+        button {
+            border: 0;
+            cursor: pointer;
+        }
+        .form-note {
+            margin-top: 12px;
+            color: var(--muted);
+            font-size: 0.95rem;
+        }
+        @media (max-width: 820px) {
+            .content {
+                grid-template-columns: 1fr;
+            }
+            .content-section + .content-section {
+                border-left: 0;
+                border-top: 1px solid var(--border);
+            }
+            form {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <main class="page">
+        <section class="hero">
+            <div class="eyebrow">Open Role</div>
+            <h1>{{ job.title }}</h1>
+            <p class="subtitle">{{ job.company_name or "Confidential Company" }}{% if location %} • {{ location }}{% endif %}</p>
+            <div class="meta">
+                <div class="meta-card">
+                    <strong>Employment</strong>
+                    <span>{{ job.employment_type or "Not specified" }}</span>
+                </div>
+                <div class="meta-card">
+                    <strong>Experience</strong>
+                    <span>{{ job.experience_required or "Not specified" }}</span>
+                </div>
+                <div class="meta-card">
+                    <strong>Salary</strong>
+                    <span>{{ job.salary_range or "Not disclosed" }}</span>
+                </div>
+                <div class="meta-card">
+                    <strong>Work Mode</strong>
+                    <span>{% if job.remote %}Remote{% else %}On-site / Hybrid{% endif %}</span>
+                </div>
+            </div>
+            <a class="primary-action" href="#apply">Apply Now</a>
+        </section>
+
+        <section class="content">
+            <article class="content-section">
+                <h2>Job Description</h2>
+                <div class="prose">{{ job.description or "Description will be shared during the hiring process." }}</div>
+                {% if job.responsibilities %}
+                <h2>Responsibilities</h2>
+                <div class="prose">{{ job.responsibilities }}</div>
+                {% endif %}
+                {% if job.requirements %}
+                <h2>Requirements</h2>
+                <div class="prose">{{ job.requirements }}</div>
+                {% endif %}
+            </article>
+            <aside class="content-section">
+                <h2>Overview</h2>
+                <div class="prose">
+                    <strong>Company:</strong> {{ job.company_name or "Confidential Company" }}<br>
+                    <strong>Location:</strong> {{ location or "Not specified" }}<br>
+                    <strong>Category:</strong> {{ job.category or "Not specified" }}<br>
+                    <strong>Status:</strong> {{ job.status or "open" }}
+                </div>
+                <h2>Skills</h2>
+                <div class="skills">
+                    {% for skill in skills %}
+                    <span class="skill">{{ skill }}</span>
+                    {% else %}
+                    <span class="skill">Skills shared during screening</span>
+                    {% endfor %}
+                </div>
+            </aside>
+        </section>
+
+        <section class="apply" id="apply">
+            <h2>Apply For This Role</h2>
+            <form action="{{ apply_url }}" method="post">
+                <label>
+                    Full name
+                    <input type="text" name="full_name" required>
+                </label>
+                <label>
+                    Email
+                    <input type="email" name="email" required>
+                </label>
+                <label>
+                    Phone
+                    <input type="text" name="phone">
+                </label>
+                <label>
+                    Resume URL
+                    <input type="url" name="resume_url" placeholder="https://">
+                </label>
+                <label class="span-2">
+                    Cover letter
+                    <textarea name="cover_letter" placeholder="Tell us why you are a strong fit."></textarea>
+                </label>
+                <button class="primary-action" type="submit">Submit Application</button>
+            </form>
+            <p class="form-note">Applications are submitted directly to the recruitment system.</p>
+        </section>
+    </main>
+</body>
+</html>

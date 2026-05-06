@@ -5,8 +5,8 @@ from app.models import JobPortal
 
 DEFAULT_PORTALS = (
     ("jooble", "/feeds/jooble.xml"),
-    ("careerjet", "/feeds/careerjet.xml"),
     ("talent", "/feeds/talent.xml"),
+    ("jora", "/feeds/jora.xml"),
 )
 
 

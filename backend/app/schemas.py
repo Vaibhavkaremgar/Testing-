@@ -97,9 +97,15 @@ class JobDescriptionBase(BaseModel):
     company_name: Optional[str] = None
     department: Optional[str] = None
     location: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    country: Optional[str] = None
     employment_type: Optional[str] = None
     experience_required: Optional[str] = None
     salary_range: Optional[str] = None
+    category: Optional[str] = None
+    remote: Optional[bool] = False
+    status: Optional[str] = "open"
     vacancies: Optional[int] = 1
     min_passing_score: Optional[int] = 60
     description: Optional[str] = None
@@ -437,10 +443,15 @@ class ATSJobBase(BaseModel):
     company_name: str = Field(..., min_length=2, max_length=255)
     job_description: str = Field(..., min_length=10)
     location: str = Field(..., min_length=2, max_length=255)
+    city: Optional[str] = Field(default=None, max_length=120)
+    state: Optional[str] = Field(default=None, max_length=120)
+    country: Optional[str] = Field(default=None, max_length=120)
     employment_type: str = Field(..., min_length=2, max_length=100)
     experience: str = Field(..., min_length=1, max_length=100)
     salary: str = Field(..., min_length=1, max_length=100)
     skills: List[str] = Field(default_factory=list)
+    category: Optional[str] = Field(default=None, max_length=150)
+    remote: bool = False
     status: str = Field(default="active", min_length=2, max_length=50)
     reference_code: Optional[str] = Field(default=None, max_length=50)
 
@@ -454,10 +465,15 @@ class ATSJobUpdate(BaseModel):
     company_name: Optional[str] = Field(default=None, min_length=2, max_length=255)
     job_description: Optional[str] = Field(default=None, min_length=10)
     location: Optional[str] = Field(default=None, min_length=2, max_length=255)
+    city: Optional[str] = Field(default=None, max_length=120)
+    state: Optional[str] = Field(default=None, max_length=120)
+    country: Optional[str] = Field(default=None, max_length=120)
     employment_type: Optional[str] = Field(default=None, min_length=2, max_length=100)
     experience: Optional[str] = Field(default=None, min_length=1, max_length=100)
     salary: Optional[str] = Field(default=None, min_length=1, max_length=100)
     skills: Optional[List[str]] = None
+    category: Optional[str] = Field(default=None, max_length=150)
+    remote: Optional[bool] = None
     status: Optional[str] = Field(default=None, min_length=2, max_length=50)
 
 
@@ -467,12 +483,18 @@ class ATSJobResponse(BaseModel):
     company_name: str
     job_description: str
     location: str
+    city: Optional[str] = None
+    state: Optional[str] = None
+    country: Optional[str] = None
     employment_type: Optional[str] = None
     experience: Optional[str] = None
     salary: Optional[str] = None
     skills: List[str] = Field(default_factory=list)
+    category: Optional[str] = None
+    remote: bool = False
     status: str
     public_job_url: str
+    apply_url: str
     created_at: datetime
     updated_at: Optional[datetime] = None
 
@@ -488,4 +510,25 @@ class ATSJobListResponse(BaseModel):
     page: int
     page_size: int
     total: int
+
+
+class JobApplicationCreate(BaseModel):
+    full_name: str = Field(..., min_length=2, max_length=255)
+    email: EmailStr
+    phone: Optional[str] = Field(default=None, max_length=50)
+    resume_url: Optional[str] = Field(default=None, max_length=1000)
+    cover_letter: Optional[str] = None
+
+
+class JobApplicationResponse(BaseModel):
+    id: UUID
+    job_id: UUID
+    full_name: str
+    email: EmailStr
+    phone: Optional[str] = None
+    resume_url: Optional[str] = None
+    cover_letter: Optional[str] = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
 

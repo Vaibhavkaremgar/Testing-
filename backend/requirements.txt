@@ -32,6 +32,7 @@ google-auth
 google-auth-oauthlib
 python-dotenv==1.0.0
 APScheduler==3.10.4
+Jinja2==3.1.4
 
 spacy==3.7.2
 skillNer
@@ -43,5 +44,4 @@ rank-bm25
 Pillow==10.2.0
 pytesseract==0.3.10
 sendgrid==6.11.0
-
 

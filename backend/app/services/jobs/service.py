@@ -15,6 +15,7 @@ from app.schemas import (
     ATSJobResponse,
     ATSJobUpdate,
 )
+from app.services.public_jobs import build_location, build_public_apply_url, build_public_job_url, compose_location, normalize_skills
 
 logger = logging.getLogger(__name__)
 
@@ -74,11 +75,16 @@ class JobDistributionService:
             title=payload.job_title,
             company_name=payload.company_name,
             description=payload.job_description,
-            location=payload.location,
+            location=compose_location(payload.city, payload.state, payload.country, payload.location),
+            city=payload.city,
+            state=payload.state,
+            country=payload.country,
             employment_type=payload.employment_type,
             experience_required=payload.experience,
             salary_range=payload.salary,
             skills=payload.skills,
+            category=payload.category,
+            remote=payload.remote,
             status=payload.status or settings.JOB_FEED_DEFAULT_STATUS,
             is_active=(payload.status or settings.JOB_FEED_DEFAULT_STATUS).lower() != "inactive",
         )
@@ -113,6 +119,14 @@ class JobDistributionService:
         for source_field, value in update_data.items():
             target_field = field_mapping.get(source_field, source_field)
             setattr(job, target_field, value)
+
+        if any(field in update_data for field in {"location", "city", "state", "country"}):
+            job.location = compose_location(
+                getattr(job, "city", None),
+                getattr(job, "state", None),
+                getattr(job, "country", None),
+                getattr(job, "location", None),
+            )
 
         if "status" in update_data:
             job.is_active = str(update_data["status"]).lower() != "inactive"
@@ -203,7 +217,15 @@ class JobDistributionService:
             )
 
         if location:
-            query = query.filter(JobDescription.location.ilike(f"%{location.strip()}%"))
+            location_pattern = f"%{location.strip()}%"
+            query = query.filter(
+                or_(
+                    JobDescription.location.ilike(location_pattern),
+                    JobDescription.city.ilike(location_pattern),
+                    JobDescription.state.ilike(location_pattern),
+                    JobDescription.country.ilike(location_pattern),
+                )
+            )
 
         if skills:
             for skill in [item.strip() for item in skills.split(",") if item.strip()]:
@@ -275,15 +297,21 @@ class JobDistributionService:
             job_title=job.title,
             company_name=job.company_name,
             job_description=job.description,
-            location=job.location,
+            location=build_location(job),
+            city=job.city,
+            state=job.state,
+            country=job.country,
             employment_type=job.employment_type,
             experience=job.experience_required,
             salary=job.salary_range,
-            skills=job.skills or [],
+            skills=normalize_skills(job.skills),
+            category=job.category,
+            remote=bool(job.remote),
             status=job.status or settings.JOB_FEED_DEFAULT_STATUS,
             created_at=job.created_at,
             updated_at=job.updated_at,
-            public_job_url=f"{settings.PUBLIC_BASE_URL.rstrip('/')}/jobs/{job.id}",
+            public_job_url=build_public_job_url(job),
+            apply_url=build_public_apply_url(job),
         )
 
     @staticmethod

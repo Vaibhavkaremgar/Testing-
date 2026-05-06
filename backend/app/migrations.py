@@ -7,9 +7,11 @@ from app.models import (
     Agency,
     AgencyDiscount,
     AnalyticsWidget,
+    FeedAccessLog,
     NotificationWorkflowToken,
     Plan,
     PlanLimit,
+    JobApplication,
     Subscription,
     UsageLog,
     UsageTracking,
@@ -37,6 +39,17 @@ def run_migrations():
 
             def get_indexes(table):
                 return {idx["name"] for idx in inspect(engine).get_indexes(table)}
+
+            dialect_name = engine.dialect.name
+
+            def add_column_if_missing(table_name, column_name, sqlite_sql, default_sql):
+                if column_name in get_columns(table_name):
+                    return
+                print(f"Running migration: adding {table_name}.{column_name}...")
+                statement = sqlite_sql if dialect_name == "sqlite" else default_sql
+                conn.execute(text(statement))
+                conn.commit()
+                print(f"Migration completed: {table_name}.{column_name} added")
 
             # Ensure agencies table exists first (other tables depend on it)
             if "agencies" not in get_tables():
@@ -295,6 +308,50 @@ def run_migrations():
                 conn.commit()
                 print("Migration completed: usage_tracking created")
 
+            if "job_descriptions" in get_tables():
+                add_column_if_missing(
+                    "job_descriptions",
+                    "city",
+                    "ALTER TABLE job_descriptions ADD COLUMN city VARCHAR(120)",
+                    "ALTER TABLE job_descriptions ADD COLUMN city VARCHAR(120)",
+                )
+                add_column_if_missing(
+                    "job_descriptions",
+                    "state",
+                    "ALTER TABLE job_descriptions ADD COLUMN state VARCHAR(120)",
+                    "ALTER TABLE job_descriptions ADD COLUMN state VARCHAR(120)",
+                )
+                add_column_if_missing(
+                    "job_descriptions",
+                    "country",
+                    "ALTER TABLE job_descriptions ADD COLUMN country VARCHAR(120)",
+                    "ALTER TABLE job_descriptions ADD COLUMN country VARCHAR(120)",
+                )
+                add_column_if_missing(
+                    "job_descriptions",
+                    "category",
+                    "ALTER TABLE job_descriptions ADD COLUMN category VARCHAR(150)",
+                    "ALTER TABLE job_descriptions ADD COLUMN category VARCHAR(150)",
+                )
+                add_column_if_missing(
+                    "job_descriptions",
+                    "remote",
+                    "ALTER TABLE job_descriptions ADD COLUMN remote BOOLEAN DEFAULT 0",
+                    "ALTER TABLE job_descriptions ADD COLUMN remote BOOLEAN DEFAULT FALSE",
+                )
+
+            if "job_applications" not in get_tables():
+                print("Running migration: creating job_applications table...")
+                JobApplication.__table__.create(bind=engine, checkfirst=True)
+                conn.commit()
+                print("Migration completed: job_applications created")
+
+            if "feed_access_logs" not in get_tables():
+                print("Running migration: creating feed_access_logs table...")
+                FeedAccessLog.__table__.create(bind=engine, checkfirst=True)
+                conn.commit()
+                print("Migration completed: feed_access_logs created")
+
             # Performance indexes for dashboard filtering and sorting paths.
             performance_indexes = {
                 "idx_candidates_agency_id": "CREATE INDEX IF NOT EXISTS idx_candidates_agency_id ON candidates (agency_id)",
@@ -313,6 +370,9 @@ def run_migrations():
                 "idx_job_descriptions_agency_id": "CREATE INDEX IF NOT EXISTS idx_job_descriptions_agency_id ON job_descriptions (agency_id)",
                 "idx_job_descriptions_is_active": "CREATE INDEX IF NOT EXISTS idx_job_descriptions_is_active ON job_descriptions (is_active)",
                 "idx_job_descriptions_agency_id_is_active": "CREATE INDEX IF NOT EXISTS idx_job_descriptions_agency_id_is_active ON job_descriptions (agency_id, is_active)",
+                "idx_job_applications_job_id_created_at": "CREATE INDEX IF NOT EXISTS idx_job_applications_job_id_created_at ON job_applications (job_id, created_at)",
+                "idx_job_applications_email": "CREATE INDEX IF NOT EXISTS idx_job_applications_email ON job_applications (email)",
+                "idx_feed_access_logs_portal_accessed_at": "CREATE INDEX IF NOT EXISTS idx_feed_access_logs_portal_accessed_at ON feed_access_logs (portal_name, accessed_at)",
                 "idx_subscriptions_agency_id_status": "CREATE INDEX IF NOT EXISTS idx_subscriptions_agency_id_status ON subscriptions (agency_id, status)",
                 "idx_subscriptions_user_id_created_at": "CREATE INDEX IF NOT EXISTS idx_subscriptions_user_id_created_at ON subscriptions (user_id, created_at)",
                 "idx_subscriptions_expires_at": "CREATE INDEX IF NOT EXISTS idx_subscriptions_expires_at ON subscriptions (expires_at)",
@@ -320,7 +380,7 @@ def run_migrations():
                 "idx_usage_logs_feature_name_created_at": "CREATE INDEX IF NOT EXISTS idx_usage_logs_feature_name_created_at ON usage_logs (feature_name, created_at)",
             }
             existing_indexes = set()
-            for table_name in ("candidates", "interviews", "job_descriptions", "subscriptions", "plans", "plan_limits", "usage_tracking", "usage_logs"):
+            for table_name in ("candidates", "interviews", "job_descriptions", "job_applications", "feed_access_logs", "subscriptions", "plans", "plan_limits", "usage_tracking", "usage_logs"):
                 if table_name in get_tables():
                     existing_indexes.update(get_indexes(table_name))
 
