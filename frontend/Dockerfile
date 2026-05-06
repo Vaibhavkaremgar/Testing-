@@ -14,5 +14,5 @@ COPY . .
 # Build the app
 RUN npm run build
 
-# Use a static server that respects serve.json SPA rewrites.
-CMD ["sh", "-c", "npx serve -s dist -l tcp://0.0.0.0:$PORT --config serve.json"]
+# Use serve's built-in SPA fallback for deep links like /jobs/:slug.
+CMD ["sh", "-c", "npx serve -s dist -l tcp://0.0.0.0:$PORT"]

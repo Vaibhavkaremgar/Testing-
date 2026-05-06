@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "start": "serve -s dist -l tcp://0.0.0.0:$PORT --config serve.json",
+    "start": "serve -s dist -l tcp://0.0.0.0:$PORT",
     "preview": "vite preview --host 0.0.0.0 --port 4173",
     "lint": "eslint . --report-unused-disable-directives --max-warnings 0"
   },
