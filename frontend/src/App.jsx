@@ -74,8 +74,9 @@ function App() {
       <Suspense fallback={<PageLoader />}>
         <Routes>
           <Route path="/login" element={isAuthenticated ? <Navigate to={getDefaultRouteForUser(user)} replace /> : <Login />} />
-          <Route path="/jobs/:slug/*" element={<JobRedirect />} />
-          <Route path="/jobs/:slug" element={<JobRedirect />} />
+          {/*<Route path="/jobs/:slug/*" element={<JobRedirect />} />
+          <Route path="/jobs/:slug" element={<JobRedirect />} />*/}
+          <Route path="/jobs/*" element={<JobRedirect />} />
 
           <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/resumes" element={<ProtectedRoute><Resumes /></ProtectedRoute>} />
