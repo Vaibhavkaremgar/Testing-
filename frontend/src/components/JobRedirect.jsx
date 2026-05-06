@@ -4,34 +4,35 @@ const PUBLIC_JOBS_BASE_URL =
   import.meta.env.VITE_PUBLIC_JOBS_BASE_URL ||
   'https://ai-recruitment-dashboard-production.up.railway.app'
 
-function JobRedirect() {
+export default function JobRedirect() {
   useEffect(() => {
-    if (typeof window === 'undefined') {
-      return
-    }
+    if (typeof window === 'undefined') return
+
+    console.log('Job redirect triggered')
 
     const { hostname, pathname, search, hash } = window.location
     const targetBaseUrl = new URL(PUBLIC_JOBS_BASE_URL)
 
-    if (hostname === targetBaseUrl.hostname) {
-      return
-    }
-
-    if (hostname !== 'pontis.one' && hostname !== 'www.pontis.one') {
-      return
-    }
+    if (hostname === targetBaseUrl.hostname) return
 
     const redirectUrl = `${targetBaseUrl.origin}${pathname}${search}${hash}`
-    window.location.replace(redirectUrl)
+
+    console.log('Redirecting to:', redirectUrl)
+
+    window.location.href = redirectUrl
   }, [])
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background px-6">
-      <div className="text-center">
-        <p className="text-lg font-medium text-foreground">Redirecting to job page...</p>
-      </div>
+    <div
+      style={{
+        minHeight: '100vh',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        fontSize: '20px',
+      }}
+    >
+      Redirecting to job page...
     </div>
   )
 }
-
-export default JobRedirect

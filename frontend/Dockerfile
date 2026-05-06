@@ -14,5 +14,5 @@ COPY . .
 # Build the app
 RUN npm run build
 
-# Use shell to expand $PORT variable with SPA routing
-CMD ["sh", "-c", "npx serve dist -p $PORT"]
+# Use a static server that respects serve.json SPA rewrites.
+CMD ["sh", "-c", "npx serve -s dist -l tcp://0.0.0.0:$PORT --config serve.json"]
