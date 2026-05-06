@@ -1,5 +1,6 @@
 import logging
 import uuid
+from datetime import UTC, datetime
 from typing import Optional
 
 from fastapi import HTTPException, status
@@ -74,7 +75,10 @@ class JobDistributionService:
             job_id=payload.reference_code or f"JOB-{uuid.uuid4().hex[:8].upper()}",
             title=payload.job_title,
             company_name=payload.company_name,
+            company_website_url=payload.company_website_url,
+            company_logo_url=payload.company_logo_url,
             description=payload.job_description,
+            industry=payload.industry,
             location=compose_location(payload.city, payload.state, payload.country, payload.location),
             city=payload.city,
             state=payload.state,
@@ -87,6 +91,7 @@ class JobDistributionService:
             remote=payload.remote,
             status=payload.status or settings.JOB_FEED_DEFAULT_STATUS,
             is_active=(payload.status or settings.JOB_FEED_DEFAULT_STATUS).lower() != "inactive",
+            valid_through=payload.valid_through,
         )
         db.add(job)
         db.flush()
@@ -164,6 +169,7 @@ class JobDistributionService:
     @staticmethod
     def list_active_jobs(db: Session):
         active_statuses = ("active", "published", "open")
+        now = datetime.now(UTC)
         return (
             db.query(JobDescription)
             .filter(JobDescription.is_active.is_(True))
@@ -171,6 +177,12 @@ class JobDistributionService:
                 or_(
                     JobDescription.status.is_(None),
                     func.lower(JobDescription.status).in_(active_statuses),
+                )
+            )
+            .filter(
+                or_(
+                    JobDescription.valid_through.is_(None),
+                    JobDescription.valid_through >= now,
                 )
             )
             .order_by(JobDescription.created_at.desc())
@@ -296,7 +308,10 @@ class JobDistributionService:
             id=job.id,
             job_title=job.title,
             company_name=job.company_name,
+            company_website_url=job.company_website_url,
+            company_logo_url=job.company_logo_url,
             job_description=job.description,
+            industry=job.industry,
             location=build_location(job),
             city=job.city,
             state=job.state,
@@ -308,6 +323,7 @@ class JobDistributionService:
             category=job.category,
             remote=bool(job.remote),
             status=job.status or settings.JOB_FEED_DEFAULT_STATUS,
+            valid_through=job.valid_through,
             created_at=job.created_at,
             updated_at=job.updated_at,
             public_job_url=build_public_job_url(job),

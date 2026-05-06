@@ -24,6 +24,40 @@ logger = logging.getLogger(__name__)
 JOBS_CACHE_TTL = 120  # 2 minutes
 
 
+def _serialize_job(job: JobDescription, *, candidate_count: int) -> JobDescriptionResponse:
+    return JobDescriptionResponse(
+        id=job.id,
+        job_id=getattr(job, "job_id", None),
+        company_name=getattr(job, "company_name", None),
+        company_website_url=getattr(job, "company_website_url", None),
+        company_logo_url=getattr(job, "company_logo_url", None),
+        title=job.title,
+        department=job.department,
+        industry=getattr(job, "industry", None),
+        location=job.location,
+        city=getattr(job, "city", None),
+        state=getattr(job, "state", None),
+        country=getattr(job, "country", None),
+        employment_type=job.employment_type,
+        experience_required=job.experience_required,
+        salary_range=job.salary_range,
+        category=getattr(job, "category", None),
+        remote=bool(getattr(job, "remote", False)),
+        status=getattr(job, "status", "open"),
+        vacancies=job.vacancies,
+        min_passing_score=getattr(job, "min_passing_score", 60),
+        description=job.description,
+        requirements=job.requirements,
+        responsibilities=job.responsibilities,
+        skills=job.skills,
+        interview_questions=job.interview_questions,
+        valid_through=getattr(job, "valid_through", None),
+        is_active=job.is_active,
+        created_at=job.created_at,
+        candidate_count=candidate_count,
+    )
+
+
 def _resolve_pagination(page: Optional[int], limit: Optional[int], offset: Optional[int]) -> tuple[Optional[int], int]:
     """Support page/limit while keeping legacy unpaginated calls working."""
     if offset is not None or limit is not None or page is not None:
@@ -202,34 +236,7 @@ def get_jobs(
         if current_user.role not in [UserRole.ADMIN, UserRole.SUPER_ADMIN] and candidate_count == 0:
             continue
         
-        job_dict = {
-            "id": job.id,
-            "job_id": getattr(job, 'job_id', None),
-            "company_name": getattr(job, 'company_name', None),
-            "title": job.title,
-            "department": job.department,
-            "location": job.location,
-            "city": getattr(job, "city", None),
-            "state": getattr(job, "state", None),
-            "country": getattr(job, "country", None),
-            "employment_type": job.employment_type,
-            "experience_required": job.experience_required,
-            "salary_range": job.salary_range,
-            "category": getattr(job, "category", None),
-            "remote": bool(getattr(job, "remote", False)),
-            "status": getattr(job, "status", "open"),
-            "vacancies": job.vacancies,
-            "min_passing_score": getattr(job, 'min_passing_score', 60),
-            "description": job.description,
-            "requirements": job.requirements,
-            "responsibilities": job.responsibilities,
-            "skills": job.skills,
-            "interview_questions": job.interview_questions,
-            "is_active": job.is_active,
-            "created_at": job.created_at,
-            "candidate_count": candidate_count
-        }
-        result.append(JobDescriptionResponse(**job_dict))
+        result.append(_serialize_job(job, candidate_count=candidate_count))
     
     return result
 
@@ -251,34 +258,7 @@ def get_job(
         candidate_query = candidate_query.filter(Candidate.assigned_to_user_id == current_user.id)
     candidate_count = candidate_query.scalar()
     
-    job_dict = {
-        "id": job.id,
-        "job_id": getattr(job, 'job_id', None),
-        "company_name": getattr(job, 'company_name', None),
-        "title": job.title,
-        "department": job.department,
-        "location": job.location,
-        "city": getattr(job, "city", None),
-        "state": getattr(job, "state", None),
-        "country": getattr(job, "country", None),
-        "employment_type": job.employment_type,
-        "experience_required": job.experience_required,
-        "salary_range": job.salary_range,
-        "category": getattr(job, "category", None),
-        "remote": bool(getattr(job, "remote", False)),
-        "status": getattr(job, "status", "open"),
-        "vacancies": job.vacancies,
-        "min_passing_score": getattr(job, 'min_passing_score', 60),
-        "description": job.description,
-        "requirements": job.requirements,
-        "responsibilities": job.responsibilities,
-        "skills": job.skills,
-        "interview_questions": job.interview_questions,
-        "is_active": job.is_active,
-        "created_at": job.created_at,
-        "candidate_count": candidate_count
-    }
-    return JobDescriptionResponse(**job_dict)
+    return _serialize_job(job, candidate_count=candidate_count)
 
 @router.post("", response_model=JobDescriptionResponse)
 def create_job(
@@ -328,35 +308,7 @@ def create_job(
         increment_plan_usage(db, current_user, "job_post", subscription=subscription)
         db.commit()
         db.refresh(db_job)
-        
-        job_dict = {
-            "id": db_job.id,
-            "job_id": getattr(db_job, 'job_id', None),
-            "company_name": getattr(db_job, 'company_name', None),
-            "title": db_job.title,
-            "department": db_job.department,
-            "location": db_job.location,
-            "city": getattr(db_job, "city", None),
-            "state": getattr(db_job, "state", None),
-            "country": getattr(db_job, "country", None),
-            "employment_type": db_job.employment_type,
-            "experience_required": db_job.experience_required,
-            "salary_range": db_job.salary_range,
-            "category": getattr(db_job, "category", None),
-            "remote": bool(getattr(db_job, "remote", False)),
-            "status": getattr(db_job, "status", "open"),
-            "vacancies": db_job.vacancies,
-            "min_passing_score": getattr(db_job, 'min_passing_score', 60),
-            "description": db_job.description,
-            "requirements": db_job.requirements,
-            "responsibilities": db_job.responsibilities,
-            "skills": db_job.skills,
-            "interview_questions": db_job.interview_questions,
-            "is_active": db_job.is_active,
-            "created_at": db_job.created_at,
-            "candidate_count": 0
-        }
-        return JobDescriptionResponse(**job_dict)
+        return _serialize_job(db_job, candidate_count=0)
     except HTTPException:
         db.rollback()
         raise
@@ -395,34 +347,7 @@ def update_job(
         Candidate.job_id == db_job.id
     ).scalar()
     
-    job_dict = {
-        "id": db_job.id,
-        "job_id": getattr(db_job, 'job_id', None),
-        "company_name": getattr(db_job, 'company_name', None),
-        "title": db_job.title,
-        "department": db_job.department,
-        "location": db_job.location,
-        "city": getattr(db_job, "city", None),
-        "state": getattr(db_job, "state", None),
-        "country": getattr(db_job, "country", None),
-        "employment_type": db_job.employment_type,
-        "experience_required": db_job.experience_required,
-        "salary_range": db_job.salary_range,
-        "category": getattr(db_job, "category", None),
-        "remote": bool(getattr(db_job, "remote", False)),
-        "status": getattr(db_job, "status", "open"),
-        "vacancies": db_job.vacancies,
-        "min_passing_score": getattr(db_job, 'min_passing_score', 60),
-        "description": db_job.description,
-        "requirements": db_job.requirements,
-        "responsibilities": db_job.responsibilities,
-        "skills": db_job.skills,
-        "interview_questions": db_job.interview_questions,
-        "is_active": db_job.is_active,
-        "created_at": db_job.created_at,
-        "candidate_count": candidate_count
-    }
-    return JobDescriptionResponse(**job_dict)
+    return _serialize_job(db_job, candidate_count=candidate_count)
 
 @router.post("/extract-data")
 async def extract_job_data(

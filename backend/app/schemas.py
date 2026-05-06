@@ -95,7 +95,10 @@ class JobDescriptionBase(BaseModel):
     title: str
     job_id: Optional[str] = None
     company_name: Optional[str] = None
+    company_website_url: Optional[str] = None
+    company_logo_url: Optional[str] = None
     department: Optional[str] = None
+    industry: Optional[str] = None
     location: Optional[str] = None
     city: Optional[str] = None
     state: Optional[str] = None
@@ -113,6 +116,7 @@ class JobDescriptionBase(BaseModel):
     responsibilities: Optional[str] = None
     skills: Optional[List[str]] = None
     interview_questions: Optional[List[Any]] = None
+    valid_through: Optional[datetime] = None
 
 class JobDescriptionCreate(JobDescriptionBase):
     pass
@@ -441,7 +445,10 @@ class EmailCommunicationResponse(BaseModel):
 class ATSJobBase(BaseModel):
     job_title: str = Field(..., min_length=2, max_length=255)
     company_name: str = Field(..., min_length=2, max_length=255)
+    company_website_url: Optional[str] = Field(default=None, max_length=500)
+    company_logo_url: Optional[str] = Field(default=None, max_length=1000)
     job_description: str = Field(..., min_length=10)
+    industry: Optional[str] = Field(default=None, max_length=255)
     location: str = Field(..., min_length=2, max_length=255)
     city: Optional[str] = Field(default=None, max_length=120)
     state: Optional[str] = Field(default=None, max_length=120)
@@ -454,6 +461,7 @@ class ATSJobBase(BaseModel):
     remote: bool = False
     status: str = Field(default="active", min_length=2, max_length=50)
     reference_code: Optional[str] = Field(default=None, max_length=50)
+    valid_through: Optional[datetime] = None
 
 
 class ATSJobCreate(ATSJobBase):
@@ -463,7 +471,10 @@ class ATSJobCreate(ATSJobBase):
 class ATSJobUpdate(BaseModel):
     job_title: Optional[str] = Field(default=None, min_length=2, max_length=255)
     company_name: Optional[str] = Field(default=None, min_length=2, max_length=255)
+    company_website_url: Optional[str] = Field(default=None, max_length=500)
+    company_logo_url: Optional[str] = Field(default=None, max_length=1000)
     job_description: Optional[str] = Field(default=None, min_length=10)
+    industry: Optional[str] = Field(default=None, max_length=255)
     location: Optional[str] = Field(default=None, min_length=2, max_length=255)
     city: Optional[str] = Field(default=None, max_length=120)
     state: Optional[str] = Field(default=None, max_length=120)
@@ -475,13 +486,17 @@ class ATSJobUpdate(BaseModel):
     category: Optional[str] = Field(default=None, max_length=150)
     remote: Optional[bool] = None
     status: Optional[str] = Field(default=None, min_length=2, max_length=50)
+    valid_through: Optional[datetime] = None
 
 
 class ATSJobResponse(BaseModel):
     id: UUID
     job_title: str
     company_name: str
+    company_website_url: Optional[str] = None
+    company_logo_url: Optional[str] = None
     job_description: str
+    industry: Optional[str] = None
     location: str
     city: Optional[str] = None
     state: Optional[str] = None
@@ -493,6 +508,7 @@ class ATSJobResponse(BaseModel):
     category: Optional[str] = None
     remote: bool = False
     status: str
+    valid_through: Optional[datetime] = None
     public_job_url: str
     apply_url: str
     created_at: datetime

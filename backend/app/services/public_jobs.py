@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import re
+from datetime import UTC, datetime
 from typing import Any
+from uuid import UUID
 
 from fastapi import HTTPException, Request, status
 from sqlalchemy.orm import Session
@@ -8,20 +11,77 @@ from sqlalchemy.orm import Session
 from app.core.configuration import settings
 from app.models import FeedAccessLog, JobApplication, JobDescription
 
+
+_UUID_AT_END_RE = re.compile(
+    r"(?P<uuid>[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$"
+)
+_NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
+
+
 def is_public_job_open(job: JobDescription) -> bool:
-    return bool(job.is_active) and str(job.status or "open").strip().lower() in {
+    if not (
+        bool(job.is_active)
+        and str(job.status or "open").strip().lower() in {
         "active",
         "open",
         "published",
-    }
+        }
+    ):
+        return False
+
+    if job.valid_through is None:
+        return True
+
+    now = datetime.now(UTC)
+    valid_through = job.valid_through
+    if valid_through.tzinfo is None:
+        valid_through = valid_through.replace(tzinfo=UTC)
+    return valid_through >= now
+
+
+def slugify_job_value(value: str | None, *, max_length: int = 80) -> str:
+    normalized = _NON_ALNUM_RE.sub("-", str(value or "").strip().lower()).strip("-")
+    if not normalized:
+        return ""
+    return normalized[:max_length].strip("-")
+
+
+def build_job_slug(job: JobDescription) -> str:
+    parts = [
+        slugify_job_value(job.title, max_length=64),
+        slugify_job_value(job.city or job.location, max_length=32),
+    ]
+    base_slug = "-".join(part for part in parts if part)
+    if not base_slug:
+        base_slug = slugify_job_value(job.company_name, max_length=48) or "job"
+    return f"{base_slug}-{job.id}"
+
+
+def extract_job_id(job_reference: str) -> UUID:
+    value = str(job_reference or "").strip()
+    try:
+        return UUID(value)
+    except (ValueError, TypeError):
+        match = _UUID_AT_END_RE.search(value)
+        if match:
+            return UUID(match.group("uuid"))
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+
+
+def get_job_canonical_path(job: JobDescription) -> str:
+    return f"/jobs/{build_job_slug(job)}"
+
+
+def get_apply_canonical_path(job: JobDescription) -> str:
+    return f"{get_job_canonical_path(job)}/apply"
 
 
 def build_public_job_url(job: JobDescription) -> str:
-    return f"{settings.PUBLIC_BASE_URL.rstrip('/')}/jobs/{job.id}"
+    return f"{settings.PUBLIC_BASE_URL.rstrip('/')}{get_job_canonical_path(job)}"
 
 
 def build_public_apply_url(job: JobDescription) -> str:
-    return f"{build_public_job_url(job)}/apply"
+    return f"{settings.PUBLIC_BASE_URL.rstrip('/')}{get_apply_canonical_path(job)}"
 
 
 def build_location(job: JobDescription) -> str:
@@ -54,6 +114,10 @@ def get_public_job_or_404(db: Session, job_id) -> JobDescription:
     if job is None or not is_public_job_open(job):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
     return job
+
+
+def get_public_job_by_reference_or_404(db: Session, job_reference: str) -> JobDescription:
+    return get_public_job_or_404(db, extract_job_id(job_reference))
 
 
 def create_job_application(

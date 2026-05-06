@@ -153,7 +153,10 @@ class JobDescription(Base):
     job_id = Column(String(50), unique=True, index=True)
     title = Column(String(255), nullable=False)
     company_name = Column(String(255))
+    company_website_url = Column(String(500))
+    company_logo_url = Column(String(1000))
     department = Column(String(255))
+    industry = Column(String(255))
     location = Column(String(255))
     city = Column(String(120))
     state = Column(String(120))
@@ -172,6 +175,7 @@ class JobDescription(Base):
     interview_questions = Column(JSON)
     is_active = Column(Boolean, default=True, index=True)
     status = Column(String(50), default='open')
+    valid_through = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
