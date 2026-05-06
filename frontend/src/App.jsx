@@ -2,6 +2,7 @@ import { Suspense, lazy } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { DashboardLayout } from '@/components/layout/DashboardLayout'
+import JobRedirect from '@/components/JobRedirect'
 import ErrorBoundary from '@/components/ErrorBoundary'
 import { Toaster } from '@/hooks/use-toast'
 
@@ -73,6 +74,8 @@ function App() {
       <Suspense fallback={<PageLoader />}>
         <Routes>
           <Route path="/login" element={isAuthenticated ? <Navigate to={getDefaultRouteForUser(user)} replace /> : <Login />} />
+          <Route path="/jobs/:slug/*" element={<JobRedirect />} />
+          <Route path="/jobs/:slug" element={<JobRedirect />} />
 
           <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/resumes" element={<ProtectedRoute><Resumes /></ProtectedRoute>} />

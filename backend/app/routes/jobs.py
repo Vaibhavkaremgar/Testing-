@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import String, func, or_
+from sqlalchemy.exc import IntegrityError
 from typing import List, Optional
 from uuid import UUID
 import os
@@ -22,6 +23,30 @@ from app.services.public_jobs import compose_location
 router = APIRouter(prefix="/jobs", tags=["Job Descriptions"])
 logger = logging.getLogger(__name__)
 JOBS_CACHE_TTL = 120  # 2 minutes
+
+
+def _normalize_job_identifier(value: Optional[str]) -> Optional[str]:
+    normalized = str(value or "").strip()
+    return normalized or None
+
+
+def _ensure_unique_job_identifier(
+    db: Session,
+    *,
+    job_id_value: Optional[str],
+    current_job_id: Optional[UUID] = None,
+) -> None:
+    normalized_job_id = _normalize_job_identifier(job_id_value)
+    if not normalized_job_id:
+        return
+
+    query = db.query(JobDescription).filter(func.lower(JobDescription.job_id) == normalized_job_id.lower())
+    if current_job_id is not None:
+        query = query.filter(JobDescription.id != current_job_id)
+
+    existing_job = query.first()
+    if existing_job:
+        raise HTTPException(status_code=400, detail="Job ID already exists")
 
 
 def _serialize_job(job: JobDescription, *, candidate_count: int) -> JobDescriptionResponse:
@@ -288,11 +313,14 @@ def create_job(
                     logger.warning("Client auto-create skipped: %s", client_err)
         
         job_data = job.model_dump()
+        job_data["job_id"] = _normalize_job_identifier(job_data.get("job_id"))
         
         # Auto-generate job_id if not provided to avoid unique constraint violation
         if not job_data.get('job_id'):
             import uuid
             job_data['job_id'] = f"JOB-{uuid.uuid4().hex[:8].upper()}"
+        else:
+            _ensure_unique_job_identifier(db, job_id_value=job_data["job_id"])
 
         job_data["location"] = compose_location(
             job_data.get("city"),
@@ -309,6 +337,12 @@ def create_job(
         db.commit()
         db.refresh(db_job)
         return _serialize_job(db_job, candidate_count=0)
+    except IntegrityError as exc:
+        db.rollback()
+        logger.warning("Job creation failed due to integrity error: %s", exc)
+        if "job_id" in str(exc).lower():
+            raise HTTPException(status_code=400, detail="Job ID already exists")
+        raise HTTPException(status_code=400, detail="Unable to create job with the provided data")
     except HTTPException:
         db.rollback()
         raise
@@ -329,6 +363,12 @@ def update_job(
         raise HTTPException(status_code=404, detail="Job not found")
     
     update_data = job_update.model_dump(exclude_unset=True)
+    if "job_id" in update_data:
+        update_data["job_id"] = _normalize_job_identifier(update_data.get("job_id"))
+        if not update_data["job_id"]:
+            raise HTTPException(status_code=400, detail="Job ID is required")
+        _ensure_unique_job_identifier(db, job_id_value=update_data["job_id"], current_job_id=db_job.id)
+
     for field, value in update_data.items():
         setattr(db_job, field, value)
 
@@ -340,8 +380,15 @@ def update_job(
             getattr(db_job, "location", None),
         )
     
-    db.commit()
-    db.refresh(db_job)
+    try:
+        db.commit()
+        db.refresh(db_job)
+    except IntegrityError as exc:
+        db.rollback()
+        logger.warning("Job update failed due to integrity error: %s", exc)
+        if "job_id" in str(exc).lower():
+            raise HTTPException(status_code=400, detail="Job ID already exists")
+        raise HTTPException(status_code=400, detail="Unable to update job with the provided data")
     
     candidate_count = db.query(func.count(Candidate.id)).filter(
         Candidate.job_id == db_job.id
