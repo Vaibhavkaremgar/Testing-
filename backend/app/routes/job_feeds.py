@@ -67,6 +67,11 @@ def default_jobs_feed(request: Request, db: Session = Depends(get_db)):
     return _build_feed_response(request, db, "default")
 
 
+@router.get("/postjobfree-feed.xml")
+def postjobfree_feed(request: Request, db: Session = Depends(get_db)):
+    return _build_feed_response(request, db, "postjobfree")
+
+
 @router.get("/feeds/jooble.xml")
 def jooble_feed(request: Request, db: Session = Depends(get_db)):
     return _build_feed_response(request, db, "jooble")
