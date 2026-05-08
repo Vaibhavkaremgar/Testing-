@@ -89,7 +89,7 @@ function buildDashboardCandidateBuckets(candidatesData = [], interviewRows = [])
     }))
 
   const shortlistedPipelineCandidates = pipelineDisplayCandidates
-    .filter((candidate) => candidate.display_stage === 'SHORTLISTED')
+    .filter((candidate) => candidate.stage === 'SHORTLISTED')
     .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
 
   const mapPipelineDisplayCandidates = (predicate) => pipelineDisplayCandidates

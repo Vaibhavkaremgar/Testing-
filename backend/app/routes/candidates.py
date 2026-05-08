@@ -99,7 +99,7 @@ def normalize_legacy_candidate_stages(db: Session) -> None:
     result = db.execute(text(
         "UPDATE candidates SET stage = 'REVIEW' "
         "WHERE stage::text NOT IN ("
-        + ", ".join(f"'{v}'" for v in valid_stages)
+        + ", ".join(f"'{v}'" for v in valid_stages)     
         + ")"
     ))
     total_updated += result.rowcount
