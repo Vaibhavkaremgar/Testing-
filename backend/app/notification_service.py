@@ -295,6 +295,14 @@ def _parse_questions(raw_questions) -> list:
     return [raw_questions]
 
 
+def _resolve_notification_questions(candidate: Candidate, job: Optional[JobDescription]) -> list:
+    job_questions = _parse_questions(job.interview_questions if job else None)
+    if job_questions:
+        return job_questions
+
+    return _parse_questions(candidate.predefined_questions)
+
+
 def compact_notification_payload(payload: Optional[dict]) -> dict:
     compacted = {}
     for key, value in (payload or {}).items():
@@ -354,7 +362,7 @@ def build_notification_payload(
 ) -> dict:
     job = db.query(JobDescription).filter(JobDescription.id == candidate.job_id).first() if candidate.job_id else None
     agency = db.query(Agency).filter(Agency.id == candidate.agency_id).first() if candidate.agency_id else None
-    async_questions = _parse_questions(candidate.predefined_questions) or _parse_questions(job.interview_questions if job else None)
+    async_questions = _resolve_notification_questions(candidate, job)
     payload = {
         "candidate_name": candidate.name or "",
         "candidate_email": candidate.email or "",
