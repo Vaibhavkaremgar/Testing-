@@ -276,6 +276,15 @@ def _get_india_today() -> date:
     return datetime.now(timezone.utc).astimezone(INDIA_TIMEZONE).date()
 
 
+def _get_india_local_date(value: Optional[datetime]) -> Optional[date]:
+    """Normalize interview timestamps to the slot-booking local date when timezone data exists."""
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.date()
+    return value.astimezone(INDIA_TIMEZONE).date()
+
+
 def _build_slot_candidate_lookup(
     db: Session,
     candidate_ids: List[UUID],
@@ -807,7 +816,7 @@ def _get_interview_slot_candidate_ids_by_timing(
 
     candidate_lookup = _build_slot_candidate_lookup(db, candidate_ids)
     if not candidate_lookup:
-        return set(), set()
+        return _get_interview_candidate_ids_by_interview_timing(db, candidate_ids, today)
 
     columns = db.execute(text(
         """
@@ -818,7 +827,7 @@ def _get_interview_slot_candidate_ids_by_timing(
     )).fetchall()
     column_names = {row[0] for row in columns}
     if not column_names or "slot_date" not in column_names:
-        return set(), set()
+        return _get_interview_candidate_ids_by_interview_timing(db, candidate_ids, today)
 
     normalized_column_lookup = {
         column_name.lower().replace("_", ""): column_name
@@ -833,7 +842,7 @@ def _get_interview_slot_candidate_ids_by_timing(
         None,
     )
     if not candidate_column:
-        return set(), set()
+        return _get_interview_candidate_ids_by_interview_timing(db, candidate_ids, today)
 
     rows = db.execute(
         text(f"""
@@ -875,6 +884,92 @@ def _get_interview_slot_candidate_ids_by_timing(
         if slot_timing == "today":
             today_candidate_ids.add(candidate_id)
         elif slot_timing == "future":
+            future_candidate_ids.add(candidate_id)
+
+    remaining_candidate_ids = [
+        candidate_id
+        for candidate_id in candidate_ids
+        if candidate_id not in today_candidate_ids and candidate_id not in future_candidate_ids
+    ]
+    if not remaining_candidate_ids:
+        return today_candidate_ids, future_candidate_ids
+
+    fallback_today_candidate_ids, fallback_future_candidate_ids = _get_interview_candidate_ids_by_interview_timing(
+        db,
+        remaining_candidate_ids,
+        today,
+    )
+    today_candidate_ids.update(fallback_today_candidate_ids)
+    future_candidate_ids.update(fallback_future_candidate_ids)
+
+    return today_candidate_ids, future_candidate_ids
+
+
+def _classify_interview_timing_bucket(
+    *,
+    status_value: Optional[str],
+    scheduled_at: Optional[datetime],
+    today: date,
+) -> Optional[str]:
+    normalized_status = (status_value or "").strip().lower()
+    interview_date = _get_india_local_date(scheduled_at)
+
+    if normalized_status in {"completed", "ongoing"}:
+        return "today"
+
+    if normalized_status != "scheduled":
+        return None
+
+    if interview_date is None:
+        return "future"
+    if interview_date < today:
+        return None
+    if interview_date == today:
+        return "today"
+    return "future"
+
+
+def _get_interview_candidate_ids_by_interview_timing(
+    db: Session,
+    candidate_ids: List[UUID],
+    today: date,
+) -> tuple[set[UUID], set[UUID]]:
+    if not candidate_ids:
+        return set(), set()
+
+    interview_rows = (
+        db.query(
+            Interview.candidate_id,
+            Interview.status,
+            Interview.scheduled_at,
+            Interview.created_at,
+        )
+        .filter(Interview.candidate_id.in_(candidate_ids))
+        .order_by(
+            Interview.candidate_id.asc(),
+            func.coalesce(Interview.scheduled_at, Interview.created_at).desc(),
+            Interview.created_at.desc(),
+        )
+        .all()
+    )
+
+    today_candidate_ids: set[UUID] = set()
+    future_candidate_ids: set[UUID] = set()
+    seen_candidate_ids: set[UUID] = set()
+
+    for candidate_id, status_value, scheduled_at, _created_at in interview_rows:
+        if candidate_id in seen_candidate_ids:
+            continue
+        seen_candidate_ids.add(candidate_id)
+
+        timing_bucket = _classify_interview_timing_bucket(
+            status_value=status_value,
+            scheduled_at=scheduled_at,
+            today=today,
+        )
+        if timing_bucket == "today":
+            today_candidate_ids.add(candidate_id)
+        elif timing_bucket == "future":
             future_candidate_ids.add(candidate_id)
 
     return today_candidate_ids, future_candidate_ids
@@ -3595,8 +3690,8 @@ def get_pipeline_stages(
         display_stage = None
         display_stage_key = None
 
-        # Keep a candidate in a single board column while sourcing interview
-        # and interview schedule strictly from interview_slots.slot_date.
+        # Keep a candidate in a single board column while preferring slot-booking
+        # timing and falling back to real interview records when slots are absent.
         if candidate.id in interview_today_candidate_ids:
             display_stage = CandidateStage.INTERVIEWED
             display_stage_key = display_stage.value
