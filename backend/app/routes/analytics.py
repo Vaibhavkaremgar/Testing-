@@ -368,20 +368,38 @@ def _get_interview_slot_pipeline_stages(db: Session, candidate_ids: List[UUID], 
 
     rows = db.execute(
         text("""
+            WITH normalized_slots AS (
+                SELECT
+                    candidate_id::text AS candidate_id,
+                    LEFT(
+                        COALESCE(
+                            NULLIF(payload->>'interview_date', ''),
+                            NULLIF(payload->>'interviewDate', '')
+                        ),
+                        10
+                    )::date AS interview_date,
+                    COALESCE(
+                        NULLIF(payload->>'slot_selection_confirmed_at', ''),
+                        NULLIF(payload->>'slotSelectionConfirmedAt', '')
+                    ) AS confirmed_at,
+                    consumed_at,
+                    created_at
+                FROM notification_workflow_tokens
+                WHERE candidate_id IS NOT NULL
+                  AND token_type = 'slot_selection'
+                  AND candidate_id::text = ANY(:candidate_ids)
+            )
             SELECT
-                candidate_id::text AS candidate_id,
+                candidate_id,
                 CASE
-                    WHEN (payload->>'interview_date')::date = CURRENT_DATE THEN 'today'
-                    WHEN (payload->>'interview_date')::date > CURRENT_DATE THEN 'future'
+                    WHEN interview_date = CURRENT_DATE THEN 'today'
+                    WHEN interview_date > CURRENT_DATE THEN 'future'
                     ELSE 'past'
                 END AS slot_timing
-            FROM notification_workflow_tokens
-            WHERE candidate_id IS NOT NULL
-              AND token_type = 'slot_selection'
-              AND COALESCE(payload->>'slot_selection_confirmed_at', '') <> ''
-              AND COALESCE(payload->>'interview_date', '') <> ''
-              AND candidate_id::text = ANY(:candidate_ids)
-              AND (payload->>'interview_date')::date >= CURRENT_DATE
+            FROM normalized_slots
+            WHERE COALESCE(confirmed_at, '') <> ''
+              AND interview_date IS NOT NULL
+              AND interview_date >= CURRENT_DATE
             ORDER BY candidate_id, consumed_at DESC NULLS LAST, created_at DESC
         """),
         {"candidate_ids": [str(candidate_id) for candidate_id in candidate_ids]},
@@ -418,14 +436,30 @@ def _count_upcoming_interview_slots(db: Session, candidate_ids: List[UUID], toda
 
     count = db.execute(
         text("""
+            WITH normalized_slots AS (
+                SELECT
+                    candidate_id::text AS candidate_id,
+                    LEFT(
+                        COALESCE(
+                            NULLIF(payload->>'interview_date', ''),
+                            NULLIF(payload->>'interviewDate', '')
+                        ),
+                        10
+                    )::date AS interview_date,
+                    COALESCE(
+                        NULLIF(payload->>'slot_selection_confirmed_at', ''),
+                        NULLIF(payload->>'slotSelectionConfirmedAt', '')
+                    ) AS confirmed_at
+                FROM notification_workflow_tokens
+                WHERE candidate_id IS NOT NULL
+                  AND token_type = 'slot_selection'
+                  AND candidate_id::text = ANY(:candidate_ids)
+            )
             SELECT COUNT(DISTINCT candidate_id) AS slot_count
-            FROM notification_workflow_tokens
-            WHERE candidate_id IS NOT NULL
-              AND token_type = 'slot_selection'
-              AND COALESCE(payload->>'slot_selection_confirmed_at', '') <> ''
-              AND COALESCE(payload->>'interview_date', '') <> ''
-              AND (payload->>'interview_date')::date >= CURRENT_DATE
-              AND candidate_id::text = ANY(:candidate_ids)
+            FROM normalized_slots
+            WHERE COALESCE(confirmed_at, '') <> ''
+              AND interview_date IS NOT NULL
+              AND interview_date >= CURRENT_DATE
         """),
         {
             "candidate_ids": [str(candidate_id) for candidate_id in candidate_ids],
