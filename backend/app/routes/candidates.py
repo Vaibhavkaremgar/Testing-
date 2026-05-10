@@ -731,7 +731,7 @@ def _get_interview_slot_pipeline_stages(db: Session, candidate_ids: List[UUID], 
     candidate_column = next(
         (
             normalized_column_lookup.get(candidate_key)
-            for candidate_key in ("candidateid", "candidate")
+            for candidate_key in ("candidate_id", "candidateid", "candidate")
             if normalized_column_lookup.get(candidate_key)
         ),
         None,
@@ -744,18 +744,21 @@ def _get_interview_slot_pipeline_stages(db: Session, candidate_ids: List[UUID], 
             SELECT
                 {candidate_column}::text AS candidate_id,
                 CASE
-                    WHEN slot_date::date = CURRENT_DATE THEN 'today'
-                    WHEN slot_date::date > CURRENT_DATE THEN 'future'
+                    WHEN slot_date::date = :today THEN 'today'
+                    WHEN slot_date::date > :today THEN 'future'
                     ELSE 'past'
                 END AS slot_timing
             FROM interview_slots
             WHERE {candidate_column} IS NOT NULL
               AND slot_date IS NOT NULL
               AND {candidate_column}::text = ANY(:candidate_ids)
-              AND slot_date::date >= CURRENT_DATE
+              AND slot_date::date >= :today
             ORDER BY {candidate_column}::text
         """),
-        {"candidate_ids": [str(candidate_id) for candidate_id in candidate_ids]},
+        {
+            "candidate_ids": [str(candidate_id) for candidate_id in candidate_ids],
+            "today": today,
+        },
     ).mappings().all()
 
     slot_stage_by_candidate: Dict[UUID, CandidateStage] = {}
@@ -822,18 +825,21 @@ def _get_interview_slot_candidate_ids_by_timing(
             SELECT
                 {candidate_column}::text AS candidate_id,
                 CASE
-                    WHEN slot_date::date = CURRENT_DATE THEN 'today'
-                    WHEN slot_date::date > CURRENT_DATE THEN 'future'
+                    WHEN slot_date::date = :today THEN 'today'
+                    WHEN slot_date::date > :today THEN 'future'
                     ELSE 'past'
                 END AS slot_timing
             FROM interview_slots
             WHERE {candidate_column} IS NOT NULL
               AND slot_date IS NOT NULL
               AND {candidate_column}::text = ANY(:candidate_ids)
-              AND slot_date::date >= CURRENT_DATE
+              AND slot_date::date >= :today
             ORDER BY {candidate_column}::text
         """),
-        {"candidate_ids": [str(candidate_id) for candidate_id in candidate_ids]},
+        {
+            "candidate_ids": [str(candidate_id) for candidate_id in candidate_ids],
+            "today": today,
+        },
     ).mappings().all()
 
     today_candidate_ids: set[UUID] = set()

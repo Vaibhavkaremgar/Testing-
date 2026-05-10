@@ -386,18 +386,21 @@ def _get_interview_slot_pipeline_stages(db: Session, candidate_ids: List[UUID], 
             SELECT
                 {candidate_column}::text AS candidate_id,
                 CASE
-                    WHEN slot_date::date = CURRENT_DATE THEN 'today'
-                    WHEN slot_date::date > CURRENT_DATE THEN 'future'
+                    WHEN slot_date::date = :today THEN 'today'
+                    WHEN slot_date::date > :today THEN 'future'
                     ELSE 'past'
                 END AS slot_timing
             FROM interview_slots
             WHERE {candidate_column} IS NOT NULL
               AND slot_date IS NOT NULL
               AND {candidate_column}::text = ANY(:candidate_ids)
-              AND slot_date::date >= CURRENT_DATE
+              AND slot_date::date >= :today
             ORDER BY {candidate_column}::text
         """),
-        {"candidate_ids": [str(candidate_id) for candidate_id in candidate_ids]},
+        {
+            "candidate_ids": [str(candidate_id) for candidate_id in candidate_ids],
+            "today": today,
+        },
     ).mappings().all()
 
     slot_stage_by_candidate: Dict[UUID, CandidateStage] = {}
@@ -450,11 +453,12 @@ def _count_upcoming_interview_slots(db: Session, candidate_ids: List[UUID], toda
             FROM interview_slots
             WHERE {candidate_column} IS NOT NULL
               AND slot_date IS NOT NULL
-              AND slot_date::date >= CURRENT_DATE
+              AND slot_date::date >= :today
               AND {candidate_column}::text = ANY(:candidate_ids)
         """),
         {
             "candidate_ids": [str(candidate_id) for candidate_id in candidate_ids],
+            "today": today,
         },
     ).scalar()
 
