@@ -366,6 +366,19 @@ def _get_interview_slot_pipeline_stages(db: Session, candidate_ids: List[UUID], 
     if not candidate_ids:
         return {}
 
+    candidate_rows = (
+        db.query(Candidate.id, Candidate.candidate_id)
+        .filter(Candidate.id.in_(candidate_ids))
+        .all()
+    )
+    candidate_lookup: dict[str, UUID] = {}
+    for candidate_uuid, candidate_code in candidate_rows:
+        candidate_lookup[str(candidate_uuid)] = candidate_uuid
+        if candidate_code:
+            candidate_lookup[str(candidate_code).strip()] = candidate_uuid
+    if not candidate_lookup:
+        return {}
+
     column_names = _get_table_columns(db, "interview_slots")
     if not column_names or "slot_date" not in column_names:
         return {}
@@ -398,7 +411,7 @@ def _get_interview_slot_pipeline_stages(db: Session, candidate_ids: List[UUID], 
             ORDER BY {candidate_column}::text
         """),
         {
-            "candidate_ids": [str(candidate_id) for candidate_id in candidate_ids],
+            "candidate_ids": list(candidate_lookup.keys()),
             "today": today,
         },
     ).mappings().all()
@@ -410,9 +423,8 @@ def _get_interview_slot_pipeline_stages(db: Session, candidate_ids: List[UUID], 
         if not candidate_id_raw or not slot_timing:
             continue
 
-        try:
-            candidate_id = UUID(str(candidate_id_raw))
-        except (ValueError, TypeError):
+        candidate_id = candidate_lookup.get(str(candidate_id_raw).strip())
+        if not candidate_id:
             continue
 
         if candidate_id in slot_stage_by_candidate:
@@ -430,6 +442,19 @@ def _get_interview_slot_pipeline_stages(db: Session, candidate_ids: List[UUID], 
 
 def _count_upcoming_interview_slots(db: Session, candidate_ids: List[UUID], today) -> int:
     if not candidate_ids:
+        return 0
+
+    candidate_rows = (
+        db.query(Candidate.id, Candidate.candidate_id)
+        .filter(Candidate.id.in_(candidate_ids))
+        .all()
+    )
+    candidate_lookup_keys: list[str] = []
+    for candidate_uuid, candidate_code in candidate_rows:
+        candidate_lookup_keys.append(str(candidate_uuid))
+        if candidate_code:
+            candidate_lookup_keys.append(str(candidate_code).strip())
+    if not candidate_lookup_keys:
         return 0
 
     column_names = _get_table_columns(db, "interview_slots")
@@ -457,7 +482,7 @@ def _count_upcoming_interview_slots(db: Session, candidate_ids: List[UUID], toda
               AND {candidate_column}::text = ANY(:candidate_ids)
         """),
         {
-            "candidate_ids": [str(candidate_id) for candidate_id in candidate_ids],
+            "candidate_ids": candidate_lookup_keys,
             "today": today,
         },
     ).scalar()

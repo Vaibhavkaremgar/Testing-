@@ -276,6 +276,28 @@ def _get_india_today() -> date:
     return datetime.now(timezone.utc).astimezone(INDIA_TIMEZONE).date()
 
 
+def _build_slot_candidate_lookup(
+    db: Session,
+    candidate_ids: List[UUID],
+) -> dict[str, UUID]:
+    """Support slot tables that store either candidate UUIDs or external candidate_id strings."""
+    if not candidate_ids:
+        return {}
+
+    rows = (
+        db.query(Candidate.id, Candidate.candidate_id)
+        .filter(Candidate.id.in_(candidate_ids))
+        .all()
+    )
+
+    lookup: dict[str, UUID] = {}
+    for candidate_uuid, candidate_code in rows:
+        lookup[str(candidate_uuid)] = candidate_uuid
+        if candidate_code:
+            lookup[str(candidate_code).strip()] = candidate_uuid
+    return lookup
+
+
 def _apply_candidate_list_scope(query, current_user):
     from sqlalchemy.orm import aliased
     from app.models import JobDescription, User, UserRole
@@ -713,6 +735,10 @@ def _get_interview_slot_pipeline_stages(db: Session, candidate_ids: List[UUID], 
     if not candidate_ids:
         return {}
 
+    candidate_lookup = _build_slot_candidate_lookup(db, candidate_ids)
+    if not candidate_lookup:
+        return {}
+
     columns = db.execute(text(
         """
         SELECT column_name
@@ -756,7 +782,7 @@ def _get_interview_slot_pipeline_stages(db: Session, candidate_ids: List[UUID], 
             ORDER BY {candidate_column}::text
         """),
         {
-            "candidate_ids": [str(candidate_id) for candidate_id in candidate_ids],
+            "candidate_ids": list(candidate_lookup.keys()),
             "today": today,
         },
     ).mappings().all()
@@ -768,9 +794,8 @@ def _get_interview_slot_pipeline_stages(db: Session, candidate_ids: List[UUID], 
         if not candidate_id_raw or not slot_timing:
             continue
 
-        try:
-            candidate_id = UUID(str(candidate_id_raw))
-        except (ValueError, TypeError):
+        candidate_id = candidate_lookup.get(str(candidate_id_raw).strip())
+        if not candidate_id:
             continue
 
         if candidate_id in slot_stage_by_candidate:
@@ -794,6 +819,10 @@ def _get_interview_slot_candidate_ids_by_timing(
     if not candidate_ids:
         return set(), set()
 
+    candidate_lookup = _build_slot_candidate_lookup(db, candidate_ids)
+    if not candidate_lookup:
+        return set(), set()
+
     columns = db.execute(text(
         """
         SELECT column_name
@@ -837,7 +866,7 @@ def _get_interview_slot_candidate_ids_by_timing(
             ORDER BY {candidate_column}::text
         """),
         {
-            "candidate_ids": [str(candidate_id) for candidate_id in candidate_ids],
+            "candidate_ids": list(candidate_lookup.keys()),
             "today": today,
         },
     ).mappings().all()
@@ -850,9 +879,8 @@ def _get_interview_slot_candidate_ids_by_timing(
         if not candidate_id_raw or not slot_timing:
             continue
 
-        try:
-            candidate_id = UUID(str(candidate_id_raw))
-        except (ValueError, TypeError):
+        candidate_id = candidate_lookup.get(str(candidate_id_raw).strip())
+        if not candidate_id:
             continue
 
         if candidate_id in today_candidate_ids or candidate_id in future_candidate_ids:
