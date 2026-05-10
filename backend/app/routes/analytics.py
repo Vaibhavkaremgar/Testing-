@@ -386,7 +386,6 @@ def _get_interview_slot_pipeline_stages(db: Session, candidate_ids: List[UUID], 
                     created_at
                 FROM notification_workflow_tokens
                 WHERE candidate_id IS NOT NULL
-                  AND token_type = 'slot_selection'
                   AND candidate_id::text = ANY(:candidate_ids)
             )
             SELECT
@@ -452,7 +451,6 @@ def _count_upcoming_interview_slots(db: Session, candidate_ids: List[UUID], toda
                     ) AS confirmed_at
                 FROM notification_workflow_tokens
                 WHERE candidate_id IS NOT NULL
-                  AND token_type = 'slot_selection'
                   AND candidate_id::text = ANY(:candidate_ids)
             )
             SELECT COUNT(DISTINCT candidate_id) AS slot_count

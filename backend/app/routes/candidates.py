@@ -733,7 +733,6 @@ def _get_interview_slot_pipeline_stages(db: Session, candidate_ids: List[UUID], 
                     created_at
                 FROM notification_workflow_tokens
                 WHERE candidate_id IS NOT NULL
-                  AND token_type = 'slot_selection'
                   AND candidate_id::text = ANY(:candidate_ids)
             )
             SELECT
@@ -805,7 +804,6 @@ def _get_interview_slot_candidate_ids_by_timing(
                     created_at
                 FROM notification_workflow_tokens
                 WHERE candidate_id IS NOT NULL
-                  AND token_type = 'slot_selection'
                   AND candidate_id::text = ANY(:candidate_ids)
             )
             SELECT
