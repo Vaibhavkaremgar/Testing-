@@ -13,7 +13,7 @@ import random
 import tempfile
 import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from threading import Lock
 from time import monotonic, perf_counter
 from app.database import SessionLocal, get_db
@@ -62,6 +62,7 @@ _recent_upload_requests_lock = Lock()
 LOCATION_NOISE_PATTERN = re.compile(
     r"(?i)\b(?:managing|managed|operations|including|across|responsible|experience|years|sales|development|engineer|developer|manager|executive|specialist|lead|worked|work|support|project|projects|regional)\b"
 )
+INDIA_TIMEZONE = timezone(timedelta(hours=5, minutes=30))
 
 
 def normalize_legacy_candidate_stages(db: Session) -> None:
@@ -268,6 +269,11 @@ def _resolve_pagination(page: Optional[int], limit: Optional[int], offset: Optio
         effective_offset = offset if offset is not None else (safe_page - 1) * safe_limit
         return safe_limit, max(0, effective_offset)
     return None, 0
+
+
+def _get_india_today() -> date:
+    """Use the slot-booking local date so interview_slots.slot_date maps consistently on hosted servers."""
+    return datetime.now(timezone.utc).astimezone(INDIA_TIMEZONE).date()
 
 
 def _apply_candidate_list_scope(query, current_user):
@@ -735,41 +741,39 @@ def _get_interview_slot_pipeline_stages(db: Session, candidate_ids: List[UUID], 
 
     rows = db.execute(
         text(f"""
-            SELECT {candidate_column}::text AS candidate_id, slot_date::date AS slot_date
+            SELECT
+                {candidate_column}::text AS candidate_id,
+                CASE
+                    WHEN slot_date::date = CURRENT_DATE THEN 'today'
+                    WHEN slot_date::date > CURRENT_DATE THEN 'future'
+                    ELSE 'past'
+                END AS slot_timing
             FROM interview_slots
             WHERE {candidate_column} IS NOT NULL
               AND slot_date IS NOT NULL
+              AND {candidate_column}::text = ANY(:candidate_ids)
+              AND slot_date::date >= CURRENT_DATE
         """),
+        {"candidate_ids": [str(candidate_id) for candidate_id in candidate_ids]},
     ).mappings().all()
 
-    candidate_id_set = {candidate_id for candidate_id in candidate_ids}
     slot_stage_by_candidate: Dict[UUID, CandidateStage] = {}
     for row in rows:
         candidate_id_raw = row.get("candidate_id")
-        slot_date = row.get("slot_date")
-        if not candidate_id_raw or slot_date is None:
+        slot_timing = row.get("slot_timing")
+        if not candidate_id_raw or not slot_timing:
             continue
-
-        if isinstance(slot_date, datetime):
-            slot_date = slot_date.date()
-        elif isinstance(slot_date, str):
-            try:
-                slot_date = date.fromisoformat(slot_date)
-            except ValueError:
-                continue
 
         try:
             candidate_id = UUID(str(candidate_id_raw))
         except (ValueError, TypeError):
             continue
-        if candidate_id not in candidate_id_set:
-            continue
 
-        if slot_date == today:
+        if slot_timing == "today":
             slot_stage_by_candidate[candidate_id] = CandidateStage.INTERVIEWED
             continue
 
-        if slot_date > today and slot_stage_by_candidate.get(candidate_id) != CandidateStage.INTERVIEWED:
+        if slot_timing == "future" and slot_stage_by_candidate.get(candidate_id) != CandidateStage.INTERVIEWED:
             slot_stage_by_candidate[candidate_id] = CandidateStage.INTERVIEW_SCHEDULED
 
     return slot_stage_by_candidate
@@ -811,11 +815,18 @@ def _get_interview_slot_candidate_ids_by_timing(
 
     rows = db.execute(
         text(f"""
-            SELECT {candidate_column}::text AS candidate_id, slot_date::date AS slot_date
+            SELECT
+                {candidate_column}::text AS candidate_id,
+                CASE
+                    WHEN slot_date::date = CURRENT_DATE THEN 'today'
+                    WHEN slot_date::date > CURRENT_DATE THEN 'future'
+                    ELSE 'past'
+                END AS slot_timing
             FROM interview_slots
             WHERE {candidate_column} IS NOT NULL
               AND slot_date IS NOT NULL
               AND {candidate_column}::text = ANY(:candidate_ids)
+              AND slot_date::date >= CURRENT_DATE
         """),
         {"candidate_ids": [str(candidate_id) for candidate_id in candidate_ids]},
     ).mappings().all()
@@ -824,26 +835,18 @@ def _get_interview_slot_candidate_ids_by_timing(
     future_candidate_ids: set[UUID] = set()
     for row in rows:
         candidate_id_raw = row.get("candidate_id")
-        slot_date = row.get("slot_date")
-        if not candidate_id_raw or slot_date is None:
+        slot_timing = row.get("slot_timing")
+        if not candidate_id_raw or not slot_timing:
             continue
-
-        if isinstance(slot_date, datetime):
-            slot_date = slot_date.date()
-        elif isinstance(slot_date, str):
-            try:
-                slot_date = date.fromisoformat(slot_date)
-            except ValueError:
-                continue
 
         try:
             candidate_id = UUID(str(candidate_id_raw))
         except (ValueError, TypeError):
             continue
 
-        if slot_date == today:
+        if slot_timing == "today":
             today_candidate_ids.add(candidate_id)
-        elif slot_date > today:
+        elif slot_timing == "future":
             future_candidate_ids.add(candidate_id)
 
     return today_candidate_ids, future_candidate_ids
@@ -3549,7 +3552,7 @@ def get_pipeline_stages(
     stages = {stage.value: [] for stage in CandidateStage}
     stages.setdefault(completed_stage_key, [])
     candidate_ids = [candidate.id for candidate in candidates]
-    today = datetime.now().date()
+    today = _get_india_today()
     interview_today_candidate_ids, interview_scheduled_candidate_ids = _get_interview_slot_candidate_ids_by_timing(
         db,
         candidate_ids,

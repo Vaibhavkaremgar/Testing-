@@ -383,11 +383,18 @@ def _get_interview_slot_pipeline_stages(db: Session, candidate_ids: List[UUID], 
 
     rows = db.execute(
         text(f"""
-            SELECT {candidate_column}::text AS candidate_id, slot_date::date AS slot_date
+            SELECT
+                {candidate_column}::text AS candidate_id,
+                CASE
+                    WHEN slot_date::date = CURRENT_DATE THEN 'today'
+                    WHEN slot_date::date > CURRENT_DATE THEN 'future'
+                    ELSE 'past'
+                END AS slot_timing
             FROM interview_slots
             WHERE {candidate_column} IS NOT NULL
               AND slot_date IS NOT NULL
               AND {candidate_column}::text = ANY(:candidate_ids)
+              AND slot_date::date >= CURRENT_DATE
         """),
         {"candidate_ids": [str(candidate_id) for candidate_id in candidate_ids]},
     ).mappings().all()
@@ -395,28 +402,20 @@ def _get_interview_slot_pipeline_stages(db: Session, candidate_ids: List[UUID], 
     slot_stage_by_candidate: Dict[UUID, CandidateStage] = {}
     for row in rows:
         candidate_id_raw = row.get("candidate_id")
-        slot_date = row.get("slot_date")
-        if not candidate_id_raw or slot_date is None:
+        slot_timing = row.get("slot_timing")
+        if not candidate_id_raw or not slot_timing:
             continue
-
-        if isinstance(slot_date, datetime):
-            slot_date = slot_date.date()
-        elif isinstance(slot_date, str):
-            try:
-                slot_date = date_cls.fromisoformat(slot_date)
-            except ValueError:
-                continue
 
         try:
             candidate_id = UUID(str(candidate_id_raw))
         except (ValueError, TypeError):
             continue
 
-        if slot_date == today:
+        if slot_timing == "today":
             slot_stage_by_candidate[candidate_id] = CandidateStage.INTERVIEWED
             continue
 
-        if slot_date > today and slot_stage_by_candidate.get(candidate_id) != CandidateStage.INTERVIEWED:
+        if slot_timing == "future" and slot_stage_by_candidate.get(candidate_id) != CandidateStage.INTERVIEWED:
             slot_stage_by_candidate[candidate_id] = CandidateStage.INTERVIEW_SCHEDULED
 
     return slot_stage_by_candidate
