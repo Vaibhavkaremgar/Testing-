@@ -678,20 +678,6 @@ def resolve_slot_backed_pipeline_stage(
     if slot_stage in {CandidateStage.INTERVIEW_SCHEDULED, CandidateStage.INTERVIEWED}:
         return slot_stage
 
-    if display_stage in {CandidateStage.INTERVIEW_SCHEDULED, CandidateStage.INTERVIEWED}:
-        candidate_stage = candidate.stage
-        if candidate_stage in {
-            CandidateStage.REVIEW,
-            CandidateStage.SHORTLISTED,
-            CandidateStage.RESUME_REJECTED,
-            CandidateStage.INTERVIEW_RESCHEDULED,
-            CandidateStage.NO_SHOW,
-            CandidateStage.SELECTED,
-            CandidateStage.REJECTED,
-        }:
-            return candidate_stage
-        return CandidateStage.SHORTLISTED
-
     return display_stage
 
 
