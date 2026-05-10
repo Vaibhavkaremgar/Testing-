@@ -366,35 +366,23 @@ def _get_interview_slot_pipeline_stages(db: Session, candidate_ids: List[UUID], 
     if not candidate_ids:
         return {}
 
-    column_names = _get_table_columns(db, "interview_slots")
-    if not column_names or "slot_date" not in column_names:
-        return {}
-
-    candidate_column = next(
-        (
-            column_name
-            for column_name in ("candidate_id", "candidateId", "candidate")
-            if column_name in column_names
-        ),
-        None,
-    )
-    if not candidate_column:
-        return {}
-
     rows = db.execute(
-        text(f"""
+        text("""
             SELECT
-                {candidate_column}::text AS candidate_id,
+                candidate_id::text AS candidate_id,
                 CASE
-                    WHEN slot_date::date = CURRENT_DATE THEN 'today'
-                    WHEN slot_date::date > CURRENT_DATE THEN 'future'
+                    WHEN (payload->>'interview_date')::date = CURRENT_DATE THEN 'today'
+                    WHEN (payload->>'interview_date')::date > CURRENT_DATE THEN 'future'
                     ELSE 'past'
                 END AS slot_timing
-            FROM interview_slots
-            WHERE {candidate_column} IS NOT NULL
-              AND slot_date IS NOT NULL
-              AND {candidate_column}::text = ANY(:candidate_ids)
-              AND slot_date::date >= CURRENT_DATE
+            FROM notification_workflow_tokens
+            WHERE candidate_id IS NOT NULL
+              AND token_type = 'slot_selection'
+              AND COALESCE(payload->>'slot_selection_confirmed_at', '') <> ''
+              AND COALESCE(payload->>'interview_date', '') <> ''
+              AND candidate_id::text = ANY(:candidate_ids)
+              AND (payload->>'interview_date')::date >= CURRENT_DATE
+            ORDER BY candidate_id, consumed_at DESC NULLS LAST, created_at DESC
         """),
         {"candidate_ids": [str(candidate_id) for candidate_id in candidate_ids]},
     ).mappings().all()
@@ -411,11 +399,14 @@ def _get_interview_slot_pipeline_stages(db: Session, candidate_ids: List[UUID], 
         except (ValueError, TypeError):
             continue
 
+        if candidate_id in slot_stage_by_candidate:
+            continue
+
         if slot_timing == "today":
             slot_stage_by_candidate[candidate_id] = CandidateStage.INTERVIEWED
             continue
 
-        if slot_timing == "future" and slot_stage_by_candidate.get(candidate_id) != CandidateStage.INTERVIEWED:
+        if slot_timing == "future":
             slot_stage_by_candidate[candidate_id] = CandidateStage.INTERVIEW_SCHEDULED
 
     return slot_stage_by_candidate
@@ -425,32 +416,18 @@ def _count_upcoming_interview_slots(db: Session, candidate_ids: List[UUID], toda
     if not candidate_ids:
         return 0
 
-    column_names = _get_table_columns(db, "interview_slots")
-    if not column_names or "slot_date" not in column_names:
-        return 0
-
-    candidate_column = next(
-        (
-            column_name
-            for column_name in ("candidate_id", "candidateId", "candidate")
-            if column_name in column_names
-        ),
-        None,
-    )
-    if not candidate_column:
-        return 0
-
     count = db.execute(
-        text(f"""
-            SELECT COUNT(*) AS slot_count
-            FROM interview_slots
-            WHERE {candidate_column} IS NOT NULL
-              AND slot_date IS NOT NULL
-              AND slot_date::date >= :today
-              AND {candidate_column}::text = ANY(:candidate_ids)
+        text("""
+            SELECT COUNT(DISTINCT candidate_id) AS slot_count
+            FROM notification_workflow_tokens
+            WHERE candidate_id IS NOT NULL
+              AND token_type = 'slot_selection'
+              AND COALESCE(payload->>'slot_selection_confirmed_at', '') <> ''
+              AND COALESCE(payload->>'interview_date', '') <> ''
+              AND (payload->>'interview_date')::date >= CURRENT_DATE
+              AND candidate_id::text = ANY(:candidate_ids)
         """),
         {
-            "today": today,
             "candidate_ids": [str(candidate_id) for candidate_id in candidate_ids],
         },
     ).scalar()

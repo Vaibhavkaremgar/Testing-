@@ -713,46 +713,23 @@ def _get_interview_slot_pipeline_stages(db: Session, candidate_ids: List[UUID], 
     if not candidate_ids:
         return {}
 
-    columns = db.execute(text(
-        """
-        SELECT column_name
-        FROM information_schema.columns
-        WHERE table_schema = 'public' AND table_name = 'interview_slots'
-        """
-    )).fetchall()
-    column_names = {row[0] for row in columns}
-    if not column_names or "slot_date" not in column_names:
-        return {}
-
-    normalized_column_lookup = {
-        column_name.lower().replace("_", ""): column_name
-        for column_name in column_names
-    }
-    candidate_column = next(
-        (
-            normalized_column_lookup.get(candidate_key)
-            for candidate_key in ("candidateid", "candidate")
-            if normalized_column_lookup.get(candidate_key)
-        ),
-        None,
-    )
-    if not candidate_column:
-        return {}
-
     rows = db.execute(
-        text(f"""
+        text("""
             SELECT
-                {candidate_column}::text AS candidate_id,
+                candidate_id::text AS candidate_id,
                 CASE
-                    WHEN slot_date::date = CURRENT_DATE THEN 'today'
-                    WHEN slot_date::date > CURRENT_DATE THEN 'future'
+                    WHEN (payload->>'interview_date')::date = CURRENT_DATE THEN 'today'
+                    WHEN (payload->>'interview_date')::date > CURRENT_DATE THEN 'future'
                     ELSE 'past'
                 END AS slot_timing
-            FROM interview_slots
-            WHERE {candidate_column} IS NOT NULL
-              AND slot_date IS NOT NULL
-              AND {candidate_column}::text = ANY(:candidate_ids)
-              AND slot_date::date >= CURRENT_DATE
+            FROM notification_workflow_tokens
+            WHERE candidate_id IS NOT NULL
+              AND token_type = 'slot_selection'
+              AND COALESCE(payload->>'slot_selection_confirmed_at', '') <> ''
+              AND COALESCE(payload->>'interview_date', '') <> ''
+              AND candidate_id::text = ANY(:candidate_ids)
+              AND (payload->>'interview_date')::date >= CURRENT_DATE
+            ORDER BY candidate_id, consumed_at DESC NULLS LAST, created_at DESC
         """),
         {"candidate_ids": [str(candidate_id) for candidate_id in candidate_ids]},
     ).mappings().all()
@@ -769,11 +746,14 @@ def _get_interview_slot_pipeline_stages(db: Session, candidate_ids: List[UUID], 
         except (ValueError, TypeError):
             continue
 
+        if candidate_id in slot_stage_by_candidate:
+            continue
+
         if slot_timing == "today":
             slot_stage_by_candidate[candidate_id] = CandidateStage.INTERVIEWED
             continue
 
-        if slot_timing == "future" and slot_stage_by_candidate.get(candidate_id) != CandidateStage.INTERVIEWED:
+        if slot_timing == "future":
             slot_stage_by_candidate[candidate_id] = CandidateStage.INTERVIEW_SCHEDULED
 
     return slot_stage_by_candidate
@@ -787,46 +767,23 @@ def _get_interview_slot_candidate_ids_by_timing(
     if not candidate_ids:
         return set(), set()
 
-    columns = db.execute(text(
-        """
-        SELECT column_name
-        FROM information_schema.columns
-        WHERE table_schema = 'public' AND table_name = 'interview_slots'
-        """
-    )).fetchall()
-    column_names = {row[0] for row in columns}
-    if not column_names or "slot_date" not in column_names:
-        return set(), set()
-
-    normalized_column_lookup = {
-        column_name.lower().replace("_", ""): column_name
-        for column_name in column_names
-    }
-    candidate_column = next(
-        (
-            normalized_column_lookup.get(candidate_key)
-            for candidate_key in ("candidate_id", "candidateid", "candidate")
-            if normalized_column_lookup.get(candidate_key)
-        ),
-        None,
-    )
-    if not candidate_column:
-        return set(), set()
-
     rows = db.execute(
-        text(f"""
+        text("""
             SELECT
-                {candidate_column}::text AS candidate_id,
+                candidate_id::text AS candidate_id,
                 CASE
-                    WHEN slot_date::date = CURRENT_DATE THEN 'today'
-                    WHEN slot_date::date > CURRENT_DATE THEN 'future'
+                    WHEN (payload->>'interview_date')::date = CURRENT_DATE THEN 'today'
+                    WHEN (payload->>'interview_date')::date > CURRENT_DATE THEN 'future'
                     ELSE 'past'
                 END AS slot_timing
-            FROM interview_slots
-            WHERE {candidate_column} IS NOT NULL
-              AND slot_date IS NOT NULL
-              AND {candidate_column}::text = ANY(:candidate_ids)
-              AND slot_date::date >= CURRENT_DATE
+            FROM notification_workflow_tokens
+            WHERE candidate_id IS NOT NULL
+              AND token_type = 'slot_selection'
+              AND COALESCE(payload->>'slot_selection_confirmed_at', '') <> ''
+              AND COALESCE(payload->>'interview_date', '') <> ''
+              AND candidate_id::text = ANY(:candidate_ids)
+              AND (payload->>'interview_date')::date >= CURRENT_DATE
+            ORDER BY candidate_id, consumed_at DESC NULLS LAST, created_at DESC
         """),
         {"candidate_ids": [str(candidate_id) for candidate_id in candidate_ids]},
     ).mappings().all()
@@ -842,6 +799,9 @@ def _get_interview_slot_candidate_ids_by_timing(
         try:
             candidate_id = UUID(str(candidate_id_raw))
         except (ValueError, TypeError):
+            continue
+
+        if candidate_id in today_candidate_ids or candidate_id in future_candidate_ids:
             continue
 
         if slot_timing == "today":
