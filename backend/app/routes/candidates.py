@@ -3564,9 +3564,15 @@ def get_pipeline_stages(
         display_stage = None
         display_stage_key = None
 
-        # Keep a candidate in a single board column while sourcing each section
-        # from the requested tables.
-        if candidate.id in selected_candidate_ids:
+        # Keep a candidate in a single board column while sourcing interview
+        # and interview schedule strictly from interview_slots.slot_date.
+        if candidate.id in interview_today_candidate_ids:
+            display_stage = CandidateStage.INTERVIEWED
+            display_stage_key = display_stage.value
+        elif candidate.id in interview_scheduled_candidate_ids:
+            display_stage = CandidateStage.INTERVIEW_SCHEDULED
+            display_stage_key = display_stage.value
+        elif candidate.id in selected_candidate_ids:
             display_stage = CandidateStage.SELECTED
             display_stage_key = display_stage.value
         elif candidate.id in rejected_candidate_ids:
@@ -3574,12 +3580,6 @@ def get_pipeline_stages(
             display_stage_key = display_stage.value
         elif candidate.id in completed_candidate_ids:
             display_stage_key = completed_stage_key
-        elif candidate.id in interview_today_candidate_ids:
-            display_stage = CandidateStage.INTERVIEWED
-            display_stage_key = display_stage.value
-        elif candidate.id in interview_scheduled_candidate_ids:
-            display_stage = CandidateStage.INTERVIEW_SCHEDULED
-            display_stage_key = display_stage.value
         elif candidate.stage == CandidateStage.APPLIED:
             display_stage = CandidateStage.APPLIED
             display_stage_key = display_stage.value
