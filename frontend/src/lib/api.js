@@ -439,7 +439,7 @@ class ApiClient {
       }
     })
     const query = searchParams.toString()
-    return this.request(`/candidates/pipeline/stages${query ? `?${query}` : ''}`)
+    return this.request(`/candidates/pipeline/stages${query ? `?${query}` : ''}`, { skipCache: true })
   }
 
   async syncCandidatesToSheets() {
