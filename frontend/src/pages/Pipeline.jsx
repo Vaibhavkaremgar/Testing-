@@ -151,20 +151,19 @@ function CandidateCard({
               </div>
             )}
             {candidate.current_company && (
-              <p className="text-xs text-muted-foreground truncate">{candidate.current_company}</p>
+              <p className="text-xs text-muted-foreground break-words">{candidate.current_company}</p>
             )}
             <div className="mt-2 flex items-center gap-2 min-w-0">
               {candidate.job_title && (
                 <div className="min-w-0 flex-1">
-                  <Badge
-                    variant="outline"
-                    className="flex w-full max-w-full overflow-hidden whitespace-nowrap text-ellipsis text-xs"
+                  <span
+                    className="inline-flex max-w-full rounded-full border px-2.5 py-1 text-xs leading-tight whitespace-normal break-words"
                     title={candidate.job_title}
                   >
-                    <span className="block min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
+                    <span className="block min-w-0">
                       {candidate.job_title}
                     </span>
-                  </Badge>
+                  </span>
                 </div>
               )}
               {candidate.resume_score !== null && candidate.resume_score !== undefined && candidate.resume_score !== '' && (
