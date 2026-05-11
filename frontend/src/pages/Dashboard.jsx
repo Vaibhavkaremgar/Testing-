@@ -25,7 +25,7 @@ const CANDIDATE_OWNED_STAGES = new Set(['REVIEW', 'SHORTLISTED', 'RESUME_REJECTE
 const INTERVIEW_OWNED_STAGES = new Set(['INTERVIEW_SCHEDULED', 'INTERVIEWED', 'SELECTED', 'REJECTED'])
 
 function resolveDashboardDisplayStage(candidate, latestInterview) {
-  if (candidate?.stage === 'INTERVIEW_RESCHEDULED' || candidate?.stage === 'NO_SHOW') {
+  if (candidate?.stage === 'NO_SHOW') {
     return candidate.stage
   }
 
@@ -51,6 +51,14 @@ function resolveDashboardDisplayStage(candidate, latestInterview) {
     if (status === 'scheduled') {
       return 'INTERVIEW_SCHEDULED'
     }
+
+    if (status === 'rescheduled' && candidate?.stage === 'INTERVIEW_RESCHEDULED') {
+      return 'INTERVIEW_RESCHEDULED'
+    }
+  }
+
+  if (candidate?.stage === 'INTERVIEW_RESCHEDULED') {
+    return candidate.stage
   }
 
   const effectiveThreshold = candidate?.score_threshold || 60
