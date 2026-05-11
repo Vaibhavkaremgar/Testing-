@@ -3904,7 +3904,10 @@ def get_pipeline_stages(
 
         # Keep a candidate in a single board column while preferring slot-booking
         # timing and falling back to real interview records when slots are absent.
-        if candidate.id in interview_today_candidate_ids:
+        if candidate.stage == CandidateStage.NO_SHOW:
+            display_stage = CandidateStage.NO_SHOW
+            display_stage_key = display_stage.value
+        elif candidate.id in interview_today_candidate_ids:
             display_stage = CandidateStage.INTERVIEWED
             display_stage_key = display_stage.value
         elif candidate.id in interview_scheduled_candidate_ids:
@@ -3933,10 +3936,6 @@ def get_pipeline_stages(
         elif candidate.stage == CandidateStage.RESUME_REJECTED:
             display_stage = CandidateStage.RESUME_REJECTED
             display_stage_key = display_stage.value
-        elif candidate.stage == CandidateStage.NO_SHOW:
-            display_stage = CandidateStage.NO_SHOW
-            display_stage_key = display_stage.value
-
         if not display_stage_key:
             continue
 
