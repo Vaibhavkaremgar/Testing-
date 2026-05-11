@@ -876,15 +876,86 @@ def sync_no_show_candidate_stages(db: Session) -> int:
         )
         .all()
     )
-    if not active_interviews:
-        return 0
-
     latest_interview_by_candidate: dict[UUID, Interview] = {}
     for interview in active_interviews:
         if interview.candidate_id not in latest_interview_by_candidate:
             latest_interview_by_candidate[interview.candidate_id] = interview
-
     candidate_ids = list(latest_interview_by_candidate.keys())
+
+    slot_candidate_ids = (
+        db.query(Candidate.id)
+        .filter(Candidate.stage.in_([CandidateStage.INTERVIEW_SCHEDULED, CandidateStage.INTERVIEW_RESCHEDULED]))
+        .all()
+    )
+    slot_candidate_ids = [candidate_id for (candidate_id,) in slot_candidate_ids]
+    if slot_candidate_ids:
+        candidate_lookup = _build_slot_candidate_lookup(db, slot_candidate_ids)
+        if candidate_lookup:
+            columns = db.execute(text(
+                """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = 'interview_slots'
+                """
+            )).fetchall()
+            column_names = {row[0] for row in columns}
+            normalized_column_lookup = {
+                column_name.lower().replace("_", ""): column_name
+                for column_name in column_names
+            }
+            candidate_column = next(
+                (
+                    normalized_column_lookup.get(candidate_key)
+                    for candidate_key in ("candidate_id", "candidateid", "candidate")
+                    if normalized_column_lookup.get(candidate_key)
+                ),
+                None,
+            )
+            slot_time_column = next(
+                (
+                    normalized_column_lookup.get(slot_time_key)
+                    for slot_time_key in ("slot_time", "slottime", "time")
+                    if normalized_column_lookup.get(slot_time_key)
+                ),
+                None,
+            )
+
+            if candidate_column and slot_time_column and "slot_date" in column_names:
+                now_ist = now_utc.astimezone(INDIA_TIMEZONE)
+                rows = db.execute(
+                    text(f"""
+                        SELECT
+                            {candidate_column}::text AS candidate_id,
+                            slot_date::date AS slot_date,
+                            {slot_time_column}::time AS slot_time
+                        FROM interview_slots
+                        WHERE {candidate_column} IS NOT NULL
+                          AND slot_date IS NOT NULL
+                          AND {slot_time_column} IS NOT NULL
+                          AND {candidate_column}::text = ANY(:candidate_ids)
+                          AND slot_date::date = :today
+                          AND {slot_time_column}::time <= :cutoff_time
+                        ORDER BY {candidate_column}::text, slot_date::date DESC, {slot_time_column}::time DESC
+                    """),
+                    {
+                        "candidate_ids": list(candidate_lookup.keys()),
+                        "today": now_ist.date(),
+                        "cutoff_time": now_ist.time().replace(second=0, microsecond=0),
+                    },
+                ).mappings().all()
+                for row in rows:
+                    candidate_id_raw = row.get("candidate_id")
+                    if not candidate_id_raw:
+                        continue
+                    candidate_id = candidate_lookup.get(str(candidate_id_raw).strip())
+                    if not candidate_id:
+                        continue
+                    if candidate_id not in candidate_ids:
+                        candidate_ids.append(candidate_id)
+
+    if not candidate_ids:
+        return 0
+
     candidates = (
         db.query(Candidate)
         .filter(Candidate.id.in_(candidate_ids))
@@ -895,24 +966,32 @@ def sync_no_show_candidate_stages(db: Session) -> int:
     updated_count = 0
     status_changed = False
     now = datetime.utcnow()
-    for candidate_id, interview in latest_interview_by_candidate.items():
+    for candidate in candidates:
+        candidate_id = candidate.id
+        interview = latest_interview_by_candidate.get(candidate_id)
+        if not interview and candidate.stage not in {CandidateStage.INTERVIEW_SCHEDULED, CandidateStage.INTERVIEW_RESCHEDULED}:
+            continue
+
         candidate = candidate_by_id.get(candidate_id)
         if not candidate:
             continue
 
         interview_started = bool(
-            interview.async_started_at
-            or interview.async_completed_at
-            or interview.transcript
-            or interview.ai_summary
-            or interview.video_url
-            or interview.interview_score is not None
-            or (interview.status or "").strip().lower() in {"ongoing", "completed", "selected", "rejected", "no_show"}
+            interview
+            and (
+                interview.async_started_at
+                or interview.async_completed_at
+                or interview.transcript
+                or interview.ai_summary
+                or interview.video_url
+                or interview.interview_score is not None
+                or (interview.status or "").strip().lower() in {"ongoing", "completed", "selected", "rejected", "no_show"}
+            )
         )
         if interview_started:
             continue
 
-        if (interview.status or "").strip().lower() != "no_show":
+        if interview and (interview.status or "").strip().lower() != "no_show":
             interview.status = "no_show"
             status_changed = True
 
@@ -2952,6 +3031,7 @@ def get_candidates_count(
 ):
     from app.models import UserRole
     normalize_legacy_candidate_stages(db)
+    sync_no_show_candidate_stages(db)
     sync_rescheduled_candidate_stages_from_slots(db)
     query = db.query(Candidate)
     if current_user.role == UserRole.SUPER_ADMIN:
@@ -2995,6 +3075,7 @@ def get_candidates(
     total_start = perf_counter()
     normalization_start = perf_counter()
     normalize_legacy_candidate_stages(db)
+    sync_no_show_candidate_stages(db)
     sync_rescheduled_candidate_stages_from_slots(db)
     normalization_time = perf_counter() - normalization_start
     query = db.query(Candidate)
@@ -3791,6 +3872,7 @@ def get_pipeline_stages(
     from app.models import JobDescription, UserRole
     completed_stage_key = "COMPLETED"
     normalize_legacy_candidate_stages(db)
+    sync_no_show_candidate_stages(db)
     sync_rescheduled_candidate_stages_from_slots(db)
     query = db.query(Candidate)
     if agency_id and current_user.role == UserRole.SUPER_ADMIN:
