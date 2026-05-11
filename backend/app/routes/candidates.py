@@ -2952,7 +2952,6 @@ def get_candidates_count(
 ):
     from app.models import UserRole
     normalize_legacy_candidate_stages(db)
-    sync_no_show_candidate_stages(db)
     sync_rescheduled_candidate_stages_from_slots(db)
     query = db.query(Candidate)
     if current_user.role == UserRole.SUPER_ADMIN:
@@ -2996,7 +2995,6 @@ def get_candidates(
     total_start = perf_counter()
     normalization_start = perf_counter()
     normalize_legacy_candidate_stages(db)
-    sync_no_show_candidate_stages(db)
     sync_rescheduled_candidate_stages_from_slots(db)
     normalization_time = perf_counter() - normalization_start
     query = db.query(Candidate)
@@ -3793,7 +3791,6 @@ def get_pipeline_stages(
     from app.models import JobDescription, UserRole
     completed_stage_key = "COMPLETED"
     normalize_legacy_candidate_stages(db)
-    sync_no_show_candidate_stages(db)
     sync_rescheduled_candidate_stages_from_slots(db)
     query = db.query(Candidate)
     if agency_id and current_user.role == UserRole.SUPER_ADMIN:

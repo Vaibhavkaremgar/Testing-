@@ -238,7 +238,14 @@ export default function Dashboard() {
 
   const stats = statsQuery.data || null
   const activeJobs = detailsQuery.data?.activeJobs || []
-  const upcomingInterviews = detailsQuery.data?.upcomingInterviews || []
+  const upcomingInterviews = (detailsQuery.data?.upcomingInterviews || []).filter((interview) => (
+    interview?.candidate_name
+    && (
+      interview?.job_title
+      || interview?.interview_type
+      || interview?.scheduled_at
+    )
+  ))
   const hiringMetrics = detailsQuery.data?.hiringMetrics || null
   const intelligence = detailsQuery.data?.intelligence || null
   const resumeTrend = deferredAnalyticsQuery.data?.resumeTrend || []

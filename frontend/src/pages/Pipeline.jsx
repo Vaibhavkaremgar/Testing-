@@ -45,6 +45,7 @@ function buildPipelineStages(baseStages = {}, interviews = []) {
   )
   const candidateById = new Map()
   const stageSetByCandidate = new Map()
+  const interviewDisplayStages = new Set(['INTERVIEW_SCHEDULED', 'INTERVIEW_RESCHEDULED', 'INTERVIEWED'])
 
   const latestInterviewsByCandidate = new Map()
   ;(interviews || []).forEach((interview) => {
@@ -66,6 +67,14 @@ function buildPipelineStages(baseStages = {}, interviews = []) {
     candidate?.job_title,
     candidate?.resume_score,
   ].filter((value) => value !== null && value !== undefined && value !== '').length)
+
+  const hasMeaningfulInterviewCardDetails = (candidate) => (
+    candidate?.company_name
+    || candidate?.current_role
+    || candidate?.current_company
+    || candidate?.job_title
+    || candidate?.resume_score !== null && candidate?.resume_score !== undefined && candidate?.resume_score !== ''
+  )
 
   Object.entries(baseStages || {}).forEach(([stageId, candidates]) => {
     ;(candidates || []).forEach((candidate) => {
@@ -100,6 +109,9 @@ function buildPipelineStages(baseStages = {}, interviews = []) {
 
     if (!nextStages[resolvedStage]) {
       nextStages[resolvedStage] = []
+    }
+    if (interviewDisplayStages.has(resolvedStage) && !hasMeaningfulInterviewCardDetails(candidate)) {
+      return
     }
     nextStages[resolvedStage].push({ ...candidate, stage: resolvedStage, display_stage: resolvedStage })
   })
