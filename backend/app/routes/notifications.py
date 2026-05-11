@@ -37,6 +37,21 @@ def _find_reschedulable_interview(db: Session, candidate_id):
     )
 
 
+def _mark_other_active_interviews_rescheduled(db: Session, candidate_id, keep_interview_id=None):
+    active_interviews = (
+        db.query(Interview)
+        .filter(
+            Interview.candidate_id == candidate_id,
+            ~Interview.status.in_(["selected", "rejected", "completed"]),
+        )
+        .all()
+    )
+    for interview in active_interviews:
+        if keep_interview_id and str(interview.id) == str(keep_interview_id):
+            continue
+        interview.status = "rescheduled"
+
+
 def _resolve_target_interview_for_slot_confirmation(db: Session, candidate: Candidate, payload: dict):
     interview_id = payload.get("reschedule_interview_id")
     if interview_id:
@@ -196,6 +211,10 @@ def create_slot_selection_link(
                 status=requested_status,
                 rendered=rendered,
             )
+        existing_interview = _resolve_target_interview_for_slot_confirmation(db, candidate, rendered["payload"])
+        if existing_interview:
+            existing_interview.status = "rescheduled"
+            _mark_other_active_interviews_rescheduled(db, candidate.id, existing_interview.id)
         candidate.stage = CandidateStage.INTERVIEW_RESCHEDULED
         candidate.stage_updated_at = datetime.utcnow()
         candidate.stage_entered_at = datetime.utcnow()
@@ -299,6 +318,7 @@ def confirm_slot_selection(
             status="scheduled",
         )
         db.add(db_interview)
+    _mark_other_active_interviews_rescheduled(db, candidate.id, db_interview.id)
     db.commit()
 
     from app.routes.analytics import clear_analytics_cache
