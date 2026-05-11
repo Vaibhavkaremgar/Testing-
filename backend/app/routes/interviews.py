@@ -1635,9 +1635,11 @@ def get_interviews(
     current_user: User = Depends(get_current_active_user)
 ):
     from app.models import UserRole, JobDescription
+    from app.routes.candidates import sync_no_show_candidate_stages
     total_start = perf_counter()
     normalization_start = perf_counter()
     normalize_legacy_candidate_stages(db)
+    sync_no_show_candidate_stages(db)
     normalization_time = perf_counter() - normalization_start
     query = db.query(Interview)
 

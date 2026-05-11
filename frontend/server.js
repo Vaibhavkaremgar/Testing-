@@ -13,6 +13,15 @@ const port = Number.parseInt(process.env.PORT || '3000', 10)
 
 const app = express()
 
+app.use((req, res, next) => {
+  if (req.path === '/' || req.path.endsWith('.html')) {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate')
+    res.setHeader('Pragma', 'no-cache')
+    res.setHeader('Expires', '0')
+  }
+  next()
+})
+
 // Redirect public job links at the server layer before SPA fallback.
 app.get('/jobs/*', (req, res) => {
   const targetUrl = `${publicJobsBaseUrl}${req.originalUrl}`
@@ -23,10 +32,14 @@ app.use(
   express.static(distDir, {
     index: false,
     maxAge: '7d',
+    immutable: true,
   })
 )
 
 app.get('*', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate')
+  res.setHeader('Pragma', 'no-cache')
+  res.setHeader('Expires', '0')
   res.sendFile(indexFile)
 })
 

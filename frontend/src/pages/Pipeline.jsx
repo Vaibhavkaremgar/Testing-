@@ -96,7 +96,9 @@ function buildPipelineStages(baseStages = {}, interviews = []) {
     const effectiveInterviewStatus = getEffectiveInterviewStatus(latestInterview)
     let resolvedStage = [...stageSet][0] || candidate.stage || candidate.display_stage
 
-    if (effectiveInterviewStatus === 'completed' && resolvedStage !== 'SELECTED' && resolvedStage !== 'REJECTED') {
+    if (resolvedStage === 'NO_SHOW' || stageSet.has('NO_SHOW')) {
+      resolvedStage = 'NO_SHOW'
+    } else if (effectiveInterviewStatus === 'completed' && resolvedStage !== 'SELECTED' && resolvedStage !== 'REJECTED') {
       resolvedStage = 'COMPLETED'
     } else if (latestInterview) {
       const interviewStatus = String(latestInterview.status || '').toLowerCase()
@@ -140,30 +142,28 @@ function CandidateCard({
       <CardContent className="p-3">
         <div className="flex items-start gap-2">
           <div className="flex-1 min-w-0">
-            <p className="font-medium text-sm truncate">{candidate.name}</p>
+            <p className="text-sm font-medium break-words">{candidate.name}</p>
             {candidate.company_name && (
-              <p className="text-xs text-primary font-medium truncate mt-1">{candidate.company_name}</p>
+              <p className="mt-1 text-xs font-medium text-primary break-words">{candidate.company_name}</p>
             )}
             {candidate.current_role && (
-              <div className="flex items-center gap-1 text-xs text-muted-foreground mt-1">
-                <Briefcase className="h-3 w-3" />
-                <span className="truncate">{candidate.current_role}</span>
+              <div className="mt-1 flex items-start gap-1 text-xs text-muted-foreground">
+                <Briefcase className="mt-0.5 h-3 w-3 shrink-0" />
+                <span className="break-words">{candidate.current_role}</span>
               </div>
             )}
             {candidate.current_company && (
               <p className="text-xs text-muted-foreground break-words">{candidate.current_company}</p>
             )}
-            <div className="mt-2 flex items-center gap-2 min-w-0">
+            <div className="mt-2 flex items-end gap-2 min-w-0">
               {candidate.job_title && (
                 <div className="min-w-0 flex-1">
-                  <span
-                    className="inline-flex max-w-full rounded-full border px-2.5 py-1 text-xs leading-tight whitespace-normal break-words"
+                  <div
+                    className="w-full rounded-xl border bg-background/70 px-2.5 py-1.5 text-xs leading-tight break-words"
                     title={candidate.job_title}
                   >
-                    <span className="block min-w-0">
-                      {candidate.job_title}
-                    </span>
-                  </span>
+                    {candidate.job_title}
+                  </div>
                 </div>
               )}
               {candidate.resume_score !== null && candidate.resume_score !== undefined && candidate.resume_score !== '' && (
@@ -186,7 +186,7 @@ function StageColumn({ stage, candidates, onApprove, onCardClick, onReject, acti
   const isDerivedStage = stage.id === 'COMPLETED'
 
   return (
-    <div className="flex flex-col w-72 flex-shrink-0">
+    <div className="flex w-80 flex-shrink-0 flex-col">
       <div className="flex items-center gap-2 mb-3">
         <div className={cn('w-3 h-3 rounded-full', stage.color)} />
         <h3 className="font-semibold text-sm">{stage.label}</h3>
