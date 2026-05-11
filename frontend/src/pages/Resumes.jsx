@@ -762,6 +762,36 @@ export default function Resumes() {
         return
       }
 
+      if (emailModal.type === 'reschedule') {
+        const candidateDetails = await api.getCandidate(selectedCandidate.id).catch(() => selectedCandidate)
+        const resolvedJob = candidateJob || (candidateDetails?.job_id ? await api.getJob(candidateDetails.job_id).catch(() => null) : null)
+
+        await api.createSlotSelectionLink(selectedCandidate.id, {
+          candidateName: candidateDetails?.name || selectedCandidate.name || '',
+          candidateEmail: candidateDetails?.email || selectedCandidate.email || '',
+          candidateId: candidateDetails?.id || selectedCandidate.id || '',
+          jobId: resolvedJob?.id || candidateDetails?.job_id || '',
+          jobTitle: resolvedJob?.title || candidateDetails?.job_title || '',
+          jobRole: candidateDetails?.current_role || resolvedJob?.title || '',
+          jobDescription: resolvedJob?.description || '',
+          resumeText: candidateDetails?.resume_text || selectedCandidate.resume_text || '',
+          predefinedQuestions: candidateDetails?.predefined_questions || '',
+          skills: Array.isArray(candidateDetails?.skills)
+            ? candidateDetails.skills.join(', ')
+            : (Array.isArray(selectedCandidate?.skills) ? selectedCandidate.skills.join(', ') : ''),
+          agency_id: candidateDetails?.agency_id || selectedCandidate?.agency_id || '',
+          user_id: '',
+          companyName: resolvedJob?.company_name || '',
+        }, 'interview_rescheduled')
+
+        await fetchCandidates()
+
+        alert(`âœ“ Reschedule email sent successfully to ${selectedCandidate.email}`)
+        setEmailModal({ show: false, type: '', subject: '', message: '' })
+        handleCloseModal()
+        return
+      }
+
       await api.sendEmail(selectedCandidate.id, emailModal.subject, emailModal.message)
       
       // Update candidate stage

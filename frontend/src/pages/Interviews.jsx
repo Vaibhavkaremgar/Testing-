@@ -570,17 +570,22 @@ export default function Interviews({ superAdminAgencyId = null }) {
         agency_id: selectedCandidate?.agency_id || '',
         user_id: '',
         companyName: selectedJob?.company_name || '',
-      })
+      }, 'interview_rescheduled')
 
       if (!result?.slot_link) {
         throw new Error('Booking link could not be generated')
       }
 
+      setCandidates((prev) => prev.map((candidate) => (
+        String(candidate.id) === String(scheduleForm.candidateId)
+          ? { ...candidate, stage: 'INTERVIEW_RESCHEDULED' }
+          : candidate
+      )))
       window.open(result.slot_link, '_blank', 'noopener,noreferrer')
       setShowScheduleModal(false)
       toast({
         title: 'Booking Page Opened',
-        description: 'Interview slot page opened with the selected candidate details.',
+        description: 'Interview slot page opened and the reschedule email was sent to the candidate.',
       })
     } catch (error) {
       console.error('Failed to open slot booking page:', error)

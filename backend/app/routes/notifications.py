@@ -10,6 +10,7 @@ from app.routes.candidates import INDIA_TIMEZONE
 from app.notification_service import (
     build_rendered_notification,
     build_workflow_url,
+    queue_rendered_notification,
     queue_notification,
     resolve_workflow_token,
     send_email_task,
@@ -132,6 +133,7 @@ def resolve_notification_workflow(
 @router.post("/slot-selection-link")
 def create_slot_selection_link(
     request: NotificationEventRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
@@ -139,23 +141,50 @@ def create_slot_selection_link(
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
 
+    requested_status = (request.status or "slot_selection").strip().lower() or "slot_selection"
+    if requested_status not in {"slot_selection", "interview_rescheduled"}:
+        requested_status = "slot_selection"
+
     rendered = build_rendered_notification(
         db,
         candidate=candidate,
-        status="slot_selection",
+        status=requested_status,
         user_id=request.user_id or current_user.id,
         extra_payload=_compact_workflow_payload(request.payload or {}),
     )
+
+    queued_notification = None
+    if requested_status == "interview_rescheduled":
+        if candidate.email:
+            queued_notification = queue_rendered_notification(
+                db,
+                candidate=candidate,
+                status=requested_status,
+                rendered=rendered,
+            )
+        candidate.stage = CandidateStage.INTERVIEW_RESCHEDULED
+        candidate.stage_updated_at = datetime.utcnow()
+        candidate.stage_entered_at = datetime.utcnow()
+
     db.commit()
+
+    if requested_status == "interview_rescheduled":
+        from app.routes.analytics import clear_analytics_cache
+        clear_analytics_cache()
+
+    if queued_notification:
+        background_tasks.add_task(send_email_task, queued_notification["communication_id"])
 
     return {
         "candidate_id": candidate.id,
+        "status": requested_status,
         "workflow_token": rendered["workflow_token"],
         "slot_link": rendered["payload"].get("slot_link") or (
             build_workflow_url(rendered["workflow_token"], "slot_selection")
             if rendered["workflow_token"]
             else ""
         ),
+        "communication_id": queued_notification["communication_id"] if queued_notification else None,
         "payload": _normalize_workflow_payload(rendered["payload"]),
     }
 

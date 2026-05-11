@@ -27,6 +27,7 @@ from app.models import (
 
 EMAIL_TEMPLATE_STATUSES = [
     "resume_shortlisted",
+    "interview_rescheduled",
     "resume_rejected",
     "slot_confirmation",
     "interview_selected",
@@ -42,6 +43,7 @@ BUILTIN_ONLY_EMAIL_TEMPLATE_STATUSES = {"resume_shortlisted"}
 
 EMAIL_TEMPLATE_STATUS_LABELS = {
     "resume_shortlisted": "Resume Shortlisted",
+    "interview_rescheduled": "Interview Rescheduled",
     "resume_rejected": "Resume Rejected",
     "slot_confirmation": "Interview Slot Confirmation Email",
     "interview_selected": "Interview Selected Email",
@@ -158,6 +160,45 @@ DEFAULT_TEMPLATE_DEFINITIONS = {
             "</html>"
         ),
     },
+    "interview_rescheduled": {
+        "name": "Default Interview Rescheduled",
+        "subject": "Your interview has been rescheduled for {{job_title}}",
+        "body": (
+            "<!DOCTYPE html>"
+            "<html>"
+            "<head>"
+            "<meta charset=\"UTF-8\">"
+            "<title>Interview Rescheduled</title>"
+            "</head>"
+            "<body style=\"margin:0; padding:0; font-family: Arial, sans-serif; background-color:#f4f6f8;\">"
+            "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"background-color:#f4f6f8; padding:20px;\">"
+            "<tr>"
+            "<td align=\"center\">"
+            "<table width=\"600\" cellpadding=\"0\" cellspacing=\"0\" style=\"background:#ffffff; border-radius:16px; padding:40px 32px;\">"
+            "<tr>"
+            "<td style=\"color:#1f2a44;\">"
+            "<h1 style=\"margin:0 0 12px; font-size:24px; font-weight:700;\">Pontis AI Interview Platform</h1>"
+            "<p style=\"margin:0 0 24px; font-size:14px; letter-spacing:2px; color:#5b667a; text-transform:uppercase;\">Interview Rescheduled</p>"
+            "<p style=\"margin:0 0 24px; font-size:16px; color:#1f2a44;\">Dear <strong>{{candidate_name}}</strong>,</p>"
+            "<p style=\"margin:0 0 16px; font-size:16px; line-height:1.7; color:#4a5568;\">"
+            "Your interview for <strong>{{job_title}}</strong> has been rescheduled. Please choose a new interview slot using the button below."
+            "</p>"
+            "<p style=\"margin:0 0 32px; font-size:16px; line-height:1.7; color:#4a5568;\">"
+            "Once you select a new slot, we will send you a confirmation email with the updated interview date, time, and access link."
+            "</p>"
+            "<a href=\"{{slot_link}}\" style=\"display:inline-block; background-color:#25235f; color:#ffffff; padding:14px 28px; text-decoration:none; border-radius:999px; font-size:16px; font-weight:700;\">"
+            "Select New Interview Slot"
+            "</a>"
+            "</td>"
+            "</tr>"
+            "</table>"
+            "</td>"
+            "</tr>"
+            "</table>"
+            "</body>"
+            "</html>"
+        ),
+    },
     "resume_rejected": {
         "name": "Default Resume Rejected",
         "subject": "Update on your application for {{job_title}}",
@@ -168,11 +209,54 @@ DEFAULT_TEMPLATE_DEFINITIONS = {
     },
     "slot_confirmation": {
         "name": "Default Slot Confirmation",
-        "subject": "Interview slot confirmed for {{job_title}}",
+        "subject": "Interview confirmed for {{job_title}}",
         "body": (
-            "<p>Hi {{candidate_name}},</p>"
-            "<p>Your interview is confirmed for {{interview_date}} at {{interview_time}}.</p>"
-            "<p>Interview link: <a href=\"{{meeting_link}}\">Join interview</a></p>"
+            "<!DOCTYPE html>"
+            "<html>"
+            "<head>"
+            "<meta charset=\"UTF-8\">"
+            "<title>Interview Confirmed</title>"
+            "</head>"
+            "<body style=\"margin:0; padding:0; font-family: Arial, sans-serif; background-color:#f4f6f8;\">"
+            "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"background-color:#f4f6f8; padding:20px;\">"
+            "<tr>"
+            "<td align=\"center\">"
+            "<table width=\"680\" cellpadding=\"0\" cellspacing=\"0\" style=\"background:#ffffff; border-radius:20px; padding:40px 48px;\">"
+            "<tr>"
+            "<td style=\"color:#1f2a44;\">"
+            "<h1 style=\"margin:0 0 12px; font-size:24px; font-weight:700;\">Pontis AI Interview Platform</h1>"
+            "<p style=\"margin:0 0 24px; font-size:14px; letter-spacing:2px; color:#5b667a; text-transform:uppercase;\">Interview Confirmed</p>"
+            "<p style=\"margin:0 0 24px; font-size:16px; color:#1f2a44;\">Dear {{candidate_name}},</p>"
+            "<p style=\"margin:0 0 36px; font-size:16px; line-height:1.7; color:#4a5568;\">"
+            "Your AI video interview is scheduled. Below are the confirmed details and the link you will use on the day of the interview."
+            "</p>"
+            "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"border:1px solid #d9e2ef; border-radius:16px; overflow:hidden; border-collapse:separate;\">"
+            "<tr>"
+            "<td style=\"width:40%; padding:22px 24px; font-size:13px; letter-spacing:2px; text-transform:uppercase; color:#94a3b8; border-bottom:1px solid #d9e2ef;\">Interview Date</td>"
+            "<td style=\"padding:22px 24px; font-size:18px; font-weight:700; color:#1f2a44; border-bottom:1px solid #d9e2ef;\">{{interview_date}}</td>"
+            "</tr>"
+            "<tr>"
+            "<td style=\"width:40%; padding:22px 24px; font-size:13px; letter-spacing:2px; text-transform:uppercase; color:#94a3b8; border-bottom:1px solid #d9e2ef;\">Interview Time</td>"
+            "<td style=\"padding:22px 24px; font-size:18px; font-weight:700; color:#1f2a44; border-bottom:1px solid #d9e2ef;\">{{interview_time}}</td>"
+            "</tr>"
+            "<tr>"
+            "<td style=\"width:40%; padding:22px 24px; font-size:13px; letter-spacing:2px; text-transform:uppercase; color:#94a3b8;\">Format</td>"
+            "<td style=\"padding:22px 24px; font-size:18px; font-weight:700; color:#1f2a44;\">AI Video Interview</td>"
+            "</tr>"
+            "</table>"
+            "<div style=\"padding-top:28px;\">"
+            "<a href=\"{{meeting_link}}\" style=\"display:inline-block; background-color:#25235f; color:#ffffff; padding:16px 28px; text-decoration:none; border-radius:999px; font-size:16px; font-weight:700;\">"
+            "Start Interview"
+            "</a>"
+            "</div>"
+            "</td>"
+            "</tr>"
+            "</table>"
+            "</td>"
+            "</tr>"
+            "</table>"
+            "</body>"
+            "</html>"
         ),
     },
     "interview_invitation": {
@@ -528,7 +612,7 @@ def build_rendered_notification(
     slot_token = None
     interview_token = None
 
-    if status in {"resume_shortlisted", "slot_selection"} and not payload.get("slot_link"):
+    if status in {"resume_shortlisted", "slot_selection", "interview_rescheduled"} and not payload.get("slot_link"):
         slot_payload = dict(payload)
         slot_token = create_workflow_token(
             db,
@@ -659,6 +743,40 @@ def queue_notification(
         extra_payload=extra_payload,
     )
 
+    communication = EmailCommunication(
+        agency_id=candidate.agency_id,
+        candidate_id=candidate.id,
+        template_id=rendered["template"].id,
+        candidate_name=candidate.name,
+        candidate_email=candidate.email,
+        email_type=status,
+        subject=rendered["subject"],
+        body=_build_html_body(rendered["template"], rendered["body"]),
+        placeholder_payload=rendered["payload"],
+        workflow_token=rendered["workflow_token"],
+        status=NotificationDeliveryStatus.QUEUED.value,
+    )
+    db.add(communication)
+    db.flush()
+
+    return {
+        "communication_id": communication.id,
+        "template_id": rendered["template"].id,
+        "workflow_token": rendered["workflow_token"],
+        "subject": rendered["subject"],
+        "body": rendered["body"],
+        "payload": rendered["payload"],
+        "used_default_template": rendered["used_default"],
+    }
+
+
+def queue_rendered_notification(
+    db: Session,
+    *,
+    candidate: Candidate,
+    status: str,
+    rendered: dict,
+) -> dict:
     communication = EmailCommunication(
         agency_id=candidate.agency_id,
         candidate_id=candidate.id,

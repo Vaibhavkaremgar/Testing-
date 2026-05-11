@@ -2024,31 +2024,6 @@ def get_upcoming_interviews(
     interviews = interview_query.order_by(Interview.scheduled_at).limit(10).all()
     recording_metadata = _fetch_interview_session_metadata(db, interviews)
 
-    slot_pairs: set[tuple[date_cls, object]] = set()
-    if interviews:
-        slot_dates = sorted({
-            interview.scheduled_at.astimezone(INDIA_TIMEZONE).date()
-            if interview.scheduled_at and interview.scheduled_at.tzinfo
-            else interview.scheduled_at.date()
-            for interview in interviews
-            if interview.scheduled_at
-        })
-        slot_columns = _get_table_columns(db, "interview_slots")
-        if slot_dates and {"slot_date", "slot_time"}.issubset(slot_columns):
-            slot_rows = db.execute(
-                text("""
-                    SELECT slot_date, slot_time
-                    FROM interview_slots
-                    WHERE slot_date = ANY(:slot_dates)
-                """),
-                {"slot_dates": slot_dates},
-            ).mappings().all()
-            slot_pairs = {
-                (row["slot_date"], row["slot_time"])
-                for row in slot_rows
-                if row.get("slot_date") is not None and row.get("slot_time") is not None
-            }
-
     result = []
     for interview in interviews:
         recording = recording_metadata.get(str(interview.id), {})
@@ -2062,14 +2037,7 @@ def get_upcoming_interviews(
                 else scheduled_at.replace(tzinfo=timezone.utc)
             )
             localized_scheduled_at = normalized_scheduled_at.astimezone(INDIA_TIMEZONE)
-            utc_slot_pair = (normalized_scheduled_at.date(), normalized_scheduled_at.time().replace(tzinfo=None))
-            ist_slot_pair = (localized_scheduled_at.date(), localized_scheduled_at.time().replace(tzinfo=None))
-
-            if (
-                (getattr(interview, "is_async", False) or getattr(interview, "async_token", None))
-                and utc_slot_pair in slot_pairs
-                and ist_slot_pair not in slot_pairs
-            ):
+            if getattr(interview, "async_token", None) and not getattr(interview, "is_async", False):
                 display_scheduled_at = datetime.combine(
                     normalized_scheduled_at.date(),
                     normalized_scheduled_at.time().replace(tzinfo=None),

@@ -902,12 +902,12 @@ class ApiClient {
     })
   }
 
-  async createSlotSelectionLink(candidateId, payload = {}) {
+  async createSlotSelectionLink(candidateId, payload = {}, status = 'slot_selection') {
     return this.request('/notifications/slot-selection-link', {
       method: 'POST',
       body: JSON.stringify({
         candidate_id: candidateId,
-        status: 'slot_selection',
+        status,
         payload,
       }),
     })
