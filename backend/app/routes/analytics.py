@@ -2043,6 +2043,18 @@ def get_upcoming_interviews(
 
     result = []
     for interview in latest_interview_by_candidate.values():
+        candidate = interview.candidate
+        has_meaningful_candidate_details = bool(
+            candidate
+            and (
+                (candidate.job and candidate.job.title)
+                or candidate.current_role
+                or candidate.current_company
+            )
+        )
+        if not has_meaningful_candidate_details:
+            continue
+
         recording = recording_metadata.get(str(interview.id), {})
         scheduled_at = interview.scheduled_at
         display_scheduled_at = scheduled_at
@@ -2065,10 +2077,10 @@ def get_upcoming_interviews(
 
         result.append({
             "id": interview.id,
-            "candidate_name": interview.candidate.name if interview.candidate else "Unknown",
+            "candidate_name": candidate.name if candidate else "Unknown",
             "candidate_id": interview.candidate_id,
             "interview_type": interview.interview_type,
-            "job_title": interview.candidate.job.title if interview.candidate and interview.candidate.job else None,
+            "job_title": candidate.job.title if candidate and candidate.job else None,
             "scheduled_at": display_scheduled_at.isoformat() if display_scheduled_at else None,
             "duration_minutes": interview.duration_minutes,
             "recording_path": recording.get("recording_path"),
