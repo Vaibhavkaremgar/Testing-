@@ -25,6 +25,31 @@ from app.schemas import (
 router = APIRouter(prefix="/notifications", tags=["Notifications"])
 
 
+def _find_reschedulable_interview(db: Session, candidate_id):
+    return (
+        db.query(Interview)
+        .filter(
+            Interview.candidate_id == candidate_id,
+            ~Interview.status.in_(["selected", "rejected", "completed"]),
+        )
+        .order_by(Interview.scheduled_at.desc(), Interview.created_at.desc())
+        .first()
+    )
+
+
+def _resolve_target_interview_for_slot_confirmation(db: Session, candidate: Candidate, payload: dict):
+    interview_id = payload.get("reschedule_interview_id")
+    if interview_id:
+        interview = db.query(Interview).filter(
+            Interview.id == interview_id,
+            Interview.candidate_id == candidate.id,
+        ).first()
+        if interview:
+            return interview
+
+    return _find_reschedulable_interview(db, candidate.id)
+
+
 def _normalize_workflow_payload(payload: dict) -> dict:
     normalized = dict(payload or {})
 
@@ -41,6 +66,8 @@ def _normalize_workflow_payload(payload: dict) -> dict:
 
     normalized["resume_text"] = resume_text
     normalized["resumeText"] = resume_text
+    normalized["reschedule_interview_id"] = normalized.get("reschedule_interview_id") or normalized.get("rescheduleInterviewId") or ""
+    normalized["rescheduleInterviewId"] = normalized["reschedule_interview_id"]
     normalized["job_description"] = job_description
     normalized["jobDescription"] = job_description
     normalized["async_questions"] = async_questions
@@ -60,6 +87,7 @@ def _compact_workflow_payload(payload: dict) -> dict:
         "candidate_name": normalized.get("candidate_name") or normalized.get("candidateName") or "",
         "candidate_email": normalized.get("candidate_email") or normalized.get("candidateEmail") or "",
         "candidate_id": normalized.get("candidate_id") or normalized.get("candidateId") or "",
+        "reschedule_interview_id": normalized.get("reschedule_interview_id") or normalized.get("rescheduleInterviewId") or "",
         "job_id": normalized.get("job_id") or normalized.get("jobId") or "",
         "job_title": normalized.get("job_title") or normalized.get("jobTitle") or "",
         "job_role": normalized.get("job_role") or normalized.get("jobRole") or "",
@@ -145,12 +173,18 @@ def create_slot_selection_link(
     if requested_status not in {"slot_selection", "interview_rescheduled"}:
         requested_status = "slot_selection"
 
+    compact_payload = _compact_workflow_payload(request.payload or {})
+    if requested_status == "interview_rescheduled":
+        existing_interview = _find_reschedulable_interview(db, candidate.id)
+        if existing_interview:
+            compact_payload["reschedule_interview_id"] = str(existing_interview.id)
+
     rendered = build_rendered_notification(
         db,
         candidate=candidate,
         status=requested_status,
         user_id=request.user_id or current_user.id,
-        extra_payload=_compact_workflow_payload(request.payload or {}),
+        extra_payload=compact_payload,
     )
 
     queued_notification = None
@@ -240,19 +274,35 @@ def confirm_slot_selection(
         f"{request.interview_date}T{request.interview_time}:00"
     ).replace(tzinfo=INDIA_TIMEZONE)
 
-    db_interview = Interview(
-        agency_id=candidate.agency_id,
-        candidate_id=candidate.id,
-        interview_type="async_ai_bot",
-        scheduled_at=selected_slot_ist.astimezone(timezone.utc),
-        duration_minutes=60,
-        meeting_link=meeting_link,
-        is_async=True,
-        async_link=meeting_link,
-        async_token=invitation_result["workflow_token"],
-    )
-    db.add(db_interview)
+    db_interview = _resolve_target_interview_for_slot_confirmation(db, candidate, slot_token.payload)
+    if db_interview:
+        db_interview.agency_id = candidate.agency_id
+        db_interview.interview_type = db_interview.interview_type or "async_ai_bot"
+        db_interview.scheduled_at = selected_slot_ist.astimezone(timezone.utc)
+        db_interview.duration_minutes = db_interview.duration_minutes or 60
+        db_interview.meeting_link = meeting_link
+        db_interview.is_async = True
+        db_interview.async_link = meeting_link
+        db_interview.async_token = invitation_result["workflow_token"]
+        db_interview.status = "scheduled"
+    else:
+        db_interview = Interview(
+            agency_id=candidate.agency_id,
+            candidate_id=candidate.id,
+            interview_type="async_ai_bot",
+            scheduled_at=selected_slot_ist.astimezone(timezone.utc),
+            duration_minutes=60,
+            meeting_link=meeting_link,
+            is_async=True,
+            async_link=meeting_link,
+            async_token=invitation_result["workflow_token"],
+            status="scheduled",
+        )
+        db.add(db_interview)
     db.commit()
+
+    from app.routes.analytics import clear_analytics_cache
+    clear_analytics_cache()
 
     background_tasks.add_task(send_email_task, confirmation_result["communication_id"])
     background_tasks.add_task(send_email_task, invitation_result["communication_id"])
