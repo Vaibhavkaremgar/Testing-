@@ -1,6 +1,6 @@
 import logging
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy.orm import Session, aliased
+from sqlalchemy.orm import Session, aliased, joinedload
 from sqlalchemy import func, case, extract, text, or_
 from typing import Dict, List, Optional
 from uuid import UUID
@@ -22,8 +22,8 @@ from app.schemas import (
 )
 from app.auth import get_current_active_user
 from app.routes.candidates import (
-    _build_slot_candidate_lookup,
     _get_india_today,
+    INDIA_TIMEZONE,
     normalize_legacy_candidate_stages,
     resolve_pipeline_display_stage,
     resolve_reporting_pipeline_stage,
@@ -1999,157 +1999,98 @@ def get_upcoming_interviews(
     current_user: User = Depends(get_current_active_user)
 ):
     today = _get_india_today()
+    next_week = today + timedelta(days=7)
 
-    def _parse_slot_datetime(slot_date_value, slot_time_value):
-        if slot_date_value is None:
-            return None
-
-        if isinstance(slot_date_value, datetime):
-            normalized_date = slot_date_value.date()
-        elif isinstance(slot_date_value, date_cls):
-            normalized_date = slot_date_value
-        elif isinstance(slot_date_value, str):
-            try:
-                normalized_date = date_cls.fromisoformat(slot_date_value)
-            except ValueError:
-                return None
-        else:
-            return None
-
-        if slot_time_value in (None, ""):
-            return datetime.combine(normalized_date, datetime.min.time())
-
-        if hasattr(slot_time_value, "hour") and hasattr(slot_time_value, "minute"):
-            return datetime.combine(normalized_date, slot_time_value)
-
-        slot_time_text = str(slot_time_value).strip()
-        for fmt in ("%H:%M:%S", "%H:%M", "%I:%M %p", "%I:%M:%S %p"):
-            try:
-                return datetime.combine(normalized_date, datetime.strptime(slot_time_text, fmt).time())
-            except ValueError:
-                continue
-
-        return datetime.combine(normalized_date, datetime.min.time())
-
-    column_names = _get_table_columns(db, "interview_slots")
-    if not column_names or "slot_date" not in column_names:
-        return []
-
-    normalized_column_lookup = {
-        column_name.lower().replace("_", ""): column_name
-        for column_name in column_names
-    }
-    candidate_column = next(
-        (
-            normalized_column_lookup.get(candidate_key)
-            for candidate_key in ("candidate_id", "candidateid", "candidate")
-            if normalized_column_lookup.get(candidate_key)
-        ),
-        None,
-    )
-    if not candidate_column:
-        return []
-
-    visible_candidates = _apply_candidate_visibility(
-        db.query(Candidate),
-        current_user,
-    ).with_entities(
-        Candidate.id.label("candidate_uuid"),
-        Candidate.candidate_id.label("candidate_code"),
-        Candidate.name.label("candidate_name"),
-        Candidate.job_id.label("job_id"),
-    ).all()
-    if not visible_candidates:
-        return []
-
-    visible_candidate_ids = [candidate_row.candidate_uuid for candidate_row in visible_candidates]
-    candidate_key_lookup = _build_slot_candidate_lookup(db, visible_candidate_ids)
-    if not candidate_key_lookup:
-        return []
-
-    job_ids = list({candidate_row.job_id for candidate_row in visible_candidates if candidate_row.job_id})
-    job_title_by_id = {}
-    if job_ids:
-        job_title_by_id = {
-            job_id: title
-            for job_id, title in db.query(JobDescription.id, JobDescription.title)
-            .filter(JobDescription.id.in_(job_ids))
-            .all()
-        }
-
-    candidate_lookup: dict[str, dict] = {}
-    for candidate_row in visible_candidates:
-        payload = {
-            "candidate_id": candidate_row.candidate_uuid,
-            "candidate_name": candidate_row.candidate_name,
-            "job_title": job_title_by_id.get(candidate_row.job_id),
-        }
-        candidate_lookup[str(candidate_row.candidate_uuid)] = payload
-        if candidate_row.candidate_code:
-            candidate_lookup[str(candidate_row.candidate_code).strip()] = payload
-
-    selected_columns = [
-        f"{candidate_column}::text AS candidate_lookup_key",
-        "slot_date",
-    ]
-    if "slot_time" in column_names:
-        selected_columns.append("slot_time::text AS slot_time")
-    if "id" in column_names:
-        selected_columns.append("id::text AS slot_id")
-
-    where_clauses = [
-        f"{candidate_column} IS NOT NULL",
-        "slot_date IS NOT NULL",
-        f"{candidate_column}::text = ANY(:candidate_lookup_keys)",
-    ]
-    params = {"candidate_lookup_keys": list(candidate_key_lookup.keys())}
-
+    interview_query = db.query(Interview).options(
+        joinedload(Interview.candidate).joinedload(Candidate.job)
+    ).filter(Interview.status == 'scheduled')
     if from_date or to_date:
-        if from_date:
-            where_clauses.append("slot_date::date >= :from_date")
-            params["from_date"] = from_date
-        if to_date:
-            where_clauses.append("slot_date::date <= :to_date")
-            params["to_date"] = to_date
+        interview_query = _apply_date_window(
+            interview_query,
+            Interview.scheduled_at,
+            from_date=from_date,
+            to_date=to_date,
+        )
     else:
-        where_clauses.append("slot_date::date >= :today")
-        params["today"] = today
+        interview_query = interview_query.filter(
+            func.date(Interview.scheduled_at) >= today,
+            func.date(Interview.scheduled_at) <= next_week,
+        )
 
-    slot_rows = db.execute(
-        text(f"""
-            SELECT {", ".join(selected_columns)}
-            FROM interview_slots
-            WHERE {" AND ".join(where_clauses)}
-            ORDER BY slot_date ASC{", slot_time ASC NULLS FIRST" if "slot_time" in column_names else ""}
-            LIMIT 10
-        """),
-        params,
-    ).mappings().all()
+    if _role_name(current_user) != UserRole.ADMIN.value:
+        interview_query = interview_query.join(Candidate, Interview.candidate_id == Candidate.id)
+        interview_query = _apply_candidate_visibility(interview_query, current_user)
+
+    interviews = interview_query.order_by(Interview.scheduled_at).limit(10).all()
+    recording_metadata = _fetch_interview_session_metadata(db, interviews)
+
+    slot_pairs: set[tuple[date_cls, object]] = set()
+    if interviews:
+        slot_dates = sorted({
+            interview.scheduled_at.astimezone(INDIA_TIMEZONE).date()
+            if interview.scheduled_at and interview.scheduled_at.tzinfo
+            else interview.scheduled_at.date()
+            for interview in interviews
+            if interview.scheduled_at
+        })
+        slot_columns = _get_table_columns(db, "interview_slots")
+        if slot_dates and {"slot_date", "slot_time"}.issubset(slot_columns):
+            slot_rows = db.execute(
+                text("""
+                    SELECT slot_date, slot_time
+                    FROM interview_slots
+                    WHERE slot_date = ANY(:slot_dates)
+                """),
+                {"slot_dates": slot_dates},
+            ).mappings().all()
+            slot_pairs = {
+                (row["slot_date"], row["slot_time"])
+                for row in slot_rows
+                if row.get("slot_date") is not None and row.get("slot_time") is not None
+            }
 
     result = []
-    for row in slot_rows:
-        candidate_payload = candidate_lookup.get(str(row.get("candidate_lookup_key", "")).strip())
-        if not candidate_payload:
-            continue
+    for interview in interviews:
+        recording = recording_metadata.get(str(interview.id), {})
+        scheduled_at = interview.scheduled_at
+        display_scheduled_at = scheduled_at
 
-        scheduled_at = _parse_slot_datetime(row.get("slot_date"), row.get("slot_time"))
+        if scheduled_at:
+            normalized_scheduled_at = (
+                scheduled_at
+                if scheduled_at.tzinfo is not None
+                else scheduled_at.replace(tzinfo=timezone.utc)
+            )
+            localized_scheduled_at = normalized_scheduled_at.astimezone(INDIA_TIMEZONE)
+            utc_slot_pair = (normalized_scheduled_at.date(), normalized_scheduled_at.time().replace(tzinfo=None))
+            ist_slot_pair = (localized_scheduled_at.date(), localized_scheduled_at.time().replace(tzinfo=None))
+
+            if getattr(interview, "is_async", False) and utc_slot_pair in slot_pairs and ist_slot_pair not in slot_pairs:
+                display_scheduled_at = datetime.combine(
+                    normalized_scheduled_at.date(),
+                    normalized_scheduled_at.time().replace(tzinfo=None),
+                    INDIA_TIMEZONE,
+                )
+            else:
+                display_scheduled_at = localized_scheduled_at
+
         result.append({
-            "id": row.get("slot_id") or f"{candidate_payload['candidate_id']}-{row.get('slot_date')}-{row.get('slot_time') or '00:00:00'}",
-            "candidate_name": candidate_payload["candidate_name"] or "Unknown",
-            "candidate_id": candidate_payload["candidate_id"],
-            "interview_type": "scheduled",
-            "job_title": candidate_payload["job_title"],
-            "scheduled_at": scheduled_at.isoformat() if scheduled_at else None,
-            "duration_minutes": None,
-            "recording_path": None,
-            "recording_format": None,
-            "recording_duration_seconds": None,
-            "vapi_recording_url": None,
-            "session_token": None,
-            "recording_size_bytes": None,
-            "recording_created_at": None,
-            "has_candidate_recording": False,
-            "has_vapi_recording": False,
+            "id": interview.id,
+            "candidate_name": interview.candidate.name if interview.candidate else "Unknown",
+            "candidate_id": interview.candidate_id,
+            "interview_type": interview.interview_type,
+            "job_title": interview.candidate.job.title if interview.candidate and interview.candidate.job else None,
+            "scheduled_at": display_scheduled_at.isoformat() if display_scheduled_at else None,
+            "duration_minutes": interview.duration_minutes,
+            "recording_path": recording.get("recording_path"),
+            "recording_format": recording.get("recording_format"),
+            "recording_duration_seconds": recording.get("recording_duration_seconds"),
+            "vapi_recording_url": recording.get("vapi_recording_url"),
+            "session_token": recording.get("session_token"),
+            "recording_size_bytes": recording.get("recording_size_bytes"),
+            "recording_created_at": recording.get("recording_created_at"),
+            "has_candidate_recording": recording.get("has_candidate_recording", False),
+            "has_vapi_recording": recording.get("has_vapi_recording", False),
         })
 
     return result

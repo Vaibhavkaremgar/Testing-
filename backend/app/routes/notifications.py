@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.auth import get_current_active_user, get_current_admin_user
 from app.database import get_db
 from app.models import Candidate, CandidateStage, Interview, User
+from app.routes.candidates import INDIA_TIMEZONE
 from app.notification_service import (
     build_rendered_notification,
     build_workflow_url,
@@ -206,11 +207,15 @@ def confirm_slot_selection(
     candidate.stage_updated_at = datetime.utcnow()
     candidate.stage_entered_at = datetime.utcnow()
 
+    selected_slot_ist = datetime.fromisoformat(
+        f"{request.interview_date}T{request.interview_time}:00"
+    ).replace(tzinfo=INDIA_TIMEZONE)
+
     db_interview = Interview(
         agency_id=candidate.agency_id,
         candidate_id=candidate.id,
         interview_type="async_ai_bot",
-        scheduled_at=datetime.fromisoformat(f"{request.interview_date}T{request.interview_time}:00"),
+        scheduled_at=selected_slot_ist.astimezone(timezone.utc),
         duration_minutes=60,
         meeting_link=meeting_link,
         is_async=True,
