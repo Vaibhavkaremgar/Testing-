@@ -26,6 +26,7 @@ from app.routes.candidates import (
     resolve_pipeline_display_stage,
     resolve_reporting_pipeline_stage,
     resolve_slot_backed_pipeline_stage,
+    _build_slot_candidate_lookup,
 )
 from collections import Counter
 import random
@@ -1997,7 +1998,6 @@ def get_upcoming_interviews(
     current_user: User = Depends(get_current_active_user)
 ):
     today = datetime.utcnow().date()
-    next_week = today + timedelta(days=7)
 
     def _parse_slot_datetime(slot_date_value, slot_time_value):
         if slot_date_value is None:
@@ -2034,11 +2034,15 @@ def get_upcoming_interviews(
     if not column_names or "slot_date" not in column_names:
         return []
 
+    normalized_column_lookup = {
+        column_name.lower().replace("_", ""): column_name
+        for column_name in column_names
+    }
     candidate_column = next(
         (
-            column_name
-            for column_name in ("candidate_id", "candidateId", "candidate")
-            if column_name in column_names
+            normalized_column_lookup.get(candidate_key)
+            for candidate_key in ("candidate_id", "candidateid", "candidate")
+            if normalized_column_lookup.get(candidate_key)
         ),
         None,
     )
@@ -2055,6 +2059,11 @@ def get_upcoming_interviews(
         Candidate.job_id.label("job_id"),
     ).all()
     if not visible_candidates:
+        return []
+
+    visible_candidate_ids = [candidate_row.candidate_uuid for candidate_row in visible_candidates]
+    candidate_key_lookup = _build_slot_candidate_lookup(db, visible_candidate_ids)
+    if not candidate_key_lookup:
         return []
 
     job_ids = list({candidate_row.job_id for candidate_row in visible_candidates if candidate_row.job_id})
@@ -2081,17 +2090,18 @@ def get_upcoming_interviews(
     selected_columns = [
         f"{candidate_column}::text AS candidate_lookup_key",
         "slot_date",
-        "slot_time::text AS slot_time",
     ]
+    if "slot_time" in column_names:
+        selected_columns.append("slot_time::text AS slot_time")
     if "id" in column_names:
         selected_columns.append("id::text AS slot_id")
 
     where_clauses = [
         f"{candidate_column} IS NOT NULL",
         "slot_date IS NOT NULL",
-        f"{candidate_column}::text = ANY(:candidate_ids)",
+        f"{candidate_column}::text = ANY(:candidate_lookup_keys)",
     ]
-    params = {"candidate_ids": list(candidate_lookup.keys())}
+    params = {"candidate_lookup_keys": list(candidate_key_lookup.keys())}
 
     if from_date or to_date:
         if from_date:
@@ -2102,16 +2112,14 @@ def get_upcoming_interviews(
             params["to_date"] = to_date
     else:
         where_clauses.append("slot_date::date >= :today")
-        where_clauses.append("slot_date::date <= :next_week")
         params["today"] = today
-        params["next_week"] = next_week
 
     slot_rows = db.execute(
         text(f"""
             SELECT {", ".join(selected_columns)}
             FROM interview_slots
             WHERE {" AND ".join(where_clauses)}
-            ORDER BY slot_date ASC, slot_time ASC NULLS FIRST
+            ORDER BY slot_date ASC{", slot_time ASC NULLS FIRST" if "slot_time" in column_names else ""}
             LIMIT 10
         """),
         params,
