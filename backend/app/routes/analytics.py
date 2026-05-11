@@ -22,11 +22,12 @@ from app.schemas import (
 )
 from app.auth import get_current_active_user
 from app.routes.candidates import (
+    _build_slot_candidate_lookup,
+    _get_india_today,
     normalize_legacy_candidate_stages,
     resolve_pipeline_display_stage,
     resolve_reporting_pipeline_stage,
     resolve_slot_backed_pipeline_stage,
-    _build_slot_candidate_lookup,
 )
 from collections import Counter
 import random
@@ -1997,7 +1998,7 @@ def get_upcoming_interviews(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    today = datetime.utcnow().date()
+    today = _get_india_today()
 
     def _parse_slot_datetime(slot_date_value, slot_time_value):
         if slot_date_value is None:
