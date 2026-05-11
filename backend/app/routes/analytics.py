@@ -2023,9 +2023,26 @@ def get_upcoming_interviews(
 
     interviews = interview_query.order_by(Interview.scheduled_at).limit(10).all()
     recording_metadata = _fetch_interview_session_metadata(db, interviews)
+    latest_interview_by_candidate: dict[str, Interview] = {}
+
+    for interview in interviews:
+        candidate_key = str(interview.candidate_id)
+        previous_interview = latest_interview_by_candidate.get(candidate_key)
+        previous_date = (
+            previous_interview.scheduled_at
+            if previous_interview and previous_interview.scheduled_at
+            else previous_interview.created_at if previous_interview else None
+        )
+        current_date = interview.scheduled_at or interview.created_at
+        if not previous_interview or (
+            current_date is not None and (
+                previous_date is None or current_date >= previous_date
+            )
+        ):
+            latest_interview_by_candidate[candidate_key] = interview
 
     result = []
-    for interview in interviews:
+    for interview in latest_interview_by_candidate.values():
         recording = recording_metadata.get(str(interview.id), {})
         scheduled_at = interview.scheduled_at
         display_scheduled_at = scheduled_at

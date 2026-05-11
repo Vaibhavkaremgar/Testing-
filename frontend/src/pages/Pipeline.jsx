@@ -41,15 +41,10 @@ function getEffectiveInterviewStatus(interview) {
 
 function buildPipelineStages(baseStages = {}, interviews = []) {
   const nextStages = Object.fromEntries(
-    STAGES.map((stage) => [stage.id, [...(baseStages[stage.id] || [])]])
+    STAGES.map((stage) => [stage.id, []])
   )
-  const candidateStageMap = new Map()
-
-  Object.entries(baseStages || {}).forEach(([stageId, candidates]) => {
-    ;(candidates || []).forEach((candidate) => {
-      candidateStageMap.set(String(candidate.id), stageId)
-    })
-  })
+  const candidateById = new Map()
+  const stageSetByCandidate = new Map()
 
   const latestInterviewsByCandidate = new Map()
   ;(interviews || []).forEach((interview) => {
@@ -63,16 +58,50 @@ function buildPipelineStages(baseStages = {}, interviews = []) {
     }
   })
 
-  latestInterviewsByCandidate.forEach((interview, candidateId) => {
-    const currentStage = candidateStageMap.get(candidateId)
-    if (!currentStage || currentStage === 'SELECTED' || currentStage === 'REJECTED') return
-    if (getEffectiveInterviewStatus(interview) !== 'completed') return
+  const countCandidateFields = (candidate) => ([
+    candidate?.name,
+    candidate?.company_name,
+    candidate?.current_role,
+    candidate?.current_company,
+    candidate?.job_title,
+    candidate?.resume_score,
+  ].filter((value) => value !== null && value !== undefined && value !== '').length)
 
-    const candidate = nextStages[currentStage]?.find((item) => String(item.id) === candidateId)
-    if (!candidate) return
+  Object.entries(baseStages || {}).forEach(([stageId, candidates]) => {
+    ;(candidates || []).forEach((candidate) => {
+      const candidateId = String(candidate.id)
+      const previousCandidate = candidateById.get(candidateId)
+      if (!previousCandidate || countCandidateFields(candidate) >= countCandidateFields(previousCandidate)) {
+        candidateById.set(candidateId, candidate)
+      }
+      if (!stageSetByCandidate.has(candidateId)) {
+        stageSetByCandidate.set(candidateId, new Set())
+      }
+      stageSetByCandidate.get(candidateId).add(stageId)
+    })
+  })
 
-    nextStages[currentStage] = nextStages[currentStage].filter((item) => String(item.id) !== candidateId)
-    nextStages.COMPLETED = [...(nextStages.COMPLETED || []), { ...candidate, display_stage: 'COMPLETED' }]
+  candidateById.forEach((candidate, candidateId) => {
+    const stageSet = stageSetByCandidate.get(candidateId) || new Set()
+    const latestInterview = latestInterviewsByCandidate.get(candidateId)
+    const effectiveInterviewStatus = getEffectiveInterviewStatus(latestInterview)
+    let resolvedStage = [...stageSet][0] || candidate.stage || candidate.display_stage
+
+    if (effectiveInterviewStatus === 'completed' && resolvedStage !== 'SELECTED' && resolvedStage !== 'REJECTED') {
+      resolvedStage = 'COMPLETED'
+    } else if (latestInterview) {
+      const interviewStatus = String(latestInterview.status || '').toLowerCase()
+      if (interviewStatus === 'scheduled') {
+        resolvedStage = stageSet.has('INTERVIEWED') ? 'INTERVIEWED' : 'INTERVIEW_SCHEDULED'
+      } else if (interviewStatus === 'rescheduled') {
+        resolvedStage = 'INTERVIEW_RESCHEDULED'
+      }
+    }
+
+    if (!nextStages[resolvedStage]) {
+      nextStages[resolvedStage] = []
+    }
+    nextStages[resolvedStage].push({ ...candidate, stage: resolvedStage, display_stage: resolvedStage })
   })
 
   return nextStages
