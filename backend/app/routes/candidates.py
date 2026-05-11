@@ -806,6 +806,133 @@ def _get_interview_slot_pipeline_stages(db: Session, candidate_ids: List[UUID], 
     return slot_stage_by_candidate
 
 
+def sync_rescheduled_candidate_stages_from_slots(
+    db: Session,
+    candidate_ids: Optional[List[UUID]] = None,
+) -> int:
+    target_query = db.query(Candidate.id).filter(
+        Candidate.stage == CandidateStage.INTERVIEW_RESCHEDULED
+    )
+    if candidate_ids:
+        target_query = target_query.filter(Candidate.id.in_(candidate_ids))
+
+    rescheduled_candidate_ids = [candidate_id for (candidate_id,) in target_query.all()]
+    if not rescheduled_candidate_ids:
+        return 0
+
+    slot_stage_by_candidate = _get_interview_slot_pipeline_stages(
+        db,
+        rescheduled_candidate_ids,
+        _get_india_today(),
+    )
+    if not slot_stage_by_candidate:
+        return 0
+
+    now = datetime.utcnow()
+    updated_count = 0
+    candidates = (
+        db.query(Candidate)
+        .filter(Candidate.id.in_(list(slot_stage_by_candidate.keys())))
+        .all()
+    )
+    for candidate in candidates:
+        target_stage = slot_stage_by_candidate.get(candidate.id)
+        if target_stage not in {CandidateStage.INTERVIEW_SCHEDULED, CandidateStage.INTERVIEWED}:
+            continue
+        if candidate.stage == target_stage:
+            continue
+        candidate.stage = target_stage
+        candidate.stage_updated_at = now
+        candidate.stage_entered_at = now
+        updated_count += 1
+
+    if updated_count:
+        db.commit()
+        try:
+            from app.routes.analytics import clear_analytics_cache
+            clear_analytics_cache()
+        except Exception:
+            pass
+
+    return updated_count
+
+
+NO_SHOW_GRACE_PERIOD_MINUTES = 30
+
+
+def sync_no_show_candidate_stages(db: Session) -> int:
+    now_utc = datetime.now(timezone.utc)
+    no_show_cutoff = now_utc - timedelta(minutes=NO_SHOW_GRACE_PERIOD_MINUTES)
+
+    active_interviews = (
+        db.query(Interview)
+        .filter(Interview.scheduled_at.isnot(None))
+        .filter(Interview.scheduled_at <= no_show_cutoff)
+        .filter(func.lower(func.trim(Interview.status)).in_(["scheduled", "rescheduled"]))
+        .order_by(
+            Interview.candidate_id.asc(),
+            func.coalesce(Interview.scheduled_at, Interview.created_at).desc(),
+            Interview.created_at.desc(),
+        )
+        .all()
+    )
+    if not active_interviews:
+        return 0
+
+    latest_interview_by_candidate: dict[UUID, Interview] = {}
+    for interview in active_interviews:
+        if interview.candidate_id not in latest_interview_by_candidate:
+            latest_interview_by_candidate[interview.candidate_id] = interview
+
+    candidate_ids = list(latest_interview_by_candidate.keys())
+    candidates = (
+        db.query(Candidate)
+        .filter(Candidate.id.in_(candidate_ids))
+        .all()
+    )
+    candidate_by_id = {candidate.id: candidate for candidate in candidates}
+
+    updated_count = 0
+    status_changed = False
+    now = datetime.utcnow()
+    for candidate_id, interview in latest_interview_by_candidate.items():
+        candidate = candidate_by_id.get(candidate_id)
+        if not candidate:
+            continue
+
+        interview_started = bool(
+            interview.async_started_at
+            or interview.async_completed_at
+            or interview.transcript
+            or interview.ai_summary
+            or interview.video_url
+            or interview.interview_score is not None
+            or (interview.status or "").strip().lower() in {"ongoing", "completed", "selected", "rejected", "no_show"}
+        )
+        if interview_started:
+            continue
+
+        if (interview.status or "").strip().lower() != "no_show":
+            interview.status = "no_show"
+            status_changed = True
+
+        if candidate.stage != CandidateStage.NO_SHOW:
+            candidate.stage = CandidateStage.NO_SHOW
+            candidate.stage_updated_at = now
+            candidate.stage_entered_at = now
+            updated_count += 1
+
+    if updated_count or status_changed:
+        db.commit()
+        try:
+            from app.routes.analytics import clear_analytics_cache
+            clear_analytics_cache()
+        except Exception:
+            pass
+
+    return updated_count
+
+
 def _get_interview_slot_candidate_ids_by_timing(
     db: Session,
     candidate_ids: List[UUID],
@@ -2825,6 +2952,8 @@ def get_candidates_count(
 ):
     from app.models import UserRole
     normalize_legacy_candidate_stages(db)
+    sync_no_show_candidate_stages(db)
+    sync_rescheduled_candidate_stages_from_slots(db)
     query = db.query(Candidate)
     if current_user.role == UserRole.SUPER_ADMIN:
         if agency_id:
@@ -2867,6 +2996,8 @@ def get_candidates(
     total_start = perf_counter()
     normalization_start = perf_counter()
     normalize_legacy_candidate_stages(db)
+    sync_no_show_candidate_stages(db)
+    sync_rescheduled_candidate_stages_from_slots(db)
     normalization_time = perf_counter() - normalization_start
     query = db.query(Candidate)
 
@@ -3662,6 +3793,8 @@ def get_pipeline_stages(
     from app.models import JobDescription, UserRole
     completed_stage_key = "COMPLETED"
     normalize_legacy_candidate_stages(db)
+    sync_no_show_candidate_stages(db)
+    sync_rescheduled_candidate_stages_from_slots(db)
     query = db.query(Candidate)
     if agency_id and current_user.role == UserRole.SUPER_ADMIN:
         query = query.filter(Candidate.agency_id == agency_id)
