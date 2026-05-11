@@ -131,7 +131,7 @@ function CandidateCard({
   return (
     <Card 
       className={cn(
-        "transition-shadow",
+        "overflow-hidden transition-shadow",
         draggable && "cursor-grab active:cursor-grabbing",
         isDragging && "opacity-50"
       )} 
@@ -153,14 +153,22 @@ function CandidateCard({
             {candidate.current_company && (
               <p className="text-xs text-muted-foreground truncate">{candidate.current_company}</p>
             )}
-            <div className="flex items-center justify-between mt-2">
+            <div className="mt-2 flex items-center gap-2 min-w-0">
               {candidate.job_title && (
-                <Badge variant="outline" className="text-xs truncate max-w-[100px]">
-                  {candidate.job_title}
-                </Badge>
+                <div className="min-w-0 flex-1">
+                  <Badge
+                    variant="outline"
+                    className="flex w-full max-w-full overflow-hidden whitespace-nowrap text-ellipsis text-xs"
+                    title={candidate.job_title}
+                  >
+                    <span className="block min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
+                      {candidate.job_title}
+                    </span>
+                  </Badge>
+                </div>
               )}
-              {candidate.resume_score && (
-                <div className="flex items-center gap-1">
+              {candidate.resume_score !== null && candidate.resume_score !== undefined && candidate.resume_score !== '' && (
+                <div className="flex shrink-0 items-center gap-1">
                   <Star className="h-3 w-3 text-yellow-500" />
                   <span className={cn('text-xs font-semibold', getScoreColor(candidate.resume_score))}>
                     {candidate.resume_score}
