@@ -2065,7 +2065,11 @@ def get_upcoming_interviews(
             utc_slot_pair = (normalized_scheduled_at.date(), normalized_scheduled_at.time().replace(tzinfo=None))
             ist_slot_pair = (localized_scheduled_at.date(), localized_scheduled_at.time().replace(tzinfo=None))
 
-            if getattr(interview, "is_async", False) and utc_slot_pair in slot_pairs and ist_slot_pair not in slot_pairs:
+            if (
+                (getattr(interview, "is_async", False) or getattr(interview, "async_token", None))
+                and utc_slot_pair in slot_pairs
+                and ist_slot_pair not in slot_pairs
+            ):
                 display_scheduled_at = datetime.combine(
                     normalized_scheduled_at.date(),
                     normalized_scheduled_at.time().replace(tzinfo=None),
