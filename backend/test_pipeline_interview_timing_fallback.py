@@ -3,6 +3,7 @@ import uuid
 
 from app.routes.candidates import (
     _classify_interview_timing_bucket,
+    _get_slot_no_show_cutoff_ist,
     _get_interview_candidate_ids_by_interview_timing,
 )
 
@@ -78,3 +79,11 @@ def test_get_interview_candidate_ids_by_interview_timing_uses_latest_interview_p
     assert candidate_id in future_ids
     assert candidate_id not in today_ids
     assert other_candidate_id in today_ids
+
+
+def test_get_slot_no_show_cutoff_ist_applies_thirty_minute_grace_period():
+    now_utc = datetime(2026, 5, 12, 6, 0, tzinfo=timezone.utc)
+
+    cutoff_ist = _get_slot_no_show_cutoff_ist(now_utc)
+
+    assert cutoff_ist == datetime(2026, 5, 12, 11, 0)

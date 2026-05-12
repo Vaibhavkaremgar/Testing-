@@ -320,7 +320,7 @@ export default function WalletPage({ superAdminAgencyId = null }) {
     } catch (error) {
       console.error('Failed to fetch plan status:', error);
       setPlanStatus(null);
-    }
+    } 
   };
 
   const fetchUsageSummary = async () => {

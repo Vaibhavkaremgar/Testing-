@@ -860,6 +860,15 @@ def sync_rescheduled_candidate_stages_from_slots(
 NO_SHOW_GRACE_PERIOD_MINUTES = 30
 
 
+def _get_slot_no_show_cutoff_ist(now_utc: Optional[datetime] = None) -> datetime:
+    """Compare slot-booking local timestamps against the configured no-show grace window."""
+    reference_now_utc = now_utc or datetime.now(timezone.utc)
+    return (
+        reference_now_utc.astimezone(INDIA_TIMEZONE)
+        - timedelta(minutes=NO_SHOW_GRACE_PERIOD_MINUTES)
+    ).replace(tzinfo=None, second=0, microsecond=0)
+
+
 def sync_no_show_candidate_stages(db: Session) -> int:
     now_utc = datetime.now(timezone.utc)
     no_show_cutoff = now_utc - timedelta(minutes=NO_SHOW_GRACE_PERIOD_MINUTES)
@@ -921,7 +930,7 @@ def sync_no_show_candidate_stages(db: Session) -> int:
             )
 
             if candidate_column and slot_time_column and "slot_date" in column_names:
-                now_ist = now_utc.astimezone(INDIA_TIMEZONE)
+                slot_no_show_cutoff_ist = _get_slot_no_show_cutoff_ist(now_utc)
                 rows = db.execute(
                     text(f"""
                         SELECT
@@ -933,14 +942,14 @@ def sync_no_show_candidate_stages(db: Session) -> int:
                           AND slot_date IS NOT NULL
                           AND {slot_time_column} IS NOT NULL
                           AND {candidate_column}::text = ANY(:candidate_ids)
-                          AND slot_date::date = :today
-                          AND {slot_time_column}::time <= :cutoff_time
+                          AND slot_date::date <= :cutoff_date
+                          AND (slot_date::timestamp + {slot_time_column}::time) <= :cutoff_at
                         ORDER BY {candidate_column}::text, slot_date::date DESC, {slot_time_column}::time DESC
                     """),
                     {
                         "candidate_ids": list(candidate_lookup.keys()),
-                        "today": now_ist.date(),
-                        "cutoff_time": now_ist.time().replace(second=0, microsecond=0),
+                        "cutoff_date": slot_no_show_cutoff_ist.date(),
+                        "cutoff_at": slot_no_show_cutoff_ist,
                     },
                 ).mappings().all()
                 for row in rows:
