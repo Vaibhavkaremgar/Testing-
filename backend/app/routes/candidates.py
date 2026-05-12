@@ -276,6 +276,12 @@ def _get_india_today() -> date:
     return datetime.now(timezone.utc).astimezone(INDIA_TIMEZONE).date()
 
 
+def _get_india_now(now_utc: Optional[datetime] = None) -> datetime:
+    """Use the slot-booking local clock for same-day interview timing decisions."""
+    reference_now_utc = now_utc or datetime.now(timezone.utc)
+    return reference_now_utc.astimezone(INDIA_TIMEZONE)
+
+
 def _get_india_local_date(value: Optional[datetime]) -> Optional[date]:
     """Normalize interview timestamps to the slot-booking local date when timezone data exists."""
     if value is None:
@@ -283,6 +289,15 @@ def _get_india_local_date(value: Optional[datetime]) -> Optional[date]:
     if value.tzinfo is None:
         return value.date()
     return value.astimezone(INDIA_TIMEZONE).date()
+
+
+def _get_india_local_datetime(value: Optional[datetime]) -> Optional[datetime]:
+    """Normalize interview timestamps to the slot-booking local datetime when timezone data exists."""
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(INDIA_TIMEZONE)
 
 
 def _build_slot_candidate_lookup(
@@ -705,8 +720,12 @@ def resolve_pipeline_rejected_stage(
         if interview_status in {"completed", "ongoing"}:
             return CandidateStage.INTERVIEWED
         if interview_status in {"scheduled", "rescheduled"}:
-            interview_date = latest_interview.scheduled_at.date() if latest_interview.scheduled_at else None
-            if interview_date == datetime.now().date():
+            timing_bucket = _classify_interview_timing_bucket(
+                status_value="scheduled",
+                scheduled_at=latest_interview.scheduled_at,
+                today=_get_india_today(),
+            )
+            if timing_bucket == "today":
                 return CandidateStage.INTERVIEWED
             return CandidateStage.INTERVIEW_SCHEDULED
 
@@ -1125,9 +1144,12 @@ def _classify_interview_timing_bucket(
     status_value: Optional[str],
     scheduled_at: Optional[datetime],
     today: date,
+    now_utc: Optional[datetime] = None,
 ) -> Optional[str]:
     normalized_status = (status_value or "").strip().lower()
     interview_date = _get_india_local_date(scheduled_at)
+    interview_local_datetime = _get_india_local_datetime(scheduled_at)
+    india_now = _get_india_now(now_utc)
 
     if normalized_status in {"completed", "ongoing"}:
         return "today"
@@ -1140,6 +1162,8 @@ def _classify_interview_timing_bucket(
     if interview_date < today:
         return None
     if interview_date == today:
+        if interview_local_datetime and interview_local_datetime > india_now:
+            return "future"
         return "today"
     return "future"
 

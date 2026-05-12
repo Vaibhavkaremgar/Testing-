@@ -4,7 +4,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session, joinedload, load_only
 from sqlalchemy import func, or_, text
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import UUID
 from threading import Lock
 from time import monotonic, perf_counter
@@ -77,6 +77,19 @@ SAMPLE_TRANSCRIPTS = """
 
 [20:10] Candidate: Yes, I'd love to learn more about the team structure and the technologies you're currently using.
 """
+
+
+def _normalize_interview_scheduled_at_for_storage(value: Optional[datetime]) -> Optional[datetime]:
+    """Store interview timestamps in UTC while treating naive scheduling inputs as IST."""
+    if value is None:
+        return None
+
+    from app.routes.candidates import INDIA_TIMEZONE
+
+    if value.tzinfo is None:
+        return value.replace(tzinfo=INDIA_TIMEZONE).astimezone(timezone.utc)
+
+    return value.astimezone(timezone.utc)
 
 
 def _apply_interview_search_filter(query, search: Optional[str]):
@@ -269,6 +282,8 @@ def _apply_interview_score_normalization(interview: Interview) -> None:
 
 
 def _serialize_interview_response(interview: Interview, recording_availability: dict[str, dict] | None = None):
+    from app.routes.candidates import _get_india_local_datetime
+
     recording_data = (recording_availability or {}).get(str(interview.id), {})
     resolved_session_token = _extract_recording_session_token(
         recording_data.get("session_token"),
@@ -283,7 +298,7 @@ def _serialize_interview_response(interview: Interview, recording_availability: 
         recording_path=recording_data.get("recording_path"),
         recording_format=recording_data.get("recording_format"),
         interview_type=interview.interview_type or "General",
-        scheduled_at=interview.scheduled_at,
+        scheduled_at=_get_india_local_datetime(interview.scheduled_at),
         duration_minutes=interview.duration_minutes if interview.duration_minutes is not None else 60,
         meeting_link=interview.meeting_link,
         status=interview.status,
@@ -316,9 +331,10 @@ def _apply_interview_date_filters(
 
 def _derive_candidate_stage_from_interview(interview: Interview) -> Optional[CandidateStage]:
     """Map the latest interview status to the candidate pipeline stage."""
+    from app.routes.candidates import _classify_interview_timing_bucket, _get_india_today
+
     interview_status = (interview.status or "").strip().lower()
-    interview_date = interview.scheduled_at.date() if interview.scheduled_at else None
-    today = datetime.now().date()
+    today = _get_india_today()
 
     if interview_status == "completed":
         # Keep completed interviews in the post-interview review state until a user
@@ -330,12 +346,22 @@ def _derive_candidate_stage_from_interview(interview: Interview) -> Optional[Can
         "no_show": CandidateStage.NO_SHOW,
     }
     if interview_status == "scheduled":
-        if interview_date == today:
+        timing_bucket = _classify_interview_timing_bucket(
+            status_value=interview.status,
+            scheduled_at=interview.scheduled_at,
+            today=today,
+        )
+        if timing_bucket == "today":
             return CandidateStage.INTERVIEWED
         return CandidateStage.INTERVIEW_SCHEDULED
 
     if interview_status == "rescheduled":
-        if interview_date == today:
+        timing_bucket = _classify_interview_timing_bucket(
+            status_value="scheduled",
+            scheduled_at=interview.scheduled_at,
+            today=today,
+        )
+        if timing_bucket == "today":
             return CandidateStage.INTERVIEWED
         return CandidateStage.INTERVIEW_RESCHEDULED
 
@@ -1924,7 +1950,12 @@ def create_interview_public(
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
 
-    db_interview = Interview(**interview.model_dump())
+    interview_payload = interview.model_dump()
+    interview_payload["scheduled_at"] = _normalize_interview_scheduled_at_for_storage(
+        interview_payload.get("scheduled_at")
+    )
+
+    db_interview = Interview(**interview_payload)
     _apply_interview_score_normalization(db_interview)
     db.add(db_interview)
     _sync_candidate_stage_from_interview(candidate, db_interview)
@@ -1956,7 +1987,12 @@ def create_interview(
 
         _ensure_interview_scheduling_credits(db, candidate)
         
-        db_interview = Interview(**interview.model_dump())
+        interview_payload = interview.model_dump()
+        interview_payload["scheduled_at"] = _normalize_interview_scheduled_at_for_storage(
+            interview_payload.get("scheduled_at")
+        )
+
+        db_interview = Interview(**interview_payload)
         _apply_interview_score_normalization(db_interview)
         db.add(db_interview)
         
@@ -2000,6 +2036,10 @@ def update_interview(
         raise HTTPException(status_code=404, detail="Interview not found")
     
     update_data = interview_update.model_dump(exclude_unset=True)
+    if "scheduled_at" in update_data:
+        update_data["scheduled_at"] = _normalize_interview_scheduled_at_for_storage(
+            update_data.get("scheduled_at")
+        )
     
     for field, value in update_data.items():
         setattr(db_interview, field, value)

@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.mailer import is_email_configured, send_html_email
 from app.models import Agency, Candidate, EmailCommunication, EmailTemplate, Interview, JobDescription
+from app.routes.candidates import _get_india_local_datetime, _get_india_now
 
 
 EMAIL_TEMPLATE_LABELS = {
@@ -65,7 +66,7 @@ def build_candidate_email_context(db: Session, candidate: Candidate) -> dict:
 
     interview_date = ""
     if latest_interview and latest_interview.scheduled_at:
-        interview_date = latest_interview.scheduled_at.strftime("%B %d, %Y %I:%M %p")
+        interview_date = _get_india_local_datetime(latest_interview.scheduled_at).strftime("%B %d, %Y %I:%M %p IST")
 
     params = {
         "candidateId": candidate.id,
@@ -88,7 +89,7 @@ def build_candidate_email_context(db: Session, candidate: Candidate) -> dict:
         "interview_date": interview_date,
         "slot_booking_url": settings.SLOT_BOOKING_URL or "",
         "interview_details_url": f"{settings.FRONTEND_URL}/interview?{urlencode(params)}" if settings.FRONTEND_URL else "",
-        "current_date": datetime.utcnow().strftime("%B %d, %Y"),
+        "current_date": _get_india_now().strftime("%B %d, %Y"),
     }
 
 

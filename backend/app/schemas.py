@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 from typing import Optional, List, Any, Literal
 from datetime import datetime
 from uuid import UUID
@@ -209,6 +209,24 @@ class InterviewBase(BaseModel):
     duration_minutes: Optional[int] = 60
     meeting_link: Optional[str] = None
 
+    @field_validator("scheduled_at", mode="before")
+    @classmethod
+    def normalize_scheduled_at_to_ist_input(cls, value):
+        if value in (None, ""):
+            return None
+
+        if isinstance(value, datetime):
+            parsed = value
+        else:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+
+        if parsed.tzinfo is None:
+            from app.routes.candidates import INDIA_TIMEZONE
+
+            return parsed.replace(tzinfo=INDIA_TIMEZONE)
+
+        return parsed
+
 class InterviewCreate(InterviewBase):
     candidate_id: UUID
 
@@ -227,6 +245,11 @@ class InterviewUpdate(BaseModel):
     technical_score: Optional[float] = None
     communication_score: Optional[float] = None
     culture_fit_score: Optional[float] = None
+
+    @field_validator("scheduled_at", mode="before")
+    @classmethod
+    def normalize_scheduled_at_to_ist_input(cls, value):
+        return InterviewBase.normalize_scheduled_at_to_ist_input(value)
 
 class InterviewResultsUpdate(BaseModel):
     video_url: Optional[str] = None

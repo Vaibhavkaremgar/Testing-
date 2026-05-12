@@ -1,10 +1,17 @@
 from datetime import date, datetime, timedelta, timezone
 import uuid
 
+from app.models import CandidateStage, Interview
+from app.schemas import InterviewCreate, InterviewUpdate
 from app.routes.candidates import (
     _classify_interview_timing_bucket,
+    _get_india_now,
     _get_slot_no_show_cutoff_ist,
     _get_interview_candidate_ids_by_interview_timing,
+)
+from app.routes.interviews import (
+    _derive_candidate_stage_from_interview,
+    _normalize_interview_scheduled_at_for_storage,
 )
 
 
@@ -39,6 +46,22 @@ def test_classify_interview_timing_bucket_marks_future_scheduled_interviews():
             status_value="scheduled",
             scheduled_at=scheduled_at,
             today=today,
+        )
+        == "future"
+    )
+
+
+def test_classify_interview_timing_bucket_keeps_later_today_interviews_in_future_bucket():
+    now_utc = datetime(2026, 5, 12, 6, 19, tzinfo=timezone.utc)
+    today = _get_india_now(now_utc).date()
+    scheduled_at = datetime(2026, 5, 12, 11, 0, tzinfo=timezone.utc)
+
+    assert (
+        _classify_interview_timing_bucket(
+            status_value="scheduled",
+            scheduled_at=scheduled_at,
+            today=today,
+            now_utc=now_utc,
         )
         == "future"
     )
@@ -87,3 +110,34 @@ def test_get_slot_no_show_cutoff_ist_applies_thirty_minute_grace_period():
     cutoff_ist = _get_slot_no_show_cutoff_ist(now_utc)
 
     assert cutoff_ist == datetime(2026, 5, 12, 11, 0)
+
+
+def test_derive_candidate_stage_from_interview_keeps_later_today_scheduled_interviews_in_scheduled_stage():
+    interview = Interview(
+        candidate_id=uuid.uuid4(),
+        status="scheduled",
+        scheduled_at=datetime(2099, 5, 12, 11, 0, tzinfo=timezone.utc),
+    )
+
+    assert _derive_candidate_stage_from_interview(interview) == CandidateStage.INTERVIEW_SCHEDULED
+
+
+def test_normalize_interview_scheduled_at_for_storage_treats_naive_values_as_ist():
+    normalized = _normalize_interview_scheduled_at_for_storage(datetime(2026, 5, 12, 11, 0))
+
+    assert normalized == datetime(2026, 5, 12, 5, 30, tzinfo=timezone.utc)
+
+
+def test_interview_create_schema_treats_naive_scheduled_at_as_ist():
+    payload = InterviewCreate(
+        candidate_id=uuid.uuid4(),
+        scheduled_at="2026-05-12T11:00:00",
+    )
+
+    assert payload.scheduled_at == datetime(2026, 5, 12, 11, 0, tzinfo=timezone(timedelta(hours=5, minutes=30)))
+
+
+def test_interview_update_schema_treats_naive_scheduled_at_as_ist():
+    payload = InterviewUpdate(scheduled_at="2026-05-12T11:00:00")
+
+    assert payload.scheduled_at == datetime(2026, 5, 12, 11, 0, tzinfo=timezone(timedelta(hours=5, minutes=30)))
