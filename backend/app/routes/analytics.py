@@ -1823,23 +1823,78 @@ def get_interview_scores_trend(
 
 @router.get("/hiring-by-department")
 def get_hiring_by_department(
+    date_range: Optional[str] = Query("last_30_days"),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    recruiter: Optional[str] = Query(None),
+    client: Optional[str] = Query(None),
+    department: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
     total_start = perf_counter()
-    cache_key = _analytics_cache_key("hiring-by-department", current_user)
+    cache_key = _analytics_cache_key(
+        "hiring-by-department",
+        current_user,
+        date_range=date_range,
+        start_date=start_date,
+        end_date=end_date,
+        recruiter=recruiter,
+        client=client,
+        department=department,
+    )
     cached = _get_cached_analytics_response(cache_key)
     if cached is not None:
         _perf_log("hiring-by-department", total_start, cache="hit", row_count=len(cached))
         return cached
 
     query_start = perf_counter()
-    jobs = _apply_job_visibility(db.query(JobDescription), db, current_user).with_entities(
+    filtered_candidates = _apply_candidate_visibility(db.query(Candidate), current_user)
+    filtered_candidates = _apply_analytics_filters(
+        filtered_candidates,
+        db,
+        current_user,
+        date_range=date_range,
+        start_date=start_date,
+        end_date=end_date,
+        recruiter=recruiter,
+        client=client,
+        department=department,
+    )
+
+    filtered_job_ids = filtered_candidates.with_entities(Candidate.job_id).filter(
+        Candidate.job_id.isnot(None)
+    ).distinct().subquery()
+
+    selected_by_job_rows = filtered_candidates.with_entities(
+        Candidate.job_id.label("job_id"),
+        func.sum(case(((Candidate.stage == CandidateStage.SELECTED), 1), else_=0)).label("selected_count"),
+    ).filter(
+        Candidate.job_id.isnot(None)
+    ).group_by(Candidate.job_id).all()
+    selected_by_job = {
+        row.job_id: int(row.selected_count or 0)
+        for row in selected_by_job_rows
+    }
+
+    jobs_query = _apply_job_visibility(db.query(JobDescription), db, current_user)
+    if client and client != "all":
+        jobs_query = jobs_query.filter(JobDescription.company_name == client)
+    if department and department != "all":
+        jobs_query = jobs_query.filter(JobDescription.department == department)
+    if any([
+        recruiter and recruiter != "all",
+        date_range and date_range != "all_time",
+        start_date,
+        end_date,
+    ]):
+        jobs_query = jobs_query.filter(JobDescription.id.in_(filtered_job_ids))
+
+    jobs = jobs_query.with_entities(
         JobDescription.id,
         JobDescription.department,
         JobDescription.vacancies,
     ).all()
-    selected_by_job = _candidate_counts_by_job(db, current_user)
     query_time = perf_counter() - query_start
     logger.debug("[DB PERF] hiring-by-department query=%.4fs", query_time)
 
@@ -1847,7 +1902,7 @@ def get_hiring_by_department(
     dept_data = {}
     for job in jobs:
         dept = job.department or "Other"
-        hired = selected_by_job.get(job.id, {}).get("selected_count", 0)
+        hired = selected_by_job.get(job.id, 0)
         open_positions = max(0, (job.vacancies or 1) - hired)
         bucket = dept_data.setdefault(dept, {"hired": 0, "open": 0})
         bucket["hired"] += hired
