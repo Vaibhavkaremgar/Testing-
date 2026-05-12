@@ -717,8 +717,17 @@ def resolve_reporting_pipeline_stage(candidate: Candidate, latest_interview: Opt
     if candidate.stage == CandidateStage.RESUME_REJECTED:
         return CandidateStage.RESUME_REJECTED
 
-    if is_interview_rejected(latest_interview):
-        return CandidateStage.REJECTED
+    if latest_interview:
+        interview_status = (latest_interview.status or "").strip().lower()
+        if interview_status == "selected":
+            return CandidateStage.SELECTED
+        if interview_status == "rejected":
+            return CandidateStage.REJECTED
+        if interview_status == "completed":
+            interview_score = latest_interview.interview_score if latest_interview.interview_score is not None else 0
+            if interview_score > 10:
+                interview_score = interview_score / 10
+            return CandidateStage.SELECTED if interview_score >= 6 else CandidateStage.REJECTED
 
     display_stage = resolve_pipeline_display_stage(candidate, latest_interview, today)
     if display_stage == CandidateStage.RESUME_REJECTED:
