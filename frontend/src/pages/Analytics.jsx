@@ -141,7 +141,7 @@ export default function Analytics() {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
   const queryClient = useQueryClient()
 
-  const [dateRange, setDateRange] = useState('last_30_days')
+  const [dateRange, setDateRange] = useState('all_time')
   const [customStartDate, setCustomStartDate] = useState('')
   const [customEndDate, setCustomEndDate] = useState('')
   const [compareMode, setCompareMode] = useState(false)
@@ -389,6 +389,7 @@ export default function Analytics() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="all_time">All Time</SelectItem>
                   <SelectItem value="last_7_days">Last 7 Days</SelectItem>
                   <SelectItem value="last_30_days">Last 30 Days</SelectItem>
                   <SelectItem value="last_3_months">Last 3 Months</SelectItem>
