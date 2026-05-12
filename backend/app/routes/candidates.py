@@ -63,6 +63,7 @@ LOCATION_NOISE_PATTERN = re.compile(
     r"(?i)\b(?:managing|managed|operations|including|across|responsible|experience|years|sales|development|engineer|developer|manager|executive|specialist|lead|worked|work|support|project|projects|regional)\b"
 )
 INDIA_TIMEZONE = timezone(timedelta(hours=5, minutes=30))
+LEGACY_SESSION_INTERVIEW_LINK_PREFIX = "https://pontis-backend-production.up.railway.app/interview?session="
 
 
 def normalize_legacy_candidate_stages(db: Session) -> None:
@@ -298,6 +299,38 @@ def _get_india_local_datetime(value: Optional[datetime]) -> Optional[datetime]:
     if value.tzinfo is None:
         return value
     return value.astimezone(INDIA_TIMEZONE)
+
+
+def _uses_legacy_session_interview_timestamp(interview: Optional[Interview]) -> bool:
+    """Detect older hosted-session interviews whose wall-clock IST time was persisted with the wrong timezone semantics."""
+    if not interview or not interview.scheduled_at:
+        return False
+
+    async_link = str(getattr(interview, "async_link", "") or "").strip()
+    meeting_link = str(getattr(interview, "meeting_link", "") or "").strip()
+    is_async = bool(getattr(interview, "is_async", False))
+
+    return (
+        async_link.startswith(LEGACY_SESSION_INTERVIEW_LINK_PREFIX)
+        and not meeting_link
+        and not is_async
+    )
+
+
+def _get_effective_interview_scheduled_at_utc(interview: Optional[Interview]) -> Optional[datetime]:
+    """Use IST wall-clock semantics for the known legacy session-link interview records."""
+    if not interview or not interview.scheduled_at:
+        return None
+
+    scheduled_at = interview.scheduled_at
+    if _uses_legacy_session_interview_timestamp(interview):
+        wall_clock_time = scheduled_at.replace(tzinfo=None)
+        return wall_clock_time.replace(tzinfo=INDIA_TIMEZONE).astimezone(timezone.utc)
+
+    if scheduled_at.tzinfo is None:
+        return scheduled_at.replace(tzinfo=timezone.utc)
+
+    return scheduled_at.astimezone(timezone.utc)
 
 
 def _build_slot_candidate_lookup(
@@ -894,8 +927,6 @@ def sync_no_show_candidate_stages(db: Session) -> int:
 
     active_interviews = (
         db.query(Interview)
-        .filter(Interview.scheduled_at.isnot(None))
-        .filter(Interview.scheduled_at <= no_show_cutoff)
         .filter(func.lower(func.trim(Interview.status)).in_(["scheduled", "rescheduled"]))
         .order_by(
             Interview.candidate_id.asc(),
@@ -906,6 +937,9 @@ def sync_no_show_candidate_stages(db: Session) -> int:
     )
     latest_interview_by_candidate: dict[UUID, Interview] = {}
     for interview in active_interviews:
+        effective_scheduled_at_utc = _get_effective_interview_scheduled_at_utc(interview)
+        if not effective_scheduled_at_utc or effective_scheduled_at_utc > no_show_cutoff:
+            continue
         if interview.candidate_id not in latest_interview_by_candidate:
             latest_interview_by_candidate[interview.candidate_id] = interview
     candidate_ids = list(latest_interview_by_candidate.keys())

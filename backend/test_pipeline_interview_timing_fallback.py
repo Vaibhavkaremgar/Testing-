@@ -5,6 +5,7 @@ from app.models import CandidateStage, Interview
 from app.schemas import InterviewCreate, InterviewUpdate
 from app.routes.candidates import (
     _classify_interview_timing_bucket,
+    _get_effective_interview_scheduled_at_utc,
     _get_india_now,
     _get_slot_no_show_cutoff_ist,
     _get_interview_candidate_ids_by_interview_timing,
@@ -141,3 +142,16 @@ def test_interview_update_schema_treats_naive_scheduled_at_as_ist():
     payload = InterviewUpdate(scheduled_at="2026-05-12T11:00:00")
 
     assert payload.scheduled_at == datetime(2026, 5, 12, 11, 0, tzinfo=timezone(timedelta(hours=5, minutes=30)))
+
+
+def test_effective_interview_scheduled_at_utc_reinterprets_legacy_session_links_as_ist():
+    interview = Interview(
+        candidate_id=uuid.uuid4(),
+        status="scheduled",
+        scheduled_at=datetime(2026, 5, 12, 11, 0, tzinfo=timezone.utc),
+        async_link="https://pontis-backend-production.up.railway.app/interview?session=test",
+        meeting_link=None,
+        is_async=False,
+    )
+
+    assert _get_effective_interview_scheduled_at_utc(interview) == datetime(2026, 5, 12, 5, 30, tzinfo=timezone.utc)
