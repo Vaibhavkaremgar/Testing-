@@ -1269,6 +1269,7 @@ def get_recruitment_funnel(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
+    normalize_legacy_candidate_stages(db)
     query = _apply_candidate_visibility(db.query(Candidate), current_user)
     query = _apply_analytics_filters(
         query,
@@ -1283,6 +1284,15 @@ def get_recruitment_funnel(
     )
     candidates = query.all()
     now = datetime.now(timezone.utc)
+    candidate_ids = [candidate.id for candidate in candidates]
+    latest_interviews_by_candidate = _get_latest_filtered_interviews_by_candidate(
+        db,
+        candidate_ids,
+        from_date=start_date,
+        to_date=end_date,
+    )
+    today = datetime.now().date()
+    slot_stage_by_candidate = _get_interview_slot_pipeline_stages(db, candidate_ids, today)
 
     def _avg_days(rows):
         if not rows:
@@ -1298,30 +1308,37 @@ def get_recruitment_funnel(
             durations.append(max(0, (now - normalized_start).days))
         return round(sum(durations) / len(durations), 1) if durations else 0.0
 
+    pipeline_stage_by_candidate = {}
+    for candidate in candidates:
+        display_stage = resolve_reporting_pipeline_stage(
+            candidate,
+            latest_interviews_by_candidate.get(candidate.id),
+            today,
+        )
+        slot_stage = slot_stage_by_candidate.get(candidate.id)
+        pipeline_stage_by_candidate[candidate.id] = resolve_slot_backed_pipeline_stage(
+            candidate,
+            display_stage,
+            slot_stage,
+        )
+
     applied_rows = list(candidates)
     screened_rows = [c for c in candidates if c.stage != CandidateStage.APPLIED]
     shortlisted_rows = [
         c for c in candidates
-        if c.stage in {
-            CandidateStage.SHORTLISTED,
-            CandidateStage.INTERVIEW_SCHEDULED,
-            CandidateStage.INTERVIEW_RESCHEDULED,
-            CandidateStage.INTERVIEWED,
-            CandidateStage.SELECTED,
-            CandidateStage.REJECTED,
-        }
+        if pipeline_stage_by_candidate.get(c.id) == CandidateStage.SHORTLISTED
     ]
     interviewed_rows = [
         c for c in candidates
-        if c.stage in {
+        if pipeline_stage_by_candidate.get(c.id) in {
             CandidateStage.INTERVIEW_SCHEDULED,
-            CandidateStage.INTERVIEW_RESCHEDULED,
             CandidateStage.INTERVIEWED,
-            CandidateStage.SELECTED,
-            CandidateStage.REJECTED,
         }
     ]
-    selected_rows = [c for c in candidates if c.stage == CandidateStage.SELECTED]
+    selected_rows = [
+        c for c in candidates
+        if pipeline_stage_by_candidate.get(c.id) == CandidateStage.SELECTED
+    ]
     offered_rows = [c for c in candidates if (c.offer_status or "").lower() in {"made", "accepted"}]
     hired_rows = [c for c in candidates if (c.offer_status or "").lower() == "accepted"]
 
