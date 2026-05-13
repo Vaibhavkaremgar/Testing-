@@ -79,6 +79,9 @@ function resolveDashboardDisplayStage(candidate, latestInterview) {
 
 function buildDashboardCandidateBuckets(candidatesData = [], interviewRows = []) {
   const latestInterviewsByCandidate = new Map()
+  const candidateMap = new Map((candidatesData || []).map((candidate) => [candidate.id, candidate]))
+  const selectedInterviewRows = []
+  const rejectedInterviewRows = []
 
   for (const interview of interviewRows || []) {
     if (!interview?.candidate_id) continue
@@ -87,6 +90,13 @@ function buildDashboardCandidateBuckets(candidatesData = [], interviewRows = [])
     const currentDate = interview.scheduled_at || interview.created_at || ''
     if (!previousInterview || new Date(currentDate) > new Date(previousDate)) {
       latestInterviewsByCandidate.set(interview.candidate_id, interview)
+    }
+
+    const normalizedStatus = (interview.status || '').trim().toLowerCase()
+    if (normalizedStatus === 'selected') {
+      selectedInterviewRows.push(interview)
+    } else if (normalizedStatus === 'rejected') {
+      rejectedInterviewRows.push(interview)
     }
   }
 
@@ -117,13 +127,24 @@ function buildDashboardCandidateBuckets(candidatesData = [], interviewRows = [])
     (candidate) => candidate.display_stage === 'INTERVIEW_SCHEDULED' || candidate.display_stage === 'INTERVIEWED'
   )
 
-  const selectedCandidates = mapPipelineDisplayCandidates(
-    (candidate) => candidate.display_stage === 'SELECTED'
-  )
+  const mapInterviewStatusCandidates = (statusInterviewRows, displayStage) => statusInterviewRows
+    .map((interview, index) => {
+      const candidate = candidateMap.get(interview.candidate_id)
+      if (!candidate) return null
 
-  const rejectedCandidates = mapPipelineDisplayCandidates(
-    (candidate) => candidate.display_stage === 'REJECTED'
-  )
+      return {
+        ...candidate,
+        id: candidate.id || `${interview.candidate_id || displayStage}-${index}`,
+        display_stage: displayStage,
+        display_score: interview?.interview_score ?? candidate.resume_score,
+        rejected_at: interview?.scheduled_at || interview?.created_at || candidate.created_at,
+      }
+    })
+    .filter(Boolean)
+    .sort((a, b) => new Date(b.rejected_at) - new Date(a.rejected_at))
+
+  const selectedCandidates = mapInterviewStatusCandidates(selectedInterviewRows, 'SELECTED')
+  const rejectedCandidates = mapInterviewStatusCandidates(rejectedInterviewRows, 'REJECTED')
 
   return {
     totalCandidates: pipelineDisplayCandidates,
