@@ -463,11 +463,15 @@ def _count_upcoming_interview_slots(db: Session, candidate_ids: List[UUID], toda
     if not column_names or "slot_date" not in column_names:
         return 0
 
+    normalized_column_lookup = {
+        column_name.lower().replace("_", ""): column_name
+        for column_name in column_names
+    }
     candidate_column = next(
         (
-            column_name
-            for column_name in ("candidate_id", "candidateId", "candidate")
-            if column_name in column_names
+            normalized_column_lookup.get(candidate_key)
+            for candidate_key in ("candidate_id", "candidateid", "candidate")
+            if normalized_column_lookup.get(candidate_key)
         ),
         None,
     )
