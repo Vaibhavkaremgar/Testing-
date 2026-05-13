@@ -1102,9 +1102,18 @@ def get_dashboard_stats(
         candidate_sq = _candidate_metrics_subquery(query)
         candidate_metrics = _aggregate_candidate_stage_metrics(db, candidate_sq, exclude_applied=False)
         candidate_ids = [candidate_id for (candidate_id,) in query.with_entities(Candidate.id).all()]
-        today = datetime.now().date()
+        interview_scope_query = _apply_candidate_dashboard_filters(
+            db.query(Candidate),
+            db,
+            current_user,
+            client=client,
+        )
+        interview_candidate_ids = [
+            candidate_id for (candidate_id,) in interview_scope_query.with_entities(Candidate.id).all()
+        ]
+        today = _get_india_today()
         shortlisted_count = query.filter(Candidate.stage == CandidateStage.SHORTLISTED).count()
-        interviews_scheduled_count = _count_upcoming_interview_slots(db, candidate_ids, today)
+        interviews_scheduled_count = _count_upcoming_interview_slots(db, interview_candidate_ids, today)
         selected_count = _count_interviews_by_status(db, candidate_ids, "selected")
         rejected_count = _count_interviews_by_status(db, candidate_ids, "rejected")
         active_candidate_query = query.filter(Candidate.stage != CandidateStage.APPLIED)
@@ -1329,25 +1338,51 @@ def get_recruitment_funnel(
             slot_stage,
         )
 
+    def _has_offer(candidate: Candidate) -> bool:
+        return (candidate.offer_status or "").lower() in {"made", "accepted"}
+
+    def _is_hired(candidate: Candidate) -> bool:
+        return (candidate.offer_status or "").lower() == "accepted"
+
+    def _has_reached_shortlisted(candidate: Candidate) -> bool:
+        stage = pipeline_stage_by_candidate.get(candidate.id)
+        return stage in {
+            CandidateStage.SHORTLISTED,
+            CandidateStage.INTERVIEW_SCHEDULED,
+            CandidateStage.INTERVIEWED,
+            CandidateStage.SELECTED,
+            CandidateStage.REJECTED,
+        } or _has_offer(candidate)
+
+    def _has_reached_interviewed(candidate: Candidate) -> bool:
+        stage = pipeline_stage_by_candidate.get(candidate.id)
+        return stage in {
+            CandidateStage.INTERVIEW_SCHEDULED,
+            CandidateStage.INTERVIEWED,
+            CandidateStage.SELECTED,
+            CandidateStage.REJECTED,
+        } or _has_offer(candidate)
+
+    def _has_reached_selected(candidate: Candidate) -> bool:
+        stage = pipeline_stage_by_candidate.get(candidate.id)
+        return stage == CandidateStage.SELECTED or _has_offer(candidate)
+
     applied_rows = list(candidates)
     screened_rows = [c for c in candidates if c.stage != CandidateStage.APPLIED]
     shortlisted_rows = [
         c for c in candidates
-        if pipeline_stage_by_candidate.get(c.id) == CandidateStage.SHORTLISTED
+        if _has_reached_shortlisted(c)
     ]
     interviewed_rows = [
         c for c in candidates
-        if pipeline_stage_by_candidate.get(c.id) in {
-            CandidateStage.INTERVIEW_SCHEDULED,
-            CandidateStage.INTERVIEWED,
-        }
+        if _has_reached_interviewed(c)
     ]
     selected_rows = [
         c for c in candidates
-        if pipeline_stage_by_candidate.get(c.id) == CandidateStage.SELECTED
+        if _has_reached_selected(c)
     ]
-    offered_rows = [c for c in candidates if (c.offer_status or "").lower() in {"made", "accepted"}]
-    hired_rows = [c for c in candidates if (c.offer_status or "").lower() == "accepted"]
+    offered_rows = [c for c in candidates if _has_offer(c)]
+    hired_rows = [c for c in candidates if _is_hired(c)]
 
     stage_data = [
         ("Applied", applied_rows),
