@@ -236,6 +236,19 @@ export default function Dashboard() {
     refetchOnWindowFocus: false,
   })
 
+  const interviewCardQuery = useQuery({
+    queryKey: ['dashboard-overview-interview-card', dashboardParams],
+    queryFn: async () => {
+      return api.getUpcomingInterviews(dashboardParams).catch((error) => {
+        console.error('Dashboard interview card error:', error)
+        return []
+      })
+    },
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: false,
+  })
+
   const candidatesRowsQuery = useQuery({
     queryKey: ['dashboard-overview-candidates', dashboardParams],
     queryFn: async () => {
@@ -263,12 +276,32 @@ export default function Dashboard() {
   const intelligence = detailsQuery.data?.intelligence || null
   const resumeTrend = deferredAnalyticsQuery.data?.resumeTrend || []
   const interviewTrend = deferredAnalyticsQuery.data?.interviewTrend || []
+  const interviewCardRows = interviewCardQuery.data || []
   const candidatesRows = candidatesRowsQuery.data || []
   const interviewRows = interviewRowsQuery.data || []
   const dashboardBuckets = useMemo(
     () => buildDashboardCandidateBuckets(candidatesRows, interviewRows),
     [candidatesRows, interviewRows]
   )
+  const scheduledInterviewCardCandidates = useMemo(() => {
+    const candidateMap = new Map((candidatesRows || []).map((candidate) => [candidate.id, candidate]))
+
+    return (interviewCardRows || []).map((interview, index) => {
+      const candidate = candidateMap.get(interview.candidate_id)
+      return {
+        id: candidate?.id || `${interview.candidate_id || 'interview'}-${index}`,
+        candidate_id: interview.candidate_id,
+        name: candidate?.name || interview.candidate_name || 'Unknown',
+        email: candidate?.email || '-',
+        job_title: interview.job_title || candidate?.job_title || '-',
+        resume_score: candidate?.resume_score ?? null,
+        display_score: candidate?.resume_score ?? null,
+        display_stage: 'INTERVIEW_SCHEDULED',
+        rejected_at: interview.scheduled_at || candidate?.created_at || null,
+        created_at: candidate?.created_at || interview.scheduled_at || null,
+      }
+    })
+  }, [candidatesRows, interviewCardRows])
   const loading = statsQuery.isLoading && !statsQuery.data
 
   // Force close modal on mount and prevent any stuck state
@@ -359,7 +392,7 @@ export default function Dashboard() {
   const kpiCards = stats ? [
     { title: 'Total Candidates', value: stats.total_candidates || 0, icon: Users, color: 'text-blue-600', bg: 'bg-blue-100 dark:bg-blue-900/30', filter: {} },
     { title: 'Shortlisted', value: stats.shortlisted || 0, icon: UserCheck, color: 'text-purple-600', bg: 'bg-purple-100 dark:bg-purple-900/30', filter: { type: 'pipeline_shortlisted' } },
-    { title: 'Interviews', value: dashboardBuckets.interviewCandidates.length, icon: Calendar, color: 'text-orange-600', bg: 'bg-orange-100 dark:bg-orange-900/30', filter: { type: 'interview_active' } },
+    { title: 'Interviews', value: scheduledInterviewCardCandidates.length, icon: Calendar, color: 'text-orange-600', bg: 'bg-orange-100 dark:bg-orange-900/30', filter: { type: 'interview_active' } },
     { title: 'Selected', value: stats.selected || 0, icon: Award, color: 'text-green-600', bg: 'bg-green-100 dark:bg-green-900/30', filter: { type: 'interview_selected' } },
     { title: 'Rejected', value: stats.rejected || 0, icon: UserX, color: 'text-red-600', bg: 'bg-red-100 dark:bg-red-900/30', filter: { type: 'interview_rejected' } },
   ] : [
@@ -414,7 +447,7 @@ export default function Dashboard() {
         }
 
         if (card.filter?.type === 'interview_active') {
-          setCardCandidates(buckets.interviewCandidates)
+          setCardCandidates(scheduledInterviewCardCandidates)
           return
         }
 
@@ -457,7 +490,7 @@ export default function Dashboard() {
     } finally {
       setCardLoading(false)
     }
-  }, [dashboardParams, dateRange, loadCardBuckets, selectedClient])
+  }, [dashboardParams, dateRange, loadCardBuckets, scheduledInterviewCardCandidates, selectedClient])
 
   const closeModal = () => {
     console.log('Closing modal')
