@@ -23,6 +23,7 @@ from app.schemas import (
 from app.auth import get_current_active_user
 from app.routes.candidates import (
     _get_india_today,
+    _get_interview_slot_candidate_ids_by_timing,
     INDIA_TIMEZONE,
     normalize_legacy_candidate_stages,
     resolve_pipeline_display_stage,
@@ -1117,7 +1118,12 @@ def get_dashboard_stats(
         ]
         today = _get_india_today()
         shortlisted_count = query.filter(Candidate.stage == CandidateStage.SHORTLISTED).count()
-        interviews_scheduled_count = _count_upcoming_interview_slots(db, interview_candidate_ids, today)
+        interview_today_candidate_ids, interview_scheduled_candidate_ids = _get_interview_slot_candidate_ids_by_timing(
+            db,
+            interview_candidate_ids,
+            today,
+        )
+        interviews_scheduled_count = len(interview_today_candidate_ids | interview_scheduled_candidate_ids)
         selected_count = _count_interviews_by_status(db, candidate_ids, "selected")
         rejected_count = _count_interviews_by_status(db, candidate_ids, "rejected")
         active_candidate_query = query.filter(Candidate.stage != CandidateStage.APPLIED)

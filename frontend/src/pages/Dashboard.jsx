@@ -236,6 +236,19 @@ export default function Dashboard() {
     refetchOnWindowFocus: false,
   })
 
+  const candidatesRowsQuery = useQuery({
+    queryKey: ['dashboard-overview-candidates', dashboardParams],
+    queryFn: async () => {
+      return api.getCandidates(dashboardParams, { includeDefaultLimit: false }).catch((error) => {
+        console.error('Dashboard candidates error:', error)
+        return []
+      })
+    },
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: false,
+  })
+
   const stats = statsQuery.data || null
   const activeJobs = detailsQuery.data?.activeJobs || []
   const upcomingInterviews = (detailsQuery.data?.upcomingInterviews || []).filter((interview) => (
@@ -250,7 +263,12 @@ export default function Dashboard() {
   const intelligence = detailsQuery.data?.intelligence || null
   const resumeTrend = deferredAnalyticsQuery.data?.resumeTrend || []
   const interviewTrend = deferredAnalyticsQuery.data?.interviewTrend || []
+  const candidatesRows = candidatesRowsQuery.data || []
   const interviewRows = interviewRowsQuery.data || []
+  const dashboardBuckets = useMemo(
+    () => buildDashboardCandidateBuckets(candidatesRows, interviewRows),
+    [candidatesRows, interviewRows]
+  )
   const loading = statsQuery.isLoading && !statsQuery.data
 
   // Force close modal on mount and prevent any stuck state
@@ -341,7 +359,7 @@ export default function Dashboard() {
   const kpiCards = stats ? [
     { title: 'Total Candidates', value: stats.total_candidates || 0, icon: Users, color: 'text-blue-600', bg: 'bg-blue-100 dark:bg-blue-900/30', filter: {} },
     { title: 'Shortlisted', value: stats.shortlisted || 0, icon: UserCheck, color: 'text-purple-600', bg: 'bg-purple-100 dark:bg-purple-900/30', filter: { type: 'pipeline_shortlisted' } },
-    { title: 'Interviews', value: stats.interviews_scheduled || 0, icon: Calendar, color: 'text-orange-600', bg: 'bg-orange-100 dark:bg-orange-900/30', filter: { type: 'interview_active' } },
+    { title: 'Interviews', value: dashboardBuckets.interviewCandidates.length, icon: Calendar, color: 'text-orange-600', bg: 'bg-orange-100 dark:bg-orange-900/30', filter: { type: 'interview_active' } },
     { title: 'Selected', value: stats.selected || 0, icon: Award, color: 'text-green-600', bg: 'bg-green-100 dark:bg-green-900/30', filter: { type: 'interview_selected' } },
     { title: 'Rejected', value: stats.rejected || 0, icon: UserX, color: 'text-red-600', bg: 'bg-red-100 dark:bg-red-900/30', filter: { type: 'interview_rejected' } },
   ] : [
@@ -357,6 +375,11 @@ export default function Dashboard() {
       return lazyCardData
     }
 
+    if (candidatesRows.length > 0 || interviewRows.length > 0) {
+      setLazyCardData(dashboardBuckets)
+      return dashboardBuckets
+    }
+
     const candidatesData = await api.getCandidates(dashboardParams, { includeDefaultLimit: false }).catch((error) => {
         console.error('Candidates error:', error)
         return []
@@ -365,7 +388,7 @@ export default function Dashboard() {
     const nextBuckets = buildDashboardCandidateBuckets(candidatesData, interviewRows)
     setLazyCardData(nextBuckets)
     return nextBuckets
-  }, [dashboardParams, interviewRows, lazyCardData])
+  }, [candidatesRows.length, dashboardBuckets, dashboardParams, interviewRows, lazyCardData])
 
   const handleCardClick = useCallback(async (card) => {
     setSelectedCard(card)
