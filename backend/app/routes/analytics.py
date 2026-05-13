@@ -1354,42 +1354,22 @@ def get_recruitment_funnel(
     def _is_hired(candidate: Candidate) -> bool:
         return (candidate.offer_status or "").lower() == "accepted"
 
-    def _has_reached_shortlisted(candidate: Candidate) -> bool:
-        stage = pipeline_stage_by_candidate.get(candidate.id)
-        return stage in {
-            CandidateStage.SHORTLISTED,
-            CandidateStage.INTERVIEW_SCHEDULED,
-            CandidateStage.INTERVIEWED,
-            CandidateStage.SELECTED,
-            CandidateStage.REJECTED,
-        } or _has_offer(candidate)
-
-    def _has_reached_interviewed(candidate: Candidate) -> bool:
-        stage = pipeline_stage_by_candidate.get(candidate.id)
-        return stage in {
-            CandidateStage.INTERVIEW_SCHEDULED,
-            CandidateStage.INTERVIEWED,
-            CandidateStage.SELECTED,
-            CandidateStage.REJECTED,
-        } or _has_offer(candidate)
-
-    def _has_reached_selected(candidate: Candidate) -> bool:
-        stage = pipeline_stage_by_candidate.get(candidate.id)
-        return stage == CandidateStage.SELECTED or _has_offer(candidate)
-
     applied_rows = list(candidates)
     screened_rows = [c for c in candidates if c.stage != CandidateStage.APPLIED]
     shortlisted_rows = [
         c for c in candidates
-        if _has_reached_shortlisted(c)
+        if c.stage == CandidateStage.SHORTLISTED
     ]
     interviewed_rows = [
         c for c in candidates
-        if _has_reached_interviewed(c)
+        if pipeline_stage_by_candidate.get(c.id) in {
+            CandidateStage.INTERVIEW_SCHEDULED,
+            CandidateStage.INTERVIEWED,
+        }
     ]
     selected_rows = [
         c for c in candidates
-        if _has_reached_selected(c)
+        if pipeline_stage_by_candidate.get(c.id) == CandidateStage.SELECTED
     ]
     offered_rows = [c for c in candidates if _has_offer(c)]
     hired_rows = [c for c in candidates if _is_hired(c)]
