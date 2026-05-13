@@ -1310,11 +1310,18 @@ def get_recruitment_funnel(
 
     pipeline_stage_by_candidate = {}
     for candidate in candidates:
-        display_stage = resolve_reporting_pipeline_stage(
+        latest_interview = latest_interviews_by_candidate.get(candidate.id)
+        display_stage = resolve_pipeline_display_stage(
             candidate,
-            latest_interviews_by_candidate.get(candidate.id),
+            latest_interview,
             today,
         )
+        if latest_interview:
+            interview_status = (latest_interview.status or "").strip().lower()
+            if interview_status == "selected":
+                display_stage = CandidateStage.SELECTED
+            elif interview_status == "rejected":
+                display_stage = CandidateStage.REJECTED
         slot_stage = slot_stage_by_candidate.get(candidate.id)
         pipeline_stage_by_candidate[candidate.id] = resolve_slot_backed_pipeline_stage(
             candidate,
