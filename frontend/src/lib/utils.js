@@ -9,7 +9,10 @@ export function formatDateInput(date) {
   if (!date) return ''
   const parsedDate = date instanceof Date ? date : new Date(date)
   if (Number.isNaN(parsedDate.getTime())) return ''
-  return parsedDate.toISOString().slice(0, 10)
+  const year = parsedDate.getFullYear()
+  const month = String(parsedDate.getMonth() + 1).padStart(2, '0')
+  const day = String(parsedDate.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
 export function getRelativeDate(daysOffset = 0) {
