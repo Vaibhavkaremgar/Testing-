@@ -38,6 +38,14 @@ class _FakeDb:
         return _FakeQuery(self._rows)
 
 
+class _RoutingFakeDb:
+    def __init__(self, rows_by_arity):
+        self._rows_by_arity = rows_by_arity
+
+    def query(self, *args, **kwargs):
+        return _FakeQuery(self._rows_by_arity.get(len(args), []))
+
+
 def test_classify_interview_timing_bucket_marks_future_scheduled_interviews():
     today = date(2026, 5, 10)
     scheduled_at = datetime(2026, 5, 12, 10, 0, tzinfo=timezone.utc)
@@ -92,7 +100,10 @@ def test_get_interview_candidate_ids_by_interview_timing_uses_latest_interview_p
             datetime(2026, 5, 10, 7, 0, tzinfo=timezone.utc),
         ),
     ]
-    db = _FakeDb(rows)
+    db = _RoutingFakeDb({
+        2: [],
+        4: rows,
+    })
 
     today_ids, future_ids = _get_interview_candidate_ids_by_interview_timing(
         db,
@@ -103,6 +114,35 @@ def test_get_interview_candidate_ids_by_interview_timing_uses_latest_interview_p
     assert candidate_id in future_ids
     assert candidate_id not in today_ids
     assert other_candidate_id in today_ids
+
+
+def test_get_interview_candidate_ids_by_interview_timing_uses_linked_candidate_interviews_for_stage_recovery():
+    today = date(2026, 5, 14)
+    original_candidate_id = uuid.uuid4()
+    linked_candidate_id = uuid.uuid4()
+    db = _RoutingFakeDb({
+        2: [
+            (original_candidate_id, "ORIGINAL-CODE"),
+            (linked_candidate_id, str(original_candidate_id)),
+        ],
+        4: [
+            (
+                linked_candidate_id,
+                "scheduled",
+                datetime(2026, 5, 15, 11, 0, tzinfo=timezone.utc),
+                datetime(2026, 5, 14, 8, 21, tzinfo=timezone.utc),
+            ),
+        ],
+    })
+
+    today_ids, future_ids = _get_interview_candidate_ids_by_interview_timing(
+        db,
+        [original_candidate_id],
+        today,
+    )
+
+    assert original_candidate_id in future_ids
+    assert original_candidate_id not in today_ids
 
 
 def test_get_slot_no_show_cutoff_ist_applies_thirty_minute_grace_period():

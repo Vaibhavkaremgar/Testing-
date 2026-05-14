@@ -376,6 +376,55 @@ def _normalize_slot_candidate_key(raw_value) -> str:
     return str(raw_value).strip().lower()
 
 
+def _build_related_candidate_ids_map(
+    db: Session,
+    candidate_ids: List[UUID],
+) -> dict[UUID, set[UUID]]:
+    if not candidate_ids:
+        return {}
+
+    related_candidate_ids: dict[UUID, set[UUID]] = {
+        candidate_id: {candidate_id}
+        for candidate_id in candidate_ids
+    }
+    candidate_id_strings = [str(candidate_id) for candidate_id in candidate_ids]
+
+    rows = (
+        db.query(Candidate.id, Candidate.candidate_id)
+        .filter(
+            or_(
+                Candidate.id.in_(candidate_ids),
+                Candidate.candidate_id.in_(candidate_id_strings),
+            )
+        )
+        .all()
+    )
+
+    for candidate_uuid, candidate_code in rows:
+        if candidate_uuid in related_candidate_ids:
+            try:
+                linked_candidate_id = UUID(str(candidate_code).strip()) if candidate_code else None
+            except (ValueError, TypeError, AttributeError):
+                linked_candidate_id = None
+
+            if linked_candidate_id:
+                related_candidate_ids[candidate_uuid].add(linked_candidate_id)
+
+        if not candidate_code:
+            continue
+
+        normalized_code = str(candidate_code).strip()
+        try:
+            canonical_candidate_id = UUID(normalized_code)
+        except (ValueError, TypeError, AttributeError):
+            continue
+
+        if canonical_candidate_id in related_candidate_ids:
+            related_candidate_ids[canonical_candidate_id].add(candidate_uuid)
+
+    return related_candidate_ids
+
+
 def _apply_candidate_list_scope(query, current_user):
     from sqlalchemy.orm import aliased
     from app.models import JobDescription, User, UserRole
@@ -814,7 +863,15 @@ def _get_interview_slot_pipeline_stages(db: Session, candidate_ids: List[UUID], 
 
     candidate_lookup = _build_slot_candidate_lookup(db, candidate_ids)
     if not candidate_lookup:
-        return {}
+        interview_today_candidate_ids, interview_scheduled_candidate_ids = _get_interview_candidate_ids_by_interview_timing(
+            db,
+            candidate_ids,
+            today,
+        )
+        return {
+            **{candidate_id: CandidateStage.INTERVIEWED for candidate_id in interview_today_candidate_ids},
+            **{candidate_id: CandidateStage.INTERVIEW_SCHEDULED for candidate_id in interview_scheduled_candidate_ids},
+        }
 
     columns = db.execute(text(
         """
@@ -825,7 +882,15 @@ def _get_interview_slot_pipeline_stages(db: Session, candidate_ids: List[UUID], 
     )).fetchall()
     column_names = {row[0] for row in columns}
     if not column_names or "slot_date" not in column_names:
-        return {}
+        interview_today_candidate_ids, interview_scheduled_candidate_ids = _get_interview_candidate_ids_by_interview_timing(
+            db,
+            candidate_ids,
+            today,
+        )
+        return {
+            **{candidate_id: CandidateStage.INTERVIEWED for candidate_id in interview_today_candidate_ids},
+            **{candidate_id: CandidateStage.INTERVIEW_SCHEDULED for candidate_id in interview_scheduled_candidate_ids},
+        }
 
     normalized_column_lookup = {
         column_name.lower().replace("_", ""): column_name
@@ -840,7 +905,15 @@ def _get_interview_slot_pipeline_stages(db: Session, candidate_ids: List[UUID], 
         None,
     )
     if not candidate_column:
-        return {}
+        interview_today_candidate_ids, interview_scheduled_candidate_ids = _get_interview_candidate_ids_by_interview_timing(
+            db,
+            candidate_ids,
+            today,
+        )
+        return {
+            **{candidate_id: CandidateStage.INTERVIEWED for candidate_id in interview_today_candidate_ids},
+            **{candidate_id: CandidateStage.INTERVIEW_SCHEDULED for candidate_id in interview_scheduled_candidate_ids},
+        }
 
     rows = db.execute(
         text(f"""
@@ -1269,6 +1342,16 @@ def _get_interview_candidate_ids_by_interview_timing(
     if not candidate_ids:
         return set(), set()
 
+    related_candidate_ids = _build_related_candidate_ids_map(db, candidate_ids)
+    scoped_candidate_ids = sorted(
+        {related_candidate_id for ids in related_candidate_ids.values() for related_candidate_id in ids},
+        key=str,
+    )
+    reverse_candidate_lookup: dict[UUID, set[UUID]] = {}
+    for candidate_id, related_ids in related_candidate_ids.items():
+        for related_candidate_id in related_ids:
+            reverse_candidate_lookup.setdefault(related_candidate_id, set()).add(candidate_id)
+
     interview_rows = (
         db.query(
             Interview.candidate_id,
@@ -1276,21 +1359,23 @@ def _get_interview_candidate_ids_by_interview_timing(
             Interview.scheduled_at,
             Interview.created_at,
         )
-        .filter(Interview.candidate_id.in_(candidate_ids))
+        .filter(Interview.candidate_id.in_(scoped_candidate_ids))
         .all()
     )
 
     latest_interview_by_candidate: dict[UUID, tuple[str, Optional[datetime], Optional[datetime]]] = {}
-    for candidate_id, status_value, scheduled_at, created_at in interview_rows:
-        previous_row = latest_interview_by_candidate.get(candidate_id)
+    for interview_candidate_id, status_value, scheduled_at, created_at in interview_rows:
+        owning_candidate_ids = reverse_candidate_lookup.get(interview_candidate_id, {interview_candidate_id})
         current_key = _build_interview_precedence_key(status_value, scheduled_at, created_at)
-        if not previous_row:
-            latest_interview_by_candidate[candidate_id] = (status_value, scheduled_at, created_at)
-            continue
+        for candidate_id in owning_candidate_ids:
+            previous_row = latest_interview_by_candidate.get(candidate_id)
+            if not previous_row:
+                latest_interview_by_candidate[candidate_id] = (status_value, scheduled_at, created_at)
+                continue
 
-        previous_key = _build_interview_precedence_key(previous_row[0], previous_row[1], previous_row[2])
-        if current_key > previous_key:
-            latest_interview_by_candidate[candidate_id] = (status_value, scheduled_at, created_at)
+            previous_key = _build_interview_precedence_key(previous_row[0], previous_row[1], previous_row[2])
+            if current_key > previous_key:
+                latest_interview_by_candidate[candidate_id] = (status_value, scheduled_at, created_at)
 
     today_candidate_ids: set[UUID] = set()
     future_candidate_ids: set[UUID] = set()
