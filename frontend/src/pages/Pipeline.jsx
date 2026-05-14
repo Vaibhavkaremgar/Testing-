@@ -39,6 +39,29 @@ function getEffectiveInterviewStatus(interview) {
   return normalizedStatus || 'pending'
 }
 
+function getInterviewSortDate(interview) {
+  return new Date(interview?.scheduled_at || interview?.created_at || 0).getTime()
+}
+
+function shouldUseInterviewForDisplay(previousInterview, nextInterview) {
+  if (!previousInterview) {
+    return true
+  }
+
+  const previousStatus = String(previousInterview?.status || '').trim().toLowerCase()
+  const nextStatus = String(nextInterview?.status || '').trim().toLowerCase()
+  const previousIsRescheduled = previousStatus === 'rescheduled'
+  const nextIsRescheduled = nextStatus === 'rescheduled'
+
+  // A newly booked/active interview should outrank older rescheduled placeholders
+  // even when the rescheduled record still has a later slot timestamp.
+  if (previousIsRescheduled !== nextIsRescheduled) {
+    return previousIsRescheduled && !nextIsRescheduled
+  }
+
+  return getInterviewSortDate(nextInterview) > getInterviewSortDate(previousInterview)
+}
+
 function buildPipelineStages(baseStages = {}, interviews = []) {
   const nextStages = Object.fromEntries(
     STAGES.map((stage) => [stage.id, []])
@@ -52,9 +75,7 @@ function buildPipelineStages(baseStages = {}, interviews = []) {
     if (!interview?.candidate_id) return
     const candidateKey = String(interview.candidate_id)
     const previousInterview = latestInterviewsByCandidate.get(candidateKey)
-    const previousDate = previousInterview?.scheduled_at || previousInterview?.created_at || ''
-    const currentDate = interview?.scheduled_at || interview?.created_at || ''
-    if (!previousInterview || new Date(currentDate) > new Date(previousDate)) {
+    if (shouldUseInterviewForDisplay(previousInterview, interview)) {
       latestInterviewsByCandidate.set(candidateKey, interview)
     }
   })

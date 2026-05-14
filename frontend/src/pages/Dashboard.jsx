@@ -24,6 +24,27 @@ const INTERVIEW_REJECTION_SCORE_THRESHOLD = 6
 const CANDIDATE_OWNED_STAGES = new Set(['REVIEW', 'SHORTLISTED', 'RESUME_REJECTED', 'INTERVIEW_RESCHEDULED', 'NO_SHOW'])
 const INTERVIEW_OWNED_STAGES = new Set(['INTERVIEW_SCHEDULED', 'INTERVIEWED', 'SELECTED', 'REJECTED'])
 
+function getInterviewSortDate(interview) {
+  return new Date(interview?.scheduled_at || interview?.created_at || 0).getTime()
+}
+
+function shouldUseInterviewForDisplay(previousInterview, nextInterview) {
+  if (!previousInterview) {
+    return true
+  }
+
+  const previousStatus = String(previousInterview?.status || '').trim().toLowerCase()
+  const nextStatus = String(nextInterview?.status || '').trim().toLowerCase()
+  const previousIsRescheduled = previousStatus === 'rescheduled'
+  const nextIsRescheduled = nextStatus === 'rescheduled'
+
+  if (previousIsRescheduled !== nextIsRescheduled) {
+    return previousIsRescheduled && !nextIsRescheduled
+  }
+
+  return getInterviewSortDate(nextInterview) > getInterviewSortDate(previousInterview)
+}
+
 function resolveDashboardDisplayStage(candidate, latestInterview) {
   if (candidate?.stage === 'NO_SHOW') {
     return candidate.stage
@@ -86,9 +107,7 @@ function buildDashboardCandidateBuckets(candidatesData = [], interviewRows = [])
   for (const interview of interviewRows || []) {
     if (!interview?.candidate_id) continue
     const previousInterview = latestInterviewsByCandidate.get(interview.candidate_id)
-    const previousDate = previousInterview?.scheduled_at || previousInterview?.created_at || ''
-    const currentDate = interview.scheduled_at || interview.created_at || ''
-    if (!previousInterview || new Date(currentDate) > new Date(previousDate)) {
+    if (shouldUseInterviewForDisplay(previousInterview, interview)) {
       latestInterviewsByCandidate.set(interview.candidate_id, interview)
     }
 
