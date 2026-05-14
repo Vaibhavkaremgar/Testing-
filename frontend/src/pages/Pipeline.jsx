@@ -126,7 +126,11 @@ function buildPipelineStages(baseStages = {}, interviews = []) {
       if (interviewStatus === 'scheduled') {
         resolvedStage = stageSet.has('INTERVIEWED') ? 'INTERVIEWED' : 'INTERVIEW_SCHEDULED'
       } else if (interviewStatus === 'rescheduled') {
-        resolvedStage = 'INTERVIEW_RESCHEDULED'
+        // Trust the backend-promoted stage when a new slot or linked interview
+        // has already moved the logical candidate back into the active interview flow.
+        if (resolvedStage !== 'INTERVIEW_SCHEDULED' && resolvedStage !== 'INTERVIEWED') {
+          resolvedStage = 'INTERVIEW_RESCHEDULED'
+        }
       }
     }
 
