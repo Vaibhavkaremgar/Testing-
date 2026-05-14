@@ -68,7 +68,7 @@ function buildPipelineStages(baseStages = {}, interviews = []) {
   )
   const candidateById = new Map()
   const stageSetByCandidate = new Map()
-  const interviewDisplayStages = new Set(['INTERVIEW_SCHEDULED', 'INTERVIEW_RESCHEDULED', 'INTERVIEWED'])
+  const detailRequiredStages = new Set(['INTERVIEW_SCHEDULED', 'INTERVIEW_RESCHEDULED', 'INTERVIEWED', 'NO_SHOW'])
 
   const latestInterviewsByCandidate = new Map()
   ;(interviews || []).forEach((interview) => {
@@ -137,7 +137,7 @@ function buildPipelineStages(baseStages = {}, interviews = []) {
     if (!nextStages[resolvedStage]) {
       nextStages[resolvedStage] = []
     }
-    if (interviewDisplayStages.has(resolvedStage) && !hasMeaningfulInterviewCardDetails(candidate)) {
+    if (detailRequiredStages.has(resolvedStage) && !hasMeaningfulInterviewCardDetails(candidate)) {
       return
     }
     nextStages[resolvedStage].push({ ...candidate, stage: resolvedStage, display_stage: resolvedStage })
