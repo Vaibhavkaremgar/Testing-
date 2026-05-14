@@ -349,10 +349,31 @@ def _build_slot_candidate_lookup(
 
     lookup: dict[str, UUID] = {}
     for candidate_uuid, candidate_code in rows:
-        lookup[str(candidate_uuid)] = candidate_uuid
+        for key in _build_slot_candidate_lookup_keys(candidate_uuid):
+            lookup[key] = candidate_uuid
         if candidate_code:
-            lookup[str(candidate_code).strip()] = candidate_uuid
+            for key in _build_slot_candidate_lookup_keys(candidate_code):
+                lookup[key] = candidate_uuid
     return lookup
+
+
+def _build_slot_candidate_lookup_keys(raw_value) -> set[str]:
+    normalized_key = _normalize_slot_candidate_key(raw_value)
+    if not normalized_key:
+        return set()
+
+    keys = {normalized_key}
+    if normalized_key.startswith("{") and normalized_key.endswith("}"):
+        keys.add(normalized_key[1:-1].strip())
+    else:
+        keys.add(f"{{{normalized_key}}}")
+    return {key for key in keys if key}
+
+
+def _normalize_slot_candidate_key(raw_value) -> str:
+    if raw_value is None:
+        return ""
+    return str(raw_value).strip().lower()
 
 
 def _apply_candidate_list_scope(query, current_user):
@@ -824,7 +845,7 @@ def _get_interview_slot_pipeline_stages(db: Session, candidate_ids: List[UUID], 
     rows = db.execute(
         text(f"""
             SELECT
-                {candidate_column}::text AS candidate_id,
+                lower(trim({candidate_column}::text)) AS candidate_id,
                 CASE
                     WHEN slot_date::date = :today THEN 'today'
                     WHEN slot_date::date > :today THEN 'future'
@@ -833,9 +854,9 @@ def _get_interview_slot_pipeline_stages(db: Session, candidate_ids: List[UUID], 
             FROM interview_slots
             WHERE {candidate_column} IS NOT NULL
               AND slot_date IS NOT NULL
-              AND {candidate_column}::text = ANY(:candidate_ids)
+              AND lower(trim({candidate_column}::text)) = ANY(:candidate_ids)
               AND slot_date::date >= :today
-            ORDER BY {candidate_column}::text
+            ORDER BY lower(trim({candidate_column}::text))
         """),
         {
             "candidate_ids": list(candidate_lookup.keys()),
@@ -850,7 +871,7 @@ def _get_interview_slot_pipeline_stages(db: Session, candidate_ids: List[UUID], 
         if not candidate_id_raw or not slot_timing:
             continue
 
-        candidate_id = candidate_lookup.get(str(candidate_id_raw).strip())
+        candidate_id = candidate_lookup.get(_normalize_slot_candidate_key(candidate_id_raw))
         if not candidate_id:
             continue
 
@@ -937,11 +958,6 @@ def sync_no_show_candidate_stages(db: Session) -> int:
     active_interviews = (
         db.query(Interview)
         .filter(func.lower(func.trim(Interview.status)).in_(["scheduled", "rescheduled"]))
-        .order_by(
-            Interview.candidate_id.asc(),
-            func.coalesce(Interview.scheduled_at, Interview.created_at).desc(),
-            Interview.created_at.desc(),
-        )
         .all()
     )
     latest_interview_by_candidate: dict[UUID, Interview] = {}
@@ -949,7 +965,22 @@ def sync_no_show_candidate_stages(db: Session) -> int:
         effective_scheduled_at_utc = _get_effective_interview_scheduled_at_utc(interview)
         if not effective_scheduled_at_utc or effective_scheduled_at_utc > no_show_cutoff:
             continue
-        if interview.candidate_id not in latest_interview_by_candidate:
+        previous_interview = latest_interview_by_candidate.get(interview.candidate_id)
+        if not previous_interview:
+            latest_interview_by_candidate[interview.candidate_id] = interview
+            continue
+
+        previous_key = _build_interview_precedence_key(
+            previous_interview.status,
+            previous_interview.scheduled_at,
+            previous_interview.created_at,
+        )
+        current_key = _build_interview_precedence_key(
+            interview.status,
+            interview.scheduled_at,
+            interview.created_at,
+        )
+        if current_key > previous_key:
             latest_interview_by_candidate[interview.candidate_id] = interview
     candidate_ids = list(latest_interview_by_candidate.keys())
 
@@ -996,17 +1027,17 @@ def sync_no_show_candidate_stages(db: Session) -> int:
                 rows = db.execute(
                     text(f"""
                         SELECT
-                            {candidate_column}::text AS candidate_id,
+                            lower(trim({candidate_column}::text)) AS candidate_id,
                             slot_date::date AS slot_date,
                             {slot_time_column}::time AS slot_time
                         FROM interview_slots
                         WHERE {candidate_column} IS NOT NULL
                           AND slot_date IS NOT NULL
                           AND {slot_time_column} IS NOT NULL
-                          AND {candidate_column}::text = ANY(:candidate_ids)
+                          AND lower(trim({candidate_column}::text)) = ANY(:candidate_ids)
                           AND slot_date::date <= :cutoff_date
                           AND (slot_date::timestamp + {slot_time_column}::time) <= :cutoff_at
-                        ORDER BY {candidate_column}::text, slot_date::date DESC, {slot_time_column}::time DESC
+                        ORDER BY lower(trim({candidate_column}::text)), slot_date::date DESC, {slot_time_column}::time DESC
                     """),
                     {
                         "candidate_ids": list(candidate_lookup.keys()),
@@ -1018,7 +1049,7 @@ def sync_no_show_candidate_stages(db: Session) -> int:
                     candidate_id_raw = row.get("candidate_id")
                     if not candidate_id_raw:
                         continue
-                    candidate_id = candidate_lookup.get(str(candidate_id_raw).strip())
+                    candidate_id = candidate_lookup.get(_normalize_slot_candidate_key(candidate_id_raw))
                     if not candidate_id:
                         continue
                     if candidate_id not in candidate_ids:
@@ -1124,7 +1155,7 @@ def _get_interview_slot_candidate_ids_by_timing(
     rows = db.execute(
         text(f"""
             SELECT
-                {candidate_column}::text AS candidate_id,
+                lower(trim({candidate_column}::text)) AS candidate_id,
                 CASE
                     WHEN slot_date::date = :today THEN 'today'
                     WHEN slot_date::date > :today THEN 'future'
@@ -1133,9 +1164,9 @@ def _get_interview_slot_candidate_ids_by_timing(
             FROM interview_slots
             WHERE {candidate_column} IS NOT NULL
               AND slot_date IS NOT NULL
-              AND {candidate_column}::text = ANY(:candidate_ids)
+              AND lower(trim({candidate_column}::text)) = ANY(:candidate_ids)
               AND slot_date::date >= :today
-            ORDER BY {candidate_column}::text
+            ORDER BY lower(trim({candidate_column}::text))
         """),
         {
             "candidate_ids": list(candidate_lookup.keys()),
@@ -1151,7 +1182,7 @@ def _get_interview_slot_candidate_ids_by_timing(
         if not candidate_id_raw or not slot_timing:
             continue
 
-        candidate_id = candidate_lookup.get(str(candidate_id_raw).strip())
+        candidate_id = candidate_lookup.get(_normalize_slot_candidate_key(candidate_id_raw))
         if not candidate_id:
             continue
 
@@ -1211,6 +1242,25 @@ def _classify_interview_timing_bucket(
     return "future"
 
 
+def _build_interview_precedence_key(
+    status_value: Optional[str],
+    scheduled_at: Optional[datetime],
+    created_at: Optional[datetime],
+) -> tuple[int, datetime, datetime]:
+    normalized_status = (status_value or "").strip().lower()
+    status_rank = 0 if normalized_status == "rescheduled" else 1
+
+    effective_scheduled_at = scheduled_at or created_at or datetime.min.replace(tzinfo=timezone.utc)
+    if effective_scheduled_at.tzinfo is None:
+        effective_scheduled_at = effective_scheduled_at.replace(tzinfo=timezone.utc)
+
+    effective_created_at = created_at or effective_scheduled_at
+    if effective_created_at.tzinfo is None:
+        effective_created_at = effective_created_at.replace(tzinfo=timezone.utc)
+
+    return status_rank, effective_scheduled_at, effective_created_at
+
+
 def _get_interview_candidate_ids_by_interview_timing(
     db: Session,
     candidate_ids: List[UUID],
@@ -1227,23 +1277,24 @@ def _get_interview_candidate_ids_by_interview_timing(
             Interview.created_at,
         )
         .filter(Interview.candidate_id.in_(candidate_ids))
-        .order_by(
-            Interview.candidate_id.asc(),
-            func.coalesce(Interview.scheduled_at, Interview.created_at).desc(),
-            Interview.created_at.desc(),
-        )
         .all()
     )
 
+    latest_interview_by_candidate: dict[UUID, tuple[str, Optional[datetime], Optional[datetime]]] = {}
+    for candidate_id, status_value, scheduled_at, created_at in interview_rows:
+        previous_row = latest_interview_by_candidate.get(candidate_id)
+        current_key = _build_interview_precedence_key(status_value, scheduled_at, created_at)
+        if not previous_row:
+            latest_interview_by_candidate[candidate_id] = (status_value, scheduled_at, created_at)
+            continue
+
+        previous_key = _build_interview_precedence_key(previous_row[0], previous_row[1], previous_row[2])
+        if current_key > previous_key:
+            latest_interview_by_candidate[candidate_id] = (status_value, scheduled_at, created_at)
+
     today_candidate_ids: set[UUID] = set()
     future_candidate_ids: set[UUID] = set()
-    seen_candidate_ids: set[UUID] = set()
-
-    for candidate_id, status_value, scheduled_at, _created_at in interview_rows:
-        if candidate_id in seen_candidate_ids:
-            continue
-        seen_candidate_ids.add(candidate_id)
-
+    for candidate_id, (status_value, scheduled_at, _created_at) in latest_interview_by_candidate.items():
         timing_bucket = _classify_interview_timing_bucket(
             status_value=status_value,
             scheduled_at=scheduled_at,
