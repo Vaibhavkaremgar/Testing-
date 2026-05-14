@@ -399,7 +399,7 @@ def _get_interview_slot_pipeline_stages(db: Session, candidate_ids: List[UUID], 
 
     rows = db.execute(
         text(f"""
-            SELECT
+            SELECT DISTINCT ON (lower(trim({candidate_column}::text)))
                 {candidate_column}::text AS candidate_id,
                 CASE
                     WHEN slot_date::date = :today THEN 'today'
@@ -411,7 +411,14 @@ def _get_interview_slot_pipeline_stages(db: Session, candidate_ids: List[UUID], 
               AND slot_date IS NOT NULL
               AND {candidate_column}::text = ANY(:candidate_ids)
               AND slot_date::date >= :today
-            ORDER BY {candidate_column}::text
+            ORDER BY
+                lower(trim({candidate_column}::text)),
+                CASE
+                    WHEN slot_date::date = :today THEN 0
+                    WHEN slot_date::date > :today THEN 1
+                    ELSE 2
+                END,
+                slot_date::date ASC
         """),
         {
             "candidate_ids": list(candidate_lookup.keys()),
