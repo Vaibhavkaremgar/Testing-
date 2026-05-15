@@ -60,7 +60,7 @@ def test_classify_interview_timing_bucket_marks_future_scheduled_interviews():
     )
 
 
-def test_classify_interview_timing_bucket_keeps_later_today_interviews_in_future_bucket():
+def test_classify_interview_timing_bucket_marks_later_today_interviews_as_today():
     now_utc = datetime(2026, 5, 12, 6, 19, tzinfo=timezone.utc)
     today = _get_india_now(now_utc).date()
     scheduled_at = datetime(2026, 5, 12, 11, 0, tzinfo=timezone.utc)
@@ -72,7 +72,7 @@ def test_classify_interview_timing_bucket_keeps_later_today_interviews_in_future
             today=today,
             now_utc=now_utc,
         )
-        == "future"
+        == "today"
     )
 
 
@@ -153,14 +153,15 @@ def test_get_slot_no_show_cutoff_ist_applies_thirty_minute_grace_period():
     assert cutoff_ist == datetime(2026, 5, 12, 11, 0)
 
 
-def test_derive_candidate_stage_from_interview_keeps_later_today_scheduled_interviews_in_scheduled_stage():
+def test_derive_candidate_stage_from_interview_marks_same_day_scheduled_interviews_as_interviewed():
+    india_now = _get_india_now()
     interview = Interview(
         candidate_id=uuid.uuid4(),
         status="scheduled",
-        scheduled_at=datetime(2099, 5, 12, 11, 0, tzinfo=timezone.utc),
+        scheduled_at=india_now.replace(hour=11, minute=0, second=0, microsecond=0).astimezone(timezone.utc),
     )
 
-    assert _derive_candidate_stage_from_interview(interview) == CandidateStage.INTERVIEW_SCHEDULED
+    assert _derive_candidate_stage_from_interview(interview) == CandidateStage.INTERVIEWED
 
 
 def test_normalize_interview_scheduled_at_for_storage_treats_naive_values_as_ist():

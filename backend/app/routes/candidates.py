@@ -1323,8 +1323,8 @@ def _classify_interview_timing_bucket(
     if interview_date < today:
         return None
     if interview_date == today:
-        if interview_local_datetime and interview_local_datetime > india_now:
-            return "future"
+        # Keep all same-day interviews in the active interview bucket so the
+        # pipeline moves candidates into "Interview" for the full interview day.
         return "today"
     return "future"
 
