@@ -10,6 +10,8 @@ from app.routes.candidates import (
     _get_india_now,
     _get_slot_no_show_cutoff_ist,
     _get_interview_candidate_ids_by_interview_timing,
+    _normalize_interview_status_value,
+    sync_no_show_candidate_stages,
     sync_rescheduled_candidate_stages_from_slots,
 )
 from app.routes.interviews import (
@@ -68,6 +70,55 @@ class _FakeCandidateDb:
 
     def query(self, *args, **kwargs):
         return _FakeCandidateQuery(self._candidates)
+
+    def commit(self):
+        self.commit_calls += 1
+
+
+class _FakeExecuteResult:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def fetchall(self):
+        return self._rows
+
+
+class _FakeNoShowQuery:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def filter(self, *args, **kwargs):
+        return self
+
+    def all(self):
+        return self._rows
+
+
+class _FakeNoShowDb:
+    def __init__(self, *, interviews, stage_candidate_ids, slot_lookup_rows, candidates):
+        self._interviews = interviews
+        self._stage_candidate_ids = stage_candidate_ids
+        self._slot_lookup_rows = slot_lookup_rows
+        self._candidates = candidates
+        self.commit_calls = 0
+
+    def query(self, *args, **kwargs):
+        if len(args) == 1 and args[0] is Interview:
+            return _FakeNoShowQuery(self._interviews)
+        if len(args) == 1 and getattr(args[0], "key", None) == "id":
+            return _FakeNoShowQuery(self._stage_candidate_ids)
+        if (
+            len(args) == 2
+            and getattr(args[0], "key", None) == "id"
+            and getattr(args[1], "key", None) == "candidate_id"
+        ):
+            return _FakeNoShowQuery(self._slot_lookup_rows)
+        if len(args) == 1 and args[0] is Candidate:
+            return _FakeNoShowQuery(self._candidates)
+        raise AssertionError(f"Unexpected query args: {args}")
+
+    def execute(self, *args, **kwargs):
+        return _FakeExecuteResult([])
 
     def commit(self):
         self.commit_calls += 1
@@ -141,6 +192,12 @@ def test_get_interview_candidate_ids_by_interview_timing_uses_latest_interview_p
     assert candidate_id in future_ids
     assert candidate_id not in today_ids
     assert other_candidate_id in today_ids
+
+
+def test_normalize_interview_status_value_maps_no_show_variants():
+    assert _normalize_interview_status_value("No Show") == "no_show"
+    assert _normalize_interview_status_value("no-show") == "no_show"
+    assert _normalize_interview_status_value("in_progress") == "ongoing"
 
 
 def test_get_interview_candidate_ids_by_interview_timing_uses_linked_candidate_interviews_for_stage_recovery():
@@ -280,3 +337,41 @@ def test_sync_rescheduled_candidate_stages_from_slots_keeps_rescheduled_when_no_
     assert updated_count == 0
     assert candidate.stage == CandidateStage.INTERVIEW_RESCHEDULED
     assert db.commit_calls == 0
+
+
+def test_sync_no_show_candidate_stages_marks_missed_rescheduled_interviews_as_no_show(monkeypatch):
+    frozen_now_utc = datetime(2026, 5, 15, 8, 0, tzinfo=timezone.utc)
+
+    class _FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            if tz is None:
+                return frozen_now_utc.replace(tzinfo=None)
+            return frozen_now_utc.astimezone(tz)
+
+        @classmethod
+        def utcnow(cls):
+            return frozen_now_utc.replace(tzinfo=None)
+
+    candidate = Candidate(id=uuid.uuid4(), stage=CandidateStage.INTERVIEW_RESCHEDULED)
+    interview = Interview(
+        candidate_id=candidate.id,
+        status="rescheduled",
+        scheduled_at=datetime(2026, 5, 15, 6, 0, tzinfo=timezone.utc),
+        created_at=datetime(2026, 5, 15, 5, 0, tzinfo=timezone.utc),
+    )
+    db = _FakeNoShowDb(
+        interviews=[interview],
+        stage_candidate_ids=[(candidate.id,)],
+        slot_lookup_rows=[(candidate.id, None)],
+        candidates=[candidate],
+    )
+
+    monkeypatch.setattr(candidates_route, "datetime", _FrozenDateTime)
+
+    updated_count = sync_no_show_candidate_stages(db)
+
+    assert updated_count == 1
+    assert candidate.stage == CandidateStage.NO_SHOW
+    assert interview.status == "no_show"
+    assert db.commit_calls == 1

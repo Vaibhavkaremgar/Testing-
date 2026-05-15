@@ -325,6 +325,28 @@ function buildInterviewPlaceholderMergeKey(candidate) {
   return `${normalizedName}:${eventDateKey}`
 }
 
+function buildInterviewOwnedResumeMergeKey(candidate) {
+  if (!isInterviewOwnedResumeStage(candidate)) {
+    return ''
+  }
+
+  const normalizedEmail = String(candidate?.email || '').trim().toLowerCase()
+  const normalizedJobId = candidate?.job_id ? String(candidate.job_id).trim() : ''
+  const normalizedName = String(candidate?.name || '').trim().toLowerCase()
+
+  if (normalizedEmail && normalizedJobId) {
+    return `email:${normalizedEmail}:job:${normalizedJobId}`
+  }
+
+  // Keep this fallback narrow to avoid collapsing unrelated candidates:
+  // only interview-owned duplicates with the same job and name are merged.
+  if (normalizedName && normalizedJobId) {
+    return `name:${normalizedName}:job:${normalizedJobId}`
+  }
+
+  return ''
+}
+
 function mergeResumeCandidateRecords(primaryCandidate, secondaryCandidate) {
   const primaryStageScore = getResumeCandidatePreferenceScore(primaryCandidate)
   const secondaryStageScore = getResumeCandidatePreferenceScore(secondaryCandidate)
@@ -385,6 +407,46 @@ function dedupeResumeCandidates(candidates) {
   })
 
   const consumedIndexes = new Set()
+  const preferredCandidateIndexByInterviewOwnedKey = new Map()
+
+  normalizedCandidates.forEach((candidate, index) => {
+    const mergeKey = buildInterviewOwnedResumeMergeKey(candidate)
+    if (!mergeKey) {
+      return
+    }
+
+    const existingIndex = preferredCandidateIndexByInterviewOwnedKey.get(mergeKey)
+    if (existingIndex === undefined) {
+      preferredCandidateIndexByInterviewOwnedKey.set(mergeKey, index)
+      return
+    }
+
+    const existingCandidate = normalizedCandidates[existingIndex]
+    const candidateScore = getResumeCandidatePreferenceScore(candidate) + getResumeCandidateCompletenessScore(candidate)
+    const existingScore = getResumeCandidatePreferenceScore(existingCandidate) + getResumeCandidateCompletenessScore(existingCandidate)
+
+    if (candidateScore > existingScore) {
+      preferredCandidateIndexByInterviewOwnedKey.set(mergeKey, index)
+    }
+  })
+
+  normalizedCandidates.forEach((candidate, index) => {
+    const mergeKey = buildInterviewOwnedResumeMergeKey(candidate)
+    if (!mergeKey) {
+      return
+    }
+
+    const preferredCandidateIndex = preferredCandidateIndexByInterviewOwnedKey.get(mergeKey)
+    if (preferredCandidateIndex === undefined || preferredCandidateIndex === index) {
+      return
+    }
+
+    normalizedCandidates[preferredCandidateIndex] = mergeResumeCandidateRecords(
+      normalizedCandidates[preferredCandidateIndex],
+      candidate,
+    )
+    consumedIndexes.add(index)
+  })
 
   normalizedCandidates.forEach((candidate, index) => {
     if (!isLikelyInterviewPlaceholderCandidate(candidate)) {

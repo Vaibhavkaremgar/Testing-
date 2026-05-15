@@ -331,9 +331,13 @@ def _apply_interview_date_filters(
 
 def _derive_candidate_stage_from_interview(interview: Interview) -> Optional[CandidateStage]:
     """Map the latest interview status to the candidate pipeline stage."""
-    from app.routes.candidates import _classify_interview_timing_bucket, _get_india_today
+    from app.routes.candidates import (
+        _classify_interview_timing_bucket,
+        _get_india_today,
+        _normalize_interview_status_value,
+    )
 
-    interview_status = (interview.status or "").strip().lower()
+    interview_status = _normalize_interview_status_value(interview.status)
     today = _get_india_today()
 
     if interview_status == "completed":

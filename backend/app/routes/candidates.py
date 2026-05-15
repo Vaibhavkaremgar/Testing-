@@ -117,7 +117,7 @@ def normalize_candidate_scope_metadata(db: Session) -> None:
     now = monotonic()
     if (now - _candidate_scope_last_checked_at) < LEGACY_STAGE_NORMALIZATION_INTERVAL_SECONDS:
         return
-
+ 
     with _legacy_stage_normalization_lock:
         now = monotonic()
         if (now - _candidate_scope_last_checked_at) < LEGACY_STAGE_NORMALIZATION_INTERVAL_SECONDS:
@@ -299,6 +299,18 @@ def _get_india_local_datetime(value: Optional[datetime]) -> Optional[datetime]:
     if value.tzinfo is None:
         return value
     return value.astimezone(INDIA_TIMEZONE)
+
+
+def _normalize_interview_status_value(status_value: Optional[str]) -> str:
+    """Canonicalize interview status variants so pipeline transitions remain stable."""
+    normalized_status = re.sub(r"[\s-]+", "_", str(status_value or "").strip().lower())
+    status_aliases = {
+        "inprogress": "ongoing",
+        "in_progress": "ongoing",
+        "no_show": "no_show",
+        "noshow": "no_show",
+    }
+    return status_aliases.get(normalized_status, normalized_status)
 
 
 def _uses_legacy_session_interview_timestamp(interview: Optional[Interview]) -> bool:
@@ -1170,8 +1182,6 @@ def sync_no_show_candidate_stages(db: Session) -> int:
     for candidate in candidates:
         candidate_id = candidate.id
         interview = latest_interview_by_candidate.get(candidate_id)
-        if candidate.stage == CandidateStage.INTERVIEW_RESCHEDULED:
-            continue
 
         if not interview and candidate.stage not in {CandidateStage.INTERVIEW_SCHEDULED, CandidateStage.INTERVIEW_RESCHEDULED}:
             continue
@@ -1189,13 +1199,13 @@ def sync_no_show_candidate_stages(db: Session) -> int:
                 or interview.ai_summary
                 or interview.video_url
                 or interview.interview_score is not None
-                or (interview.status or "").strip().lower() in {"ongoing", "completed", "selected", "rejected", "no_show"}
+                or _normalize_interview_status_value(interview.status) in {"ongoing", "completed", "selected", "rejected", "no_show"}
             )
         )
         if interview_started:
             continue
 
-        if interview and (interview.status or "").strip().lower() != "no_show":
+        if interview and _normalize_interview_status_value(interview.status) != "no_show":
             interview.status = "no_show"
             status_changed = True
 
@@ -1334,7 +1344,7 @@ def _classify_interview_timing_bucket(
     today: date,
     now_utc: Optional[datetime] = None,
 ) -> Optional[str]:
-    normalized_status = (status_value or "").strip().lower()
+    normalized_status = _normalize_interview_status_value(status_value)
     interview_date = _get_india_local_date(scheduled_at)
     interview_local_datetime = _get_india_local_datetime(scheduled_at)
     india_now = _get_india_now(now_utc)
@@ -1362,13 +1372,14 @@ def _build_interview_precedence_key(
     status_value: Optional[str],
     scheduled_at: Optional[datetime],
     created_at: Optional[datetime],
-) -> tuple[int, datetime, datetime]:
-    normalized_status = (status_value or "").strip().lower()
+) -> tuple[datetime, datetime, int]:
+    normalized_status = _normalize_interview_status_value(status_value)
     status_rank_lookup = {
         "rescheduled": 0,
         "scheduled": 1,
         "ongoing": 2,
         "completed": 3,
+        "no_show": 3,
         "selected": 4,
         "rejected": 4,
     }
@@ -1382,7 +1393,7 @@ def _build_interview_precedence_key(
     if effective_created_at.tzinfo is None:
         effective_created_at = effective_created_at.replace(tzinfo=timezone.utc)
 
-    return status_rank, effective_scheduled_at, effective_created_at
+    return effective_scheduled_at, effective_created_at, status_rank
 
 
 def _get_interview_candidate_ids_by_interview_timing(
