@@ -1364,7 +1364,15 @@ def _build_interview_precedence_key(
     created_at: Optional[datetime],
 ) -> tuple[int, datetime, datetime]:
     normalized_status = (status_value or "").strip().lower()
-    status_rank = 0 if normalized_status == "rescheduled" else 1
+    status_rank_lookup = {
+        "rescheduled": 0,
+        "scheduled": 1,
+        "ongoing": 2,
+        "completed": 3,
+        "selected": 4,
+        "rejected": 4,
+    }
+    status_rank = status_rank_lookup.get(normalized_status, 1)
 
     effective_scheduled_at = scheduled_at or created_at or datetime.min.replace(tzinfo=timezone.utc)
     if effective_scheduled_at.tzinfo is None:

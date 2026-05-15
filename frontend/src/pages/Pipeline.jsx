@@ -43,20 +43,29 @@ function getInterviewSortDate(interview) {
   return new Date(interview?.scheduled_at || interview?.created_at || 0).getTime()
 }
 
+function getInterviewDisplayRank(interview) {
+  const normalizedStatus = getEffectiveInterviewStatus(interview)
+  const rankLookup = {
+    rescheduled: 0,
+    scheduled: 1,
+    ongoing: 2,
+    completed: 3,
+    selected: 4,
+    rejected: 4,
+  }
+
+  return rankLookup[normalizedStatus] ?? 1
+}
+
 function shouldUseInterviewForDisplay(previousInterview, nextInterview) {
   if (!previousInterview) {
     return true
   }
 
-  const previousStatus = String(previousInterview?.status || '').trim().toLowerCase()
-  const nextStatus = String(nextInterview?.status || '').trim().toLowerCase()
-  const previousIsRescheduled = previousStatus === 'rescheduled'
-  const nextIsRescheduled = nextStatus === 'rescheduled'
-
-  // A newly booked/active interview should outrank older rescheduled placeholders
-  // even when the rescheduled record still has a later slot timestamp.
-  if (previousIsRescheduled !== nextIsRescheduled) {
-    return previousIsRescheduled && !nextIsRescheduled
+  const previousRank = getInterviewDisplayRank(previousInterview)
+  const nextRank = getInterviewDisplayRank(nextInterview)
+  if (previousRank !== nextRank) {
+    return nextRank > previousRank
   }
 
   return getInterviewSortDate(nextInterview) > getInterviewSortDate(previousInterview)
