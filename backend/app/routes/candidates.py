@@ -1443,17 +1443,46 @@ def _get_interview_candidate_ids_by_status(
     if not candidate_ids:
         return set(), set(), set()
 
+    related_candidate_ids = _build_related_candidate_ids_map(db, candidate_ids)
+    scoped_candidate_ids = sorted(
+        {related_candidate_id for ids in related_candidate_ids.values() for related_candidate_id in ids},
+        key=str,
+    )
+    reverse_candidate_lookup: dict[UUID, set[UUID]] = {}
+    for candidate_id, related_ids in related_candidate_ids.items():
+        for related_candidate_id in related_ids:
+            reverse_candidate_lookup.setdefault(related_candidate_id, set()).add(candidate_id)
+
     interview_rows = (
-        db.query(Interview.candidate_id, Interview.status)
-        .filter(Interview.candidate_id.in_(candidate_ids))
+        db.query(
+            Interview.candidate_id,
+            Interview.status,
+            Interview.scheduled_at,
+            Interview.created_at,
+        )
+        .filter(Interview.candidate_id.in_(scoped_candidate_ids))
         .all()
     )
 
     completed_candidate_ids: set[UUID] = set()
     selected_candidate_ids: set[UUID] = set()
     rejected_candidate_ids: set[UUID] = set()
+    latest_interview_by_candidate: dict[UUID, tuple[str, Optional[datetime], Optional[datetime]]] = {}
 
-    for candidate_id, status_value in interview_rows:
+    for interview_candidate_id, status_value, scheduled_at, created_at in interview_rows:
+        owning_candidate_ids = reverse_candidate_lookup.get(interview_candidate_id, {interview_candidate_id})
+        current_key = _build_interview_precedence_key(status_value, scheduled_at, created_at)
+        for candidate_id in owning_candidate_ids:
+            previous_row = latest_interview_by_candidate.get(candidate_id)
+            if not previous_row:
+                latest_interview_by_candidate[candidate_id] = (status_value, scheduled_at, created_at)
+                continue
+
+            previous_key = _build_interview_precedence_key(previous_row[0], previous_row[1], previous_row[2])
+            if current_key > previous_key:
+                latest_interview_by_candidate[candidate_id] = (status_value, scheduled_at, created_at)
+
+    for candidate_id, (status_value, _scheduled_at, _created_at) in latest_interview_by_candidate.items():
         normalized_status = (status_value or "").strip().lower()
         if normalized_status == "completed":
             completed_candidate_ids.add(candidate_id)
@@ -4165,12 +4194,6 @@ def get_pipeline_stages(
         elif candidate.stage == CandidateStage.INTERVIEW_RESCHEDULED:
             display_stage = CandidateStage.INTERVIEW_RESCHEDULED
             display_stage_key = display_stage.value
-        elif candidate.id in interview_today_candidate_ids:
-            display_stage = CandidateStage.INTERVIEWED
-            display_stage_key = display_stage.value
-        elif candidate.id in interview_scheduled_candidate_ids:
-            display_stage = CandidateStage.INTERVIEW_SCHEDULED
-            display_stage_key = display_stage.value
         elif candidate.id in selected_candidate_ids:
             display_stage = CandidateStage.SELECTED
             display_stage_key = display_stage.value
@@ -4179,6 +4202,12 @@ def get_pipeline_stages(
             display_stage_key = display_stage.value
         elif candidate.id in completed_candidate_ids:
             display_stage_key = completed_stage_key
+        elif candidate.id in interview_today_candidate_ids:
+            display_stage = CandidateStage.INTERVIEWED
+            display_stage_key = display_stage.value
+        elif candidate.id in interview_scheduled_candidate_ids:
+            display_stage = CandidateStage.INTERVIEW_SCHEDULED
+            display_stage_key = display_stage.value
         elif candidate.stage == CandidateStage.APPLIED:
             display_stage = CandidateStage.APPLIED
             display_stage_key = display_stage.value

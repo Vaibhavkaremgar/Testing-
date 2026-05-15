@@ -266,6 +266,87 @@ function getResumeCandidatePreferenceScore(candidate) {
   return score
 }
 
+function getResumeCandidateCompletenessScore(candidate) {
+  let score = 0
+
+  if (candidate?.email) score += 6
+  if (candidate?.job_id) score += 6
+  if (candidate?.job_title) score += 5
+  if (candidate?.resume_file_path) score += 4
+  if (candidate?.resume_text) score += 4
+  if (candidate?.resume_score !== null && candidate?.resume_score !== undefined) score += 3
+  if (candidate?.current_role) score += 3
+  if (candidate?.current_company) score += 3
+  if (candidate?.skills?.length) score += 2
+
+  return score
+}
+
+function getResumeCandidateEventDateKey(candidate) {
+  const rawDate =
+    candidate?.stage_entered_at
+    || candidate?.stage_updated_at
+    || candidate?.applied_at
+    || candidate?.created_at
+
+  if (!rawDate) {
+    return ''
+  }
+
+  const parsedDate = new Date(rawDate)
+  if (Number.isNaN(parsedDate.getTime())) {
+    return ''
+  }
+
+  return parsedDate.toISOString().slice(0, 10)
+}
+
+function isInterviewOwnedResumeStage(candidate) {
+  const stage = candidate?.display_stage || candidate?.stage || ''
+  return ['INTERVIEW_SCHEDULED', 'INTERVIEW_RESCHEDULED', 'INTERVIEWED', 'NO_SHOW'].includes(stage)
+}
+
+function isLikelyInterviewPlaceholderCandidate(candidate) {
+  if (!isInterviewOwnedResumeStage(candidate)) {
+    return false
+  }
+
+  return getResumeCandidateCompletenessScore(candidate) <= 4
+}
+
+function buildInterviewPlaceholderMergeKey(candidate) {
+  const normalizedName = String(candidate?.name || '').trim().toLowerCase()
+  const eventDateKey = getResumeCandidateEventDateKey(candidate)
+
+  if (!normalizedName || !eventDateKey || !isInterviewOwnedResumeStage(candidate)) {
+    return ''
+  }
+
+  return `${normalizedName}:${eventDateKey}`
+}
+
+function mergeResumeCandidateRecords(primaryCandidate, secondaryCandidate) {
+  const primaryStageScore = getResumeCandidatePreferenceScore(primaryCandidate)
+  const secondaryStageScore = getResumeCandidatePreferenceScore(secondaryCandidate)
+
+  const mergedCandidate = {
+    ...secondaryCandidate,
+    ...primaryCandidate,
+  }
+
+  if (secondaryStageScore > primaryStageScore) {
+    mergedCandidate.stage = secondaryCandidate.stage || mergedCandidate.stage
+    mergedCandidate.display_stage = secondaryCandidate.display_stage || mergedCandidate.display_stage
+    mergedCandidate.status = secondaryCandidate.status || mergedCandidate.status
+    mergedCandidate.stage_updated_at = secondaryCandidate.stage_updated_at || mergedCandidate.stage_updated_at
+    mergedCandidate.stage_entered_at = secondaryCandidate.stage_entered_at || mergedCandidate.stage_entered_at
+    mergedCandidate.applied_at = secondaryCandidate.applied_at || mergedCandidate.applied_at
+    mergedCandidate.created_at = secondaryCandidate.created_at || mergedCandidate.created_at
+  }
+
+  return mergedCandidate
+}
+
 function dedupeResumeCandidates(candidates) {
   const deduped = new Map()
 
@@ -278,7 +359,56 @@ function dedupeResumeCandidates(candidates) {
     }
   })
 
-  return Array.from(deduped.values())
+  const normalizedCandidates = Array.from(deduped.values())
+  const preferredCandidateIndexByInterviewKey = new Map()
+
+  normalizedCandidates.forEach((candidate, index) => {
+    if (isLikelyInterviewPlaceholderCandidate(candidate)) {
+      return
+    }
+
+    const mergeKey = buildInterviewPlaceholderMergeKey(candidate)
+    if (!mergeKey) {
+      return
+    }
+
+    const existingIndex = preferredCandidateIndexByInterviewKey.get(mergeKey)
+    if (existingIndex === undefined) {
+      preferredCandidateIndexByInterviewKey.set(mergeKey, index)
+      return
+    }
+
+    const existingCandidate = normalizedCandidates[existingIndex]
+    if (getResumeCandidateCompletenessScore(candidate) > getResumeCandidateCompletenessScore(existingCandidate)) {
+      preferredCandidateIndexByInterviewKey.set(mergeKey, index)
+    }
+  })
+
+  const consumedIndexes = new Set()
+
+  normalizedCandidates.forEach((candidate, index) => {
+    if (!isLikelyInterviewPlaceholderCandidate(candidate)) {
+      return
+    }
+
+    const mergeKey = buildInterviewPlaceholderMergeKey(candidate)
+    if (!mergeKey) {
+      return
+    }
+
+    const preferredCandidateIndex = preferredCandidateIndexByInterviewKey.get(mergeKey)
+    if (preferredCandidateIndex === undefined || preferredCandidateIndex === index) {
+      return
+    }
+
+    normalizedCandidates[preferredCandidateIndex] = mergeResumeCandidateRecords(
+      normalizedCandidates[preferredCandidateIndex],
+      candidate,
+    )
+    consumedIndexes.add(index)
+  })
+
+  return normalizedCandidates.filter((_, index) => !consumedIndexes.has(index))
 }
 
 export default function Resumes() {
