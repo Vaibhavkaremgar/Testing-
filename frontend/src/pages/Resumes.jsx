@@ -209,10 +209,17 @@ function normalizeResumeCandidate(candidate, jobsById = {}) {
 }
 
 function buildResumeCandidateDedupKey(candidate) {
+  const normalizedId = String(candidate?.id || '').trim()
   const normalizedEmail = String(candidate?.email || '').trim().toLowerCase()
   const normalizedName = String(candidate?.name || '').trim().toLowerCase()
   const normalizedJobId = candidate?.job_id ? String(candidate.job_id) : ''
   const normalizedCreatedAt = candidate?.created_at ? String(candidate.created_at) : ''
+
+  // Preserve distinct candidate records from the API instead of collapsing
+  // separate uploads that happen to share the same parsed email or job.
+  if (normalizedId) {
+    return `id:${normalizedId}`
+  }
 
   if (normalizedEmail && normalizedJobId) {
     return `email:${normalizedEmail}:job:${normalizedJobId}`
