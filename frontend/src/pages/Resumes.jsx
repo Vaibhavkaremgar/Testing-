@@ -284,6 +284,19 @@ export default function Resumes() {
   // Keep this page self-contained: it now hydrates from a single cached endpoint.
   const allJobs = useMemo(() => dashboardData?.jobs || [], [dashboardData])
   const jobs = useMemo(() => allJobs.filter((job) => job.is_active), [allJobs])
+  const uploadJobs = useMemo(() => {
+    const seenLabels = new Set()
+
+    return jobs.filter((job) => {
+      const label = (job.company_name ? `${job.company_name} - ${job.title}` : job.title || '').trim().toLowerCase()
+      if (!label || seenLabels.has(label)) {
+        return false
+      }
+
+      seenLabels.add(label)
+      return true
+    })
+  }, [jobs])
   const users = useMemo(() => dashboardData?.users || [], [dashboardData])
   const jobsById = useMemo(() => Object.fromEntries(allJobs.map((job) => [job.id, job])), [allJobs])
   const jobScores = useMemo(
@@ -1015,7 +1028,7 @@ export default function Resumes() {
                 onChange={(e) => setSelectedJobForUpload(e.target.value)}
               >
                 <option value="">Select Job </option>
-                {jobs.map((job) => (
+                {uploadJobs.map((job) => (
                   <option key={job.id} value={job.id}>
                     {job.company_name ? `${job.company_name} - ${job.title}` : job.title}
                   </option>

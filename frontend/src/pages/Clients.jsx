@@ -2,11 +2,8 @@ import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Progress } from '@/components/ui/progress'
 import { api } from '@/lib/api'
-import { Trash2, X } from 'lucide-react'
-
-const DEFAULT_LIST_LIMIT = 100
+import { X } from 'lucide-react'
 
 export default function Clients({ superAdminAgencyId = null }) {
   const [searchParams] = useSearchParams()
@@ -61,15 +58,17 @@ export default function Clients({ superAdminAgencyId = null }) {
 
   const fetchData = async () => {
     try {
-      // Get unique clients from jobs (filtered by client if selected) with pagination
-      const jobsParams = selectedClient ? { client: selectedClient, limit: DEFAULT_LIST_LIMIT } : { limit: DEFAULT_LIST_LIMIT }
+      // Fetch the complete matching dataset so hiring counts stay accurate.
+      const jobsParams = selectedClient ? { client: selectedClient } : {}
       if (superAdminAgencyId) jobsParams.agency_id = superAdminAgencyId
-      const jobs = await api.getJobs(jobsParams)
+      const jobs = await api.getJobs(jobsParams, { includeDefaultLimit: false })
       const clientMap = new Map()
+      const jobsById = new Map()
       
       jobs.forEach(job => {
         const companyName = job.company_name
         if (!companyName) return
+        jobsById.set(job.id, job)
         
         if (!clientMap.has(companyName)) {
           clientMap.set(companyName, {
@@ -91,13 +90,13 @@ export default function Clients({ superAdminAgencyId = null }) {
         }
       })
       
-      // Get candidates to calculate filled positions (filtered by client if selected)
-      const candidatesParams = selectedClient ? { client: selectedClient, limit: DEFAULT_LIST_LIMIT } : { limit: DEFAULT_LIST_LIMIT }
+      // Use the full candidate list as well so filled/open counts match all jobs.
+      const candidatesParams = selectedClient ? { client: selectedClient } : {}
       if (superAdminAgencyId) candidatesParams.agency_id = superAdminAgencyId
-      const candidates = await api.getCandidates(candidatesParams)
+      const candidates = await api.getCandidates(candidatesParams, { includeDefaultLimit: false })
       candidates.forEach(candidate => {
         if (candidate.stage === 'SELECTED' && candidate.job_id) {
-          const job = jobs.find(j => j.id === candidate.job_id)
+          const job = jobsById.get(candidate.job_id)
           if (job && job.company_name) {
             const client = clientMap.get(job.company_name)
             if (client) {
@@ -109,7 +108,7 @@ export default function Clients({ superAdminAgencyId = null }) {
       
       // Calculate open positions
       clientMap.forEach(client => {
-        client.positions_open = client.total_positions - client.positions_filled
+        client.positions_open = Math.max(0, client.total_positions - client.positions_filled)
       })
       
       const clientsList = Array.from(clientMap.values())
@@ -137,26 +136,6 @@ export default function Clients({ superAdminAgencyId = null }) {
       setLoading(false)
     }
   }
-
-  const handleDelete = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this client?')) {
-      return
-    }
-    try {
-      await api.deleteClient(id)
-      await fetchData()
-    } catch (error) {
-      console.error('Failed to delete client:', error)
-      alert('Failed to delete client: ' + error.message)
-    }
-  }
-
-
-
-  const topPerformers = clients
-    .filter(c => c.acceptance_rate > 0)
-    .sort((a, b) => b.acceptance_rate - a.acceptance_rate)
-    .slice(0, 5)
 
   if (loading) {
     return (
@@ -220,25 +199,6 @@ export default function Clients({ superAdminAgencyId = null }) {
         </div>
       )}
 
-      <div className="grid gap-4 md:grid-cols-1">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Top Performing Clients</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {topPerformers.map((client) => (
-                <div key={client.id} className="flex items-center justify-between text-sm">
-                  <span className="truncate">{client.name}</span>
-                  <span className="text-green-600 font-medium">{client.acceptance_rate}%</span>
-                </div>
-              ))}
-              {topPerformers.length === 0 && <p className="text-sm text-muted-foreground">No data available</p>}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
       <Card>
         <CardHeader>
           <CardTitle>Client Hiring Status</CardTitle>
@@ -253,14 +213,10 @@ export default function Clients({ superAdminAgencyId = null }) {
                   <th className="text-center py-3 px-4 font-medium">Total</th>
                   <th className="text-center py-3 px-4 font-medium">Filled</th>
                   <th className="text-center py-3 px-4 font-medium">Open</th>
-                  <th className="text-left py-3 px-4 font-medium">Progress</th>
-                  <th className="text-center py-3 px-4 font-medium">Avg Time</th>
-                  <th className="text-center py-3 px-4 font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {clients.map((client) => {
-                  const fillRate = client.total_positions > 0 ? (client.positions_filled / client.total_positions) * 100 : 0
                   return (
                     <tr key={client.id} className="border-b hover:bg-muted/50">
                       <td className="py-3 px-4 font-medium">{client.company_name || client.name}</td>
@@ -268,20 +224,6 @@ export default function Clients({ superAdminAgencyId = null }) {
                       <td className="py-3 px-4 text-center">{client.total_positions}</td>
                       <td className="py-3 px-4 text-center text-red-600">{client.positions_filled}</td>
                       <td className="py-3 px-4 text-center text-green-600">{client.positions_open}</td>
-                      <td className="py-3 px-4">
-                        <div className="flex items-center gap-2">
-                          <Progress value={fillRate} className="h-2 flex-1" />
-                          <span className="text-xs text-muted-foreground w-10">{fillRate.toFixed(0)}%</span>
-                        </div>
-                      </td>
-                      <td className="py-3 px-4 text-center text-sm">{client.avg_time_to_hire || 0}d</td>
-                      <td className="py-3 px-4">
-                        <div className="flex justify-center gap-1">
-                          <Button variant="ghost" size="icon" onClick={() => handleDelete(client.id)}>
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        </div>
-                      </td>
                     </tr>
                   )
                 })}
