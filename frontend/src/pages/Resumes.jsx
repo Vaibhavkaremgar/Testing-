@@ -208,6 +208,72 @@ function normalizeResumeCandidate(candidate, jobsById = {}) {
   }
 }
 
+function buildResumeCandidateDedupKey(candidate) {
+  const normalizedEmail = String(candidate?.email || '').trim().toLowerCase()
+  const normalizedName = String(candidate?.name || '').trim().toLowerCase()
+  const normalizedJobId = candidate?.job_id ? String(candidate.job_id) : ''
+  const normalizedCreatedAt = candidate?.created_at ? String(candidate.created_at) : ''
+
+  if (normalizedEmail && normalizedJobId) {
+    return `email:${normalizedEmail}:job:${normalizedJobId}`
+  }
+
+  if (normalizedEmail) {
+    return `email:${normalizedEmail}`
+  }
+
+  if (normalizedName && normalizedCreatedAt) {
+    return `name:${normalizedName}:created:${normalizedCreatedAt}`
+  }
+
+  if (normalizedName && normalizedJobId) {
+    return `name:${normalizedName}:job:${normalizedJobId}`
+  }
+
+  return `id:${candidate?.id || Math.random()}`
+}
+
+function getResumeCandidatePreferenceScore(candidate) {
+  const stage = candidate?.display_stage || candidate?.stage || ''
+  const stagePriority = {
+    NO_SHOW: 70,
+    INTERVIEWED: 60,
+    INTERVIEW_RESCHEDULED: 50,
+    INTERVIEW_SCHEDULED: 40,
+    SELECTED: 30,
+    REJECTED: 20,
+    SHORTLISTED: 10,
+    REVIEW: 5,
+    RESUME_REJECTED: 0,
+  }
+
+  let score = stagePriority[stage] || 0
+
+  if (candidate?.email) score += 5
+  if (candidate?.job_id) score += 5
+  if (candidate?.job_title) score += 4
+  if (candidate?.current_role) score += 3
+  if (candidate?.skills?.length) score += 2
+  if (candidate?.resume_score !== null && candidate?.resume_score !== undefined) score += 2
+
+  return score
+}
+
+function dedupeResumeCandidates(candidates) {
+  const deduped = new Map()
+
+  candidates.forEach((candidate) => {
+    const key = buildResumeCandidateDedupKey(candidate)
+    const existing = deduped.get(key)
+
+    if (!existing || getResumeCandidatePreferenceScore(candidate) > getResumeCandidatePreferenceScore(existing)) {
+      deduped.set(key, candidate)
+    }
+  })
+
+  return Array.from(deduped.values())
+}
+
 export default function Resumes() {
   const [searchParams, setSearchParams] = useSearchParams()
   const selectedClient = searchParams.get('client')
@@ -304,7 +370,9 @@ export default function Resumes() {
     [dashboardData],
   )
   const candidates = useMemo(() => {
-    let filteredData = (dashboardData?.candidates || []).map((candidate) => normalizeResumeCandidate(candidate, jobsById))
+    let filteredData = dedupeResumeCandidates(
+      (dashboardData?.candidates || []).map((candidate) => normalizeResumeCandidate(candidate, jobsById))
+    )
 
     if (selectedGlobalJobId) {
       filteredData = filteredData.filter((candidate) => candidate.job_id?.toString() === selectedGlobalJobId)

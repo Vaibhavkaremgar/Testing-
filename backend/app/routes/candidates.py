@@ -977,37 +977,32 @@ def sync_rescheduled_candidate_stages_from_slots(
     db: Session,
     candidate_ids: Optional[List[UUID]] = None,
 ) -> int:
-    target_query = db.query(Candidate.id).filter(
-        Candidate.stage == CandidateStage.INTERVIEW_RESCHEDULED
-    )
+    query = db.query(Candidate).filter(Candidate.stage == CandidateStage.INTERVIEW_RESCHEDULED)
     if candidate_ids:
-        target_query = target_query.filter(Candidate.id.in_(candidate_ids))
+        query = query.filter(Candidate.id.in_(candidate_ids))
 
-    rescheduled_candidate_ids = [candidate_id for (candidate_id,) in target_query.all()]
-    if not rescheduled_candidate_ids:
+    candidates = query.all()
+    if not candidates:
         return 0
 
+    today = _get_india_today()
     slot_stage_by_candidate = _get_interview_slot_pipeline_stages(
         db,
-        rescheduled_candidate_ids,
-        _get_india_today(),
+        [candidate.id for candidate in candidates],
+        today,
     )
     if not slot_stage_by_candidate:
         return 0
 
     now = datetime.utcnow()
     updated_count = 0
-    candidates = (
-        db.query(Candidate)
-        .filter(Candidate.id.in_(list(slot_stage_by_candidate.keys())))
-        .all()
-    )
     for candidate in candidates:
         target_stage = slot_stage_by_candidate.get(candidate.id)
         if target_stage not in {CandidateStage.INTERVIEW_SCHEDULED, CandidateStage.INTERVIEWED}:
             continue
         if candidate.stage == target_stage:
             continue
+
         candidate.stage = target_stage
         candidate.stage_updated_at = now
         candidate.stage_entered_at = now
@@ -1055,6 +1050,7 @@ def _is_slot_within_no_show_window(
 def sync_no_show_candidate_stages(db: Session) -> int:
     now_utc = datetime.now(timezone.utc)
     no_show_cutoff = now_utc - timedelta(minutes=NO_SHOW_GRACE_PERIOD_MINUTES)
+    today_ist = _get_india_now(now_utc).date()
 
     active_interviews = (
         db.query(Interview)
@@ -1065,6 +1061,8 @@ def sync_no_show_candidate_stages(db: Session) -> int:
     for interview in active_interviews:
         effective_scheduled_at_utc = _get_effective_interview_scheduled_at_utc(interview)
         if not effective_scheduled_at_utc or effective_scheduled_at_utc > no_show_cutoff:
+            continue
+        if effective_scheduled_at_utc.astimezone(INDIA_TIMEZONE).date() != today_ist:
             continue
         previous_interview = latest_interview_by_candidate.get(interview.candidate_id)
         if not previous_interview:
@@ -1136,13 +1134,13 @@ def sync_no_show_candidate_stages(db: Session) -> int:
                           AND slot_date IS NOT NULL
                           AND {slot_time_column} IS NOT NULL
                           AND lower(trim({candidate_column}::text)) = ANY(:candidate_ids)
-                          AND slot_date::date <= :cutoff_date
+                          AND slot_date::date = :today
                           AND (slot_date::timestamp + {slot_time_column}::time) <= :cutoff_at
                         ORDER BY lower(trim({candidate_column}::text)), slot_date::date DESC, {slot_time_column}::time DESC
                     """),
                     {
                         "candidate_ids": list(candidate_lookup.keys()),
-                        "cutoff_date": slot_no_show_cutoff_ist.date(),
+                        "today": today_ist,
                         "cutoff_at": slot_no_show_cutoff_ist,
                     },
                 ).mappings().all()
@@ -1172,6 +1170,9 @@ def sync_no_show_candidate_stages(db: Session) -> int:
     for candidate in candidates:
         candidate_id = candidate.id
         interview = latest_interview_by_candidate.get(candidate_id)
+        if candidate.stage == CandidateStage.INTERVIEW_RESCHEDULED:
+            continue
+
         if not interview and candidate.stage not in {CandidateStage.INTERVIEW_SCHEDULED, CandidateStage.INTERVIEW_RESCHEDULED}:
             continue
 
@@ -4161,14 +4162,14 @@ def get_pipeline_stages(
         if candidate.stage == CandidateStage.NO_SHOW:
             display_stage = CandidateStage.NO_SHOW
             display_stage_key = display_stage.value
+        elif candidate.stage == CandidateStage.INTERVIEW_RESCHEDULED:
+            display_stage = CandidateStage.INTERVIEW_RESCHEDULED
+            display_stage_key = display_stage.value
         elif candidate.id in interview_today_candidate_ids:
             display_stage = CandidateStage.INTERVIEWED
             display_stage_key = display_stage.value
         elif candidate.id in interview_scheduled_candidate_ids:
             display_stage = CandidateStage.INTERVIEW_SCHEDULED
-            display_stage_key = display_stage.value
-        elif candidate.stage == CandidateStage.INTERVIEW_RESCHEDULED:
-            display_stage = CandidateStage.INTERVIEW_RESCHEDULED
             display_stage_key = display_stage.value
         elif candidate.id in selected_candidate_ids:
             display_stage = CandidateStage.SELECTED

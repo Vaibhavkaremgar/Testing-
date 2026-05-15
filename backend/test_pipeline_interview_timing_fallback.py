@@ -1,7 +1,8 @@
 from datetime import date, datetime, timedelta, timezone
+import sys
 import uuid
 
-from app.models import CandidateStage, Interview
+from app.models import Candidate, CandidateStage, Interview
 from app.schemas import InterviewCreate, InterviewUpdate
 from app.routes.candidates import (
     _classify_interview_timing_bucket,
@@ -9,11 +10,14 @@ from app.routes.candidates import (
     _get_india_now,
     _get_slot_no_show_cutoff_ist,
     _get_interview_candidate_ids_by_interview_timing,
+    sync_rescheduled_candidate_stages_from_slots,
 )
 from app.routes.interviews import (
     _derive_candidate_stage_from_interview,
     _normalize_interview_scheduled_at_for_storage,
 )
+
+candidates_route = sys.modules["app.routes.candidates"]
 
 
 class _FakeQuery:
@@ -44,6 +48,29 @@ class _RoutingFakeDb:
 
     def query(self, *args, **kwargs):
         return _FakeQuery(self._rows_by_arity.get(len(args), []))
+
+
+class _FakeCandidateQuery:
+    def __init__(self, candidates):
+        self._candidates = candidates
+
+    def filter(self, *args, **kwargs):
+        return self
+
+    def all(self):
+        return self._candidates
+
+
+class _FakeCandidateDb:
+    def __init__(self, candidates):
+        self._candidates = candidates
+        self.commit_calls = 0
+
+    def query(self, *args, **kwargs):
+        return _FakeCandidateQuery(self._candidates)
+
+    def commit(self):
+        self.commit_calls += 1
 
 
 def test_classify_interview_timing_bucket_marks_future_scheduled_interviews():
@@ -155,10 +182,11 @@ def test_get_slot_no_show_cutoff_ist_applies_thirty_minute_grace_period():
 
 def test_derive_candidate_stage_from_interview_marks_same_day_scheduled_interviews_as_interviewed():
     india_now = _get_india_now()
+    scheduled_local = india_now + timedelta(hours=1)
     interview = Interview(
         candidate_id=uuid.uuid4(),
         status="scheduled",
-        scheduled_at=india_now.replace(hour=11, minute=0, second=0, microsecond=0).astimezone(timezone.utc),
+        scheduled_at=scheduled_local.replace(second=0, microsecond=0).astimezone(timezone.utc),
     )
 
     assert _derive_candidate_stage_from_interview(interview) == CandidateStage.INTERVIEWED
@@ -196,3 +224,59 @@ def test_effective_interview_scheduled_at_utc_reinterprets_legacy_session_links_
     )
 
     assert _get_effective_interview_scheduled_at_utc(interview) == datetime(2026, 5, 12, 5, 30, tzinfo=timezone.utc)
+
+
+def test_sync_rescheduled_candidate_stages_from_slots_moves_future_slots_to_interview_scheduled(monkeypatch):
+    candidate = Candidate(id=uuid.uuid4(), stage=CandidateStage.INTERVIEW_RESCHEDULED)
+    db = _FakeCandidateDb([candidate])
+
+    monkeypatch.setattr(candidates_route, "_get_india_today", lambda: date(2026, 5, 15))
+    monkeypatch.setattr(
+        candidates_route,
+        "_get_interview_slot_pipeline_stages",
+        lambda _db, _candidate_ids, _today: {candidate.id: CandidateStage.INTERVIEW_SCHEDULED},
+    )
+
+    updated_count = sync_rescheduled_candidate_stages_from_slots(db)
+
+    assert updated_count == 1
+    assert candidate.stage == CandidateStage.INTERVIEW_SCHEDULED
+    assert candidate.stage_updated_at is not None
+    assert candidate.stage_entered_at is not None
+    assert db.commit_calls == 1
+
+
+def test_sync_rescheduled_candidate_stages_from_slots_moves_same_day_slots_to_interviewed(monkeypatch):
+    candidate = Candidate(id=uuid.uuid4(), stage=CandidateStage.INTERVIEW_RESCHEDULED)
+    db = _FakeCandidateDb([candidate])
+
+    monkeypatch.setattr(candidates_route, "_get_india_today", lambda: date(2026, 5, 15))
+    monkeypatch.setattr(
+        candidates_route,
+        "_get_interview_slot_pipeline_stages",
+        lambda _db, _candidate_ids, _today: {candidate.id: CandidateStage.INTERVIEWED},
+    )
+
+    updated_count = sync_rescheduled_candidate_stages_from_slots(db)
+
+    assert updated_count == 1
+    assert candidate.stage == CandidateStage.INTERVIEWED
+    assert db.commit_calls == 1
+
+
+def test_sync_rescheduled_candidate_stages_from_slots_keeps_rescheduled_when_no_valid_slot_stage(monkeypatch):
+    candidate = Candidate(id=uuid.uuid4(), stage=CandidateStage.INTERVIEW_RESCHEDULED)
+    db = _FakeCandidateDb([candidate])
+
+    monkeypatch.setattr(candidates_route, "_get_india_today", lambda: date(2026, 5, 15))
+    monkeypatch.setattr(
+        candidates_route,
+        "_get_interview_slot_pipeline_stages",
+        lambda _db, _candidate_ids, _today: {},
+    )
+
+    updated_count = sync_rescheduled_candidate_stages_from_slots(db)
+
+    assert updated_count == 0
+    assert candidate.stage == CandidateStage.INTERVIEW_RESCHEDULED
+    assert db.commit_calls == 0
