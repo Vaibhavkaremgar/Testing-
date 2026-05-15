@@ -914,16 +914,23 @@ def _get_interview_slot_pipeline_stages(db: Session, candidate_ids: List[UUID], 
             **{candidate_id: CandidateStage.INTERVIEWED for candidate_id in interview_today_candidate_ids},
             **{candidate_id: CandidateStage.INTERVIEW_SCHEDULED for candidate_id in interview_scheduled_candidate_ids},
         }
+    slot_time_column = next(
+        (
+            normalized_column_lookup.get(slot_time_key)
+            for slot_time_key in ("slot_time", "slottime", "time")
+            if normalized_column_lookup.get(slot_time_key)
+        ),
+        None,
+    )
 
+    slot_time_select = f", {slot_time_column}::time AS slot_time" if slot_time_column else ""
+    slot_time_order = f", {slot_time_column}::time ASC" if slot_time_column else ""
     rows = db.execute(
         text(f"""
             SELECT DISTINCT ON (lower(trim({candidate_column}::text)))
                 lower(trim({candidate_column}::text)) AS candidate_id,
-                CASE
-                    WHEN slot_date::date = :today THEN 'today'
-                    WHEN slot_date::date > :today THEN 'future'
-                    ELSE 'past'
-                END AS slot_timing
+                slot_date::date AS slot_date
+                {slot_time_select}
             FROM interview_slots
             WHERE {candidate_column} IS NOT NULL
               AND slot_date IS NOT NULL
@@ -931,12 +938,8 @@ def _get_interview_slot_pipeline_stages(db: Session, candidate_ids: List[UUID], 
               AND slot_date::date >= :today
             ORDER BY
                 lower(trim({candidate_column}::text)),
-                CASE
-                    WHEN slot_date::date = :today THEN 0
-                    WHEN slot_date::date > :today THEN 1
-                    ELSE 2
-                END,
                 slot_date::date ASC
+                {slot_time_order}
         """),
         {
             "candidate_ids": list(candidate_lookup.keys()),
@@ -945,10 +948,12 @@ def _get_interview_slot_pipeline_stages(db: Session, candidate_ids: List[UUID], 
     ).mappings().all()
 
     slot_stage_by_candidate: Dict[UUID, CandidateStage] = {}
+    now_utc = datetime.now(timezone.utc)
     for row in rows:
         candidate_id_raw = row.get("candidate_id")
-        slot_timing = row.get("slot_timing")
-        if not candidate_id_raw or not slot_timing:
+        slot_date_value = row.get("slot_date")
+        slot_time_value = row.get("slot_time")
+        if not candidate_id_raw or not slot_date_value:
             continue
 
         candidate_id = candidate_lookup.get(_normalize_slot_candidate_key(candidate_id_raw))
@@ -958,12 +963,12 @@ def _get_interview_slot_pipeline_stages(db: Session, candidate_ids: List[UUID], 
         if candidate_id in slot_stage_by_candidate:
             continue
 
-        if slot_timing == "today":
-            slot_stage_by_candidate[candidate_id] = CandidateStage.INTERVIEWED
+        if slot_date_value > today:
+            slot_stage_by_candidate[candidate_id] = CandidateStage.INTERVIEW_SCHEDULED
             continue
 
-        if slot_timing == "future":
-            slot_stage_by_candidate[candidate_id] = CandidateStage.INTERVIEW_SCHEDULED
+        if slot_date_value == today and _is_slot_within_no_show_window(slot_date_value, slot_time_value, now_utc):
+            slot_stage_by_candidate[candidate_id] = CandidateStage.INTERVIEWED
 
     return slot_stage_by_candidate
 
@@ -1029,6 +1034,22 @@ def _get_slot_no_show_cutoff_ist(now_utc: Optional[datetime] = None) -> datetime
         reference_now_utc.astimezone(INDIA_TIMEZONE)
         - timedelta(minutes=NO_SHOW_GRACE_PERIOD_MINUTES)
     ).replace(tzinfo=None, second=0, microsecond=0)
+
+
+def _is_slot_within_no_show_window(
+    slot_date_value,
+    slot_time_value=None,
+    now_utc: Optional[datetime] = None,
+) -> bool:
+    """Treat a slot as still scheduled until 30 minutes after its local start time."""
+    if not slot_date_value:
+        return False
+
+    if slot_time_value is None:
+        return True
+
+    slot_local_datetime = datetime.combine(slot_date_value, slot_time_value)
+    return slot_local_datetime > _get_slot_no_show_cutoff_ist(now_utc)
 
 
 def sync_no_show_candidate_stages(db: Session) -> int:
@@ -1231,16 +1252,23 @@ def _get_interview_slot_candidate_ids_by_timing(
     )
     if not candidate_column:
         return _get_interview_candidate_ids_by_interview_timing(db, candidate_ids, today)
+    slot_time_column = next(
+        (
+            normalized_column_lookup.get(slot_time_key)
+            for slot_time_key in ("slot_time", "slottime", "time")
+            if normalized_column_lookup.get(slot_time_key)
+        ),
+        None,
+    )
 
+    slot_time_select = f", {slot_time_column}::time AS slot_time" if slot_time_column else ""
+    slot_time_order = f", {slot_time_column}::time ASC" if slot_time_column else ""
     rows = db.execute(
         text(f"""
             SELECT DISTINCT ON (lower(trim({candidate_column}::text)))
                 lower(trim({candidate_column}::text)) AS candidate_id,
-                CASE
-                    WHEN slot_date::date = :today THEN 'today'
-                    WHEN slot_date::date > :today THEN 'future'
-                    ELSE 'past'
-                END AS slot_timing
+                slot_date::date AS slot_date
+                {slot_time_select}
             FROM interview_slots
             WHERE {candidate_column} IS NOT NULL
               AND slot_date IS NOT NULL
@@ -1248,12 +1276,8 @@ def _get_interview_slot_candidate_ids_by_timing(
               AND slot_date::date >= :today
             ORDER BY
                 lower(trim({candidate_column}::text)),
-                CASE
-                    WHEN slot_date::date = :today THEN 0
-                    WHEN slot_date::date > :today THEN 1
-                    ELSE 2
-                END,
                 slot_date::date ASC
+                {slot_time_order}
         """),
         {
             "candidate_ids": list(candidate_lookup.keys()),
@@ -1263,10 +1287,12 @@ def _get_interview_slot_candidate_ids_by_timing(
 
     today_candidate_ids: set[UUID] = set()
     future_candidate_ids: set[UUID] = set()
+    now_utc = datetime.now(timezone.utc)
     for row in rows:
         candidate_id_raw = row.get("candidate_id")
-        slot_timing = row.get("slot_timing")
-        if not candidate_id_raw or not slot_timing:
+        slot_date_value = row.get("slot_date")
+        slot_time_value = row.get("slot_time")
+        if not candidate_id_raw or not slot_date_value:
             continue
 
         candidate_id = candidate_lookup.get(_normalize_slot_candidate_key(candidate_id_raw))
@@ -1276,10 +1302,10 @@ def _get_interview_slot_candidate_ids_by_timing(
         if candidate_id in today_candidate_ids or candidate_id in future_candidate_ids:
             continue
 
-        if slot_timing == "today":
-            today_candidate_ids.add(candidate_id)
-        elif slot_timing == "future":
+        if slot_date_value > today:
             future_candidate_ids.add(candidate_id)
+        elif slot_date_value == today and _is_slot_within_no_show_window(slot_date_value, slot_time_value, now_utc):
+            today_candidate_ids.add(candidate_id)
 
     remaining_candidate_ids = [
         candidate_id
@@ -1315,7 +1341,7 @@ def _classify_interview_timing_bucket(
     if normalized_status in {"completed", "ongoing"}:
         return "today"
 
-    if normalized_status != "scheduled":
+    if normalized_status not in {"scheduled", "rescheduled"}:
         return None
 
     if interview_date is None:
@@ -1323,9 +1349,11 @@ def _classify_interview_timing_bucket(
     if interview_date < today:
         return None
     if interview_date == today:
-        # Keep all same-day interviews in the active interview bucket so the
-        # pipeline moves candidates into "Interview" for the full interview day.
-        return "today"
+        if interview_local_datetime is None:
+            return "future"
+        if interview_local_datetime + timedelta(minutes=NO_SHOW_GRACE_PERIOD_MINUTES) > india_now:
+            return "today"
+        return None
     return "future"
 
 
