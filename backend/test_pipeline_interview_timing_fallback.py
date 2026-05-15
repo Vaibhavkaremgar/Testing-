@@ -226,7 +226,7 @@ def test_effective_interview_scheduled_at_utc_reinterprets_legacy_session_links_
     assert _get_effective_interview_scheduled_at_utc(interview) == datetime(2026, 5, 12, 5, 30, tzinfo=timezone.utc)
 
 
-def test_sync_rescheduled_candidate_stages_from_slots_moves_future_slots_to_interview_scheduled(monkeypatch):
+def test_sync_rescheduled_candidate_stages_from_slots_keeps_rescheduled_for_future_slots(monkeypatch):
     candidate = Candidate(id=uuid.uuid4(), stage=CandidateStage.INTERVIEW_RESCHEDULED)
     db = _FakeCandidateDb([candidate])
 
@@ -239,11 +239,11 @@ def test_sync_rescheduled_candidate_stages_from_slots_moves_future_slots_to_inte
 
     updated_count = sync_rescheduled_candidate_stages_from_slots(db)
 
-    assert updated_count == 1
-    assert candidate.stage == CandidateStage.INTERVIEW_SCHEDULED
-    assert candidate.stage_updated_at is not None
-    assert candidate.stage_entered_at is not None
-    assert db.commit_calls == 1
+    assert updated_count == 0
+    assert candidate.stage == CandidateStage.INTERVIEW_RESCHEDULED
+    assert candidate.stage_updated_at is None
+    assert candidate.stage_entered_at is None
+    assert db.commit_calls == 0
 
 
 def test_sync_rescheduled_candidate_stages_from_slots_moves_same_day_slots_to_interviewed(monkeypatch):
