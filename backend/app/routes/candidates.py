@@ -3510,11 +3510,25 @@ def get_candidates(
     candidates = query.all()
     query_time = perf_counter() - query_start
     print(f"[DB PERF] candidates query={query_time:.4f}s")
+
+    today = _get_india_today()
+    interview_today_candidate_ids, interview_scheduled_candidate_ids = _get_interview_slot_candidate_ids_by_timing(
+        db,
+        [candidate.id for candidate in candidates],
+        today,
+    )
     
     # Add job title to response
     serialization_start = perf_counter()
     result = []
     for c in candidates:
+        display_stage = c.stage
+        if c.stage == CandidateStage.INTERVIEW_RESCHEDULED:
+            if c.id in interview_today_candidate_ids:
+                display_stage = CandidateStage.INTERVIEWED
+            elif c.id in interview_scheduled_candidate_ids:
+                display_stage = CandidateStage.INTERVIEW_SCHEDULED
+
         candidate_dict = {
             "id": c.id,
             "name": c.name,
@@ -3533,7 +3547,7 @@ def get_candidates(
             "skills": c.skills,
             "education": c.education,
             "work_experience": c.work_experience,
-            "stage": c.stage,
+            "stage": display_stage,
             "stage_updated_at": c.stage_updated_at,
             "stage_entered_at": c.stage_entered_at,
             "applied_at": c.applied_at,
