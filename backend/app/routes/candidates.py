@@ -1318,7 +1318,10 @@ def _get_interview_slot_candidate_ids_by_timing(
 
         if slot_date_value > today:
             future_candidate_ids.add(candidate_id)
-        elif slot_date_value == today and _is_slot_within_no_show_window(slot_date_value, slot_time_value, now_utc):
+        elif slot_date_value == today:
+            # Keep all same-day booked slots in the Interview column.
+            # Dedicated stage sync later promotes overdue interviews to NO_SHOW
+            # or lets completed interview states take precedence.
             today_candidate_ids.add(candidate_id)
 
     remaining_candidate_ids = [
