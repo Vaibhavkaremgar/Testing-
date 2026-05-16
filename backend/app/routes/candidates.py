@@ -4278,9 +4278,6 @@ def get_pipeline_stages(
         if candidate.stage == CandidateStage.NO_SHOW:
             display_stage = CandidateStage.NO_SHOW
             display_stage_key = display_stage.value
-        elif candidate.stage == CandidateStage.INTERVIEW_RESCHEDULED:
-            display_stage = CandidateStage.INTERVIEW_RESCHEDULED
-            display_stage_key = display_stage.value
         elif candidate.id in selected_candidate_ids:
             display_stage = CandidateStage.SELECTED
             display_stage_key = display_stage.value
@@ -4294,6 +4291,9 @@ def get_pipeline_stages(
             display_stage_key = display_stage.value
         elif candidate.id in interview_scheduled_candidate_ids:
             display_stage = CandidateStage.INTERVIEW_SCHEDULED
+            display_stage_key = display_stage.value
+        elif candidate.stage == CandidateStage.INTERVIEW_RESCHEDULED:
+            display_stage = CandidateStage.INTERVIEW_RESCHEDULED
             display_stage_key = display_stage.value
         elif candidate.stage == CandidateStage.APPLIED:
             display_stage = CandidateStage.APPLIED
