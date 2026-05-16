@@ -21,6 +21,7 @@ from app.routes.candidates import (
     normalize_legacy_candidate_stages,
     sanitize_candidate_email,
     sanitize_candidate_location,
+    sync_active_rescheduled_candidate_stages,
     sync_no_show_candidate_stages,
     sync_rescheduled_candidate_stages_from_slots,
 )
@@ -88,6 +89,7 @@ def _fetch_candidates(
         normalize_legacy_candidate_stages(db)
         # Keep dashboard-backed resume data aligned with the primary candidates API
         # so interview reschedules remain visible immediately after the status change.
+        sync_active_rescheduled_candidate_stages(db)
         sync_no_show_candidate_stages(db)
         sync_rescheduled_candidate_stages_from_slots(db)
         valid_stages = [s.value for s in CandidateStage]

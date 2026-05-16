@@ -524,6 +524,82 @@ def _get_interview_session_slot_stage_by_candidate(
     return slot_stage_by_candidate
 
 
+def _get_rescheduled_candidate_stage_from_interviews(
+    db: Session,
+    candidate_ids: List[UUID],
+    today: date,
+    candidate_by_id: Dict[UUID, Candidate],
+) -> Dict[UUID, CandidateStage]:
+    if not candidate_ids:
+        return {}
+
+    related_candidate_ids = _build_related_candidate_ids_map(db, candidate_ids)
+    scoped_candidate_ids = sorted(
+        {related_candidate_id for ids in related_candidate_ids.values() for related_candidate_id in ids},
+        key=str,
+    )
+    if not scoped_candidate_ids:
+        return {}
+
+    reverse_candidate_lookup: dict[UUID, set[UUID]] = {}
+    for candidate_id, related_ids in related_candidate_ids.items():
+        for related_candidate_id in related_ids:
+            reverse_candidate_lookup.setdefault(related_candidate_id, set()).add(candidate_id)
+
+    interview_rows = (
+        db.query(
+            Interview.candidate_id,
+            Interview.status,
+            Interview.scheduled_at,
+            Interview.created_at,
+        )
+        .filter(Interview.candidate_id.in_(scoped_candidate_ids))
+        .all()
+    )
+
+    latest_interview_by_candidate: dict[UUID, tuple[str, Optional[datetime], Optional[datetime]]] = {}
+    for interview_candidate_id, status_value, scheduled_at, created_at in interview_rows:
+        owning_candidate_ids = reverse_candidate_lookup.get(interview_candidate_id, {interview_candidate_id})
+        current_key = _build_interview_precedence_key(status_value, scheduled_at, created_at)
+        for candidate_id in owning_candidate_ids:
+            candidate = candidate_by_id.get(candidate_id)
+            if not candidate:
+                continue
+
+            effective_created_at = created_at or scheduled_at
+            comparable_stage_entered_at = candidate.stage_entered_at
+            if effective_created_at and comparable_stage_entered_at:
+                if effective_created_at.tzinfo and comparable_stage_entered_at.tzinfo is None:
+                    comparable_stage_entered_at = comparable_stage_entered_at.replace(tzinfo=effective_created_at.tzinfo)
+                elif comparable_stage_entered_at.tzinfo and effective_created_at.tzinfo is None:
+                    effective_created_at = effective_created_at.replace(tzinfo=comparable_stage_entered_at.tzinfo)
+                if effective_created_at < comparable_stage_entered_at:
+                    continue
+
+            previous_row = latest_interview_by_candidate.get(candidate_id)
+            if not previous_row:
+                latest_interview_by_candidate[candidate_id] = (status_value, scheduled_at, created_at)
+                continue
+
+            previous_key = _build_interview_precedence_key(previous_row[0], previous_row[1], previous_row[2])
+            if current_key > previous_key:
+                latest_interview_by_candidate[candidate_id] = (status_value, scheduled_at, created_at)
+
+    stage_by_candidate: Dict[UUID, CandidateStage] = {}
+    for candidate_id, (status_value, scheduled_at, _created_at) in latest_interview_by_candidate.items():
+        timing_bucket = _classify_interview_timing_bucket(
+            status_value=status_value,
+            scheduled_at=scheduled_at,
+            today=today,
+        )
+        if timing_bucket == "today":
+            stage_by_candidate[candidate_id] = CandidateStage.INTERVIEWED
+        elif timing_bucket == "future":
+            stage_by_candidate[candidate_id] = CandidateStage.INTERVIEW_SCHEDULED
+
+    return stage_by_candidate
+
+
 def _apply_candidate_list_scope(query, current_user):
     from sqlalchemy.orm import aliased
     from app.models import JobDescription, User, UserRole
@@ -1260,19 +1336,14 @@ def sync_rescheduled_candidate_stages_from_slots(
         candidate_id for candidate_id in candidate_uuid_list if candidate_id not in slot_stage_by_candidate
     ]
     if remaining_candidate_ids:
-        interview_today_candidate_ids, interview_scheduled_candidate_ids = _get_interview_candidate_ids_by_interview_timing(
-            db,
-            remaining_candidate_ids,
-            today,
+        slot_stage_by_candidate.update(
+            _get_rescheduled_candidate_stage_from_interviews(
+                db,
+                remaining_candidate_ids,
+                today,
+                candidate_by_id,
+            )
         )
-        slot_stage_by_candidate.update({
-            candidate_id: CandidateStage.INTERVIEWED
-            for candidate_id in interview_today_candidate_ids
-        })
-        slot_stage_by_candidate.update({
-            candidate_id: CandidateStage.INTERVIEW_SCHEDULED
-            for candidate_id in interview_scheduled_candidate_ids
-        })
 
     if not slot_stage_by_candidate:
         return 0
@@ -1331,6 +1402,40 @@ def _is_slot_within_no_show_window(
 
     slot_local_datetime = datetime.combine(slot_date_value, slot_time_value)
     return slot_local_datetime > _get_slot_no_show_cutoff_ist(now_utc)
+
+
+def sync_active_rescheduled_candidate_stages(db: Session, candidate_ids: Optional[List[UUID]] = None) -> int:
+    candidate_filter_sql = ""
+    params: dict[str, object] = {}
+    if candidate_ids:
+        candidate_filter_sql = "AND c.id = ANY(:candidate_ids)"
+        params["candidate_ids"] = candidate_ids
+
+    result = db.execute(
+        text(f"""
+            UPDATE candidates c
+            SET
+                stage = 'INTERVIEW_RESCHEDULED',
+                stage_updated_at = NOW(),
+                stage_entered_at = NOW()
+            WHERE c.id IN (
+                SELECT ec.candidate_id
+                FROM email_communications ec
+                JOIN notification_workflow_tokens nwt
+                  ON nwt.token = ec.workflow_token
+                WHERE ec.email_type = 'interview_rescheduled'
+                  AND nwt.token_type = 'slot_selection'
+                  AND nwt.is_active = TRUE
+                  AND nwt.consumed_at IS NULL
+            )
+              AND c.stage::text <> 'INTERVIEW_RESCHEDULED'
+              {candidate_filter_sql}
+        """),
+        params,
+    )
+    if result.rowcount:
+        db.commit()
+    return result.rowcount or 0
 
 
 def sync_no_show_candidate_stages(db: Session) -> int:
@@ -3611,6 +3716,7 @@ def get_candidates_count(
 ):
     from app.models import UserRole
     normalize_legacy_candidate_stages(db)
+    sync_active_rescheduled_candidate_stages(db)
     sync_no_show_candidate_stages(db)
     sync_rescheduled_candidate_stages_from_slots(db)
     query = db.query(Candidate)
@@ -3655,6 +3761,7 @@ def get_candidates(
     total_start = perf_counter()
     normalization_start = perf_counter()
     normalize_legacy_candidate_stages(db)
+    sync_active_rescheduled_candidate_stages(db)
     sync_no_show_candidate_stages(db)
     sync_rescheduled_candidate_stages_from_slots(db)
     normalization_time = perf_counter() - normalization_start
@@ -4466,6 +4573,7 @@ def get_pipeline_stages(
     from app.models import JobDescription, UserRole
     completed_stage_key = "COMPLETED"
     normalize_legacy_candidate_stages(db)
+    sync_active_rescheduled_candidate_stages(db)
     sync_no_show_candidate_stages(db)
     sync_rescheduled_candidate_stages_from_slots(db)
     query = db.query(Candidate)
