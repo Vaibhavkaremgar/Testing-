@@ -998,11 +998,73 @@ def sync_rescheduled_candidate_stages_from_slots(
         return 0
 
     today = _get_india_today()
-    slot_stage_by_candidate = _get_interview_slot_pipeline_stages(
-        db,
-        [candidate.id for candidate in candidates],
-        today,
+    candidate_uuid_list = [candidate.id for candidate in candidates]
+    candidate_lookup = _build_slot_candidate_lookup(db, candidate_uuid_list)
+    if not candidate_lookup:
+        return 0
+
+    columns = db.execute(text(
+        """
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'interview_slots'
+        """
+    )).fetchall()
+    column_names = {row[0] for row in columns}
+    if not column_names or "slot_date" not in column_names:
+        return 0
+
+    normalized_column_lookup = {
+        column_name.lower().replace("_", ""): column_name
+        for column_name in column_names
+    }
+    candidate_column = next(
+        (
+            normalized_column_lookup.get(candidate_key)
+            for candidate_key in ("candidate_id", "candidateid", "candidate")
+            if normalized_column_lookup.get(candidate_key)
+        ),
+        None,
     )
+    if not candidate_column:
+        return 0
+
+    rows = db.execute(
+        text(f"""
+            SELECT DISTINCT ON (lower(trim({candidate_column}::text)))
+                lower(trim({candidate_column}::text)) AS candidate_id,
+                slot_date::date AS slot_date
+            FROM interview_slots
+            WHERE {candidate_column} IS NOT NULL
+              AND slot_date IS NOT NULL
+              AND lower(trim({candidate_column}::text)) = ANY(:candidate_ids)
+              AND slot_date::date >= :today
+            ORDER BY
+                lower(trim({candidate_column}::text)),
+                slot_date::date ASC
+        """),
+        {
+            "candidate_ids": list(candidate_lookup.keys()),
+            "today": today,
+        },
+    ).mappings().all()
+
+    slot_stage_by_candidate: Dict[UUID, CandidateStage] = {}
+    for row in rows:
+        candidate_id_raw = row.get("candidate_id")
+        slot_date_value = row.get("slot_date")
+        if not candidate_id_raw or not slot_date_value:
+            continue
+
+        candidate_id = candidate_lookup.get(_normalize_slot_candidate_key(candidate_id_raw))
+        if not candidate_id or candidate_id in slot_stage_by_candidate:
+            continue
+
+        if slot_date_value == today:
+            slot_stage_by_candidate[candidate_id] = CandidateStage.INTERVIEWED
+        elif slot_date_value > today:
+            slot_stage_by_candidate[candidate_id] = CandidateStage.INTERVIEW_SCHEDULED
+
     if not slot_stage_by_candidate:
         return 0
 
