@@ -989,6 +989,7 @@ def sync_rescheduled_candidate_stages_from_slots(
     db: Session,
     candidate_ids: Optional[List[UUID]] = None,
 ) -> int:
+    today = _get_india_today()
     query = db.query(Candidate).filter(Candidate.stage == CandidateStage.INTERVIEW_RESCHEDULED)
     if candidate_ids:
         query = query.filter(Candidate.id.in_(candidate_ids))
