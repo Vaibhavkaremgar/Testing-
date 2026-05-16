@@ -441,6 +441,7 @@ def _get_interview_session_slot_stage_by_candidate(
     db: Session,
     candidate_ids: List[UUID],
     today: date,
+    candidate_by_id: Dict[UUID, Candidate],
 ) -> Dict[UUID, CandidateStage]:
     if not candidate_ids:
         return {}
@@ -485,6 +486,7 @@ def _get_interview_session_slot_stage_by_candidate(
     for row in rows:
         candidate_id_raw = row.get("candidate_id")
         slot_date_value = row.get("slot_date")
+        booked_at = row.get("booked_at")
         if not candidate_id_raw or not slot_date_value:
             continue
 
@@ -503,6 +505,20 @@ def _get_interview_session_slot_stage_by_candidate(
             continue
 
         for candidate_id in reverse_candidate_lookup.get(related_candidate_id, {related_candidate_id}):
+            candidate = candidate_by_id.get(candidate_id)
+            if not candidate:
+                continue
+
+            comparable_booked_at = booked_at
+            stage_entered_at = candidate.stage_entered_at
+            if comparable_booked_at and stage_entered_at:
+                if comparable_booked_at.tzinfo and stage_entered_at.tzinfo is None:
+                    stage_entered_at = stage_entered_at.replace(tzinfo=comparable_booked_at.tzinfo)
+                elif stage_entered_at.tzinfo and comparable_booked_at.tzinfo is None:
+                    comparable_booked_at = comparable_booked_at.replace(tzinfo=stage_entered_at.tzinfo)
+                if comparable_booked_at < stage_entered_at:
+                    continue
+
             slot_stage_by_candidate.setdefault(candidate_id, target_stage)
 
     return slot_stage_by_candidate
@@ -1232,7 +1248,12 @@ def sync_rescheduled_candidate_stages_from_slots(
     ]
     if remaining_candidate_ids:
         slot_stage_by_candidate.update(
-            _get_interview_session_slot_stage_by_candidate(db, remaining_candidate_ids, today)
+            _get_interview_session_slot_stage_by_candidate(
+                db,
+                remaining_candidate_ids,
+                today,
+                candidate_by_id,
+            )
         )
 
     remaining_candidate_ids = [
