@@ -1010,7 +1010,10 @@ def sync_rescheduled_candidate_stages_from_slots(
     updated_count = 0
     for candidate in candidates:
         target_stage = slot_stage_by_candidate.get(candidate.id)
-        if target_stage != CandidateStage.INTERVIEWED:
+        if target_stage not in {
+            CandidateStage.INTERVIEW_SCHEDULED,
+            CandidateStage.INTERVIEWED,
+        }:
             continue
         if candidate.stage == target_stage:
             continue
