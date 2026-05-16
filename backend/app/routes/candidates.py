@@ -997,7 +997,6 @@ def sync_rescheduled_candidate_stages_from_slots(
     if not candidates:
         return 0
 
-    today = _get_india_today()
     candidate_uuid_list = [candidate.id for candidate in candidates]
     candidate_lookup = _build_slot_candidate_lookup(db, candidate_uuid_list)
     if not candidate_lookup:
@@ -1028,37 +1027,69 @@ def sync_rescheduled_candidate_stages_from_slots(
     )
     if not candidate_column:
         return 0
+    slot_created_at_column = next(
+        (
+            normalized_column_lookup.get(timestamp_key)
+            for timestamp_key in ("updatedat", "createdat", "bookedat")
+            if normalized_column_lookup.get(timestamp_key)
+        ),
+        None,
+    )
+    # Preserve the explicit rescheduled stage unless we can verify that a newer
+    # slot was booked after the candidate entered the rescheduled state.
+    if not slot_created_at_column:
+        return 0
 
     rows = db.execute(
         text(f"""
             SELECT DISTINCT ON (lower(trim({candidate_column}::text)))
                 lower(trim({candidate_column}::text)) AS candidate_id,
-                slot_date::date AS slot_date
+                slot_date::date AS slot_date,
+                {slot_created_at_column} AS slot_created_at
             FROM interview_slots
             WHERE {candidate_column} IS NOT NULL
               AND slot_date IS NOT NULL
+              AND {slot_created_at_column} IS NOT NULL
               AND lower(trim({candidate_column}::text)) = ANY(:candidate_ids)
-              AND slot_date::date >= :today
             ORDER BY
                 lower(trim({candidate_column}::text)),
+                {slot_created_at_column} DESC,
                 slot_date::date ASC
         """),
         {
             "candidate_ids": list(candidate_lookup.keys()),
-            "today": today,
         },
     ).mappings().all()
 
     slot_stage_by_candidate: Dict[UUID, CandidateStage] = {}
+    candidate_by_id = {candidate.id: candidate for candidate in candidates}
     for row in rows:
         candidate_id_raw = row.get("candidate_id")
         slot_date_value = row.get("slot_date")
-        if not candidate_id_raw or not slot_date_value:
+        slot_created_at = row.get("slot_created_at")
+        if not candidate_id_raw or not slot_date_value or not slot_created_at:
             continue
+        if isinstance(slot_created_at, str):
+            try:
+                slot_created_at = datetime.fromisoformat(slot_created_at.replace("Z", "+00:00"))
+            except ValueError:
+                continue
 
         candidate_id = candidate_lookup.get(_normalize_slot_candidate_key(candidate_id_raw))
         if not candidate_id or candidate_id in slot_stage_by_candidate:
             continue
+        candidate = candidate_by_id.get(candidate_id)
+        if not candidate:
+            continue
+
+        stage_entered_at = candidate.stage_entered_at
+        if stage_entered_at:
+            if stage_entered_at.tzinfo and slot_created_at.tzinfo is None:
+                slot_created_at = slot_created_at.replace(tzinfo=stage_entered_at.tzinfo)
+            elif slot_created_at.tzinfo and stage_entered_at.tzinfo is None:
+                stage_entered_at = stage_entered_at.replace(tzinfo=slot_created_at.tzinfo)
+            if slot_created_at < stage_entered_at:
+                continue
 
         if slot_date_value == today:
             slot_stage_by_candidate[candidate_id] = CandidateStage.INTERVIEWED
@@ -3523,7 +3554,7 @@ def get_candidates(
     result = []
     for c in candidates:
         display_stage = c.stage
-        if c.stage == CandidateStage.INTERVIEW_RESCHEDULED:
+        if c.stage != CandidateStage.INTERVIEW_RESCHEDULED:
             if c.id in interview_today_candidate_ids:
                 display_stage = CandidateStage.INTERVIEWED
             elif c.id in interview_scheduled_candidate_ids:
@@ -4292,6 +4323,9 @@ def get_pipeline_stages(
         if candidate.stage == CandidateStage.NO_SHOW:
             display_stage = CandidateStage.NO_SHOW
             display_stage_key = display_stage.value
+        elif candidate.stage == CandidateStage.INTERVIEW_RESCHEDULED:
+            display_stage = CandidateStage.INTERVIEW_RESCHEDULED
+            display_stage_key = display_stage.value
         elif candidate.id in selected_candidate_ids:
             display_stage = CandidateStage.SELECTED
             display_stage_key = display_stage.value
@@ -4305,9 +4339,6 @@ def get_pipeline_stages(
             display_stage_key = display_stage.value
         elif candidate.id in interview_scheduled_candidate_ids:
             display_stage = CandidateStage.INTERVIEW_SCHEDULED
-            display_stage_key = display_stage.value
-        elif candidate.stage == CandidateStage.INTERVIEW_RESCHEDULED:
-            display_stage = CandidateStage.INTERVIEW_RESCHEDULED
             display_stage_key = display_stage.value
         elif candidate.stage == CandidateStage.APPLIED:
             display_stage = CandidateStage.APPLIED
