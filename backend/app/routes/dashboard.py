@@ -21,6 +21,8 @@ from app.routes.candidates import (
     normalize_legacy_candidate_stages,
     sanitize_candidate_email,
     sanitize_candidate_location,
+    sync_no_show_candidate_stages,
+    sync_rescheduled_candidate_stages_from_slots,
 )
 from app.routes.jobs import _apply_job_list_scope, _resolve_pagination as resolve_job_pagination
 
@@ -84,6 +86,10 @@ def _fetch_candidates(
     db = SessionLocal()
     try:
         normalize_legacy_candidate_stages(db)
+        # Keep dashboard-backed resume data aligned with the primary candidates API
+        # so interview reschedules remain visible immediately after the status change.
+        sync_no_show_candidate_stages(db)
+        sync_rescheduled_candidate_stages_from_slots(db)
         valid_stages = [s.value for s in CandidateStage]
         query = _apply_candidate_list_scope(db.query(Candidate), current_user)
         query = _apply_client_filter(query, client)

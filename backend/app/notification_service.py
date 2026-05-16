@@ -450,8 +450,11 @@ def build_notification_payload(
     payload = {
         "candidate_name": candidate.name or "",
         "candidate_email": candidate.email or "",
-        "candidate_id": candidate.candidate_id or str(candidate.id),
-        "job_id": job.job_id if job and job.job_id else (str(job.id) if job else ""),
+        # Always use canonical database UUIDs in workflow payloads so downstream
+        # booking/interview flows can safely round-trip records without creating
+        # orphan fallback candidates from business-facing reference codes.
+        "candidate_id": str(candidate.id) if candidate.id else "",
+        "job_id": str(job.id) if job and job.id else "",
         "job_title": job.title if job else "",
         "job_role": job.title if job else "",
         "company_name": (job.company_name if job and job.company_name else (agency.name if agency else "Our Company")),

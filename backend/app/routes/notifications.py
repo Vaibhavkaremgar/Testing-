@@ -123,6 +123,30 @@ def _compact_workflow_payload(payload: dict) -> dict:
     }
 
 
+def _payload_with_canonical_token_ids(
+    token_record,
+    payload: dict,
+    candidate: Candidate,
+) -> dict:
+    canonical_payload = dict(payload or {})
+
+    if token_record.candidate_id:
+        canonical_payload["candidate_id"] = str(token_record.candidate_id)
+        canonical_payload["candidateId"] = canonical_payload["candidate_id"]
+    elif candidate and candidate.id:
+        canonical_payload["candidate_id"] = str(candidate.id)
+        canonical_payload["candidateId"] = canonical_payload["candidate_id"]
+
+    if token_record.job_id:
+        canonical_payload["job_id"] = str(token_record.job_id)
+        canonical_payload["jobId"] = canonical_payload["job_id"]
+    elif candidate and candidate.job_id:
+        canonical_payload["job_id"] = str(candidate.job_id)
+        canonical_payload["jobId"] = canonical_payload["job_id"]
+
+    return canonical_payload
+
+
 @router.post("/trigger", response_model=NotificationEventResponse)
 def trigger_notification_event(
     request: NotificationEventRequest,
@@ -164,9 +188,14 @@ def resolve_notification_workflow(
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 
+    candidate = db.query(Candidate).filter(Candidate.id == token_record.candidate_id).first() if token_record.candidate_id else None
+    normalized_payload = _normalize_workflow_payload(
+        _payload_with_canonical_token_ids(token_record, token_record.payload, candidate)
+    )
+
     return WorkflowTokenResolveResponse(
         token_type=token_record.token_type,
-        payload=_normalize_workflow_payload(token_record.payload),
+        payload=normalized_payload,
         expires_at=token_record.expires_at,
         consumed_at=token_record.consumed_at,
         is_active=token_record.is_active,
@@ -258,14 +287,18 @@ def confirm_slot_selection(
     if not candidate:
         raise HTTPException(status_code=404, detail="Candidate not found")
 
-    slot_token.payload = _compact_workflow_payload({
+    slot_token.payload = _payload_with_canonical_token_ids(
+        slot_token,
+        _compact_workflow_payload({
         **slot_token.payload,
         "interview_date": request.interview_date,
         "interview_time": request.interview_time,
         "timezone": request.timezone or "",
         "slot_selection_confirmed_at": datetime.utcnow().isoformat(),
         "slot_notes": request.notes or "",
-    })
+        }),
+        candidate,
+    )
     slot_token.consumed_at = datetime.utcnow()
 
     confirmation_result = queue_notification(
