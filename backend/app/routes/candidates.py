@@ -437,6 +437,77 @@ def _build_related_candidate_ids_map(
     return related_candidate_ids
 
 
+def _get_interview_session_slot_stage_by_candidate(
+    db: Session,
+    candidate_ids: List[UUID],
+    today: date,
+) -> Dict[UUID, CandidateStage]:
+    if not candidate_ids:
+        return {}
+
+    related_candidate_ids = _build_related_candidate_ids_map(db, candidate_ids)
+    scoped_candidate_ids = sorted(
+        {related_candidate_id for ids in related_candidate_ids.values() for related_candidate_id in ids},
+        key=str,
+    )
+    if not scoped_candidate_ids:
+        return {}
+
+    reverse_candidate_lookup: dict[UUID, set[UUID]] = {}
+    for candidate_id, related_ids in related_candidate_ids.items():
+        for related_candidate_id in related_ids:
+            reverse_candidate_lookup.setdefault(related_candidate_id, set()).add(candidate_id)
+
+    rows = db.execute(
+        text("""
+            SELECT
+                s.candidate_id::text AS candidate_id,
+                sl.slot_date::date AS slot_date,
+                sl.slot_time::time AS slot_time,
+                COALESCE(s.created_at, sl.created_at) AS booked_at
+            FROM interview_sessions s
+            JOIN interview_slots sl ON sl.id = s.slot_id
+            WHERE s.candidate_id IS NOT NULL
+              AND s.slot_id IS NOT NULL
+              AND sl.slot_date IS NOT NULL
+              AND s.candidate_id::text = ANY(:candidate_ids)
+            ORDER BY
+                sl.slot_date::date DESC,
+                sl.slot_time::time DESC,
+                COALESCE(s.created_at, sl.created_at) DESC
+        """),
+        {
+            "candidate_ids": [str(candidate_id) for candidate_id in scoped_candidate_ids],
+        },
+    ).mappings().all()
+
+    slot_stage_by_candidate: Dict[UUID, CandidateStage] = {}
+    for row in rows:
+        candidate_id_raw = row.get("candidate_id")
+        slot_date_value = row.get("slot_date")
+        if not candidate_id_raw or not slot_date_value:
+            continue
+
+        try:
+            related_candidate_id = UUID(str(candidate_id_raw).strip())
+        except (ValueError, TypeError, AttributeError):
+            continue
+
+        target_stage = None
+        if slot_date_value == today:
+            target_stage = CandidateStage.INTERVIEWED
+        elif slot_date_value > today:
+            target_stage = CandidateStage.INTERVIEW_SCHEDULED
+
+        if not target_stage:
+            continue
+
+        for candidate_id in reverse_candidate_lookup.get(related_candidate_id, {related_candidate_id}):
+            slot_stage_by_candidate.setdefault(candidate_id, target_stage)
+
+    return slot_stage_by_candidate
+
+
 def _apply_candidate_list_scope(query, current_user):
     from sqlalchemy.orm import aliased
     from app.models import JobDescription, User, UserRole
@@ -999,9 +1070,8 @@ def sync_rescheduled_candidate_stages_from_slots(
         return 0
 
     candidate_uuid_list = [candidate.id for candidate in candidates]
-    candidate_lookup = _build_slot_candidate_lookup(db, candidate_uuid_list)
-    if not candidate_lookup:
-        return 0
+    slot_stage_by_candidate: Dict[UUID, CandidateStage] = {}
+    candidate_by_id = {candidate.id: candidate for candidate in candidates}
 
     columns = db.execute(text(
         """
@@ -1011,41 +1081,40 @@ def sync_rescheduled_candidate_stages_from_slots(
         """
     )).fetchall()
     column_names = {row[0] for row in columns}
-    if not column_names or "slot_date" not in column_names:
-        return 0
-
-    normalized_column_lookup = {
-        column_name.lower().replace("_", ""): column_name
-        for column_name in column_names
-    }
-    candidate_column = next(
-        (
-            normalized_column_lookup.get(candidate_key)
-            for candidate_key in ("candidate_id", "candidateid", "candidate")
-            if normalized_column_lookup.get(candidate_key)
-        ),
-        None,
-    )
-    if not candidate_column:
-        return 0
-    slot_time_column = next(
-        (
-            normalized_column_lookup.get(slot_time_key)
-            for slot_time_key in ("slot_time", "slottime", "time")
-            if normalized_column_lookup.get(slot_time_key)
-        ),
-        None,
-    )
-    slot_created_at_column = next(
-        (
-            normalized_column_lookup.get(timestamp_key)
-            for timestamp_key in ("updatedat", "createdat", "bookedat")
-            if normalized_column_lookup.get(timestamp_key)
-        ),
-        None,
-    )
-    slot_time_select = f", {slot_time_column}::time AS slot_time" if slot_time_column else ""
-    slot_created_at_select = f", {slot_created_at_column} AS slot_created_at" if slot_created_at_column else ""
+    candidate_lookup: dict[str, UUID] = {}
+    candidate_column = None
+    slot_time_column = None
+    slot_created_at_column = None
+    if column_names and "slot_date" in column_names:
+        candidate_lookup = _build_slot_candidate_lookup(db, candidate_uuid_list)
+        normalized_column_lookup = {
+            column_name.lower().replace("_", ""): column_name
+            for column_name in column_names
+        }
+        candidate_column = next(
+            (
+                normalized_column_lookup.get(candidate_key)
+                for candidate_key in ("candidate_id", "candidateid", "candidate")
+                if normalized_column_lookup.get(candidate_key)
+            ),
+            None,
+        )
+        slot_time_column = next(
+            (
+                normalized_column_lookup.get(slot_time_key)
+                for slot_time_key in ("slot_time", "slottime", "time")
+                if normalized_column_lookup.get(slot_time_key)
+            ),
+            None,
+        )
+        slot_created_at_column = next(
+            (
+                normalized_column_lookup.get(timestamp_key)
+                for timestamp_key in ("updatedat", "createdat", "bookedat")
+                if normalized_column_lookup.get(timestamp_key)
+            ),
+            None,
+        )
 
     rescheduled_interviews = (
         db.query(Interview)
@@ -1075,87 +1144,114 @@ def sync_rescheduled_candidate_stages_from_slots(
         if current_key > previous_key:
             latest_rescheduled_interview_by_candidate[interview.candidate_id] = interview
 
-    rows = db.execute(
-        text(f"""
-            SELECT DISTINCT ON (lower(trim({candidate_column}::text)))
-                lower(trim({candidate_column}::text)) AS candidate_id,
-                slot_date::date AS slot_date
-                {slot_time_select}
-                {slot_created_at_select}
-            FROM interview_slots
-            WHERE {candidate_column} IS NOT NULL
-              AND slot_date IS NOT NULL
-              AND lower(trim({candidate_column}::text)) = ANY(:candidate_ids)
-            ORDER BY
-                lower(trim({candidate_column}::text)),
-                slot_date::date DESC
-                {f", {slot_time_column}::time DESC" if slot_time_column else ""}
-                {f", {slot_created_at_column} DESC" if slot_created_at_column else ""}
-        """),
-        {
-            "candidate_ids": list(candidate_lookup.keys()),
-        },
-    ).mappings().all()
+    if candidate_column and candidate_lookup:
+        slot_time_select = f", {slot_time_column}::time AS slot_time" if slot_time_column else ""
+        slot_created_at_select = f", {slot_created_at_column} AS slot_created_at" if slot_created_at_column else ""
+        rows = db.execute(
+            text(f"""
+                SELECT DISTINCT ON (lower(trim({candidate_column}::text)))
+                    lower(trim({candidate_column}::text)) AS candidate_id,
+                    slot_date::date AS slot_date
+                    {slot_time_select}
+                    {slot_created_at_select}
+                FROM interview_slots
+                WHERE {candidate_column} IS NOT NULL
+                  AND slot_date IS NOT NULL
+                  AND lower(trim({candidate_column}::text)) = ANY(:candidate_ids)
+                ORDER BY
+                    lower(trim({candidate_column}::text)),
+                    slot_date::date DESC
+                    {f", {slot_time_column}::time DESC" if slot_time_column else ""}
+                    {f", {slot_created_at_column} DESC" if slot_created_at_column else ""}
+            """),
+            {
+                "candidate_ids": list(candidate_lookup.keys()),
+            },
+        ).mappings().all()
 
-    slot_stage_by_candidate: Dict[UUID, CandidateStage] = {}
-    candidate_by_id = {candidate.id: candidate for candidate in candidates}
-    for row in rows:
-        candidate_id_raw = row.get("candidate_id")
-        slot_date_value = row.get("slot_date")
-        slot_time_value = row.get("slot_time")
-        slot_created_at = row.get("slot_created_at")
-        if not candidate_id_raw or not slot_date_value:
-            continue
+        for row in rows:
+            candidate_id_raw = row.get("candidate_id")
+            slot_date_value = row.get("slot_date")
+            slot_time_value = row.get("slot_time")
+            slot_created_at = row.get("slot_created_at")
+            if not candidate_id_raw or not slot_date_value:
+                continue
 
-        candidate_id = candidate_lookup.get(_normalize_slot_candidate_key(candidate_id_raw))
-        if not candidate_id or candidate_id in slot_stage_by_candidate:
-            continue
-        candidate = candidate_by_id.get(candidate_id)
-        if not candidate:
-            continue
+            candidate_id = candidate_lookup.get(_normalize_slot_candidate_key(candidate_id_raw))
+            if not candidate_id or candidate_id in slot_stage_by_candidate:
+                continue
+            candidate = candidate_by_id.get(candidate_id)
+            if not candidate:
+                continue
 
-        has_newer_slot_booking = False
-        stage_entered_at = candidate.stage_entered_at
-        if slot_created_at:
-            if isinstance(slot_created_at, str):
-                try:
-                    slot_created_at = datetime.fromisoformat(slot_created_at.replace("Z", "+00:00"))
-                except ValueError:
-                    slot_created_at = None
-            if slot_created_at and stage_entered_at:
-                comparable_stage_entered_at = stage_entered_at
-                if comparable_stage_entered_at.tzinfo and slot_created_at.tzinfo is None:
-                    slot_created_at = slot_created_at.replace(tzinfo=comparable_stage_entered_at.tzinfo)
-                elif slot_created_at.tzinfo and comparable_stage_entered_at.tzinfo is None:
-                    comparable_stage_entered_at = comparable_stage_entered_at.replace(tzinfo=slot_created_at.tzinfo)
-                has_newer_slot_booking = slot_created_at >= comparable_stage_entered_at
+            has_newer_slot_booking = False
+            stage_entered_at = candidate.stage_entered_at
+            if slot_created_at:
+                if isinstance(slot_created_at, str):
+                    try:
+                        slot_created_at = datetime.fromisoformat(slot_created_at.replace("Z", "+00:00"))
+                    except ValueError:
+                        slot_created_at = None
+                if slot_created_at and stage_entered_at:
+                    comparable_stage_entered_at = stage_entered_at
+                    if comparable_stage_entered_at.tzinfo and slot_created_at.tzinfo is None:
+                        slot_created_at = slot_created_at.replace(tzinfo=comparable_stage_entered_at.tzinfo)
+                    elif slot_created_at.tzinfo and comparable_stage_entered_at.tzinfo is None:
+                        comparable_stage_entered_at = comparable_stage_entered_at.replace(tzinfo=slot_created_at.tzinfo)
+                    has_newer_slot_booking = slot_created_at >= comparable_stage_entered_at
 
-        if not has_newer_slot_booking:
-            reference_interview = latest_rescheduled_interview_by_candidate.get(candidate_id)
-            reference_scheduled_at = _get_india_local_datetime(
-                _get_effective_interview_scheduled_at_utc(reference_interview)
-            )
-            if reference_scheduled_at:
-                reference_slot_date = reference_scheduled_at.date()
-                reference_slot_time = reference_scheduled_at.time().replace(second=0, microsecond=0)
-                current_slot_time = slot_time_value.replace(second=0, microsecond=0) if slot_time_value else None
-                same_date = slot_date_value == reference_slot_date
-                same_time = (
-                    current_slot_time == reference_slot_time
-                    if current_slot_time is not None and slot_time_value is not None
-                    else True
+            if not has_newer_slot_booking:
+                reference_interview = latest_rescheduled_interview_by_candidate.get(candidate_id)
+                reference_scheduled_at = _get_india_local_datetime(
+                    _get_effective_interview_scheduled_at_utc(reference_interview)
                 )
-                if same_date and same_time:
-                    continue
-                has_newer_slot_booking = True
+                if reference_scheduled_at:
+                    reference_slot_date = reference_scheduled_at.date()
+                    reference_slot_time = reference_scheduled_at.time().replace(second=0, microsecond=0)
+                    current_slot_time = slot_time_value.replace(second=0, microsecond=0) if slot_time_value else None
+                    same_date = slot_date_value == reference_slot_date
+                    same_time = (
+                        current_slot_time == reference_slot_time
+                        if current_slot_time is not None and slot_time_value is not None
+                        else True
+                    )
+                    if same_date and same_time:
+                        continue
+                    has_newer_slot_booking = True
 
-        if not has_newer_slot_booking:
-            continue
+            if not has_newer_slot_booking:
+                continue
 
-        if slot_date_value == today:
-            slot_stage_by_candidate[candidate_id] = CandidateStage.INTERVIEWED
-        elif slot_date_value > today:
-            slot_stage_by_candidate[candidate_id] = CandidateStage.INTERVIEW_SCHEDULED
+            if slot_date_value == today:
+                slot_stage_by_candidate[candidate_id] = CandidateStage.INTERVIEWED
+            elif slot_date_value > today:
+                slot_stage_by_candidate[candidate_id] = CandidateStage.INTERVIEW_SCHEDULED
+
+    remaining_candidate_ids = [
+        candidate_id for candidate_id in candidate_uuid_list if candidate_id not in slot_stage_by_candidate
+    ]
+    if remaining_candidate_ids:
+        slot_stage_by_candidate.update(
+            _get_interview_session_slot_stage_by_candidate(db, remaining_candidate_ids, today)
+        )
+
+    remaining_candidate_ids = [
+        candidate_id for candidate_id in candidate_uuid_list if candidate_id not in slot_stage_by_candidate
+    ]
+    if remaining_candidate_ids:
+        interview_today_candidate_ids, interview_scheduled_candidate_ids = _get_interview_candidate_ids_by_interview_timing(
+            db,
+            remaining_candidate_ids,
+            today,
+        )
+        slot_stage_by_candidate.update({
+            candidate_id: CandidateStage.INTERVIEWED
+            for candidate_id in interview_today_candidate_ids
+        })
+        slot_stage_by_candidate.update({
+            candidate_id: CandidateStage.INTERVIEW_SCHEDULED
+            for candidate_id in interview_scheduled_candidate_ids
+        })
 
     if not slot_stage_by_candidate:
         return 0
