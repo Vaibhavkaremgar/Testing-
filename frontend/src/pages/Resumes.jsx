@@ -441,8 +441,17 @@ function dedupeResumeCandidates(candidates) {
       return
     }
 
+    const preferredCandidate = normalizedCandidates[preferredCandidateIndex]
+    const shouldMergeInterviewOwnedRecords =
+      isLikelyInterviewPlaceholderCandidate(candidate) ||
+      isLikelyInterviewPlaceholderCandidate(preferredCandidate)
+
+    if (!shouldMergeInterviewOwnedRecords) {
+      return
+    }
+
     normalizedCandidates[preferredCandidateIndex] = mergeResumeCandidateRecords(
-      normalizedCandidates[preferredCandidateIndex],
+      preferredCandidate,
       candidate,
     )
     consumedIndexes.add(index)
