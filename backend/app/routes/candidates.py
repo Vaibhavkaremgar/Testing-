@@ -1027,6 +1027,14 @@ def sync_rescheduled_candidate_stages_from_slots(
     )
     if not candidate_column:
         return 0
+    slot_time_column = next(
+        (
+            normalized_column_lookup.get(slot_time_key)
+            for slot_time_key in ("slot_time", "slottime", "time")
+            if normalized_column_lookup.get(slot_time_key)
+        ),
+        None,
+    )
     slot_created_at_column = next(
         (
             normalized_column_lookup.get(timestamp_key)
@@ -1035,26 +1043,53 @@ def sync_rescheduled_candidate_stages_from_slots(
         ),
         None,
     )
-    # Preserve the explicit rescheduled stage unless we can verify that a newer
-    # slot was booked after the candidate entered the rescheduled state.
-    if not slot_created_at_column:
-        return 0
+    slot_time_select = f", {slot_time_column}::time AS slot_time" if slot_time_column else ""
+    slot_created_at_select = f", {slot_created_at_column} AS slot_created_at" if slot_created_at_column else ""
+
+    rescheduled_interviews = (
+        db.query(Interview)
+        .filter(
+            Interview.candidate_id.in_(candidate_uuid_list),
+            func.lower(func.trim(Interview.status)) == "rescheduled",
+        )
+        .all()
+    )
+    latest_rescheduled_interview_by_candidate: dict[UUID, Interview] = {}
+    for interview in rescheduled_interviews:
+        previous_interview = latest_rescheduled_interview_by_candidate.get(interview.candidate_id)
+        if not previous_interview:
+            latest_rescheduled_interview_by_candidate[interview.candidate_id] = interview
+            continue
+
+        previous_key = _build_interview_precedence_key(
+            previous_interview.status,
+            previous_interview.scheduled_at,
+            previous_interview.created_at,
+        )
+        current_key = _build_interview_precedence_key(
+            interview.status,
+            interview.scheduled_at,
+            interview.created_at,
+        )
+        if current_key > previous_key:
+            latest_rescheduled_interview_by_candidate[interview.candidate_id] = interview
 
     rows = db.execute(
         text(f"""
             SELECT DISTINCT ON (lower(trim({candidate_column}::text)))
                 lower(trim({candidate_column}::text)) AS candidate_id,
-                slot_date::date AS slot_date,
-                {slot_created_at_column} AS slot_created_at
+                slot_date::date AS slot_date
+                {slot_time_select}
+                {slot_created_at_select}
             FROM interview_slots
             WHERE {candidate_column} IS NOT NULL
               AND slot_date IS NOT NULL
-              AND {slot_created_at_column} IS NOT NULL
               AND lower(trim({candidate_column}::text)) = ANY(:candidate_ids)
             ORDER BY
                 lower(trim({candidate_column}::text)),
-                {slot_created_at_column} DESC,
-                slot_date::date ASC
+                slot_date::date DESC
+                {f", {slot_time_column}::time DESC" if slot_time_column else ""}
+                {f", {slot_created_at_column} DESC" if slot_created_at_column else ""}
         """),
         {
             "candidate_ids": list(candidate_lookup.keys()),
@@ -1066,14 +1101,10 @@ def sync_rescheduled_candidate_stages_from_slots(
     for row in rows:
         candidate_id_raw = row.get("candidate_id")
         slot_date_value = row.get("slot_date")
+        slot_time_value = row.get("slot_time")
         slot_created_at = row.get("slot_created_at")
-        if not candidate_id_raw or not slot_date_value or not slot_created_at:
+        if not candidate_id_raw or not slot_date_value:
             continue
-        if isinstance(slot_created_at, str):
-            try:
-                slot_created_at = datetime.fromisoformat(slot_created_at.replace("Z", "+00:00"))
-            except ValueError:
-                continue
 
         candidate_id = candidate_lookup.get(_normalize_slot_candidate_key(candidate_id_raw))
         if not candidate_id or candidate_id in slot_stage_by_candidate:
@@ -1082,14 +1113,43 @@ def sync_rescheduled_candidate_stages_from_slots(
         if not candidate:
             continue
 
+        has_newer_slot_booking = False
         stage_entered_at = candidate.stage_entered_at
-        if stage_entered_at:
-            if stage_entered_at.tzinfo and slot_created_at.tzinfo is None:
-                slot_created_at = slot_created_at.replace(tzinfo=stage_entered_at.tzinfo)
-            elif slot_created_at.tzinfo and stage_entered_at.tzinfo is None:
-                stage_entered_at = stage_entered_at.replace(tzinfo=slot_created_at.tzinfo)
-            if slot_created_at < stage_entered_at:
-                continue
+        if slot_created_at:
+            if isinstance(slot_created_at, str):
+                try:
+                    slot_created_at = datetime.fromisoformat(slot_created_at.replace("Z", "+00:00"))
+                except ValueError:
+                    slot_created_at = None
+            if slot_created_at and stage_entered_at:
+                comparable_stage_entered_at = stage_entered_at
+                if comparable_stage_entered_at.tzinfo and slot_created_at.tzinfo is None:
+                    slot_created_at = slot_created_at.replace(tzinfo=comparable_stage_entered_at.tzinfo)
+                elif slot_created_at.tzinfo and comparable_stage_entered_at.tzinfo is None:
+                    comparable_stage_entered_at = comparable_stage_entered_at.replace(tzinfo=slot_created_at.tzinfo)
+                has_newer_slot_booking = slot_created_at >= comparable_stage_entered_at
+
+        if not has_newer_slot_booking:
+            reference_interview = latest_rescheduled_interview_by_candidate.get(candidate_id)
+            reference_scheduled_at = _get_india_local_datetime(
+                _get_effective_interview_scheduled_at_utc(reference_interview)
+            )
+            if reference_scheduled_at:
+                reference_slot_date = reference_scheduled_at.date()
+                reference_slot_time = reference_scheduled_at.time().replace(second=0, microsecond=0)
+                current_slot_time = slot_time_value.replace(second=0, microsecond=0) if slot_time_value else None
+                same_date = slot_date_value == reference_slot_date
+                same_time = (
+                    current_slot_time == reference_slot_time
+                    if current_slot_time is not None and slot_time_value is not None
+                    else True
+                )
+                if same_date and same_time:
+                    continue
+                has_newer_slot_booking = True
+
+        if not has_newer_slot_booking:
+            continue
 
         if slot_date_value == today:
             slot_stage_by_candidate[candidate_id] = CandidateStage.INTERVIEWED
