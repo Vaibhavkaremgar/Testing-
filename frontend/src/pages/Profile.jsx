@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '@/context/AuthContext'
-import { api } from '@/lib/api'
+import { api, getApiOrigin } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -32,7 +32,7 @@ export default function Profile() {
         bio: user.bio || ''
       })
       if (user.avatar_url) {
-        const baseUrl = import.meta.env.VITE_API_URL || 'https://ai-recruitment-dashboard-production.up.railway.app'
+        const baseUrl = getApiOrigin()
         setAvatarPreview(`${baseUrl}/api/auth${user.avatar_url}?t=${Date.now()}`)
       }
     }
@@ -61,7 +61,7 @@ export default function Profile() {
       if (refreshUser) {
         await refreshUser()
       }
-      const baseUrl = import.meta.env.VITE_API_URL || 'https://ai-recruitment-dashboard-production.up.railway.app'
+      const baseUrl = getApiOrigin()
       setAvatarPreview(`${baseUrl}/api/auth${result.avatar_url}?t=${Date.now()}`)
     } catch (error) {
       alert(error.message || 'Failed to upload avatar')

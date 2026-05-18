@@ -26,6 +26,10 @@ export function getDashboardRecordingUrl(sessionToken, token) {
   return `${RECORDING_API_BASE}/recording/${sessionToken}?token=${token}`
 }
 
+export function getApiOrigin() {
+  return API_ORIGIN
+}
+
 // Debug logging
 console.log('VITE_API_URL:', import.meta.env.VITE_API_URL)
 console.log('API_BASE:', API_BASE)

@@ -8,7 +8,7 @@ const distDir = path.join(__dirname, 'dist')
 const indexFile = path.join(distDir, 'index.html')
 const publicJobsBaseUrl =
   process.env.VITE_PUBLIC_JOBS_BASE_URL ||
-  'https://ai-recruitment-dashboard-production.up.railway.app'
+  'https://efficient-curiosity-production-a012.up.railway.app'
 const port = Number.parseInt(process.env.PORT || '3000', 10)
 
 const app = express()
