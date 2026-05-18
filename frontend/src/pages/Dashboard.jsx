@@ -7,7 +7,7 @@ import DateRangeFilter from '@/components/DateRangeFilter'
 import ExpandableList from '@/components/ExpandableList'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { api } from '@/lib/api'
-import { cn, getDateRangePreset, getScoreColor, formatDate } from '@/lib/utils'
+import { cn, getDateRangePreset, getScoreColor, formatDate, formatInterviewScheduledDate, formatInterviewScheduledTime } from '@/lib/utils'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import HiringIntelligence from '@/components/HiringIntelligence'
@@ -649,10 +649,10 @@ export default function Dashboard() {
                       </div>
                       <div className="text-right">
                         <p className="text-sm font-medium">
-                          {interview.scheduled_at ? new Date(interview.scheduled_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'TBD'}
+                          {formatInterviewScheduledDate(interview.scheduled_at)}
                         </p>
                         <p className="text-xs text-muted-foreground">
-                          {interview.scheduled_at ? new Date(interview.scheduled_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : ''}
+                          {formatInterviewScheduledTime(interview.scheduled_at)}
                         </p>
                       </div>
                     </div>

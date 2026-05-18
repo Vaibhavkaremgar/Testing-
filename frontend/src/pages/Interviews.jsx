@@ -8,7 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Progress } from '@/components/ui/progress'
 import InterviewRecordingPlayer from '@/components/interviews/InterviewRecordingPlayer'
 import { api } from '@/lib/api'
-import { cn, getScoreColor } from '@/lib/utils'
+import { cn, formatInterviewScheduledAt, getScoreColor } from '@/lib/utils'
 import { useToast } from '@/hooks/use-toast'
 import { useAuth } from '@/context/AuthContext'
 import {
@@ -28,45 +28,6 @@ function getNumericInterviewScore(interview) {
 function formatInterviewScore(score) {
   if (score === null || score === undefined) return '-'
   return `${Number(score).toFixed(1)}/10`
-}
-
-function formatInterviewScheduledAt(dateValue) {
-  if (!dateValue) return '-'
-
-  if (typeof dateValue === 'string') {
-    const isoMatch = dateValue.match(
-      /^(?<year>\d{4})-(?<month>\d{2})-(?<day>\d{2})[T\s](?<hour>\d{2}):(?<minute>\d{2})/
-    )
-
-    if (isoMatch?.groups) {
-      const {
-        year,
-        month,
-        day,
-        hour,
-        minute,
-      } = isoMatch.groups
-
-      const monthIndex = Number(month) - 1
-      const monthLabel = new Date(Number(year), monthIndex, Number(day)).toLocaleString('en-US', {
-        month: 'short',
-      })
-
-      const hourNumber = Number(hour)
-      const normalizedHour = hourNumber % 12 || 12
-      const meridiem = hourNumber >= 12 ? 'PM' : 'AM'
-
-      return `${monthLabel} ${Number(day)}, ${year}, ${String(normalizedHour).padStart(2, '0')}:${minute} ${meridiem}`
-    }
-  }
-
-  return new Date(dateValue).toLocaleString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
 }
 
 function getInterviewProgressValue(score) {

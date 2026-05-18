@@ -76,6 +76,70 @@ export function formatDateTime(date) {
   })
 }
 
+function getInterviewWallClockParts(dateValue) {
+  if (!dateValue) return null
+
+  if (typeof dateValue === 'string') {
+    const isoMatch = dateValue.match(
+      /^(?<year>\d{4})-(?<month>\d{2})-(?<day>\d{2})[T\s](?<hour>\d{2}):(?<minute>\d{2})/
+    )
+
+    if (isoMatch?.groups) {
+      const { year, month, day, hour, minute } = isoMatch.groups
+      return {
+        year: Number(year),
+        month: Number(month),
+        day: Number(day),
+        hour: Number(hour),
+        minute: Number(minute),
+      }
+    }
+  }
+
+  const parsedDate = dateValue instanceof Date ? dateValue : new Date(dateValue)
+  if (Number.isNaN(parsedDate.getTime())) return null
+
+  return {
+    year: parsedDate.getFullYear(),
+    month: parsedDate.getMonth() + 1,
+    day: parsedDate.getDate(),
+    hour: parsedDate.getHours(),
+    minute: parsedDate.getMinutes(),
+  }
+}
+
+export function formatInterviewScheduledAt(dateValue) {
+  const parts = getInterviewWallClockParts(dateValue)
+  if (!parts) return '-'
+
+  const monthLabel = new Date(parts.year, parts.month - 1, parts.day).toLocaleString('en-US', {
+    month: 'short',
+  })
+  const normalizedHour = parts.hour % 12 || 12
+  const meridiem = parts.hour >= 12 ? 'PM' : 'AM'
+
+  return `${monthLabel} ${parts.day}, ${parts.year}, ${String(normalizedHour).padStart(2, '0')}:${String(parts.minute).padStart(2, '0')} ${meridiem}`
+}
+
+export function formatInterviewScheduledDate(dateValue) {
+  const parts = getInterviewWallClockParts(dateValue)
+  if (!parts) return 'TBD'
+
+  return new Date(parts.year, parts.month - 1, parts.day).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+  })
+}
+
+export function formatInterviewScheduledTime(dateValue) {
+  const parts = getInterviewWallClockParts(dateValue)
+  if (!parts) return ''
+
+  const normalizedHour = parts.hour % 12 || 12
+  const meridiem = parts.hour >= 12 ? 'PM' : 'AM'
+  return `${String(normalizedHour).padStart(2, '0')}:${String(parts.minute).padStart(2, '0')} ${meridiem}`
+}
+
 export function getScoreColor(score) {
   if (score === null || score === undefined) return 'text-muted-foreground'
   if (score <= 10) {
