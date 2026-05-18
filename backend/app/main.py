@@ -144,24 +144,36 @@ class CacheControlMiddleware(BaseHTTPMiddleware):
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         started_at = time.perf_counter()
+        origin = request.headers.get("origin", "")
+        host = request.headers.get("host", "")
+        forwarded_proto = request.headers.get("x-forwarded-proto", "")
+        forwarded_host = request.headers.get("x-forwarded-host", "")
         try:
             response = await call_next(request)
         except Exception:
             duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
             logger.exception(
-                "Unhandled request failure method=%s path=%s duration_ms=%s",
+                "Unhandled request failure method=%s path=%s origin=%s host=%s forwarded_proto=%s forwarded_host=%s duration_ms=%s",
                 request.method,
                 request.url.path,
+                origin,
+                host,
+                forwarded_proto,
+                forwarded_host,
                 duration_ms,
             )
             raise
 
         duration_ms = round((time.perf_counter() - started_at) * 1000, 2)
         logger.info(
-            "Request completed method=%s path=%s status=%s duration_ms=%s",
+            "Request completed method=%s path=%s status=%s origin=%s host=%s forwarded_proto=%s forwarded_host=%s duration_ms=%s",
             request.method,
             request.url.path,
             response.status_code,
+            origin,
+            host,
+            forwarded_proto,
+            forwarded_host,
             duration_ms,
         )
         return response
@@ -202,11 +214,13 @@ cors_options = {
 if settings.allowed_origin_regex:
     cors_options["allow_origin_regex"] = settings.allowed_origin_regex
 
-app.add_middleware(CORSMiddleware, **cors_options)
 # Compress JSON-heavy list responses so refreshes move less data over the wire.
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(CacheControlMiddleware)
+# Keep CORS outermost so preflights, errors, and middleware-generated responses
+# all receive the proper Access-Control-* headers.
+app.add_middleware(CORSMiddleware, **cors_options)
 
 try:
     os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
@@ -275,6 +289,13 @@ app.include_router(job_feeds.router)
 @app.on_event("startup")
 async def startup_event():
     logger.info("Startup event triggered")
+    logger.info(
+        "CORS configuration allow_origins=%s allow_origin_regex=%s frontend_url=%s public_base_url=%s",
+        settings.allowed_origins_list,
+        settings.allowed_origin_regex,
+        settings.FRONTEND_URL,
+        settings.PUBLIC_BASE_URL,
+    )
     logger.info("Blocking ATS warmup starting")
 
     db = SessionLocal()

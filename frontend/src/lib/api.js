@@ -1,7 +1,22 @@
-const DEFAULT_API_ORIGIN = import.meta.env.DEV
-  ? 'http://localhost:8000'
-  : 'https://dashboard.pontis.one'
-const API_ORIGIN = (import.meta.env.VITE_API_URL || DEFAULT_API_ORIGIN).replace(/\/$/, '')
+function normalizeApiOrigin(value) {
+  const fallbackOrigin =
+    typeof window !== 'undefined' && window.location?.origin
+      ? window.location.origin
+      : 'http://localhost:8000'
+  const rawValue = String(
+    value || (import.meta.env.DEV ? 'http://localhost:8000' : fallbackOrigin)
+  ).trim()
+
+  if (!rawValue) {
+    return fallbackOrigin
+  }
+
+  return rawValue
+    .replace(/\/api\/?$/i, '')
+    .replace(/\/$/, '')
+}
+
+const API_ORIGIN = normalizeApiOrigin(import.meta.env.VITE_API_URL)
 const API_BASE = `${API_ORIGIN}/api`
 const DEFAULT_LIST_LIMIT = 20
 const APP_BASE = API_BASE.replace(/\/api$/, '')
@@ -96,6 +111,7 @@ class ApiClient {
     try {
       response = await fetch(url, {
         ...fetchOptions,
+        credentials: fetchOptions.credentials ?? 'omit',
         headers,
       })
     } catch (error) {
@@ -185,6 +201,7 @@ class ApiClient {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body: formData,
+          credentials: 'omit',
         })
       } catch (networkError) {
         throw new Error(`Unable to reach the server at ${API_ORIGIN}. Make sure the backend is running and the API URL is correct.`)

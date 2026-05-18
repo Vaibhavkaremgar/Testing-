@@ -1,9 +1,22 @@
 import os
 from functools import lru_cache
 from typing import List, Optional
+from urllib.parse import urlsplit
 
 from pydantic import computed_field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _normalize_origin(value: str) -> str:
+    cleaned = str(value or "").strip().rstrip("/")
+    if not cleaned:
+        return ""
+
+    parsed = urlsplit(cleaned)
+    if parsed.scheme and parsed.netloc:
+        return f"{parsed.scheme}://{parsed.netloc}".rstrip("/")
+
+    return cleaned
 
 
 class Settings(BaseSettings):
@@ -129,16 +142,16 @@ class Settings(BaseSettings):
         origins: List[str] = []
 
         for origin in self.default_allowed_origins:
-            cleaned = origin.strip().rstrip("/")
+            cleaned = _normalize_origin(origin)
             if cleaned and cleaned not in origins:
                 origins.append(cleaned)
 
         for origin in self.ALLOWED_ORIGINS.split(","):
-            cleaned = origin.strip().rstrip("/")
+            cleaned = _normalize_origin(origin)
             if cleaned and cleaned not in origins:
                 origins.append(cleaned)
 
-        frontend_origin = self.FRONTEND_URL.strip().rstrip("/")
+        frontend_origin = _normalize_origin(self.FRONTEND_URL)
         if frontend_origin and frontend_origin not in origins:
             origins.append(frontend_origin)
 
