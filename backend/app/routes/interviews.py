@@ -282,8 +282,6 @@ def _apply_interview_score_normalization(interview: Interview) -> None:
 
 
 def _serialize_interview_response(interview: Interview, recording_availability: dict[str, dict] | None = None):
-    from app.routes.candidates import _get_india_local_datetime
-
     recording_data = (recording_availability or {}).get(str(interview.id), {})
     resolved_session_token = _extract_recording_session_token(
         recording_data.get("session_token"),
@@ -298,7 +296,7 @@ def _serialize_interview_response(interview: Interview, recording_availability: 
         recording_path=recording_data.get("recording_path"),
         recording_format=recording_data.get("recording_format"),
         interview_type=interview.interview_type or "General",
-        scheduled_at=_get_india_local_datetime(interview.scheduled_at),
+        scheduled_at=interview.scheduled_at,
         duration_minutes=interview.duration_minutes if interview.duration_minutes is not None else 60,
         meeting_link=interview.meeting_link,
         status=interview.status,
