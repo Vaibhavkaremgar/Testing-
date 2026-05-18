@@ -1,11 +1,40 @@
+const FRONTEND_TO_API_ORIGIN_MAP = {
+  'efficient-curiosity-production-a012.up.railway.app': 'https://testing-production-0d3c.up.railway.app',
+}
+
+const LEGACY_API_ORIGIN_MAP = {
+  'https://ai-recruitment-dashboard-production.up.railway.app': 'https://testing-production-0d3c.up.railway.app',
+}
+
+function resolveRuntimeApiOrigin(rawValue, fallbackOrigin) {
+  const frontendHost =
+    typeof window !== 'undefined' && window.location?.host
+      ? window.location.host
+      : ''
+
+  const normalizedRawValue = String(rawValue || '').trim()
+    .replace(/\/api\/?$/i, '')
+    .replace(/\/$/, '')
+
+  if (normalizedRawValue && LEGACY_API_ORIGIN_MAP[normalizedRawValue]) {
+    return LEGACY_API_ORIGIN_MAP[normalizedRawValue]
+  }
+
+  if (frontendHost && FRONTEND_TO_API_ORIGIN_MAP[frontendHost]) {
+    return FRONTEND_TO_API_ORIGIN_MAP[frontendHost]
+  }
+
+  return normalizedRawValue || fallbackOrigin
+}
+
 function normalizeApiOrigin(value) {
   const fallbackOrigin =
     typeof window !== 'undefined' && window.location?.origin
       ? window.location.origin
       : 'http://localhost:8000'
-  const rawValue = String(
+  const rawValue = resolveRuntimeApiOrigin(String(
     value || (import.meta.env.DEV ? 'http://localhost:8000' : fallbackOrigin)
-  ).trim()
+  ).trim(), fallbackOrigin)
 
   if (!rawValue) {
     return fallbackOrigin
@@ -32,6 +61,7 @@ export function getApiOrigin() {
 
 // Debug logging
 console.log('VITE_API_URL:', import.meta.env.VITE_API_URL)
+console.log('Resolved API origin:', API_ORIGIN)
 console.log('API_BASE:', API_BASE)
 
 class ApiClient {
