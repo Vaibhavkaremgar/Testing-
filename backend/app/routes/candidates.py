@@ -4635,6 +4635,12 @@ def get_pipeline_stages(
         elif candidate.stage == CandidateStage.SHORTLISTED:
             display_stage = CandidateStage.SHORTLISTED
             display_stage_key = display_stage.value
+        elif candidate.stage == CandidateStage.INTERVIEW_SCHEDULED:
+            display_stage = CandidateStage.INTERVIEW_SCHEDULED
+            display_stage_key = display_stage.value
+        elif candidate.stage == CandidateStage.INTERVIEWED:
+            display_stage = CandidateStage.INTERVIEWED
+            display_stage_key = display_stage.value
         elif candidate.stage == CandidateStage.RESUME_REJECTED:
             display_stage = CandidateStage.RESUME_REJECTED
             display_stage_key = display_stage.value
