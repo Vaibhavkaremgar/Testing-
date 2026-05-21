@@ -64,6 +64,19 @@ LOCATION_NOISE_PATTERN = re.compile(
 )
 INDIA_TIMEZONE = timezone(timedelta(hours=5, minutes=30))
 LEGACY_SESSION_INTERVIEW_LINK_PREFIX = "https://pontis-backend-production.up.railway.app/interview?session="
+CANDIDATE_OWNED_PIPELINE_STAGES = {
+    CandidateStage.REVIEW,
+    CandidateStage.SHORTLISTED,
+    CandidateStage.RESUME_REJECTED,
+    CandidateStage.INTERVIEW_RESCHEDULED,
+    CandidateStage.NO_SHOW,
+}
+INTERVIEW_OWNED_PIPELINE_STAGES = {
+    CandidateStage.INTERVIEW_SCHEDULED,
+    CandidateStage.INTERVIEWED,
+    CandidateStage.SELECTED,
+    CandidateStage.REJECTED,
+}
 
 
 def normalize_legacy_candidate_stages(db: Session) -> None:
@@ -926,21 +939,10 @@ def assign_resume_pipeline_stage(candidate: Candidate, score: Optional[float], t
 
 def resolve_pipeline_display_stage(candidate: Candidate, latest_interview: Optional[Interview], today) -> CandidateStage:
     """Derive the pipeline column using candidate-owned and interview-owned stages."""
-    candidate_owned_stages = {
-        CandidateStage.REVIEW,
-        CandidateStage.SHORTLISTED,
-        CandidateStage.RESUME_REJECTED,
-        CandidateStage.INTERVIEW_RESCHEDULED,
-        CandidateStage.NO_SHOW,
-    }
-    interview_owned_stages = {
-        CandidateStage.INTERVIEW_SCHEDULED,
-        CandidateStage.INTERVIEWED,
-        CandidateStage.SELECTED,
-        CandidateStage.REJECTED,
-    }
-
     if candidate.stage in {CandidateStage.INTERVIEW_RESCHEDULED, CandidateStage.NO_SHOW}:
+        return candidate.stage
+
+    if candidate.stage in CANDIDATE_OWNED_PIPELINE_STAGES:
         return candidate.stage
 
     if latest_interview:
@@ -959,10 +961,10 @@ def resolve_pipeline_display_stage(candidate: Candidate, latest_interview: Optio
     if candidate.resume_score is not None and candidate.resume_score <= (effective_threshold - 10):
         return CandidateStage.RESUME_REJECTED
 
-    if candidate.stage in candidate_owned_stages:
+    if candidate.stage in CANDIDATE_OWNED_PIPELINE_STAGES:
         return candidate.stage
 
-    if candidate.stage in interview_owned_stages:
+    if candidate.stage in INTERVIEW_OWNED_PIPELINE_STAGES:
         return candidate.stage
 
     return candidate.stage
@@ -977,8 +979,8 @@ def is_interview_rejected(latest_interview: Optional[Interview]) -> bool:
 
 
 def resolve_reporting_pipeline_stage(candidate: Candidate, latest_interview: Optional[Interview], today) -> CandidateStage:
-    if candidate.stage == CandidateStage.RESUME_REJECTED:
-        return CandidateStage.RESUME_REJECTED
+    if candidate.stage in CANDIDATE_OWNED_PIPELINE_STAGES:
+        return candidate.stage
 
     if latest_interview:
         interview_status = (latest_interview.status or "").strip().lower()
@@ -1004,6 +1006,9 @@ def resolve_slot_backed_pipeline_stage(
     display_stage: CandidateStage,
     slot_stage: Optional[CandidateStage],
 ) -> CandidateStage:
+    if candidate.stage in CANDIDATE_OWNED_PIPELINE_STAGES:
+        return candidate.stage
+
     if slot_stage in {CandidateStage.INTERVIEW_SCHEDULED, CandidateStage.INTERVIEWED}:
         return slot_stage
 
@@ -4264,7 +4269,10 @@ def update_candidate(
     update_data = candidate_update.model_dump(exclude_unset=True)
     
     if "stage" in update_data:
-        update_data["stage_updated_at"] = datetime.utcnow()
+        now = datetime.utcnow()
+        update_data["stage_updated_at"] = now
+        if update_data["stage"] != db_candidate.stage:
+            update_data["stage_entered_at"] = now
     
     for field, value in update_data.items():
         setattr(db_candidate, field, value)
@@ -4683,6 +4691,11 @@ def get_pipeline_stages(
             display_stage_key = display_stage.value
         elif candidate.stage == CandidateStage.RESUME_REJECTED:
             display_stage = CandidateStage.RESUME_REJECTED
+            display_stage_key = display_stage.value
+        elif candidate.stage in stages:
+            # Respect an explicitly persisted candidate stage when no
+            # interview-owned record is available to project the column.
+            display_stage = candidate.stage
             display_stage_key = display_stage.value
         if not display_stage_key:
             continue
