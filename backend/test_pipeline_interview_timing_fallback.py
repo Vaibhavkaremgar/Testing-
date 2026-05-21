@@ -71,6 +71,9 @@ class _FakeCandidateDb:
     def query(self, *args, **kwargs):
         return _FakeCandidateQuery(self._candidates)
 
+    def execute(self, *args, **kwargs):
+        return _FakeExecuteResult([])
+
     def commit(self):
         self.commit_calls += 1
 
@@ -80,6 +83,12 @@ class _FakeExecuteResult:
         self._rows = rows
 
     def fetchall(self):
+        return self._rows
+
+    def mappings(self):
+        return self
+
+    def all(self):
         return self._rows
 
 
@@ -122,6 +131,31 @@ class _FakeNoShowDb:
 
     def commit(self):
         self.commit_calls += 1
+
+
+class _FakeSessionSlotDb:
+    def __init__(self, *, slot_columns, slot_session_rows, candidate_lookup_rows=None, interview_rows=None):
+        self._slot_columns = slot_columns
+        self._slot_session_rows = slot_session_rows
+        self._candidate_lookup_rows = candidate_lookup_rows or []
+        self._interview_rows = interview_rows or []
+
+    def query(self, *args, **kwargs):
+        if len(args) == 2:
+            return _FakeQuery(self._candidate_lookup_rows)
+        if len(args) == 4:
+            return _FakeQuery(self._interview_rows)
+        raise AssertionError(f"Unexpected query args: {args}")
+
+    def execute(self, statement, params=None):
+        sql = str(statement)
+        if "information_schema.columns" in sql:
+            return _FakeExecuteResult([(column_name,) for column_name in self._slot_columns])
+        if "FROM interview_slots" in sql:
+            return _FakeExecuteResult([])
+        if "FROM interview_sessions s" in sql:
+            return _FakeExecuteResult(self._slot_session_rows)
+        raise AssertionError(f"Unexpected execute SQL: {sql}")
 
 
 def test_classify_interview_timing_bucket_marks_future_scheduled_interviews():
@@ -229,6 +263,33 @@ def test_get_interview_candidate_ids_by_interview_timing_uses_linked_candidate_i
     assert original_candidate_id not in today_ids
 
 
+def test_get_interview_slot_candidate_ids_by_timing_uses_booked_interview_sessions_before_interview_fallback():
+    today = date(2026, 5, 14)
+    candidate_id = uuid.uuid4()
+    db = _FakeSessionSlotDb(
+        slot_columns=["slot_date", "slot_time", "candidate_id"],
+        slot_session_rows=[
+            {
+                "candidate_id": str(candidate_id),
+                "slot_date": date(2026, 5, 15),
+                "slot_time": None,
+                "booked_at": datetime(2026, 5, 14, 9, 0, tzinfo=timezone.utc),
+            },
+        ],
+        candidate_lookup_rows=[(candidate_id, None)],
+        interview_rows=[],
+    )
+
+    today_ids, future_ids = candidates_route._get_interview_slot_candidate_ids_by_timing(
+        db,
+        [candidate_id],
+        today,
+    )
+
+    assert candidate_id in future_ids
+    assert candidate_id not in today_ids
+
+
 def test_get_slot_no_show_cutoff_ist_applies_thirty_minute_grace_period():
     now_utc = datetime(2026, 5, 12, 6, 0, tzinfo=timezone.utc)
 
@@ -290,8 +351,13 @@ def test_sync_rescheduled_candidate_stages_from_slots_moves_future_slots_to_sche
     monkeypatch.setattr(candidates_route, "_get_india_today", lambda: date(2026, 5, 15))
     monkeypatch.setattr(
         candidates_route,
-        "_get_interview_slot_pipeline_stages",
-        lambda _db, _candidate_ids, _today: {candidate.id: CandidateStage.INTERVIEW_SCHEDULED},
+        "_get_interview_session_slot_stage_by_candidate",
+        lambda _db, _candidate_ids, _today, _candidate_by_id: {candidate.id: CandidateStage.INTERVIEW_SCHEDULED},
+    )
+    monkeypatch.setattr(
+        candidates_route,
+        "_get_rescheduled_candidate_stage_from_interviews",
+        lambda _db, _candidate_ids, _today, _candidate_by_id: {},
     )
 
     updated_count = sync_rescheduled_candidate_stages_from_slots(db)
@@ -310,8 +376,13 @@ def test_sync_rescheduled_candidate_stages_from_slots_moves_same_day_slots_to_in
     monkeypatch.setattr(candidates_route, "_get_india_today", lambda: date(2026, 5, 15))
     monkeypatch.setattr(
         candidates_route,
-        "_get_interview_slot_pipeline_stages",
-        lambda _db, _candidate_ids, _today: {candidate.id: CandidateStage.INTERVIEWED},
+        "_get_interview_session_slot_stage_by_candidate",
+        lambda _db, _candidate_ids, _today, _candidate_by_id: {candidate.id: CandidateStage.INTERVIEWED},
+    )
+    monkeypatch.setattr(
+        candidates_route,
+        "_get_rescheduled_candidate_stage_from_interviews",
+        lambda _db, _candidate_ids, _today, _candidate_by_id: {},
     )
 
     updated_count = sync_rescheduled_candidate_stages_from_slots(db)
@@ -328,8 +399,13 @@ def test_sync_rescheduled_candidate_stages_from_slots_keeps_rescheduled_when_no_
     monkeypatch.setattr(candidates_route, "_get_india_today", lambda: date(2026, 5, 15))
     monkeypatch.setattr(
         candidates_route,
-        "_get_interview_slot_pipeline_stages",
-        lambda _db, _candidate_ids, _today: {},
+        "_get_interview_session_slot_stage_by_candidate",
+        lambda _db, _candidate_ids, _today, _candidate_by_id: {},
+    )
+    monkeypatch.setattr(
+        candidates_route,
+        "_get_rescheduled_candidate_stage_from_interviews",
+        lambda _db, _candidate_ids, _today, _candidate_by_id: {},
     )
 
     updated_count = sync_rescheduled_candidate_stages_from_slots(db)

@@ -506,11 +506,9 @@ def _get_interview_session_slot_stage_by_candidate(
 
         for candidate_id in reverse_candidate_lookup.get(related_candidate_id, {related_candidate_id}):
             candidate = candidate_by_id.get(candidate_id)
-            if not candidate:
-                continue
 
             comparable_booked_at = booked_at
-            stage_entered_at = candidate.stage_entered_at
+            stage_entered_at = candidate.stage_entered_at if candidate else None
             if comparable_booked_at and stage_entered_at:
                 if comparable_booked_at.tzinfo and stage_entered_at.tzinfo is None:
                     stage_entered_at = stage_entered_at.replace(tzinfo=comparable_booked_at.tzinfo)
@@ -1705,6 +1703,25 @@ def _get_interview_slot_candidate_ids_by_timing(
         for candidate_id in candidate_ids
         if candidate_id not in today_candidate_ids and candidate_id not in future_candidate_ids
     ]
+    if remaining_candidate_ids:
+        session_stage_by_candidate = _get_interview_session_slot_stage_by_candidate(
+            db,
+            remaining_candidate_ids,
+            today,
+            {},
+        )
+        for candidate_id, stage in session_stage_by_candidate.items():
+            if stage == CandidateStage.INTERVIEWED:
+                today_candidate_ids.add(candidate_id)
+            elif stage == CandidateStage.INTERVIEW_SCHEDULED:
+                future_candidate_ids.add(candidate_id)
+
+        remaining_candidate_ids = [
+            candidate_id
+            for candidate_id in remaining_candidate_ids
+            if candidate_id not in today_candidate_ids and candidate_id not in future_candidate_ids
+        ]
+
     if not remaining_candidate_ids:
         return today_candidate_ids, future_candidate_ids
 
