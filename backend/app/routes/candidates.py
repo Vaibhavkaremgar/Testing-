@@ -388,6 +388,26 @@ def _normalize_slot_candidate_key(raw_value) -> str:
     return str(raw_value).strip().lower()
 
 
+def _build_candidate_slot_booking_link(
+    db: Session,
+    candidate: Candidate,
+    *,
+    user_id=None,
+    extra_payload: Optional[dict] = None,
+) -> str:
+    """Always prefer a tokenized workflow slot link so booking callbacks can update stage."""
+    from app.routes.notifications import build_rendered_notification
+
+    rendered = build_rendered_notification(
+        db,
+        candidate=candidate,
+        status="slot_selection",
+        user_id=user_id,
+        extra_payload=extra_payload or {},
+    )
+    return rendered["payload"].get("slot_link") or settings.SLOT_BOOKING_URL
+
+
 def _build_related_candidate_ids_map(
     db: Session,
     candidate_ids: List[UUID],
@@ -3574,6 +3594,15 @@ def simulate_resume_parsing(
                         params['jobTitle'] = job.title
                     
                     interview_url = f"{settings.FRONTEND_URL}/interview?{urlencode(params)}"
+                    slot_booking_link = _build_candidate_slot_booking_link(
+                        db,
+                        candidate,
+                        user_id=getattr(admin, "id", None),
+                        extra_payload={
+                            "job_title": job.title if job else "",
+                            "interview_url": interview_url,
+                        },
+                    )
                     
                     # Email content
                     subject = f"Interview Invitation - {job.title if job else 'Position'}"
@@ -3585,7 +3614,7 @@ def simulate_resume_parsing(
                         <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
                             <p>{message.replace(chr(10), '<br>')}</p>
                             <div style="margin: 30px 0; text-align: center;">
-                                <a href="{settings.SLOT_BOOKING_URL}" 
+                                <a href="{slot_booking_link}" 
                                    style="display: inline-block; padding: 15px 30px; background-color: #2563eb; color: white; text-decoration: none; border-radius: 5px; font-weight: bold;">
                                     Book Your Slot
                                 </a>
@@ -4771,6 +4800,15 @@ def send_email(
             params['jobTitle'] = job.title
         
         interview_url = f"{settings.FRONTEND_URL}/interview?{urlencode(params)}"
+        slot_booking_link = _build_candidate_slot_booking_link(
+            db,
+            candidate,
+            user_id=current_user.id,
+            extra_payload={
+                "job_title": job.title if job else "",
+                "interview_url": interview_url,
+            },
+        )
         
         # Build HTML email with slot booking button
         html_body = f"""
@@ -4780,7 +4818,7 @@ def send_email(
                 <p>{message.replace(chr(10), '<br>')}</p>
                 
                 <div style="margin: 30px 0; text-align: center;">
-                    <a href="{settings.SLOT_BOOKING_URL}" 
+                    <a href="{slot_booking_link}" 
                        style="display: inline-block; padding: 15px 30px; background-color: #2563eb; color: white; text-decoration: none; border-radius: 5px; font-weight: bold;">
                         Book Your Slot
                     </a>
@@ -4834,7 +4872,7 @@ def send_email(
         print(f" Email sent to {candidate.email} - Message-ID: {provider_message_id}")
         print(f"  Email type: {email_type}")
         print(f"   Interview URL: {interview_url}")
-        print(f"   Slot Booking: {settings.SLOT_BOOKING_URL}")
+        print(f"   Slot Booking: {slot_booking_link}")
         
         return {
             "success": True,
