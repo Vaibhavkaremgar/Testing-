@@ -4650,8 +4650,8 @@ def get_pipeline_stages(
         display_stage = None
         display_stage_key = None
 
-        # Keep a candidate in a single board column while preferring slot-booking
-        # timing and falling back to real interview records when slots are absent.
+        # Keep a candidate in a single board column while sourcing each column
+        # from its owning table.
         if candidate.stage == CandidateStage.NO_SHOW:
             display_stage = CandidateStage.NO_SHOW
             display_stage_key = display_stage.value
@@ -4680,12 +4680,6 @@ def get_pipeline_stages(
             display_stage_key = display_stage.value
         elif candidate.stage == CandidateStage.SHORTLISTED:
             display_stage = CandidateStage.SHORTLISTED
-            display_stage_key = display_stage.value
-        elif candidate.stage == CandidateStage.INTERVIEW_SCHEDULED:
-            display_stage = CandidateStage.INTERVIEW_SCHEDULED
-            display_stage_key = display_stage.value
-        elif candidate.stage == CandidateStage.INTERVIEWED:
-            display_stage = CandidateStage.INTERVIEWED
             display_stage_key = display_stage.value
         elif candidate.stage == CandidateStage.RESUME_REJECTED:
             display_stage = CandidateStage.RESUME_REJECTED

@@ -79,16 +79,6 @@ function buildPipelineStages(baseStages = {}, interviews = []) {
   const stageSetByCandidate = new Map()
   const detailRequiredStages = new Set(['INTERVIEW_SCHEDULED', 'INTERVIEW_RESCHEDULED', 'INTERVIEWED', 'NO_SHOW'])
 
-  const latestInterviewsByCandidate = new Map()
-  ;(interviews || []).forEach((interview) => {
-    if (!interview?.candidate_id) return
-    const candidateKey = String(interview.candidate_id)
-    const previousInterview = latestInterviewsByCandidate.get(candidateKey)
-    if (shouldUseInterviewForDisplay(previousInterview, interview)) {
-      latestInterviewsByCandidate.set(candidateKey, interview)
-    }
-  })
-
   const countCandidateFields = (candidate) => ([
     candidate?.name,
     candidate?.company_name,
@@ -122,25 +112,10 @@ function buildPipelineStages(baseStages = {}, interviews = []) {
 
   candidateById.forEach((candidate, candidateId) => {
     const stageSet = stageSetByCandidate.get(candidateId) || new Set()
-    const latestInterview = latestInterviewsByCandidate.get(candidateId)
-    const effectiveInterviewStatus = getEffectiveInterviewStatus(latestInterview)
     let resolvedStage = [...stageSet][0] || candidate.stage || candidate.display_stage
 
     if (resolvedStage === 'NO_SHOW' || stageSet.has('NO_SHOW')) {
       resolvedStage = 'NO_SHOW'
-    } else if (effectiveInterviewStatus === 'completed' && resolvedStage !== 'SELECTED' && resolvedStage !== 'REJECTED') {
-      resolvedStage = 'COMPLETED'
-    } else if (latestInterview) {
-      const interviewStatus = String(latestInterview.status || '').toLowerCase()
-      if (interviewStatus === 'scheduled') {
-        resolvedStage = stageSet.has('INTERVIEWED') ? 'INTERVIEWED' : 'INTERVIEW_SCHEDULED'
-      } else if (interviewStatus === 'rescheduled') {
-        // Trust the backend-promoted stage when a new slot or linked interview
-        // has already moved the logical candidate back into the active interview flow.
-        if (resolvedStage !== 'INTERVIEW_SCHEDULED' && resolvedStage !== 'INTERVIEWED') {
-          resolvedStage = 'INTERVIEW_RESCHEDULED'
-        }
-      }
     }
 
     if (!nextStages[resolvedStage]) {

@@ -1,4 +1,5 @@
 from datetime import date, datetime, timedelta, timezone
+from types import SimpleNamespace
 import sys
 import uuid
 
@@ -8,6 +9,7 @@ from app.routes.candidates import (
     _classify_interview_timing_bucket,
     _get_effective_interview_scheduled_at_utc,
     _get_india_now,
+    get_pipeline_stages,
     _get_slot_no_show_cutoff_ist,
     _get_interview_candidate_ids_by_interview_timing,
     _normalize_interview_status_value,
@@ -76,6 +78,25 @@ class _FakeCandidateDb:
 
     def commit(self):
         self.commit_calls += 1
+
+
+class _FakePipelineQuery:
+    def __init__(self, candidates):
+        self._candidates = candidates
+
+    def filter(self, *args, **kwargs):
+        return self
+
+    def all(self):
+        return self._candidates
+
+
+class _FakePipelineDb:
+    def __init__(self, candidates):
+        self._candidates = candidates
+
+    def query(self, *args, **kwargs):
+        return _FakePipelineQuery(self._candidates)
 
 
 class _FakeExecuteResult:
@@ -451,3 +472,44 @@ def test_sync_no_show_candidate_stages_marks_missed_rescheduled_interviews_as_no
     assert candidate.stage == CandidateStage.NO_SHOW
     assert interview.status == "no_show"
     assert db.commit_calls == 1
+
+
+def test_get_pipeline_stages_does_not_use_candidate_stage_for_interview_columns(monkeypatch):
+    candidate = Candidate(
+        id=uuid.uuid4(),
+        name="Slotless Candidate",
+        stage=CandidateStage.INTERVIEWED,
+        current_role="Engineer",
+        current_company="Acme",
+        resume_score=88,
+    )
+    db = _FakePipelineDb([candidate])
+    current_user = SimpleNamespace(role="admin")
+
+    monkeypatch.setattr(candidates_route, "normalize_legacy_candidate_stages", lambda _db: None)
+    monkeypatch.setattr(candidates_route, "sync_active_rescheduled_candidate_stages", lambda _db: 0)
+    monkeypatch.setattr(candidates_route, "sync_no_show_candidate_stages", lambda _db: 0)
+    monkeypatch.setattr(candidates_route, "sync_rescheduled_candidate_stages_from_slots", lambda _db: 0)
+    monkeypatch.setattr(candidates_route, "_apply_candidate_list_scope", lambda query, _current_user: query)
+    monkeypatch.setattr(candidates_route, "_apply_client_filter", lambda query, _client: query)
+    monkeypatch.setattr(candidates_route, "_get_india_today", lambda: date(2026, 5, 15))
+    monkeypatch.setattr(
+        candidates_route,
+        "_get_interview_slot_candidate_ids_by_timing",
+        lambda _db, _candidate_ids, _today: (set(), set()),
+    )
+    monkeypatch.setattr(
+        candidates_route,
+        "_get_interview_candidate_ids_by_status",
+        lambda _db, _candidate_ids: (set(), set(), set()),
+    )
+
+    stages = get_pipeline_stages(
+        client=None,
+        job_id=None,
+        agency_id=None,
+        db=db,
+        current_user=current_user,
+    )
+
+    assert stages["INTERVIEWED"] == []
