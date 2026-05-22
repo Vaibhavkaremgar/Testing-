@@ -9,6 +9,7 @@ from app.routes.candidates import (
     _classify_interview_timing_bucket,
     _get_effective_interview_scheduled_at_utc,
     _get_india_now,
+    derive_candidate_stage_from_selected_slot,
     get_pipeline_stages,
     _get_slot_no_show_cutoff_ist,
     _get_interview_candidate_ids_by_interview_timing,
@@ -335,6 +336,20 @@ def test_get_slot_no_show_cutoff_ist_applies_thirty_minute_grace_period():
     cutoff_ist = _get_slot_no_show_cutoff_ist(now_utc)
 
     assert cutoff_ist == datetime(2026, 5, 12, 11, 0)
+
+
+def test_derive_candidate_stage_from_selected_slot_marks_same_day_slots_as_interviewed(monkeypatch):
+    monkeypatch.setattr(candidates_route, "_get_india_today", lambda: date(2026, 5, 15))
+    selected_slot_ist = datetime(2026, 5, 15, 11, 30, tzinfo=timezone(timedelta(hours=5, minutes=30)))
+
+    assert derive_candidate_stage_from_selected_slot(selected_slot_ist) == CandidateStage.INTERVIEWED
+
+
+def test_derive_candidate_stage_from_selected_slot_marks_future_slots_as_scheduled(monkeypatch):
+    monkeypatch.setattr(candidates_route, "_get_india_today", lambda: date(2026, 5, 15))
+    selected_slot_ist = datetime(2026, 5, 16, 11, 30, tzinfo=timezone(timedelta(hours=5, minutes=30)))
+
+    assert derive_candidate_stage_from_selected_slot(selected_slot_ist) == CandidateStage.INTERVIEW_SCHEDULED
 
 
 def test_derive_candidate_stage_from_interview_marks_same_day_scheduled_interviews_as_interviewed():

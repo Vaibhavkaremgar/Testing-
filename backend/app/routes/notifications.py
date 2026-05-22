@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.auth import get_current_active_user, get_current_admin_user
 from app.database import get_db
 from app.models import Candidate, CandidateStage, Interview, User
-from app.routes.candidates import INDIA_TIMEZONE
+from app.routes.candidates import INDIA_TIMEZONE, derive_candidate_stage_from_selected_slot
 from app.notification_service import (
     build_rendered_notification,
     build_workflow_url,
@@ -318,13 +318,12 @@ def confirm_slot_selection(
     )
 
     meeting_link = build_workflow_url(invitation_result["workflow_token"], "interview_access") if invitation_result["workflow_token"] else slot_token.payload.get("meeting_link", "")
-    candidate.stage = CandidateStage.INTERVIEW_SCHEDULED
-    candidate.stage_updated_at = datetime.utcnow()
-    candidate.stage_entered_at = datetime.utcnow()
-
     selected_slot_ist = datetime.fromisoformat(
         f"{request.interview_date}T{request.interview_time}:00"
     ).replace(tzinfo=INDIA_TIMEZONE)
+    candidate.stage = derive_candidate_stage_from_selected_slot(selected_slot_ist)
+    candidate.stage_updated_at = datetime.utcnow()
+    candidate.stage_entered_at = datetime.utcnow()
 
     db_interview = _resolve_target_interview_for_slot_confirmation(db, candidate, slot_token.payload)
     if db_interview:

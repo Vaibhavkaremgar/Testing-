@@ -208,6 +208,20 @@ function normalizeResumeCandidate(candidate, jobsById = {}) {
   }
 }
 
+function isOrphanedResumeCandidate(candidate) {
+  const hasJobContext = Boolean(candidate?.job_id || candidate?.job_title)
+  const hasResumeContent = Boolean(candidate?.resume_file_path || candidate?.resume_text)
+  const hasResumeScore = candidate?.resume_score !== null && candidate?.resume_score !== undefined
+  const hasProfileDetails = Boolean(
+    candidate?.current_role ||
+    candidate?.current_company ||
+    candidate?.experience_years !== null && candidate?.experience_years !== undefined ||
+    candidate?.skills?.length
+  )
+
+  return !hasJobContext && !hasResumeContent && !hasResumeScore && !hasProfileDetails
+}
+
 function buildResumeCandidateDedupKey(candidate) {
   const normalizedId = String(candidate?.id || '').trim()
   const normalizedEmail = String(candidate?.email || '').trim().toLowerCase()
@@ -581,6 +595,7 @@ export default function Resumes() {
     let filteredData = dedupeResumeCandidates(
       (dashboardData?.candidates || []).map((candidate) => normalizeResumeCandidate(candidate, jobsById))
     )
+      .filter((candidate) => !isOrphanedResumeCandidate(candidate))
 
     if (selectedGlobalJobId) {
       filteredData = filteredData.filter((candidate) => candidate.job_id?.toString() === selectedGlobalJobId)

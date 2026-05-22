@@ -296,6 +296,14 @@ def _get_india_now(now_utc: Optional[datetime] = None) -> datetime:
     return reference_now_utc.astimezone(INDIA_TIMEZONE)
 
 
+def derive_candidate_stage_from_selected_slot(selected_slot_ist: datetime) -> CandidateStage:
+    selected_slot_date = selected_slot_ist.date()
+    today_ist = _get_india_today()
+    if selected_slot_date == today_ist:
+        return CandidateStage.INTERVIEWED
+    return CandidateStage.INTERVIEW_SCHEDULED
+
+
 def _get_india_local_date(value: Optional[datetime]) -> Optional[date]:
     """Normalize interview timestamps to the slot-booking local date when timezone data exists."""
     if value is None:
