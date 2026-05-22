@@ -568,6 +568,45 @@ def test_sync_no_show_candidate_stages_corrects_false_selected_status_for_missed
     assert db.commit_calls == 1
 
 
+def test_sync_no_show_candidate_stages_marks_selected_stage_slot_candidate_as_no_show(monkeypatch):
+    frozen_now_utc = datetime(2026, 5, 15, 8, 0, tzinfo=timezone.utc)
+
+    class _FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            if tz is None:
+                return frozen_now_utc.replace(tzinfo=None)
+            return frozen_now_utc.astimezone(tz)
+
+        @classmethod
+        def utcnow(cls):
+            return frozen_now_utc.replace(tzinfo=None)
+
+    candidate = Candidate(id=uuid.uuid4(), stage=CandidateStage.SELECTED)
+    db = _FakeNoShowDb(
+        interviews=[],
+        stage_candidate_ids=[(candidate.id,)],
+        slot_lookup_rows=[(candidate.id, None)],
+        candidates=[candidate],
+        slot_columns=["candidate_id", "slot_date", "slot_time"],
+        slot_rows=[
+            {
+                "candidate_id": str(candidate.id).lower(),
+                "slot_date": date(2026, 5, 15),
+                "slot_time": datetime(2026, 5, 15, 12, 0).time(),
+            }
+        ],
+    )
+
+    monkeypatch.setattr(candidates_route, "datetime", _FrozenDateTime)
+
+    updated_count = sync_no_show_candidate_stages(db)
+
+    assert updated_count == 1
+    assert candidate.stage == CandidateStage.NO_SHOW
+    assert db.commit_calls == 1
+
+
 def test_get_pipeline_stages_does_not_use_candidate_stage_for_interview_columns(monkeypatch):
     candidate = Candidate(
         id=uuid.uuid4(),

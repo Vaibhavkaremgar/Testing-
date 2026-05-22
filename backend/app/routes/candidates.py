@@ -1505,6 +1505,7 @@ def sync_no_show_candidate_stages(db: Session) -> int:
                     CandidateStage.INTERVIEW_SCHEDULED,
                     CandidateStage.INTERVIEW_RESCHEDULED,
                     CandidateStage.INTERVIEWED,
+                    CandidateStage.SELECTED,
                 ]
             )
         )
@@ -1597,6 +1598,7 @@ def sync_no_show_candidate_stages(db: Session) -> int:
             CandidateStage.INTERVIEW_SCHEDULED,
             CandidateStage.INTERVIEW_RESCHEDULED,
             CandidateStage.INTERVIEWED,
+            CandidateStage.SELECTED,
         }:
             continue
 
