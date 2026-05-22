@@ -125,11 +125,22 @@ class _FakeNoShowQuery:
 
 
 class _FakeNoShowDb:
-    def __init__(self, *, interviews, stage_candidate_ids, slot_lookup_rows, candidates):
+    def __init__(
+        self,
+        *,
+        interviews,
+        stage_candidate_ids,
+        slot_lookup_rows,
+        candidates,
+        slot_columns=None,
+        slot_rows=None,
+    ):
         self._interviews = interviews
         self._stage_candidate_ids = stage_candidate_ids
         self._slot_lookup_rows = slot_lookup_rows
         self._candidates = candidates
+        self._slot_columns = slot_columns or []
+        self._slot_rows = slot_rows or []
         self.commit_calls = 0
 
     def query(self, *args, **kwargs):
@@ -148,6 +159,12 @@ class _FakeNoShowDb:
         raise AssertionError(f"Unexpected query args: {args}")
 
     def execute(self, *args, **kwargs):
+        statement = args[0] if args else ""
+        sql = str(statement)
+        if "information_schema.columns" in sql:
+            return _FakeExecuteResult([(column_name,) for column_name in self._slot_columns])
+        if "FROM interview_slots" in sql:
+            return _FakeExecuteResult(self._slot_rows)
         return _FakeExecuteResult([])
 
     def commit(self):
@@ -471,6 +488,45 @@ def test_sync_no_show_candidate_stages_marks_missed_rescheduled_interviews_as_no
     assert updated_count == 1
     assert candidate.stage == CandidateStage.NO_SHOW
     assert interview.status == "no_show"
+    assert db.commit_calls == 1
+
+
+def test_sync_no_show_candidate_stages_marks_missed_same_day_slot_candidates_as_no_show(monkeypatch):
+    frozen_now_utc = datetime(2026, 5, 15, 8, 0, tzinfo=timezone.utc)
+
+    class _FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            if tz is None:
+                return frozen_now_utc.replace(tzinfo=None)
+            return frozen_now_utc.astimezone(tz)
+
+        @classmethod
+        def utcnow(cls):
+            return frozen_now_utc.replace(tzinfo=None)
+
+    candidate = Candidate(id=uuid.uuid4(), stage=CandidateStage.INTERVIEWED)
+    db = _FakeNoShowDb(
+        interviews=[],
+        stage_candidate_ids=[(candidate.id,)],
+        slot_lookup_rows=[(candidate.id, None)],
+        candidates=[candidate],
+        slot_columns=["candidate_id", "slot_date", "slot_time"],
+        slot_rows=[
+            {
+                "candidate_id": str(candidate.id).lower(),
+                "slot_date": date(2026, 5, 15),
+                "slot_time": datetime(2026, 5, 15, 12, 0).time(),
+            }
+        ],
+    )
+
+    monkeypatch.setattr(candidates_route, "datetime", _FrozenDateTime)
+
+    updated_count = sync_no_show_candidate_stages(db)
+
+    assert updated_count == 1
+    assert candidate.stage == CandidateStage.NO_SHOW
     assert db.commit_calls == 1
 
 

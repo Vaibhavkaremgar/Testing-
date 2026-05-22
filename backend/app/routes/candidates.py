@@ -1499,7 +1499,15 @@ def sync_no_show_candidate_stages(db: Session) -> int:
 
     slot_candidate_ids = (
         db.query(Candidate.id)
-        .filter(Candidate.stage.in_([CandidateStage.INTERVIEW_SCHEDULED, CandidateStage.INTERVIEW_RESCHEDULED]))
+        .filter(
+            Candidate.stage.in_(
+                [
+                    CandidateStage.INTERVIEW_SCHEDULED,
+                    CandidateStage.INTERVIEW_RESCHEDULED,
+                    CandidateStage.INTERVIEWED,
+                ]
+            )
+        )
         .all()
     )
     slot_candidate_ids = [candidate_id for (candidate_id,) in slot_candidate_ids]
@@ -1585,7 +1593,11 @@ def sync_no_show_candidate_stages(db: Session) -> int:
         candidate_id = candidate.id
         interview = latest_interview_by_candidate.get(candidate_id)
 
-        if not interview and candidate.stage not in {CandidateStage.INTERVIEW_SCHEDULED, CandidateStage.INTERVIEW_RESCHEDULED}:
+        if not interview and candidate.stage not in {
+            CandidateStage.INTERVIEW_SCHEDULED,
+            CandidateStage.INTERVIEW_RESCHEDULED,
+            CandidateStage.INTERVIEWED,
+        }:
             continue
 
         candidate = candidate_by_id.get(candidate_id)
