@@ -920,6 +920,9 @@ def resolve_current_role_for_storage(
 
 def assign_resume_pipeline_stage(candidate: Candidate, score: Optional[float], threshold: Optional[float]) -> CandidateStage:
     """Apply the agreed resume stage bands: shortlisted, in review, or resume rejected."""
+    if candidate.stage == CandidateStage.NO_SHOW:
+        return candidate.stage
+
     effective_threshold = threshold or candidate.score_threshold or 60
     effective_score = score if score is not None else candidate.resume_score
 
@@ -1502,6 +1505,7 @@ def sync_no_show_candidate_stages(db: Session) -> int:
         .filter(
             Candidate.stage.in_(
                 [
+                    CandidateStage.SHORTLISTED,
                     CandidateStage.INTERVIEW_SCHEDULED,
                     CandidateStage.INTERVIEW_RESCHEDULED,
                     CandidateStage.INTERVIEWED,
@@ -1595,6 +1599,7 @@ def sync_no_show_candidate_stages(db: Session) -> int:
         interview = latest_interview_by_candidate.get(candidate_id)
 
         if not interview and candidate.stage not in {
+            CandidateStage.SHORTLISTED,
             CandidateStage.INTERVIEW_SCHEDULED,
             CandidateStage.INTERVIEW_RESCHEDULED,
             CandidateStage.INTERVIEWED,
