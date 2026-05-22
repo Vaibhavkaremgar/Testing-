@@ -318,7 +318,7 @@ function buildInterviewPlaceholderMergeKey(candidate) {
   const normalizedName = String(candidate?.name || '').trim().toLowerCase()
   const eventDateKey = getResumeCandidateEventDateKey(candidate)
 
-  if (!normalizedName || !eventDateKey || !isInterviewOwnedResumeStage(candidate)) {
+  if (!normalizedName || !eventDateKey) {
     return ''
   }
 

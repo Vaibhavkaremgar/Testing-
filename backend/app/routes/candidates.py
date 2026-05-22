@@ -1468,7 +1468,7 @@ def sync_no_show_candidate_stages(db: Session) -> int:
 
     active_interviews = (
         db.query(Interview)
-        .filter(func.lower(func.trim(Interview.status)).in_(["scheduled", "rescheduled"]))
+        .filter(func.lower(func.trim(Interview.status)).in_(["scheduled", "rescheduled", "selected"]))
         .all()
     )
     latest_interview_by_candidate: dict[UUID, Interview] = {}
@@ -1613,7 +1613,7 @@ def sync_no_show_candidate_stages(db: Session) -> int:
                 or interview.ai_summary
                 or interview.video_url
                 or interview.interview_score is not None
-                or _normalize_interview_status_value(interview.status) in {"ongoing", "completed", "selected", "rejected", "no_show"}
+                or _normalize_interview_status_value(interview.status) in {"ongoing", "completed", "rejected", "no_show"}
             )
         )
         if interview_started:

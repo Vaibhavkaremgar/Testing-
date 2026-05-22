@@ -530,6 +530,44 @@ def test_sync_no_show_candidate_stages_marks_missed_same_day_slot_candidates_as_
     assert db.commit_calls == 1
 
 
+def test_sync_no_show_candidate_stages_corrects_false_selected_status_for_missed_interview(monkeypatch):
+    frozen_now_utc = datetime(2026, 5, 15, 8, 0, tzinfo=timezone.utc)
+
+    class _FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            if tz is None:
+                return frozen_now_utc.replace(tzinfo=None)
+            return frozen_now_utc.astimezone(tz)
+
+        @classmethod
+        def utcnow(cls):
+            return frozen_now_utc.replace(tzinfo=None)
+
+    candidate = Candidate(id=uuid.uuid4(), stage=CandidateStage.INTERVIEWED)
+    interview = Interview(
+        candidate_id=candidate.id,
+        status="selected",
+        scheduled_at=datetime(2026, 5, 15, 6, 0, tzinfo=timezone.utc),
+        created_at=datetime(2026, 5, 15, 5, 0, tzinfo=timezone.utc),
+    )
+    db = _FakeNoShowDb(
+        interviews=[interview],
+        stage_candidate_ids=[(candidate.id,)],
+        slot_lookup_rows=[(candidate.id, None)],
+        candidates=[candidate],
+    )
+
+    monkeypatch.setattr(candidates_route, "datetime", _FrozenDateTime)
+
+    updated_count = sync_no_show_candidate_stages(db)
+
+    assert updated_count == 1
+    assert candidate.stage == CandidateStage.NO_SHOW
+    assert interview.status == "no_show"
+    assert db.commit_calls == 1
+
+
 def test_get_pipeline_stages_does_not_use_candidate_stage_for_interview_columns(monkeypatch):
     candidate = Candidate(
         id=uuid.uuid4(),
