@@ -197,6 +197,7 @@ function normalizeResumeCandidate(candidate, jobsById = {}) {
   const normalizedScore = normalizeCandidateScore(candidate)
   const normalizedStatus = String(candidate?.status || '').toLowerCase()
   const isRescheduled = candidate?.is_rescheduled === true || normalizedStatus === 'rescheduled'
+  const normalizedId = candidate?.id ? String(candidate.id) : null
 
   return {
     ...candidate,
@@ -205,6 +206,7 @@ function normalizeResumeCandidate(candidate, jobsById = {}) {
     resume_score: normalizedScore,
     skills: normalizedSkills,
     display_stage: isRescheduled ? 'INTERVIEW_RESCHEDULED' : (candidate?.display_stage || candidate?.stage),
+    merged_candidate_ids: normalizedId ? [normalizedId] : [],
   }
 }
 
@@ -364,10 +366,15 @@ function buildInterviewOwnedResumeMergeKey(candidate) {
 function mergeResumeCandidateRecords(primaryCandidate, secondaryCandidate) {
   const primaryStageScore = getResumeCandidatePreferenceScore(primaryCandidate)
   const secondaryStageScore = getResumeCandidatePreferenceScore(secondaryCandidate)
+  const mergedCandidateIds = Array.from(new Set([
+    ...(Array.isArray(primaryCandidate?.merged_candidate_ids) ? primaryCandidate.merged_candidate_ids : []),
+    ...(Array.isArray(secondaryCandidate?.merged_candidate_ids) ? secondaryCandidate.merged_candidate_ids : []),
+  ].filter(Boolean)))
 
   const mergedCandidate = {
     ...secondaryCandidate,
     ...primaryCandidate,
+    merged_candidate_ids: mergedCandidateIds,
   }
 
   if (secondaryStageScore > primaryStageScore) {
@@ -971,14 +978,23 @@ export default function Resumes() {
     try {
       setDeletingCandidates(true)
 
+      const deleteTargetIds = Array.from(new Set(
+        candidatesToDelete.flatMap((candidate) => {
+          const mergedIds = Array.isArray(candidate?.merged_candidate_ids) ? candidate.merged_candidate_ids : []
+          if (mergedIds.length > 0) {
+            return mergedIds
+          }
+          return candidate?.id ? [candidate.id] : []
+        }).filter(Boolean)
+      ))
+
       const deleteResults = await Promise.allSettled(
-        candidatesToDelete.map((candidate) => api.deleteCandidate(candidate.id))
+        deleteTargetIds.map((candidateId) => api.deleteCandidate(candidateId))
       )
 
       const failedDeletes = deleteResults.filter((result) => result.status === 'rejected')
-      const deletedIds = candidatesToDelete
+      const deletedIds = deleteTargetIds
         .filter((_, index) => deleteResults[index].status === 'fulfilled')
-        .map((candidate) => candidate.id)
 
       handleCloseDeleteModal()
       if (deletedIds.length > 0) {

@@ -4385,30 +4385,39 @@ def delete_candidate(
         db_candidate = db.query(Candidate).filter(Candidate.id == candidate_id).first()
         if not db_candidate:
             raise HTTPException(status_code=404, detail="Candidate not found")
-        
-        # Store candidate_id for sheets deletion
-        sheets_candidate_id = db_candidate.candidate_id
-        
-        # Delete dependent records first to satisfy foreign key constraints
-        from app.models import EmailCommunication, Interview, NotificationWorkflowToken
-        db.query(Interview).filter(Interview.candidate_id == candidate_id).delete()
-        db.query(EmailCommunication).filter(EmailCommunication.candidate_id == candidate_id).delete()
-        db.query(NotificationWorkflowToken).filter(NotificationWorkflowToken.candidate_id == candidate_id).delete()
-        
-        # Try to delete resume file if exists (skip if fails on Railway)
-        if db_candidate.resume_file_path:
+
+        related_candidate_ids = _build_related_candidate_ids_map(db, [candidate_id]).get(candidate_id, {candidate_id})
+        related_candidates = (
+            db.query(Candidate)
+            .filter(Candidate.id.in_(related_candidate_ids))
+            .all()
+        )
+
+        # Delete dependent records first to satisfy foreign key constraints and
+        # prevent dashboard/interview projections from reviving a linked record.
+        from app.models import BookingLink, EmailCommunication, Interview, NotificationWorkflowToken
+        db.query(Interview).filter(Interview.candidate_id.in_(related_candidate_ids)).delete(synchronize_session=False)
+        db.query(EmailCommunication).filter(EmailCommunication.candidate_id.in_(related_candidate_ids)).delete(synchronize_session=False)
+        db.query(NotificationWorkflowToken).filter(NotificationWorkflowToken.candidate_id.in_(related_candidate_ids)).delete(synchronize_session=False)
+        db.query(BookingLink).filter(BookingLink.candidate_id.in_(related_candidate_ids)).delete(synchronize_session=False)
+
+        # Try to delete resume files if they exist (skip if fails on Railway)
+        for related_candidate in related_candidates:
+            if not related_candidate.resume_file_path:
+                continue
             try:
-                if os.path.exists(db_candidate.resume_file_path):
-                    os.remove(db_candidate.resume_file_path)
+                if os.path.exists(related_candidate.resume_file_path):
+                    os.remove(related_candidate.resume_file_path)
             except Exception as e:
                 print(f"File deletion skipped: {e}")
-        
-        # Delete candidate from database
-        db.delete(db_candidate)
-        db.commit()
-        
 
-        
+        for related_candidate in related_candidates:
+            db.delete(related_candidate)
+        db.commit()
+
+        from app.routes.analytics import clear_analytics_cache
+        clear_analytics_cache()
+
         return {"message": "Candidate deleted successfully"}
     except HTTPException:
         raise
